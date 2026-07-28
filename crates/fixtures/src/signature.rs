@@ -26,13 +26,26 @@ const MDRAID_MAGIC: u32 = 0xa92b_4efc;
 /// The feature flags matter: `libblkid` separates ext2, ext3, and ext4 by them,
 /// so a superblock carrying only the magic is detected as the wrong file system.
 pub fn ext4(image: &mut Image, uuid_seed: &str) {
+    // Block count is derived from the device rather than hard-coded. The first
+    // version of this writer declared 8192 blocks of 1 KiB — 8 MiB — on a 4 MiB
+    // image, having reused a sector count as a block count. A file system that
+    // claims to be twice the size of its device is not a fixture of anything.
+    let device_bytes = image.sectors() * image.sector().bytes();
+    let blocks = u32::try_from(device_bytes / 1024).unwrap_or(u32::MAX);
+
     let mut sb = [0_u8; 264];
-    // s_inodes_count, s_blocks_count_lo: nonzero so a prober reporting size does
-    // not divide by zero.
+    // s_inodes_count, s_blocks_count_lo.
     sb[0..4].copy_from_slice(&1024_u32.to_le_bytes());
-    sb[4..8].copy_from_slice(&8192_u32.to_le_bytes());
+    sb[4..8].copy_from_slice(&blocks.to_le_bytes());
+    // s_first_data_block. Must be 1 at a 1 KiB block size, not 0: the
+    // superblock itself occupies block 0.
+    sb[20..24].copy_from_slice(&1_u32.to_le_bytes());
     // s_log_block_size = 0, meaning 1024-byte blocks.
     sb[24..28].copy_from_slice(&0_u32.to_le_bytes());
+    // s_blocks_per_group and s_inodes_per_group, so the geometry is at least
+    // self-consistent for a reader that looks past the magic.
+    sb[32..36].copy_from_slice(&8192_u32.to_le_bytes());
+    sb[40..44].copy_from_slice(&256_u32.to_le_bytes());
     // s_magic.
     sb[56..58].copy_from_slice(&0xef53_u16.to_le_bytes());
     // s_state: cleanly unmounted.
@@ -49,7 +62,12 @@ pub fn ext4(image: &mut Image, uuid_seed: &str) {
 
 /// Write a LUKS2 header (LIN-003, FS-004, REC-011).
 pub fn luks2(image: &mut Image, uuid_text: &str) {
-    let mut header = [0_u8; 256];
+    // Field offsets follow `luks2_hdr_disk`. The first version of this writer
+    // put `checksum_alg` at 24 and the UUID at 32 — both inside the 48-byte
+    // `label` field — so the fixture had no UUID, no checksum algorithm, and a
+    // spurious label, on a fixture whose purpose is an encryption-layer node
+    // identity.
+    let mut header = [0_u8; 208];
     header[0..6].copy_from_slice(&[0x4c, 0x55, 0x4b, 0x53, 0xba, 0xbe]);
     // Version is big-endian, unlike almost everything else in this module.
     header[6..8].copy_from_slice(&2_u16.to_be_bytes());
@@ -57,11 +75,14 @@ pub fn luks2(image: &mut Image, uuid_text: &str) {
     header[8..16].copy_from_slice(&16384_u64.to_be_bytes());
     // seqid.
     header[16..24].copy_from_slice(&1_u64.to_be_bytes());
-    // checksum_alg, a NUL-padded ASCII field.
-    header[24..32].copy_from_slice(b"sha256\0\0");
-    // uuid, NUL-padded ASCII.
+    // label occupies 24..72 and is deliberately left empty.
+    // checksum_alg, 32 bytes of NUL-padded ASCII at 72.
+    header[72..78].copy_from_slice(b"sha256");
+    // salt occupies 104..168.
+    // uuid, 40 bytes of NUL-padded ASCII at 168.
     let uuid = uuid_text.as_bytes();
-    header[32..32 + uuid.len().min(40)].copy_from_slice(&uuid[..uuid.len().min(40)]);
+    let len = uuid.len().min(40);
+    header[168..168 + len].copy_from_slice(&uuid[..len]);
 
     write_bytes(image, 0, &header);
 }
@@ -175,9 +196,23 @@ pub fn mdraid_12(image: &mut Image, array_uuid_seed: &str) {
 pub fn mdraid_1x_checksum(superblock: &[u8; 256]) -> u32 {
     let mut zeroed = *superblock;
     zeroed[216..220].copy_from_slice(&0_u32.to_le_bytes());
+    fold_words(&zeroed)
+}
 
+/// The 0.90 superblock checksum, with `sb_csum` (word 27) treated as zero.
+///
+/// The same folded word sum as 1.x, over a different field offset and a
+/// different span.
+fn mdraid_folded_checksum(superblock: &[u8; MDRAID_090_BYTES]) -> u32 {
+    let mut zeroed = *superblock;
+    zeroed[108..112].copy_from_slice(&0_u32.to_le_bytes());
+    fold_words(&zeroed)
+}
+
+/// Sum little-endian 32-bit words, then fold the 64-bit total into 32 bits.
+fn fold_words(bytes: &[u8]) -> u32 {
     let mut total = 0_u64;
-    for word in zeroed.chunks_exact(4) {
+    for word in bytes.chunks_exact(4) {
         let value = u32::from_le_bytes([word[0], word[1], word[2], word[3]]);
         total += u64::from(value);
     }
@@ -199,25 +234,38 @@ pub fn mdraid_090_at_end(image: &mut Image, array_uuid_seed: &str) {
     let offset = mdraid_090_offset(image);
     let uuid = *crate::layout::Guid::derived(array_uuid_seed).as_bytes();
 
-    let mut sb = [0_u8; 256];
+    // A full 0.90 superblock, so the checksum covers what it is defined over.
+    let mut sb = [0_u8; MDRAID_090_BYTES];
     sb[0..4].copy_from_slice(&MDRAID_MAGIC.to_le_bytes());
-    sb[4..8].copy_from_slice(&0_u32.to_le_bytes()); // major_version
-    sb[8..12].copy_from_slice(&90_u32.to_le_bytes()); // minor_version
-    sb[12..16].copy_from_slice(&0_u32.to_le_bytes()); // patch_version
-    sb[16..20].copy_from_slice(&0_u32.to_le_bytes()); // gvalid_words
-    // The 0.90 set UUID is split across four non-adjacent words, which is why it
-    // cannot simply be copied in one span like the 1.x one.
-    sb[20..24].copy_from_slice(&uuid[0..4]); // set_uuid0
-    sb[28..32].copy_from_slice(&1_u32.to_le_bytes()); // level: RAID 1
-    sb[32..36].copy_from_slice(&2048_u32.to_le_bytes()); // size, in KiB
-    sb[36..40].copy_from_slice(&2_u32.to_le_bytes()); // nr_disks
-    sb[40..44].copy_from_slice(&2_u32.to_le_bytes()); // raid_disks
-    sb[128..132].copy_from_slice(&uuid[4..8]); // set_uuid1
-    sb[132..136].copy_from_slice(&uuid[8..12]); // set_uuid2
-    sb[136..140].copy_from_slice(&uuid[12..16]); // set_uuid3
+    sb[4..8].copy_from_slice(&0_u32.to_le_bytes()); // major_version, word 1
+    sb[8..12].copy_from_slice(&90_u32.to_le_bytes()); // minor_version, word 2
+    sb[12..16].copy_from_slice(&0_u32.to_le_bytes()); // patch_version, word 3
+    sb[16..20].copy_from_slice(&0_u32.to_le_bytes()); // gvalid_words, word 4
+    sb[28..32].copy_from_slice(&1_u32.to_le_bytes()); // level, word 7
+    sb[32..36].copy_from_slice(&2048_u32.to_le_bytes()); // size in KiB, word 8
+    sb[36..40].copy_from_slice(&2_u32.to_le_bytes()); // nr_disks, word 9
+    sb[40..44].copy_from_slice(&2_u32.to_le_bytes()); // raid_disks, word 10
+
+    // The 0.90 set UUID is split across four *non-adjacent* words: 5, then 13,
+    // 14 and 15. An earlier version of this writer put the last three at bytes
+    // 128, 132 and 136 — words 32, 33 and 34, which are `utime`, `state` and
+    // `active_disks`. The array identity was three-quarters zero and the state
+    // fields held UUID fragments. `blkid` reported the UUID as
+    // `…-0000-0000-0000-000000000000`, which was the visible symptom.
+    sb[20..24].copy_from_slice(&uuid[0..4]); // set_uuid0, word 5
+    sb[52..56].copy_from_slice(&uuid[4..8]); // set_uuid1, word 13
+    sb[56..60].copy_from_slice(&uuid[8..12]); // set_uuid2, word 14
+    sb[60..64].copy_from_slice(&uuid[12..16]); // set_uuid3, word 15
+
+    // sb_csum, word 27, over the whole superblock with the field zeroed.
+    let csum = mdraid_folded_checksum(&sb);
+    sb[108..112].copy_from_slice(&csum.to_le_bytes());
 
     write_bytes(image, offset, &sb);
 }
+
+/// Size of a 0.90 superblock, which its checksum is defined over.
+const MDRAID_090_BYTES: usize = 4096;
 
 /// Byte offset of a 0.90 superblock, by the kernel's own formula.
 ///

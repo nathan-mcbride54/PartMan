@@ -216,3 +216,32 @@ test('Rust cannot represent what TypeScript had to be taught to refuse', () => {
   // always symmetric -- both reject the surrogate encoded on the wire.
   assert.throws(() => decode(fromHex('63eda080')), CanonicalError)
 })
+
+test('an unknown value kind is refused rather than encoding to nothing', () => {
+  // Rust reaches this by exhaustive `match` at compile time. TypeScript cannot,
+  // because a `Value` can be forged at runtime. Without a `default` arm the
+  // switch fell through, `encode` returned zero bytes, and `hash` published
+  // SHA-256 of the empty string as a well-formed digest over an artifact with no
+  // encoding -- section 6.1's failure exactly.
+  const forged = { kind: 'tag', value: 42n } as unknown as Value
+  assert.throws(() => encode(forged), CanonicalError)
+})
+
+test('a value whose payload has the wrong runtime type is refused', () => {
+  // `TextEncoder.encode` coerces a non-string and `Uint8Array.from` truncates a
+  // non-byte-array, so both would encode something rather than fail.
+  const badText = { kind: 'text', value: 42 } as unknown as Value
+  const badBytes = { kind: 'bytes', value: [300, -1] } as unknown as Value
+  assert.throws(() => encode(badText), CanonicalError)
+  assert.throws(() => encode(badBytes), CanonicalError)
+})
+
+test('fromHex refuses input that is not hexadecimal', () => {
+  // `Number.parseInt` yields NaN for a non-hex pair, which stores as 0, so two
+  // distinct textual digests would decode to identical bytes.
+  assert.throws(() => fromHex('zz'), CanonicalError)
+  assert.throws(() => fromHex('00zz'), CanonicalError)
+  assert.throws(() => fromHex('0 '), CanonicalError)
+  // And still accepts real hex, in either case.
+  assert.equal(toHex(fromHex('00FF0a')), '00ff0a')
+})
