@@ -217,8 +217,27 @@ Required before WP-010 is accepted:
   discovered later.
 - A `cargo-fuzz` target per Section 11.4 for the decoder, with round-trip and
   canonical-rejection invariants.
-- Confirmation that the Rust codec and any dependency it retains contain no
-  `unsafe`, per SAFE-009.
+- Confirmation that the Rust codec contains no `unsafe`, per SAFE-009.
+
+  **Corrected after audit.** As first written this line required that "any
+  dependency it retains" also contain no `unsafe`. That overreached: SAFE-009
+  constrains "the domain, planner, validator, journal, and rpc crates" and
+  parsers of on-disk metadata, not the dependency graph. The stricter reading is
+  also unachievable — every mainstream Rust SHA-256 implementation carries
+  `unsafe` for CPU feature detection and SIMD.
+
+  The audit, on `sha2` 0.10.9: `generic-array` 78 occurrences, `sha2` 29,
+  `cpufeatures` 9, `block-buffer` 4; `digest`, `crypto-common`, and `typenum`
+  each declare `forbid(unsafe_code)`; `cfg-if` has none. `sha2`'s `force-soft`
+  feature does not remove them, because `cpufeatures` is a non-optional
+  target-gated dependency on x86 and aarch64.
+
+  SAFE-009 is satisfied as written: `partman-domain` denies `unsafe` through
+  `[workspace.lints]`, and the decoder — the only parser of externally supplied
+  bytes here — contains none. The residual consideration is recorded rather than
+  hidden: the hash on the authorization path depends on audited third-party
+  `unsafe`. Removing it would mean a first-party SHA-256, which trades reviewed
+  upstream code for unreviewed local code and is not obviously safer.
 - Test tier: T1, unprivileged. No fixture media and no block-device access.
 
 ## Revisit conditions
