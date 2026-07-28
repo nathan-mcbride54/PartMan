@@ -41,8 +41,21 @@ impl Manifest {
     /// Build a manifest from generated images.
     ///
     /// The token is derived from the entries, so it is stable for a given
-    /// fixture set and cannot be known without having generated that set. It is
-    /// one of SAFE-007's three factors, never the only one.
+    /// fixture set and changes the moment that set does.
+    ///
+    /// **It is not a secret, and must not be described as one.** Since
+    /// expectations moved to the compiled catalogue, the token is a pure
+    /// function of source: it is identical on every machine building this
+    /// commit, needs no I/O to compute, and `cargo xtask fixtures` prints it to
+    /// stdout, where CI captures it into a log. Anyone who can read the
+    /// repository can derive it.
+    ///
+    /// What it proves is narrower: that the operator ran the generator and
+    /// deliberately passed back what it recorded. That is a real but weak
+    /// factor, and SAFE-007's strength here rests on the target verification —
+    /// which is computed from bytes and cannot be asserted — not on this. If a
+    /// factor with independent strength is wanted, it has to be a per-generation
+    /// value that is not derivable from source.
     ///
     /// # Panics
     ///

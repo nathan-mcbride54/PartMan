@@ -270,6 +270,17 @@ fn verify_target(root: &Path, manifest: &Manifest, target: &Path) -> Result<Path
             path: target.to_path_buf(),
         })?;
 
+    // The path must be *exactly* the one this fixture is generated at, not
+    // merely somewhere beneath the root with the right file name. `starts_with`
+    // plus `file_name` admits `<root>/sub/blank-512.img` — an ordinary copy in a
+    // subdirectory, with a matching name, length, and digest. That combination
+    // was verified to authorize before this equality replaced it.
+    if resolved != root.join(name) {
+        return Err(Refusal::TargetOutsideRoot {
+            path: target.to_path_buf(),
+        });
+    }
+
     if metadata.len() != entry.length {
         return Err(Refusal::TargetNotGenerated {
             path: target.to_path_buf(),

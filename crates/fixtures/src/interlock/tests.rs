@@ -450,3 +450,27 @@ fn a_hard_link_into_the_fixture_root_is_refused() {
 }
 
 use sha2::Digest as _;
+
+#[test]
+fn a_fixture_copy_in_a_subdirectory_is_refused() {
+    // The hole the first attempt at this fix left open, and which its own new
+    // tests did not catch. Containment was `starts_with(root)` and the name came
+    // from `file_name()`, so a byte-identical copy at `<root>/sub/blank-512.img`
+    // satisfied the root check, the name lookup, the length check and the digest
+    // check at once. It authorized. The path must be exactly where that fixture
+    // is generated, not merely underneath the root.
+    let sandbox = Sandbox::new("subdirectory");
+    let sub = sandbox.root.join("sub");
+    fs::create_dir_all(&sub).expect("creating the subdirectory must succeed");
+    let bytes = fs::read(sandbox.target("blank-512.img")).expect("fixture must be readable");
+    let copy = sub.join("blank-512.img");
+    fs::write(&copy, &bytes).expect("writing the copy must succeed");
+
+    let refusal = sandbox
+        .authorize(&sandbox.request(vec![copy]))
+        .expect_err("a copy in a subdirectory must be refused");
+    assert!(
+        matches!(refusal, Refusal::TargetOutsideRoot { .. }),
+        "{refusal}"
+    );
+}
