@@ -47,8 +47,9 @@ what the hash authenticates — answered by ADR-C2 in spec 3.0.0. SI-01, SI-02, 
 SI-04 are answered by ADR-C3 and ADR-C4 in spec 3.1.0. SI-07 through SI-10 are
 answered by ADR-C5 in spec 4.0.0, which also corrects SI-32.
 
-Still blocking increment 3: **SI-11**, **SI-27**, **SI-28**, **SI-31**, and
-**SI-33**. SI-12 blocks SI-27 and therefore blocks the increment too; SI-29 and
+Still blocking increment 3: **SI-11**, **SI-27**, **SI-28**, **SI-31**,
+**SI-33**, and **SI-34**, which reopens whether the protection verdict belongs
+in the hashed body at all. SI-12 blocks SI-27 and therefore blocks the increment too; SI-29 and
 SI-30 are inputs to SI-11. Round one is recorded in Part 4, round two in Part 5,
 round three in Part 6, and SI-28's fourth round in Part 7.
 
@@ -66,9 +67,27 @@ issued against it. **SI-28 stays open**, because the floor does not discriminate
 two media and Part 7's warning against false closure applies to it as much as to
 any other proposal.
 
-The approach is settled — protection is proven by computation and the verdict is
-frozen into the hashed body — and round two established that the platform
-asymmetry which threatened it does not bite. What remains is mechanism.
+**Half the approach is settled; the other half is reopened.** Protection is
+proven by computation and never accepted as a client declaration — that has
+survived every round and is not in question.
+
+Whether the derived verdict is **frozen into the hashed body** is open again.
+Round two justified it by concluding that every client/helper asymmetry is a
+roster-identity fact, so the two sides would always compute the same graph. **A
+fixture measured in WP-020 falsifies that premise:** on a device carrying a live
+ext4 superblock and a stale mdraid 0.90 superblock, an unprivileged client reads
+one signature from udev's cache while a privileged helper's direct probe sees
+both. Signature presence feeds a verdict, and that difference is not roster
+identity.
+
+Be precise about what the fixture does and does not prove. It falsifies the
+*universal symmetry premise* that justified freezing. It does **not** prove that
+the two sides reach different *verdicts* — that remains untested, and
+`docs/quality/observability.md` states the distinction. Neither "S1 is disproved"
+nor "the fixture changes the verdict" is a correct reading.
+
+What remains is therefore mechanism **and** one reopened decision, filed as
+SI-34.
 
 **Read SI-28 first.** It is the only defect found so far that destroys data
 without requiring a bug in anything being designed, and it lands on an
@@ -469,6 +488,73 @@ Recorded rather than fixed in place because it is normative text: the fix is one
 line and belongs in the next spec change, whose version bump is already open (see
 ADR-C5). Round four found that ACC-014 and ACC-007 need amendment in the same
 pass, so fold all three into one spec change rather than three.
+
+## SI-34 Should the derived protection verdict be frozen into the hashed body?
+
+**Requirements:** MODEL-005, PLAN-006, HLP-002, CAP-007, SAFE-005, Section 0.2 · **Blocks 3, hash-visible**
+
+Filed after a project review, and after the measurement that reopened it. This
+issue exists because the answer was previously treated as settled and the
+justification for it has since been falsified.
+
+**What is not in question.** Protection is derived from discovered evidence and
+the graph, and the helper recomputes it independently. A client cannot declare an
+object safe. HLP-002 and CAP-007 already require this and no round has disputed
+it.
+
+**What is.** Round two justified freezing the helper's exact derived verdict into
+the hashed body by concluding that every client/helper asymmetry is a
+roster-identity fact. WP-020's stale-signature fixture shows that is false: the
+client's udev-cached view and the helper's direct probe disagree about which
+signatures a device carries, and signature presence feeds a verdict. If the
+verdict is body content and the two graphs differ, body hashes differ on
+unchanged hardware — the PLAN-006 unsatisfiability ADR-C2 exists to prevent.
+
+**Options:**
+
+(a) **Keep freezing.** Then the projection must be clamped so both sides compute
+identical node sets, which means the helper derives a safety verdict from a
+deliberately impoverished view while its own probe sees more. A verdict that
+ignores evidence it holds.
+
+(b) **Drop it.** The helper computes protection from the best evidence available
+and it is not body content. Divergence resolves silently in the helper's favour,
+and the user may have authorized a plan computed under a different view than the
+one executed.
+
+(c) **Freeze a projection and a floor.** Authenticate a normative
+cross-privilege *freshness projection* — only facts both sides are proven able to
+reproduce — plus a coarse monotone safety floor ordered
+`permitted < indeterminate < refused`. The helper recomputes the exact verdict
+from all live evidence and may only keep or tighten the floor, never loosen it.
+Any tightening that changes permission, affected objects, risk, or consequence
+text rejects before the first write and requires a new reviewed plan; extra
+evidence that changes none of those is journaled and execution continues.
+
+**Option (c) is the recommendation of the project review** and is the only one
+that keeps the useful half of freezing — a client cannot weaken the safety
+decision — without either blinding the helper or tolerating silent divergence in
+what was authorized.
+
+**Do not record (c) as decided.** It has had no adversarial round, and the two
+things it depends on are unresolved: which facts belong in the freshness
+projection is exactly the unfinished observability work, and the monotonicity
+claim needs a proof that extra evidence can never make a verdict *less*
+restrictive.
+
+**It does not dissolve SI-27.** ADR-C5 puts technology, membership, and signature
+facts in the body independently of any verdict, so those edges still need stable
+document-local node identifiers. Moving the verdict out reduces SI-27's
+protection-specific burden and no more. An earlier claim in this project that
+SI-27 "largely dissolves" under (c) was too strong.
+
+**Evidence required before any option is accepted:** the stale-signature fixture
+must show the freshness projection comparing equal across both views while the
+helper retains both signatures; a helper-only fact that changes protection must
+reject before the first write with a structured divergence; a helper-only fact
+that changes nothing must proceed and be journaled; a client claiming
+`permitted` must lose to the helper's `refused`; and Windows, real partitioned
+Linux hardware, and macOS observability must all be established first.
 
 ## SI-33 A continuity witness for media that cannot be told apart
 
