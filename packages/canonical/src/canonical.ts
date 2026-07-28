@@ -87,7 +87,7 @@ function utf8(value: string): Uint8Array {
  * emits bytes every conforming decoder must reject, so a producer would publish
  * a hash over an artifact nobody can revalidate.
  */
-export function encode(value: Value): Uint8Array {
+export function encode(value: Value): Uint8Array<ArrayBuffer> {
   const out: number[] = []
   writeValue(out, value, 0)
   return Uint8Array.from(out)
@@ -386,8 +386,17 @@ export async function hash(value: Value): Promise<Uint8Array> {
   return hashCanonicalBytes(encode(value))
 }
 
-/** Hash bytes already known to be canonical. */
-export async function hashCanonicalBytes(input: Uint8Array): Promise<Uint8Array> {
+/**
+ * Hash bytes already known to be canonical.
+ *
+ * The parameter is `Uint8Array<ArrayBuffer>`, not a bare `Uint8Array`. Since
+ * TypeScript 5.7 the array is generic over its backing buffer, and Web Crypto's
+ * `BufferSource` excludes `SharedArrayBuffer`-backed views — a shared buffer can
+ * be mutated by another thread while the digest is being computed, so hashing
+ * one has no well-defined result. Stating the requirement in the signature makes
+ * that a caller's compile error rather than this function's silent assumption.
+ */
+export async function hashCanonicalBytes(input: Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
   const digest = await crypto.subtle.digest('SHA-256', input)
   return new Uint8Array(digest)
 }
