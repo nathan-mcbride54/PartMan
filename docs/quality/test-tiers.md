@@ -1,7 +1,7 @@
 # Test tiers
 
 The test-tier definitions come from Section 11.3 of
-`AGENT_BUILD_SPEC.md` 3.1.0.
+`AGENT_BUILD_SPEC.md` 4.0.0.
 
 ## Tier 1
 
@@ -11,9 +11,14 @@ Tier 1 is unprivileged and safe on every developer host. It currently contains:
   SEC-010 action-pin check (WP-000).
 - Canonical encoding tests: golden vectors, strict-decode rejection cases, and
   the shared cross-language fixture (WP-010).
+- Fixture and interlock tests: deterministic image synthesis, partition-table
+  state classification, signature layout, and the SAFE-007 refusal cases
+  (WP-020).
 
-The only filesystem access is reading `.github/workflows/` for the action-pin
-check and `schemas/canonical-encoding-vectors.json` for the shared vectors.
+Filesystem access is limited to reading `.github/workflows/` for the action-pin
+check, `schemas/canonical-encoding-vectors.json` for the shared vectors, and
+temporary directories the fixture tests create and remove themselves. No test
+opens a block device at any tier.
 Later packages may add pure planner, validator, and regular-file fixture tests.
 
 Run it with:
