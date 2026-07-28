@@ -35,6 +35,9 @@ cheap exit.
 
 # Part 1 — Blocking WP-010 increment 3
 
+**Three resolved.** SI-03, SI-05, and SI-06 were one question — what the hash
+authenticates — and are answered by ADR-C2 and spec 3.0.0. Eight remain.
+
 ## SI-01 Identity strength is not computable at discovery time
 
 **Requirements:** SAFE-003, INV-002, Section 6 · **Blocks 3, hash-visible**
@@ -72,6 +75,8 @@ This decides whether `PartitionTable.checksum == None` is identity-degrading.
 
 ## SI-03 Is provenance inside the hashed identity bytes?
 
+> **Resolved in spec 3.0.0 by ADR-C2** (`docs/adr/0002-hashed-artifact-body-and-envelope.md`).
+
 **Requirements:** MODEL-004, MODEL-005, SAFE-003, HLP-003 · **Blocks 3, hash-visible**
 
 MODEL-004 requires *every* discovered property to record source adapter and
@@ -105,6 +110,8 @@ outside the hash.
 
 ## SI-05 A plan cannot contain its own hash
 
+> **Resolved in spec 3.0.0 by ADR-C2** (`docs/adr/0002-hashed-artifact-body-and-envelope.md`).
+
 **Requirements:** Section 6, MODEL-005, ADR-C1, HLP-001, SEC-001 · **Blocks 3, hash-visible**
 
 Section 6 requires `OperationPlan` to contain the "Cryptographic plan hash",
@@ -117,6 +124,8 @@ body versus the envelope is undecided and load-bearing**, because HLP-001
 applies by plan hash and SEC-001 authorizes only exact hashes.
 
 ## SI-06 What is inside a TopologySnapshot's hash?
+
+> **Resolved in spec 3.0.0 by ADR-C2** (`docs/adr/0002-hashed-artifact-body-and-envelope.md`).
 
 **Requirements:** MODEL-005, PLAN-006, HLP-004, CONC-004, MODEL-004 · **Blocks 3, hash-visible**
 

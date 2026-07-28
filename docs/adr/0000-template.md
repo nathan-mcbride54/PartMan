@@ -2,7 +2,7 @@
 
 - Status: Proposed
 - Date: YYYY-MM-DD
-- Spec version: 2.0.0
+- Spec version: 3.0.0
 - Work packages blocked:
 - Requirement IDs:
 - Decision owners:
