@@ -79,14 +79,22 @@ function utf8(value: string): Uint8Array {
   return encoder.encode(value)
 }
 
-/** Encode a value into its one canonical byte string. */
+/**
+ * Encode a value into its one canonical byte string.
+ *
+ * Throws if a value nests deeper than {@link MAX_DEPTH}. That limit is
+ * deliberately the same one {@link decode} enforces: an encoder without it
+ * emits bytes every conforming decoder must reject, so a producer would publish
+ * a hash over an artifact nobody can revalidate.
+ */
 export function encode(value: Value): Uint8Array {
   const out: number[] = []
-  writeValue(out, value)
+  writeValue(out, value, 0)
   return Uint8Array.from(out)
 }
 
-function writeValue(out: number[], value: Value): void {
+function writeValue(out: number[], value: Value, depth: number): void {
+  if (depth > MAX_DEPTH) throw new CanonicalError(`nesting deeper than ${MAX_DEPTH}`)
   switch (value.kind) {
     case 'uint': {
       requireRange(value.value, 0n, U64_MAX, 'uint')
@@ -111,7 +119,7 @@ function writeValue(out: number[], value: Value): void {
     }
     case 'array': {
       writeHead(out, 4, BigInt(value.value.length))
-      for (const item of value.value) writeValue(out, item)
+      for (const item of value.value) writeValue(out, item, depth + 1)
       return
     }
     case 'map': {
@@ -123,7 +131,7 @@ function writeValue(out: number[], value: Value): void {
         const raw = utf8(key)
         writeHead(out, 3, BigInt(raw.length))
         for (const byte of raw) out.push(byte)
-        writeValue(out, value.value.get(key) as Value)
+        writeValue(out, value.value.get(key) as Value, depth + 1)
       }
       return
     }

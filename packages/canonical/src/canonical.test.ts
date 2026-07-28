@@ -126,6 +126,25 @@ test('nesting beyond the depth limit is rejected, not a stack overflow', () => {
   assert.doesNotThrow(() => decode(shallow))
 })
 
+test('the encoder enforces the same depth limit as the decoder', () => {
+  // Before this was enforced, encode() emitted bytes decode() rejected, so a
+  // producer could publish a hash over an artifact nobody could revalidate.
+  let deep: Value = uint(0n)
+  for (let i = 0; i <= MAX_DEPTH; i++) deep = array([deep])
+  assert.throws(() => encode(deep), CanonicalError)
+
+  let permitted: Value = uint(0n)
+  for (let i = 0; i < MAX_DEPTH - 1; i++) permitted = array([permitted])
+  const bytes = encode(permitted)
+  assert.doesNotThrow(() => decode(bytes))
+})
+
+test('anything the encoder emits, the decoder accepts', () => {
+  for (const vector of vectors) {
+    assert.doesNotThrow(() => decode(encode(vector.value)), vector.name)
+  }
+})
+
 test('a number instead of a bigint is refused rather than silently encoded', () => {
   // The hazard ADR-C1 recorded. `cborg` turns Number(2**53) into the float
   // fa5a000000; this codec refuses to accept a non-bigint at all, and the

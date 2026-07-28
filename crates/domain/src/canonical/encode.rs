@@ -1,21 +1,30 @@
 //! Canonical encoder for the `pce/1` profile.
 
-use super::{Error, Value, compare_keys};
+use super::{Error, MAX_DEPTH, Value, compare_keys};
 
 /// Encode a value into its one canonical byte string.
 ///
 /// # Errors
 ///
 /// Returns [`Error::NegativeOutOfRange`] if a [`Value::Negative`] holds a
-/// non-negative number. Every other value in the model is encodable, because
-/// the model cannot represent anything this profile excludes.
+/// non-negative number, and [`Error::DepthLimitExceeded`] if the value nests
+/// deeper than [`MAX_DEPTH`].
+///
+/// The depth limit is deliberately the same one [`super::decode`] enforces. An
+/// encoder without it is not merely lax: it emits bytes that every conforming
+/// decoder must reject, so a producer would compute and publish a hash over an
+/// artifact nobody can revalidate. It would also recurse without bound on a
+/// deep value, turning a rejectable input into a stack overflow.
 pub fn encode(value: &Value) -> Result<Vec<u8>, Error> {
     let mut out = Vec::new();
-    write_value(&mut out, value)?;
+    write_value(&mut out, value, 0)?;
     Ok(out)
 }
 
-fn write_value(out: &mut Vec<u8>, value: &Value) -> Result<(), Error> {
+fn write_value(out: &mut Vec<u8>, value: &Value, depth: usize) -> Result<(), Error> {
+    if depth > MAX_DEPTH {
+        return Err(Error::DepthLimitExceeded);
+    }
     match value {
         Value::Unsigned(number) => write_head(out, 0, *number),
         Value::Negative(number) => {
@@ -37,7 +46,7 @@ fn write_value(out: &mut Vec<u8>, value: &Value) -> Result<(), Error> {
         Value::Array(items) => {
             write_head(out, 4, length_argument(items.len()));
             for item in items {
-                write_value(out, item)?;
+                write_value(out, item, depth + 1)?;
             }
         }
         Value::Map(entries) => {
@@ -49,7 +58,7 @@ fn write_value(out: &mut Vec<u8>, value: &Value) -> Result<(), Error> {
             for key in keys {
                 write_head(out, 3, length_argument(key.len()));
                 out.extend_from_slice(key.as_bytes());
-                write_value(out, &entries[key])?;
+                write_value(out, &entries[key], depth + 1)?;
             }
         }
         Value::Bool(true) => out.push(0xf5),
