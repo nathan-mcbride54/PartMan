@@ -33,6 +33,14 @@ private = { ignore = true }
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+
+# A path dependency between two crates in this workspace carries no version
+# requirement, which the wildcard check reports as `*`. That check exists to stop
+# a registry dependency floating to whatever was published most recently; a path
+# dependency resolves to a sibling directory in this repository and cannot float
+# at all. Narrowing the exemption to path dependencies keeps a genuine
+# `foo = "*"` from crates.io denied.
+allow-wildcard-paths = true
 highlight = "all"
 deny = []
 skip = []
