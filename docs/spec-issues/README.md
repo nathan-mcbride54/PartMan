@@ -1104,21 +1104,36 @@ unverified platform claim, and round three did it again — its own known-weakne
 list recorded the designator table as untested and the design built on it anyway.
 
 1. **A per-platform observability record, established empirically and
-   non-elevated, before any ADR freezes bytes**, covering raw sector 0/1 reads,
-   GPT header CRC, mdraid superblock, LUKS2 header, ZFS label, LVM2 PV label and
-   metadata area, APFS container superblock, and Storage Spaces metadata.
-   `/dev/sda` is `brw-rw---- root:disk` on stock Debian, Ubuntu, and Fedora, and
-   round three asserted an unprivileged projection it never established. **The
+   non-elevated, before any ADR freezes bytes.** Started in
+   `docs/quality/observability.md`; **Windows is established, macOS and Linux
+   are not.** (Round three proposed `docs/capabilities/`; it lives under
+   `docs/quality/` instead, because `docs/capabilities/` is where DOC-003's
+   generated matrix belongs and Section 11.7 forbids hand-editing that.)
+
+   The Windows measurement already settles one thing and forces an amendment. A
+   non-elevated client **cannot** read raw partition-table sectors
+   (`ERROR_ACCESS_DENIED` on a read-only physical-drive handle) but **can** read
+   the table's entire logical content — disk GUID, partition style, and every
+   partition's offset, size, type, and GUID — plus serial, unique id, both sector
+   sizes, bus type, and Storage Spaces pool membership.
+
+   So **ADR-C3 needs an amendment stating what `Present { checksum }` is computed
+   over.** Over raw sectors, every unprivileged Windows record is
+   `Indeterminate` and therefore Weak, which makes UI-009 typed confirmation
+   universal and unattended apply refused everywhere — and the helper *can* read
+   the sectors, so the two sides disagree on a body field for unchanged hardware,
+   which is the PLAN-006 failure ADR-C2 exists to prevent. ADR-C3 says "a table
+   was read and hashed" without fixing *what* was read, and a checksum over the
+   kernel-exposed table content still serves SAFE-003's replug clause, whose
+   purpose is detecting a table rewrite. The choice is hash-visible.
+
+   Still needed: mdraid superblock, LUKS2 header, ZFS label, LVM2 PV label and
+   metadata area, and APFS container superblock, on macOS and Linux. **The
    projection is a clamping obligation on the client, not only a discard
-   obligation on the helper** — otherwise a user in the `disk` group and a user
-   outside it produce different bodies on one host with one build. The apparent
-   dilemma is not forced: ADR-C3 says "a table was read and hashed" without fixing
-   *what* was read, and a checksum over the world-readable kernel-exposed
-   partition list serves SAFE-003's replug clause, whose purpose is detecting a
-   table rewrite. **ADR-C3 needs an amendment stating what `Present { checksum }`
-   is computed over**, because the two readings are not equal and the choice is
-   hash-visible. Round four must not begin believing Linux identity is
-   universally Weak.
+   obligation on the helper** — `/dev/sda` is `brw-rw---- root:disk` on stock
+   Debian, Ubuntu, and Fedora, so otherwise a user in the `disk` group and a user
+   outside it produce different bodies on one host with one build. Round four
+   must not begin believing Linux identity is universally Weak.
 2. **A per-technology native designator table**, established before naming is
    frozen: LVM2 VG id from the PV metadata area, mdraid array UUID, APFS container
    UUID, ZFS pool GUID, LUKS UUID, Storage Spaces pool object id, LDM group GUID.
