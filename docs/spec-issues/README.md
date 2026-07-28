@@ -1118,10 +1118,14 @@ list recorded the designator table as untested and the design built on it anyway
    partition's offset, size, type and GUID; on Linux `/proc/partitions`, sysfs
    geometry, and the world-readable udev database carrying serial, WWN, bus and
    path. **Part 5's conclusion needs re-checking against one case it did not
-   test:** the client's view of on-disk *signatures* is a cached udev value, while
-   the helper probes directly, so signature multiplicity — stale mdraid or ZFS
-   labels, a reformatted partition carrying two — may be asymmetric. That is not
-   roster identity, and it does feed a verdict.
+   test:** the client's view of on-disk *signatures* is a cached udev value that
+   is single-valued by construction, while the enumerating interface (`wipefs -n`)
+   is one the client cannot reach. That arity difference is not roster identity
+   and signature presence does feed a verdict. Whether it ever yields two
+   different bodies for one unchanged device is unestablished — two attempts to
+   build a multi-signature medium failed, and one of them showed that a partition
+   reformatted by a current tool does *not* retain its old file-system signature,
+   which narrows round three's collision-family list to end-of-device metadata.
 
    The Windows measurement already settles one thing and forces an amendment. A
    non-elevated client **cannot** read raw partition-table sectors

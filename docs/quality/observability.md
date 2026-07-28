@@ -135,25 +135,41 @@ helper, by contrast, can probe the device directly.
 
 That matters because FS-004 signature detection is what materializes
 `BackingSignature` nodes in the proposed model, and those nodes feed the
-protection verdict, which is **body** content. Two ways the two views can differ
-on unchanged hardware:
+protection verdict, which is **body** content.
 
-- **Multiplicity.** A direct probe can enumerate every signature present,
-  including stale ones — the mdraid 1.2-alongside-0.90 case, ZFS tail labels, and
-  a reformatted partition carrying two file-system signatures, all already filed
-  by round three as a collision family. udev records a single primary type, and
-  is understood to set `ID_FS_AMBIVALENT` instead of `ID_FS_TYPE` when its probe
-  finds conflicting signatures. If so, the client sees "ambiguous" where the
-  helper sees "these two signatures at these two offsets".
-- **Population.** Anything udev did not process, or processed before a rule was
-  installed, is absent from the client's view and present in the helper's.
+**Established: the two interfaces have different arities.** On synthetic image
+files (SAFE-001 permits these), `blkid -p -o udev` — the form udev's builtin
+uses — returns exactly one `ID_FS_TYPE`, while `wipefs -n` prints a table of
+signatures with an offset per row. So the udev-cached view a client reads is
+single-valued *by construction*, and the enumerating interface is one the client
+cannot reach, because probing is denied.
 
-**This is a dimension round two did not test.** Part 5 concluded that every fact
+**Not established: whether a real device ever carries two signatures at once.**
+Two attempts to construct one both failed, each for an instructive reason:
+
+1. Writing a bare `LABELONE` magic at offset 512 produced nothing. libblkid
+   validates an LVM2 label beyond its magic string, so this tested the forgery,
+   not the prober.
+2. `mkfs.ext4` followed by `mkswap -f` left **only** the swap signature —
+   `wipefs -n` showed one row at `0xff6` and the ext4 superblock at `0x438` was
+   gone. Current util-linux and e2fsprogs tools erase competing signatures when
+   they format.
+
+That second result cuts against part of round three's collision-family list: a
+partition reformatted by a current tool does **not** keep its old file-system
+signature. The cases that plausibly survive are all *end-of-device* metadata,
+which start-of-device formatting never reaches — ZFS labels written at both ends
+where repurposing clears only the leading pair (round two's own observation),
+mdraid 0.90 and 1.0 superblocks near the end, and a GPT backup header after an
+image restore onto a larger disk. None of those was tested here.
+
+**A qualification round two did not test.** Part 5 concluded that every fact
 asymmetric between client and helper is a *roster-identity* fact, and that no
-protection verdict needs roster identity. Signature multiplicity is not roster
-identity, and it does feed a verdict. That conclusion needs re-checking against
-this, not discarding — the access asymmetry established here is real, but whether
-it changes any verdict has not been established either way.
+protection verdict needs roster identity. The arity difference above is not
+roster identity, and signature presence does feed a verdict. Whether that
+difference ever produces two different bodies for one unchanged device is exactly
+what remains unestablished, so Part 5's conclusion needs re-checking against it
+rather than either discarding or assuming.
 
 ### Scope limits — what this run does NOT establish
 
@@ -166,8 +182,9 @@ it changes any verdict has not been established either way.
   row that decides the ADR-C3 checksum amendment on this platform.
 - **No removable medium and no card reader**, so SI-28 is untouched here, and
   `mmcblk*/device/cid` was not observable.
-- `ID_FS_AMBIVALENT` was not observed directly; no multi-signature device was
-  present. It is named above as the mechanism to verify, not as a measured fact.
+- `ID_FS_AMBIVALENT` was never observed, because no multi-signature medium could
+  be constructed with current tools; see the two failed attempts above. What udev
+  records for a genuinely ambivalent device is still unmeasured.
 - One distribution, one kernel, one user. Debian's default group set is the
   claim being generalized; Ubuntu, Fedora, and Arch were not measured.
 
