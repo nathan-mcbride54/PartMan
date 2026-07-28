@@ -7,6 +7,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
+use partman_fixtures::{catalogue, interlock};
+
 const PINNED_RUST_VERSION: &str = "1.96.0";
 const WORKFLOW_DIRECTORY: &str = ".github/workflows";
 
@@ -43,12 +45,13 @@ fn main() -> ExitCode {
 enum Task {
     Ci,
     CrossLanguage,
+    Fixtures,
     Fuzz { seconds: u32 },
     Fmt,
     FmtCheck,
     Help,
     SupplyChain,
-    Test { tier: u8 },
+    Test { tier: u8, profile: Option<String> },
     VerifyActions,
     VerifyToolchain,
 }
@@ -67,6 +70,7 @@ fn parse(args: &[OsString]) -> Result<Task, TaskError> {
     match command {
         "ci" => nullary(Task::Ci, command, rest),
         "cross-language" => nullary(Task::CrossLanguage, command, rest),
+        "fixtures" => nullary(Task::Fixtures, command, rest),
         "fuzz" => parse_fuzz(rest),
         "fmt" => nullary(Task::Fmt, command, rest),
         "fmt-check" => nullary(Task::FmtCheck, command, rest),
@@ -74,7 +78,7 @@ fn parse(args: &[OsString]) -> Result<Task, TaskError> {
         "supply-chain" => nullary(Task::SupplyChain, command, rest),
         "verify-actions" => nullary(Task::VerifyActions, command, rest),
         "verify-toolchain" => nullary(Task::VerifyToolchain, command, rest),
-        "test" => parse_tier(rest).map(|tier| Task::Test { tier }),
+        "test" => parse_test(rest),
         other => Err(TaskError::Usage(format!(
             "unknown task {other:?}; run `cargo xtask help`"
         ))),
@@ -97,7 +101,7 @@ fn execute(task: &Task) -> Result<(), TaskError> {
                 "-D",
                 "warnings",
             ])?;
-            run_tier(1)
+            run_tier(1, None)
         }
         Task::CrossLanguage => cross_language(),
         Task::Fuzz { seconds } => fuzz(seconds),
@@ -111,7 +115,8 @@ fn execute(task: &Task) -> Result<(), TaskError> {
             cargo(&["deny", "check", "advisories", "bans", "licenses", "sources"])?;
             cargo(&["audit", "--deny", "warnings"])
         }
-        Task::Test { tier } => run_tier(tier),
+        Task::Test { tier, ref profile } => run_tier(tier, profile.as_deref()),
+        Task::Fixtures => generate_fixtures(),
         Task::VerifyActions => verify_action_pins(&repository_root()),
         Task::VerifyToolchain => verify_toolchain(),
     }
@@ -145,10 +150,37 @@ fn parse_fuzz(args: &[OsString]) -> Result<Task, TaskError> {
     }
 }
 
-fn parse_tier(args: &[OsString]) -> Result<u8, TaskError> {
-    if args.len() != 2 || args[0] != OsStr::new("--tier") {
+/// Parse `test --tier <n> [--profile <word>]`.
+///
+/// The profile is an argument rather than an environment variable on purpose.
+/// SAFE-007 rules out proving destructive intent with a single variable, and an
+/// argument cannot be inherited by accident from a parent shell.
+fn parse_test(args: &[OsString]) -> Result<Task, TaskError> {
+    let (tier_args, profile) = match args {
+        [tier_flag, tier_value] => ([tier_flag, tier_value], None),
+        [tier_flag, tier_value, profile_flag, profile_value]
+            if profile_flag == OsStr::new("--profile") =>
+        {
+            let profile = profile_value
+                .to_str()
+                .ok_or_else(|| TaskError::Usage("--profile takes an ASCII word".to_owned()))?;
+            ([tier_flag, tier_value], Some(profile.to_owned()))
+        }
+        _ => {
+            return Err(TaskError::Usage(
+                "expected `cargo xtask test --tier <1|2|3> [--profile <word>]`".to_owned(),
+            ));
+        }
+    };
+
+    let tier = parse_tier_args(tier_args)?;
+    Ok(Task::Test { tier, profile })
+}
+
+fn parse_tier_args(args: [&OsString; 2]) -> Result<u8, TaskError> {
+    if args[0] != OsStr::new("--tier") {
         return Err(TaskError::Usage(
-            "expected `cargo xtask test --tier <1|2|3>`".to_owned(),
+            "expected `cargo xtask test --tier <1|2|3> [--profile <word>]`".to_owned(),
         ));
     }
 
@@ -159,15 +191,81 @@ fn parse_tier(args: &[OsString]) -> Result<u8, TaskError> {
         .ok_or_else(|| TaskError::Usage("test tier must be 1, 2, or 3".to_owned()))
 }
 
-fn run_tier(tier: u8) -> Result<(), TaskError> {
+/// Where generated fixtures live. Ignored by git; never committed (Section 16).
+fn fixture_root() -> PathBuf {
+    repository_root().join("tests").join("generated")
+}
+
+fn generate_fixtures() -> Result<(), TaskError> {
+    let root = fixture_root();
+    let manifest = catalogue::generate(&root).map_err(|error| {
+        TaskError::Usage(format!(
+            "could not generate fixtures in {}: {error}",
+            root.display()
+        ))
+    })?;
+
+    println!(
+        "generated {} fixtures in {}",
+        manifest.names().count(),
+        root.display()
+    );
+    for name in manifest.names() {
+        println!("  {name}");
+    }
+    println!();
+    println!("SAFE-007 disposable-test token:");
+    println!("  {}", manifest.token());
+    println!();
+    println!(
+        "A destructive tier additionally needs `--profile {}` and {}=<the token above>.",
+        interlock::DESTRUCTIVE_PROFILE,
+        interlock::TOKEN_VARIABLE
+    );
+    Ok(())
+}
+
+fn run_tier(tier: u8, profile: Option<&str>) -> Result<(), TaskError> {
     match tier {
         1 => cargo(&["test", "--workspace", "--all-targets", "--locked"]),
-        2 | 3 => Err(TaskError::Safety(format!(
-            "Tier {tier} is unavailable until WP-020 implements and verifies all SAFE-007 \
-             disposable-target interlocks; no destructive test was run"
-        ))),
+        2 | 3 => destructive_tier(tier, profile),
         _ => Err(TaskError::Usage("test tier must be 1, 2, or 3".to_owned())),
     }
+}
+
+/// Evaluate SAFE-007 for a destructive tier, then report honestly.
+///
+/// The interlock runs first so that a misconfigured request gets the specific
+/// refusal it earned. It passing does **not** mean a suite runs: none exists
+/// yet, and reporting success for an empty run would be the fake success path
+/// Section 12 and Section 16 forbid.
+fn destructive_tier(tier: u8, profile: Option<&str>) -> Result<(), TaskError> {
+    let root = fixture_root();
+    let manifest = catalogue::load_manifest(&root).map_err(|error| {
+        TaskError::Safety(format!(
+            "no usable fixture manifest in {}: {error}. Run `cargo xtask fixtures` first; \
+             SAFE-007 has nothing to verify a target against until you do",
+            root.display()
+        ))
+    })?;
+
+    let targets = manifest.names().map(|name| root.join(name)).collect();
+    let request = interlock::Request {
+        profile: profile.map(ToOwned::to_owned),
+        token: env::var(interlock::TOKEN_VARIABLE).ok(),
+        targets,
+    };
+
+    let authorization = interlock::authorize(&root, &manifest, &request).map_err(|refusal| {
+        TaskError::Safety(format!("Tier {tier} refused: {refusal}. Nothing was run"))
+    })?;
+
+    Err(TaskError::Safety(format!(
+        "the SAFE-007 interlock authorized {} disposable target(s), but no Tier-{tier} suite is \
+         registered yet. WP-020 increment 2 supplies the loopback and virtual-machine harness; \
+         until then there is nothing to run and reporting success would be a lie",
+        authorization.targets().len()
+    )))
 }
 
 fn verify_toolchain() -> Result<(), TaskError> {
@@ -456,8 +554,13 @@ PartMan repository tasks
   cargo xtask fuzz [--seconds n] Smoke-fuzz the parsers (needs pinned nightly)
   cargo xtask fmt                Format the Rust workspace
   cargo xtask fmt-check          Verify Rust formatting
+  cargo xtask fixtures           Generate the synthetic disk fixtures (SAFE-001)
   cargo xtask test --tier 1      Run safe, unprivileged tests
-  cargo xtask test --tier 2|3    Fail closed until WP-020 supplies SAFE-007 proof
+  cargo xtask test --tier 2|3 --profile destructive
+                                 Evaluate the SAFE-007 interlock. Also needs
+                                 PARTMAN_DISPOSABLE_TOKEN from `xtask fixtures`.
+                                 No destructive suite exists yet, so this still
+                                 refuses rather than reporting an empty pass.
   cargo xtask supply-chain       Run cargo-deny and cargo-audit
   cargo xtask verify-actions     Verify every GitHub Action is pinned by digest
   cargo xtask verify-toolchain   Verify the pinned Rust compiler
@@ -506,7 +609,7 @@ impl fmt::Display for TaskError {
 #[cfg(test)]
 mod tests {
     use super::{
-        Task, TaskError, action_reference, action_references, is_pinned, parse, parse_tier,
+        Task, TaskError, action_reference, action_references, is_pinned, parse, parse_test,
         repository_root, run_tier, verify_action_pins,
     };
     use std::ffi::OsString;
@@ -518,21 +621,24 @@ mod tests {
     #[test]
     fn tier_parser_accepts_explicit_tier_one() {
         assert_eq!(
-            parse_tier(&args(&["--tier", "1"])).expect("Tier 1 must parse"),
-            1
+            parse_test(&args(&["--tier", "1"])).expect("Tier 1 must parse"),
+            Task::Test {
+                tier: 1,
+                profile: None
+            }
         );
     }
 
     #[test]
     fn tier_parser_rejects_missing_proof_by_omission() {
-        let error = parse_tier(&[]).expect_err("A tier must always be explicit");
+        let error = parse_test(&[]).expect_err("A tier must always be explicit");
         assert!(matches!(error, TaskError::Usage(_)));
     }
 
     #[test]
     fn tier_parser_rejects_out_of_range_and_malformed_tiers() {
         for value in ["0", "4", "255", "one", "1.0", "-1", ""] {
-            let error = parse_tier(&args(&["--tier", value]))
+            let error = parse_test(&args(&["--tier", value]))
                 .expect_err("only tiers 1, 2, and 3 are addressable");
             assert!(matches!(error, TaskError::Usage(_)), "tier {value:?}");
         }
@@ -541,7 +647,7 @@ mod tests {
     #[test]
     fn unavailable_destructive_tiers_fail_closed() {
         for tier in [2, 3] {
-            let error = run_tier(tier).expect_err("Tier must not run before WP-020");
+            let error = run_tier(tier, None).expect_err("a destructive tier must never run here");
             assert!(matches!(error, TaskError::Safety(_)));
         }
     }
@@ -582,9 +688,59 @@ mod tests {
         );
         assert_eq!(
             parse(&args(&["test", "--tier", "3"])).expect("tier 3 parses but must not execute"),
-            Task::Test { tier: 3 }
+            Task::Test {
+                tier: 3,
+                profile: None
+            }
         );
         assert_eq!(parse(&[]).expect("bare invocation"), Task::Help);
+    }
+
+    #[test]
+    fn the_fixture_generator_is_a_documented_task() {
+        assert_eq!(
+            parse(&args(&["fixtures"])).expect("fixtures"),
+            Task::Fixtures
+        );
+    }
+
+    #[test]
+    fn a_destructive_profile_is_an_argument_not_an_environment_variable() {
+        // SAFE-007 says one environment variable is not proof. Parsing the
+        // profile only from the command line is half of why: it cannot be
+        // inherited from a parent shell by accident.
+        assert_eq!(
+            parse(&args(&["test", "--tier", "2", "--profile", "destructive"]))
+                .expect("tier 2 with a profile must parse"),
+            Task::Test {
+                tier: 2,
+                profile: Some("destructive".to_owned())
+            }
+        );
+    }
+
+    #[test]
+    fn a_profile_without_a_tier_is_rejected() {
+        for invocation in [
+            vec!["test", "--profile", "destructive"],
+            vec!["test", "--tier", "2", "--profile"],
+            vec!["test", "--tier", "2", "destructive"],
+            vec!["test", "--tier", "2", "--profile", "destructive", "extra"],
+        ] {
+            let error = parse(&args(&invocation)).expect_err("must not parse");
+            assert!(matches!(error, TaskError::Usage(_)), "{invocation:?}");
+        }
+    }
+
+    #[test]
+    fn a_destructive_tier_refuses_even_with_the_profile_word() {
+        // The profile alone is one factor of three, and no suite exists to run
+        // in any case. Either way this must be a refusal, never a pass.
+        for tier in [2, 3] {
+            let error = run_tier(tier, Some("destructive"))
+                .expect_err("a destructive tier must never report success today");
+            assert!(matches!(error, TaskError::Safety(_)), "tier {tier}");
+        }
     }
 
     #[test]

@@ -1,0 +1,13 @@
+[package]
+name = "partman-fixtures"
+description = "Deterministic synthetic disk images and the SAFE-007 disposable-target interlock"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+publish = false
+
+[dependencies]
+sha2 = { version = "0.11.0", default-features = false }
+
+[lints]
+workspace = true

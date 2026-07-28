@@ -46,8 +46,9 @@ silently skipped.
 cargo xtask test --tier 1
 ```
 
-Tier 2 and Tier 3 deliberately fail closed until WP-020 implements the
-disposable-environment proof required by SAFE-007.
+Tier 2 and Tier 3 still refuse. The SAFE-007 interlock now exists and is
+exercised (WP-020 increment 1), but no destructive suite is registered yet, and
+reporting a pass for a run of nothing would be a fake success path.
 
 Run `cargo xtask help` for the full command list.
 
@@ -65,7 +66,7 @@ reports status only and never redefines either.
 | `xtask` single entry point works locally and in CI | Met |
 | Schemas versioned, with cross-language hash golden tests (MODEL-005) | Partial — the golden tests exist and gate CI; MODEL-003 schema versioning is not implemented |
 | CODEOWNERS enforces ownership | Partial — CODEOWNERS requires owner review, but does not reject a diff touching paths outside a work package's assignment |
-| T1 fixture generator produces images | Not started (WP-020) |
+| T1 fixture generator produces images | Met — `cargo xtask fixtures` produces eight images deterministically (WP-020 increment 1) |
 | Accessibility harness runs | Not started (WP-030) |
 
 The two partial rows are tracked as known gaps in `docs/traceability/WP-000.md`
@@ -89,7 +90,7 @@ Section 14 of the specification is normative. Current state:
 | ADR-C1 | Canonical encoding and hash strategy | Accepted |
 | ADR-C2 … ADR-C5 | Hashed-artifact body/envelope split, identity strength, provenance shape, aggregation vocabulary | Accepted |
 | WP-010 | Canonical domain model, schema versioning, encoding and hashing | In progress, blocked at increment 3; see `docs/work-packages/WP-010.md` |
-| WP-020 | Disk-image fixture generator and destructive-test interlocks | Not started |
+| WP-020 | Disk-image fixture generator and destructive-test interlocks | In progress — increment 1 delivered; see `docs/work-packages/WP-020.md` |
 | WP-030 | Design tokens, dark UI shell, accessibility harness | Not started |
 
 WP-020 and WP-030 depend only on WP-000 and could begin in parallel. WP-040 is

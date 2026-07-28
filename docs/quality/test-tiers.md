@@ -31,12 +31,31 @@ cargo xtask cross-language
 
 ## Tier 2 and Tier 3
 
-Both tiers currently fail closed. WP-020 must implement the disposable-test
-token, independently verified image or VM target, and explicit destructive
-profile before either tier can run. A single environment variable is never
-sufficient proof.
+Both tiers still refuse, and will keep refusing until a destructive suite exists
+to run.
+
+WP-020 increment 1 supplies the SAFE-007 interlock itself. All three proofs are
+implemented and enforced together:
+
+- the **profile**, `--profile destructive`, taken from the command line and never
+  from the environment, so it cannot be inherited from a parent shell;
+- the **token**, `PARTMAN_DISPOSABLE_TOKEN`, which must match the manifest
+  `cargo xtask fixtures` writes, so it cannot be known without having generated
+  that fixture set;
+- the **verified target**, re-read and re-hashed against that manifest.
+
+A single environment variable is never sufficient proof, and disposability is
+computed from a target's own bytes rather than asserted by whoever asked. A block
+device cannot pass, because its bytes will never equal a generated fixture, and a
+target that is not a regular file is refused before its contents are read at all.
+
+Running a destructive tier with all three proofs present *still* fails, reporting
+that the interlock authorized its targets but no suite is registered. That is
+deliberate: a green destructive tier is exactly the signal someone would trust
+when deciding whether the interlock works, so it must never be produced by a run
+of nothing (Section 12, Section 16).
 
 No command in this repository enumerates, opens, or writes a block device, at
-any tier. The only filesystem reads are the two listed above, both of
-repository-controlled files.
+any tier. Filesystem access is limited to repository-controlled files and to the
+generated fixture tree under `tests/generated/`, which `.gitignore` excludes.
 

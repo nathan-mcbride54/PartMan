@@ -23,6 +23,16 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   `cargo xtask cross-language` runs the proof and gates CI as its own job. The
   package has no runtime dependencies: hashing uses Web Crypto and testing uses
   `node:test`.
+- WP-020 increment 1: `crates/fixtures`, the deterministic disk-image generator,
+  and the SAFE-007 disposable-target interlock. `cargo xtask fixtures` writes
+  eight synthetic images — GPT, 4Kn GPT, MBR, blank, corrupt-header, missing
+  backup, hybrid MBR/GPT, and APM — into the gitignored `tests/generated/`, each
+  a pure function of the code that builds it, so two machines produce identical
+  bytes and nothing binary is ever committed. The interlock requires all three of
+  SAFE-007's proofs and computes disposability from a target's own bytes rather
+  than accepting an assertion: a block device cannot pass, because its bytes will
+  never equal a generated fixture. Tier 2 and Tier 3 still refuse, now for the
+  honest reason that no destructive suite exists to run.
 - ADR-C1, accepted, fixing the canonical encoding and hash strategy.
 - ADR-C5, accepted, fixing the aggregation vocabulary: one `Aggregate` node in
   place of three undefined Section 5 names, on-disk signatures as their own
