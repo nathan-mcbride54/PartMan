@@ -1,5 +1,9 @@
 [workspace]
 members = ["crates/domain", "tools/xtask"]
+# `fuzz` needs a nightly toolchain for libFuzzer, while this workspace is pinned
+# to one stable release. Excluding it keeps `cargo xtask ci` from attempting to
+# build it on stable. See docs/quality/fuzzing.md.
+exclude = ["fuzz"]
 resolver = "3"
 
 [workspace.package]

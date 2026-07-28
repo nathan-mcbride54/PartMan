@@ -1,0 +1,36 @@
+[package]
+name = "partman-fuzz"
+description = "Fuzz targets for PartMan parsers (Section 11.4)"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Excluded from the workspace on purpose. These targets need a nightly
+# toolchain for libFuzzer, and the workspace is pinned to one stable release in
+# rust-toolchain.toml. Keeping them out means `cargo xtask ci` never attempts to
+# build them on stable. See docs/quality/fuzzing.md.
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = "1"
+partman-domain = { path = "../crates/domain" }
+
+[[bin]]
+name = "decode_is_canonical"
+path = "fuzz_targets/decode_is_canonical.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "roundtrip_value"
+path = "fuzz_targets/roundtrip_value.rs"
+test = false
+doc = false
+bench = false
+
+[profile.release]
+debug = true

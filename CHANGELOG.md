@@ -65,3 +65,11 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   produced CRLF working-tree files that `newline_style = "Unix"` rejects.
   `.gitattributes` now pins LF in every working tree.
 
+
+- WP-010 increment 4: `cargo-fuzz` targets for the canonical codec (Section
+  11.4), plus `crates/domain/tests/canonicality.rs`, which asserts the same
+  canonicality property on stable over every single-bit flip, truncation, and
+  boundary substitution of every known-good encoding, and every one- and
+  two-byte input exhaustively. `cargo xtask fuzz` runs the smoke pass and gates
+  CI as its own job. `fuzz/` is excluded from the workspace and is the only
+  place a nightly toolchain is permitted; it is pinned by exact date.

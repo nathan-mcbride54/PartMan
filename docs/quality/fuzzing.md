@@ -1,0 +1,110 @@
+# Fuzzing
+
+Section 11.4 of `AGENT_BUILD_SPEC.md` requires `cargo-fuzz` targets for every
+parser of on-disk or externally supplied bytes, short smoke runs gating pull
+requests, scheduled long runs accumulating corpora, and a release gate of zero
+untriaged crashes or hangs.
+
+## Targets
+
+`fuzz/fuzz_targets/` currently holds two. Both drive the `pce/1` codec, which is
+a plan and journal deserializer under Section 11.4's list.
+
+### `decode_is_canonical`
+
+Asserts the property that makes the plan hash an authorization boundary:
+
+> For any input, `decode` either fails, or returns a value whose `encode`
+> reproduces the input **byte for byte**.
+
+If the decoder ever accepted a non-canonical encoding, an attacker could submit
+bytes that decode to an approved plan yet hash differently, so the bytes a user
+authorized would not be the bytes describing what executes. The target also
+asserts that hashing an accepted value agrees with hashing the bytes it came
+from, and that re-encoded bytes decode back.
+
+### `roundtrip_value`
+
+Drives the encoder from structured values rather than bytes, reaching shapes
+random bytes almost never produce: deep nesting, maps whose key order differs
+between insertion and encoding, and integers at every argument-width boundary.
+Asserts `decode(encode(v)) == v` and that encoding is a fixed point.
+
+`Value` is built from raw entropy inside the target rather than by deriving
+`Arbitrary` on the domain type, so the domain crate carries no fuzzing
+dependency.
+
+## The same property, on stable
+
+`crates/domain/tests/canonicality.rs` asserts the *same* property as
+`decode_is_canonical`, on the pinned stable toolchain, over a bounded
+deterministic mutation space: every single-bit flip, truncation, and boundary
+byte substitution of every known-good encoding, plus every one- and two-byte
+input exhaustively.
+
+That is not a substitute for fuzzing, and does not claim to be. It exists so
+that the property is verifiable on any developer machine without a nightly
+toolchain, and so a regression fails `cargo xtask ci` rather than waiting for a
+scheduled fuzz run. Fuzzing searches far deeper; the stable test guarantees the
+floor.
+
+## Toolchain exception
+
+`cargo-fuzz` needs nightly for libFuzzer. `rust-toolchain.toml` pins one stable
+release, and `AGENTS.md` states the workspace toolchain is pinned there — so
+fuzzing is an explicit, bounded exception to that rule:
+
+- The nightly is pinned **by exact date**, `nightly-2026-07-01`, for the same
+  reason the stable toolchain is pinned by version: an unpinned `nightly`
+  changes under CI without a commit, which would make a fuzz failure
+  unreproducible.
+- The pin appears in `FUZZ_TOOLCHAIN` in `tools/xtask/src/main.rs` and in
+  `.github/workflows/ci.yml`. They must move together; neither is covered by
+  Dependabot.
+- `fuzz/` is **excluded from the workspace**, so `cargo xtask ci` never attempts
+  to build it on stable and the exception cannot leak into ordinary builds.
+- `cargo-fuzz` itself is pinned to 0.13.2 and installed with `--locked`.
+
+Nothing outside `fuzz/` may require nightly.
+
+## Running it
+
+```text
+cargo xtask fuzz
+```
+
+Runs each target for 60 seconds. `--seconds <n>` overrides that for a longer
+local run. The command is deliberately not part of `cargo xtask ci`, because it
+needs a toolchain the rest of the repository does not.
+
+Prerequisites:
+
+```text
+rustup toolchain install nightly-2026-07-01 --profile minimal
+cargo install cargo-fuzz --version 0.13.2 --locked
+```
+
+Note that libFuzzer support is Linux and macOS; the CI job runs on
+`ubuntu-24.04`. On Windows the stable canonicality test still runs under
+`cargo xtask ci`.
+
+## Corpora and crash artifacts
+
+`fuzz/corpus/` and `fuzz/artifacts/` are git-ignored. Section 11.3 keeps binary
+fixtures out of the repository, and a fuzzing corpus is exactly that. A crash
+leaves a reproducer in `fuzz/artifacts/`, which the CI job uploads on failure so
+it can be attached to a report rather than committed.
+
+## Not yet done
+
+Section 11.4 requires more than exists today, and the gaps are recorded rather
+than implied:
+
+- **Scheduled long runs accumulating corpora** are not configured. Only the
+  per-pull-request smoke run exists, which starts from an empty corpus every
+  time and therefore explores far less than a seeded run would.
+- **Parsers that do not exist yet** have no targets: GPT, MBR, and APM headers,
+  file-system probes, and LVM, LUKS, and mdraid metadata. Each arrives with its
+  own work package and must bring its own target.
+- **The release gate** of zero untriaged crashes or hangs has no automated
+  check, because there is no release pipeline yet.

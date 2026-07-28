@@ -41,3 +41,7 @@ and product requirements are normative.
   execution must also satisfy SAFE-004's allow-list, identity, timeout, output,
   and environment requirements.
 
+- Use `cargo xtask fuzz` for the Section 11.4 smoke run. It needs the pinned
+  nightly toolchain, so it is not part of `cargo xtask ci`; CI runs it as its
+  own job. `fuzz/` is excluded from the workspace and is the only place nightly
+  is permitted. See `docs/quality/fuzzing.md`.

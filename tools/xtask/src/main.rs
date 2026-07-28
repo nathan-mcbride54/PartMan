@@ -10,6 +10,20 @@ use std::process::{Command, ExitCode};
 const PINNED_RUST_VERSION: &str = "1.96.0";
 const WORKFLOW_DIRECTORY: &str = ".github/workflows";
 
+/// Toolchain used only for fuzzing.
+///
+/// `cargo-fuzz` needs nightly for libFuzzer, which the pinned stable toolchain
+/// cannot provide. It is pinned by exact date for the same reason
+/// `rust-toolchain.toml` pins a version: an unpinned `nightly` changes under CI
+/// without a commit. See `docs/quality/fuzzing.md`.
+const FUZZ_TOOLCHAIN: &str = "nightly-2026-07-01";
+
+/// Default smoke-run duration, in seconds, per fuzz target.
+///
+/// Section 11.4 requires short smoke runs to gate every pull request touching a
+/// parser; long runs are scheduled separately.
+const FUZZ_SMOKE_SECONDS: u32 = 60;
+
 fn main() -> ExitCode {
     let args = env::args_os().skip(1).collect::<Vec<_>>();
     match parse(&args).and_then(|task| execute(&task)) {
@@ -29,6 +43,7 @@ fn main() -> ExitCode {
 enum Task {
     Ci,
     CrossLanguage,
+    Fuzz { seconds: u32 },
     Fmt,
     FmtCheck,
     Help,
@@ -52,6 +67,7 @@ fn parse(args: &[OsString]) -> Result<Task, TaskError> {
     match command {
         "ci" => nullary(Task::Ci, command, rest),
         "cross-language" => nullary(Task::CrossLanguage, command, rest),
+        "fuzz" => parse_fuzz(rest),
         "fmt" => nullary(Task::Fmt, command, rest),
         "fmt-check" => nullary(Task::FmtCheck, command, rest),
         "help" | "--help" | "-h" => nullary(Task::Help, command, rest),
@@ -84,6 +100,7 @@ fn execute(task: &Task) -> Result<(), TaskError> {
             run_tier(1)
         }
         Task::CrossLanguage => cross_language(),
+        Task::Fuzz { seconds } => fuzz(seconds),
         Task::Fmt => cargo(&["fmt", "--all"]),
         Task::FmtCheck => cargo(&["fmt", "--all", "--", "--check"]),
         Task::Help => {
@@ -107,6 +124,24 @@ fn nullary(task: Task, command: &str, rest: &[OsString]) -> Result<Task, TaskErr
         Err(TaskError::Usage(format!(
             "`cargo xtask {command}` takes no arguments; run `cargo xtask help`"
         )))
+    }
+}
+
+/// Parse `fuzz`, with an optional `--seconds <n>`.
+fn parse_fuzz(args: &[OsString]) -> Result<Task, TaskError> {
+    match args {
+        [] => Ok(Task::Fuzz {
+            seconds: FUZZ_SMOKE_SECONDS,
+        }),
+        [flag, value] if flag == OsStr::new("--seconds") => value
+            .to_str()
+            .and_then(|text| text.parse::<u32>().ok())
+            .filter(|seconds| *seconds > 0)
+            .map(|seconds| Task::Fuzz { seconds })
+            .ok_or_else(|| TaskError::Usage("--seconds takes a positive integer".to_owned())),
+        _ => Err(TaskError::Usage(
+            "expected `cargo xtask fuzz [--seconds <n>]`".to_owned(),
+        )),
     }
 }
 
@@ -208,6 +243,59 @@ fn npm(directory: &Path, args: &[&str]) -> Result<(), TaskError> {
             code: status.code(),
         })
     }
+}
+
+/// Every fuzz target in `fuzz/fuzz_targets`, in the order they are run.
+const FUZZ_TARGETS: [&str; 2] = ["decode_is_canonical", "roundtrip_value"];
+
+/// Run a bounded smoke fuzz over every target (Section 11.4).
+///
+/// This needs the pinned nightly toolchain, so it is not part of
+/// `cargo xtask ci` and CI runs it as its own job. A crash leaves a reproducer
+/// in `fuzz/artifacts/`, which is git-ignored: Section 11.3 keeps binary
+/// fixtures out of the repository, so a reproducer is attached to the report
+/// rather than committed.
+fn fuzz(seconds: u32) -> Result<(), TaskError> {
+    let directory = repository_root().join("fuzz");
+    if !directory.join("Cargo.toml").is_file() {
+        return Err(TaskError::Policy(format!(
+            "{} is missing; the Section 11.4 fuzz targets cannot run",
+            directory.join("Cargo.toml").display()
+        )));
+    }
+
+    for target in FUZZ_TARGETS {
+        println!("fuzz: {target} for {seconds}s");
+        let toolchain = format!("+{FUZZ_TOOLCHAIN}");
+        let max_time = format!("-max_total_time={seconds}");
+        let status = Command::new("cargo")
+            .args([
+                &toolchain,
+                "fuzz",
+                "run",
+                target,
+                "--",
+                &max_time,
+                // Bound a single input so a pathological case is a reported
+                // timeout rather than a hung job.
+                "-timeout=25",
+            ])
+            .current_dir(repository_root())
+            .status()
+            .map_err(|source| TaskError::Launch {
+                program: "cargo".to_owned(),
+                source,
+            })?;
+
+        if !status.success() {
+            return Err(TaskError::CommandFailed {
+                program: format!("cargo fuzz run {target}"),
+                code: status.code(),
+            });
+        }
+    }
+
+    Ok(())
 }
 
 /// The repository root, derived from this crate's compile-time location.
@@ -365,6 +453,7 @@ PartMan repository tasks
 
   cargo xtask ci                 Run the complete unprivileged Tier-1 gate
   cargo xtask cross-language     Prove Rust and TypeScript hash identically
+  cargo xtask fuzz [--seconds n] Smoke-fuzz the parsers (needs pinned nightly)
   cargo xtask fmt                Format the Rust workspace
   cargo xtask fmt-check          Verify Rust formatting
   cargo xtask test --tier 1      Run safe, unprivileged tests
@@ -464,6 +553,16 @@ mod tests {
             parse(&args(&["cross-language"])).expect("cross-language"),
             Task::CrossLanguage
         );
+        assert_eq!(
+            parse(&args(&["fuzz"])).expect("fuzz"),
+            Task::Fuzz {
+                seconds: super::FUZZ_SMOKE_SECONDS
+            }
+        );
+        assert_eq!(
+            parse(&args(&["fuzz", "--seconds", "5"])).expect("fuzz --seconds"),
+            Task::Fuzz { seconds: 5 }
+        );
         assert_eq!(parse(&args(&["fmt"])).expect("fmt"), Task::Fmt);
         assert_eq!(
             parse(&args(&["fmt-check"])).expect("fmt-check"),
@@ -498,6 +597,11 @@ mod tests {
             vec!["test", "1"],
             vec!["test", "--tier"],
             vec!["test", "--tier", "1", "--tier", "2"],
+            // A zero-second smoke run would pass without fuzzing anything.
+            vec!["fuzz", "--seconds", "0"],
+            vec!["fuzz", "--seconds", "abc"],
+            vec!["fuzz", "5"],
+            vec!["fuzz", "--seconds"],
         ] {
             let error = parse(&args(&invocation))
                 .expect_err(&format!("{invocation:?} must not be accepted"));
