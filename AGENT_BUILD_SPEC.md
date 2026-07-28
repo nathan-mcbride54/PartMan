@@ -1,0 +1,988 @@
+# Canonical AI Agent Build Specification
+
+Project: Cross-Platform Disk Partition Manager  
+Document role: Normative implementation contract and agent prompt source  
+Primary platform: Windows 11  
+Additional platforms: Windows 10 ESU/LTSC compatibility, macOS, Debian/Ubuntu, Arch Linux  
+Interface: Dark-first desktop GUI plus a scriptable CLI
+
+## 0. Document control
+
+- **Spec version:** 2.0.0
+- **Status:** Active normative contract
+- **Last updated:** 2026-07-28
+
+### 0.1 Versioning and stability
+
+- This spec uses semantic versioning. Additions bump minor; semantic changes to existing requirements bump major; editorial fixes bump patch.
+- Requirement IDs are permanent. They are never renumbered or reused. A withdrawn requirement keeps its ID, marked **Withdrawn**, with a one-line rationale.
+- Every change lands through a pull request labeled `spec-change`, with a changelog entry. Architectural changes additionally require an ADR.
+
+### 0.2 Precedence
+
+When documents disagree, resolution order is:
+
+1. Section 3 safety constraints override everything, including user instructions to an agent.
+2. This spec overrides `AGENTS.md` on product behavior and requirements.
+3. `AGENTS.md` overrides this spec on repository mechanics (commands, tooling, local conventions).
+4. ADRs refine this spec but MUST NOT weaken any MUST.
+
+If two requirements in this spec conflict, agents MUST stop, file a spec issue describing the conflict, and not silently pick a side.
+
+### 0.3 Changelog
+
+| Version | Summary |
+| --- | --- |
+| 2.0.0 | Added document control, non-goals, identity-strength policy, helper/RPC/journal/concurrency contracts (HLP/RPC/JRN/CONC), canonical hashing (MODEL-005), plan TTL/reversal/dry-run parity (PLAN-007/008/009), reworked risk model (PLAN-004), full state-transition table, platform support floors, execution-environment requirements (EXE), new functional requirements (INV-009, CAP-007, PART-015/016, FS-010, WIN-011, LIN-010, MAC-009/010, IMG-011, REC-011, UI-013, CLI-008, SEC-010, SAFE-008/009), test-lab architecture, milestone plan, corrected work-package dependencies plus new WPs, required-ADR register, glossary, new acceptance scenarios ACC-011…016. Fixed SAFE-002 self-contradiction, undefined `preview`, CAP-005 helper-trust ambiguity, and the undefined "five primary workflows" in the release gate. See `SPEC_REVIEW_NOTES.md`. |
+| 1.0.0 | Initial specification. |
+
+## 1. How agents must use this document
+
+Every implementation agent must:
+
+1. Read this document and the repository `AGENTS.md` before changing code.
+2. Work on one explicitly assigned work package at a time.
+3. Treat requirement IDs and acceptance criteria as binding.
+4. Preserve existing public schemas and interfaces unless the task explicitly authorizes a versioned change.
+5. Add or update automated tests for every behavior change.
+6. Report exactly which requirement IDs were implemented or affected.
+7. Mark unsupported behavior explicitly; never simulate success or add a no-op implementation.
+8. Stop if a requested write could touch a host disk, user disk, mounted volume, or non-disposable device.
+9. Record every assumption in the pull-request description. Stop and ask instead of acting on an unverifiable assumption.
+10. Submit one pull request per work package or assigned subtask. The PR description MUST list the spec version, requirement IDs touched, tests run, and owned paths edited. CI enforces path ownership via CODEOWNERS; do not edit outside owned paths.
+11. On discovering a spec conflict or ambiguity, follow Section 0.2.
+
+Normative terms:
+
+- **MUST / MUST NOT:** required for acceptance.
+- **SHOULD / SHOULD NOT:** required unless the agent documents a concrete technical reason.
+- **MAY:** optional and must not weaken a MUST.
+
+## 2. Prime directive
+
+Build the safest, clearest, and most capable partition manager in its category. The product must combine:
+
+- Complete partition creation, resizing, movement, conversion, cloning, migration, recovery, diagnostics, and rescue workflows.
+- Native awareness of Windows, macOS, and Linux storage technologies.
+- A polished dark interface that shows the current and planned disk layout before applying changes.
+- A strict unprivileged-planning and privileged-execution boundary.
+- Honest, machine-specific capability reporting for every operation and file system.
+
+Feature breadth never overrides safety. If an operation cannot be validated and tested, the product must present it as unsupported.
+
+### 2.1 Explicit non-goals (v1 product scope)
+
+The product MUST still detect, correctly represent, and protect everything below; it MUST NOT mutate them. Non-goals prevent scope drift; promoting any item to supported requires a spec change and its own qualified capability.
+
+- **ZFS:** detect pools and members; never mutate.
+- **Windows dynamic disks (LDM):** detect and inspect; migration off dynamic disks only via copy to basic disks; no in-place LDM editing.
+- **Windows Storage Spaces:** detect, represent, and protect pools/spaces; no pool or space mutation.
+- **Apple Fusion Drive:** detect only.
+- **Apple sealed system volumes and signed system snapshots:** never modified; boot-volume work limited to documented supported paths.
+- **Network block devices (iSCSI, NBD, Ceph RBD, etc.):** detect and label; no management.
+- **Hardware RAID controller configuration and drive firmware updates:** out of scope.
+- **File-level backup:** the image engine is not a file-backup product and MUST NOT be presented as one.
+- **In-house file-system implementations or resizers:** restated by FS-006.
+- **Accounts and cloud services:** core functionality is offline (SEC-007). Telemetry is optional scope; the recommended v1 posture is to ship without telemetry rather than ship SEC-006 partially.
+
+## 3. Non-negotiable safety constraints
+
+### SAFE-001: Disposable media only
+
+Automated tests and agent-driven manual tests MUST use only:
+
+- Regular files containing synthetic disk images.
+- Ephemeral virtual disks created inside an isolated VM.
+- Loopback devices backed by disposable images inside an isolated test environment.
+- Physical devices that are explicitly provisioned and labeled as destructive-test fixtures by the test harness.
+
+Agents MUST NOT run destructive storage commands against the development host, its boot disk, attached user storage, mounted user volumes, or any device selected by inference.
+
+### SAFE-002: No implicit elevation
+
+The GUI, CLI, discovery layer, and default test suites MUST run without elevation. Privileged behavior is confined to exactly two contexts:
+
+1. The platform helper executing a validated plan after fresh, explicit user authorization (HLP-003).
+2. Privileged or destructive test suites, which run only inside disposable environments under SAFE-001 and SAFE-007.
+
+No component may auto-elevate, cache an elevation grant across plans, or retain privileged state between plans.
+
+### SAFE-003: Immutable target identity
+
+Every plan that writes storage MUST bind each target to an immutable identity record containing all available identifiers:
+
+- Serial number.
+- WWN or equivalent stable hardware identifier.
+- OS device instance identifier.
+- Connection/location path.
+- Total bytes.
+- Logical and physical sector size.
+- Partition-table type and checksum.
+
+The helper MUST reject the plan if identity or topology has changed.
+
+**Identity strength.** Each identity record MUST be classified:
+
+- **Strong:** at least one stable hardware identifier (serial or WWN) plus size, sector geometry, and partition-table checksum all match.
+- **Weak:** no stable hardware identifier available (common behind USB bridges and SD readers).
+
+Policy:
+
+- Destructive whole-device operations on weak-identity targets MUST require typed device-name confirmation (UI-009) plus an immediate pre-apply re-probe.
+- Unattended or scripted apply against weak-identity targets MUST be refused unless the plan carries an explicit weak-identity override recorded at plan creation.
+- For removable devices with strong identity, a changed connection path alone MAY be accepted after replug when every hardware identifier, size, geometry, and table checksum still matches; the acceptance MUST be journaled.
+
+### SAFE-004: No shell strings
+
+Agents MUST NOT implement storage execution by concatenating shell commands. External tools MUST be invoked with structured argument arrays, a fixed executable allow-list, verified executable identity/version, bounded output, timeout behavior, and sanitized environment. Tools MUST be resolved from trusted absolute locations, never from a user-controlled `PATH`, and versions outside the tested range make the dependent capability `blocked` (ACC-009).
+
+### SAFE-005: Fail closed
+
+Unknown file systems, corrupt metadata, ambiguous device identity, missing dependencies, stale topology, unsupported encryption states, and failed backups MUST disable the affected write operation.
+
+### SAFE-006: Secrets
+
+BitLocker, FileVault, LUKS, recovery keys, passphrases, and key files MUST NOT appear in logs, telemetry, crash dumps, plan files, command histories, or UI state snapshots.
+
+### SAFE-007: Host protection in CI
+
+The test runner MUST refuse destructive suites unless a disposable-test token, a verified image/VM target, and an explicit destructive-test profile are all present. A single environment variable is not sufficient proof.
+
+### SAFE-008: Helper isolation
+
+Privileged helpers MUST NOT perform network I/O, load plugins, execute interpreters, or read schemas/configuration from user-writable locations; schemas ship compiled into the helper. Helper updates arrive only through platform packaging (PKG-00x), never self-downloaded.
+
+### SAFE-009: Memory-safety policy
+
+`unsafe` Rust is forbidden (enforced by lint in CI) in the domain, planner, validator, journal, and rpc crates. It is permitted only in adapter, FFI, and helper crates inside reviewed, documented modules. Parsers of on-disk metadata MUST NOT contain `unsafe` and MUST have fuzz targets (Section 11.4).
+
+## 4. Required architecture
+
+### 4.1 Technology
+
+- Core domain, planning, validation, journaling, and image engine: Rust.
+- Desktop shell: Tauri 2.
+- UI: React and TypeScript.
+- Local protocol: versioned, schema-validated RPC over an OS-appropriate local transport (Section 4.5).
+- Privileged execution: separate signed native helper per operating system (Section 4.6).
+- Linux authorization: polkit.
+- macOS authorization: notarized privileged helper and documented Apple authorization mechanisms.
+- Windows authorization: signed service/helper with UAC-mediated installation and per-apply consent (HLP-003, ADR-W1).
+
+An agent may propose a change to this stack only through an architecture decision record showing safety, packaging, and cross-platform consequences.
+
+### 4.2 Logical components
+
+| Component | Responsibility | Forbidden responsibility |
+| --- | --- | --- |
+| Desktop UI | Presentation, user input, plan review, progress | Raw block writes, direct privileged commands |
+| CLI | Inventory, planning, dry run, apply submitted plans | Bypassing planner or helper validation |
+| Inventory core | Normalize devices, partitions, volumes, file systems, encryption, pools | Mutating storage |
+| Capability engine | Report which operations are available and why | Assuming tools or kernel features exist |
+| Planner | Produce immutable dependency-ordered plans | Executing steps |
+| Validator | Check constraints, preconditions, extent math, risk | Silently correcting ambiguous input |
+| Privileged helper | Revalidate and execute approved plans | Accepting arbitrary commands or paths |
+| Journal | Durable step/checkpoint/result record | Recording secrets |
+| Image engine | Clone, image, verify, resume, damaged-media map | Retargeting destinations |
+| Platform adapter | Translate canonical operations to native APIs/tools | Exposing platform-specific behavior as universal |
+| Rescue environment | Execute offline plans and repair boot state | Using a different plan or safety model |
+
+### 4.3 Proposed repository layout
+
+```text
+apps/
+  desktop/
+  cli/
+crates/
+  domain/
+  inventory/
+  capabilities/
+  planner/
+  validator/
+  journal/
+  image-engine/
+  rpc/
+  adapter-windows/
+  adapter-linux/
+  adapter-macos/
+services/
+  helper-windows/
+  helper-linux/
+  helper-macos/
+packages/
+  ui/
+  design-tokens/
+schemas/
+tests/
+  fixtures/
+  model/
+  integration/
+  fault-injection/
+  platform/
+docs/
+  adr/
+  capabilities/
+  quality/
+  recovery/
+  traceability/
+packaging/
+  windows/
+  debian/
+  arch/
+  macos/
+  rescue/
+```
+
+Agents MUST avoid circular dependencies. Platform adapters depend on canonical domain interfaces; canonical crates MUST NOT depend on platform adapters.
+
+### 4.4 Concurrency and invalidation
+
+- **CONC-001:** At most one plan may execute against a physical device at a time. An executing plan locks every device it binds for its full execution, including reboot-resumed phases.
+- **CONC-002:** Plans queued behind an executing plan MUST be revalidated against post-execution topology before they can be authorized.
+- **CONC-003:** External topology changes (hot-plug, third-party tool writes, mount changes) MUST invalidate affected Draft/Validated plans and surface the invalidation in GUI and CLI. Invalidated plans require re-planning; silent rebinding to a new snapshot is prohibited.
+- **CONC-004:** Discovery MUST remain read-only and safe to run during execution; snapshots taken while a plan executes MUST be marked transitional and are not valid planning bases.
+- **CONC-005:** Multiple clients (GUI and CLI concurrently) MUST observe consistent state through the same helper and journal. When two apply submissions race for the same device, exactly one wins; the loser receives a deterministic, explained rejection.
+
+### 4.5 RPC contract
+
+- **RPC-001:** Transports: Windows — named pipe with an SDDL restricting access to SYSTEM and the authorizing interactive user; Linux — Unix domain socket (0700, root-owned directory) with peer-credential verification; macOS — XPC with code-signing requirement checks, or an equivalently verified Unix domain socket.
+- **RPC-002:** Connections begin with a versioned handshake exchanging schema and build versions. Incompatible versions MUST refuse with a remediation message, never degrade silently.
+- **RPC-003:** Every message is schema-validated in both directions. The helper side is strict: unknown fields and out-of-range values are rejected.
+- **RPC-004:** Messages have bounded sizes and timeouts. Progress/events flow on a stream separate from request/response and are loss-tolerant: clients MUST be able to resynchronize from the journal.
+- **RPC-005:** The protocol carries only typed operations defined in `schemas/`. No dynamic code, no path-addressed execution, no raw command passthrough (CLI-004 at the transport layer).
+- **RPC-006:** Clients MUST be able to reattach to an in-flight execution after disconnect or crash and reconstruct state from journal plus event replay.
+
+### 4.6 Privileged helper contract
+
+- **HLP-001:** The helper accepts only these operations: status/enumeration queries, validate-plan, apply-plan (by plan hash), cancel, resume, and journal queries. Nothing else exists.
+- **HLP-002:** Before the first write, the helper independently re-discovers topology and recomputes capability and validation results. Client-provided discovery, capability, or validation output is an untrusted hint, never an input to authorization.
+- **HLP-003:** Every apply of a plan with severity ≥ Disruptive (Section 6, PLAN-004) requires a fresh interactive authorization bound to the exact plan hash: Linux — polkit `auth_admin` without retained grants; macOS — documented authorization APIs with a per-apply prompt; Windows — a fresh administrative consent bound to the plan hash (mechanism fixed by ADR-W1). Cached, session-wide, or remembered approvals MUST NOT exist for these severities.
+- **HLP-004:** The helper enforces plan validity windows (PLAN-007) and snapshot-hash freshness (PLAN-006), rejecting expired or stale plans.
+- **HLP-005:** The helper executes at most one plan per bound device set (CONC-001), idles locked-down when no work exists, and MAY exit when idle.
+- **HLP-006:** Helper logging is structured, redacted per SAFE-006, and appended to the audit log (SEC-009).
+- **HLP-007:** The helper performs no work on behalf of non-local or cross-session callers (SEC-002) and verifies caller identity via RPC-001 before processing any request.
+
+### 4.7 Journal contract
+
+- **JRN-001:** The journal is append-only with per-record checksums and monotonic sequence numbers. A torn tail MUST be detected and safely truncated during recovery.
+- **JRN-002:** Journal records for a state transition or checkpoint MUST be durable (fsync or platform equivalent) before the corresponding storage write begins.
+- **JRN-003:** Replay is idempotent. Recovery state derives solely from the journal plus fresh re-discovery, never from UI or client memory (Section 8).
+- **JRN-004:** Journals live in an admin/root-protected, documented location per OS, with bounded size and the retention controls of SEC-009.
+- **JRN-005:** Journals never contain secrets (SAFE-006); embedded tool output is bounded and redacted.
+- **JRN-006:** The journal format is a versioned public schema under MODEL-003.
+
+## 5. Canonical domain model
+
+The domain crate MUST define serializable, versioned types for:
+
+- `PhysicalDevice`
+- `DeviceIdentity`
+- `IdentityStrength`
+- `DeviceHealth`
+- `PartitionTable`
+- `Partition`
+- `StorageContainer`
+- `Volume`
+- `FileSystem`
+- `EncryptionLayer`
+- `StoragePool`
+- `RaidSet`
+- `Snapshot`
+- `Mount`
+- `FreeExtent`
+- `Capability`
+- `TopologySnapshot`
+- `OperationRequest`
+- `OperationPlan`
+- `PlanStep`
+- `PlanRisk`
+- `ExecutionJournal`
+- `ExecutionResult`
+- `RecoveryAction`
+
+### MODEL-001: Units
+
+All offsets and sizes MUST use unsigned byte counts in the canonical model. Sector counts MAY be included as derived platform data. UI values MUST preserve exact byte values while displaying IEC units by default.
+
+### MODEL-002: Layering
+
+The model MUST distinguish:
+
+`physical device → partition table → partition → encryption/container → volume → file system → mount`
+
+It MUST also represent non-linear relationships such as Storage Spaces, LVM, RAID, APFS containers, and Btrfs multi-device file systems.
+
+### MODEL-003: Stable serialization
+
+Public plans, topology snapshots, journals, and CLI JSON MUST include a schema version. Breaking changes require a new version and migration or explicit rejection.
+
+### MODEL-004: Provenance
+
+Every discovered property MUST record its source adapter and confidence: authoritative, inferred, unavailable, or conflicting.
+
+### MODEL-005: Canonical encoding and hashing
+
+Every hashed artifact (plans, topology snapshots) MUST have exactly one canonical byte encoding, defined in `schemas/` (deterministic field ordering, no ambiguous numeric encodings). The plan hash is SHA-256 over the canonical bytes. All components — Rust and TypeScript — MUST produce identical hashes for identical logical content, proven by cross-language golden tests. The encoding choice is fixed by ADR-C1.
+
+## 6. Operation-plan contract
+
+An `OperationPlan` MUST contain:
+
+- Plan ID, schema version, creation timestamp, and application version.
+- Source topology snapshot hash.
+- Complete bound device identities with identity strength (SAFE-003).
+- Requested outcome.
+- Ordered dependency graph of plan steps.
+- Step preconditions and postconditions.
+- Risk classification and user-facing consequence text.
+- Required privileges.
+- Online, offline, reboot, and rescue requirements.
+- Estimated affected byte ranges.
+- Backup and recovery actions.
+- Cancellation behavior for every step.
+- Expected capability/dependency versions.
+- Validity window (PLAN-007).
+- Reversal plan or reversal-impossibility statement (PLAN-008).
+- Cryptographic plan hash (MODEL-005).
+
+### PLAN-001: Pure planning
+
+Planning MUST be deterministic and side-effect free for the same snapshot, capabilities, and request.
+
+### PLAN-002: Before and after
+
+Every valid plan MUST produce both the original topology and a simulated final topology.
+
+### PLAN-003: Dependency graph
+
+Steps MUST form an acyclic graph. The planner MUST reject conflicting or impossible steps and explain the conflict.
+
+### PLAN-004: Risk model
+
+Each step carries a **severity** on one ordinal scale:
+
+0. Informational — no change to storage.
+1. Reversible — fully undoable before or after apply via an emitted reversal plan.
+2. Disruptive — interrupts service (unmount, lock, reboot) with no expected data loss.
+3. Data-moving — data is relocated or transformed; loss is possible on failure.
+4. Destructive — data is intentionally destroyed.
+
+Each step additionally carries orthogonal **flags**: `security-sensitive` (touches encryption, keys, or authorization state), `irreversible-after-start`, `requires-offline`, `requires-reboot`, `requires-rescue`.
+
+Plan severity is the maximum step severity; plan flags are the union of step flags. UI consequence text, confirmation strength (UI-009), and authorization requirements (HLP-003) key off severity plus flags. *(Changed in 2.0.0: v1's five ordinal classes conflated severity with the security-sensitive dimension.)*
+
+### PLAN-005: Cancellation
+
+Each step MUST declare one of: cancellable, checkpoint-cancellable, or non-cancellable. The UI MUST not offer cancellation when the current step cannot safely stop.
+
+### PLAN-006: Stale-plan rejection
+
+The helper MUST re-discover target topology and reject a mismatch before the first write and at declared revalidation checkpoints.
+
+### PLAN-007: Plan validity window
+
+Every plan carries an explicit expiry: default 24 hours, maximum 7 days. The helper rejects expired plans (HLP-004). Re-approval after expiry requires re-validation against a fresh snapshot.
+
+### PLAN-008: Reversal plans
+
+For every plan, the planner MUST either emit a reversal plan (only where reversal is truthful, e.g., metadata-only changes) or a machine-readable, per-step statement of why reversal is impossible. This output feeds REC-010: rollback may be advertised only where a reversal plan exists.
+
+### PLAN-009: Dry-run parity
+
+Dry run MUST traverse the identical pipeline as a real apply — including helper revalidation (HLP-002) — and stop before the Protecting state. A successful dry run means the only remaining variables are physical execution outcomes, not validation surprises.
+## 7. Functional requirements
+
+### 7.1 Inventory and topology
+
+- **INV-001:** Discover internal and external HDD, SATA SSD, NVMe, eMMC, USB mass storage, SD media, virtual disks, hardware RAID LUNs, and loop devices. Network block devices are represented detection-only (Section 2.1).
+- **INV-002:** Report model, vendor, transport, removable status, capacity, sector sizes, read-only status, system/boot role, and stable identity with identity strength (SAFE-003).
+- **INV-003:** Detect GPT, MBR, Apple Partition Map, missing tables, hybrid/inconsistent tables, and corrupt metadata.
+- **INV-004:** Detect partitions, free extents, alignment, partition types/flags, labels, UUIDs, volumes, file systems, encryption, mounts, and nested storage.
+- **INV-005:** React to device attach, removal, mount, unmount, unlock, pool, and topology changes, driving plan invalidation per CONC-003.
+- **INV-006:** Never auto-mount unknown or damaged media solely to inspect it, and never run repair tools during discovery.
+- **INV-007:** Expose raw discovery evidence in a redacted diagnostic view.
+- **INV-008:** Represent unsupported structures without flattening or discarding them.
+- **INV-009:** Remain correct under rapid attach/detach churn: event storms MUST coalesce without dropping the terminal device state (stress-tested per Section 11.5).
+
+### 7.2 Capability engine
+
+- **CAP-001:** Calculate capabilities per exact device, partition, file system, encryption state, mount state, OS, dependency version, and boot role.
+- **CAP-002:** Model detect, read, create, grow, shrink, move, copy, check, repair, label, UUID, encrypt, decrypt, and wipe separately.
+- **CAP-003:** Return `supported`, `preview`, `unsupported`, or `blocked`, plus a reason and remediation. **Definitions:** `supported` — apply permitted, backed by matrix evidence (CAP-006); `preview` — planning and simulation permitted, apply refused pending qualification evidence, labeled as such in GUI and CLI; `unsupported` — the product does not implement the operation for this target; `blocked` — implemented, but a runtime precondition fails (missing tool, version, state).
+- **CAP-004:** Confirm required native API/tool availability and version at runtime.
+- **CAP-005:** Serve GUI, CLI, and planner from one capability engine so surfaces never disagree.
+- **CAP-006:** Store tested capability fixtures for every advertised platform/file-system combination.
+- **CAP-007:** Capability results shown by clients are advisory UX. The helper trusts only its own recomputation (HLP-002); a client cannot upgrade a capability by asserting it.
+
+### 7.3 Core partition operations
+
+- **PART-001:** Initialize blank media as GPT or MBR.
+- **PART-002:** Create primary, logical, extended, and GPT partitions where applicable.
+- **PART-003:** Delete partitions with protected-system-partition safeguards.
+- **PART-004:** Grow and shrink partitions and their file systems in the safe order required by the direction of change.
+- **PART-005:** Move partitions while preserving data and checking boot consequences. Moves MUST be implemented copy-then-commit where extents do not overlap, and via journaled chunk copy with a durable progress map where they do, so interruption never leaves an unrecoverable mapping (Section 11 invariants).
+- **PART-006:** Copy partitions to compatible free extents or target devices.
+- **PART-007:** Split and merge compatible partitions without claiming support for unsupported layouts.
+- **PART-008:** Change label, partition name, type, flags, drive letter, mount point, UUID, and allocation-unit size where supported.
+- **PART-009:** Align partitions to 1 MiB boundaries by default. Deviations occur only when the device's published geometry requires different alignment or the user explicitly overrides; both are recorded in the plan.
+- **PART-010:** Convert MBR to GPT and GPT to MBR only when all structural and boot requirements pass.
+- **PART-011:** Provide clone-and-reformat migration when lossless in-place file-system conversion is unavailable.
+- **PART-012:** Queue multiple operations and compute their combined final layout before apply.
+- **PART-013:** Back up primary and secondary GPT or MBR/EBR metadata before the first table write.
+- **PART-014:** Protect EFI System, Microsoft Reserved, Windows Recovery, Apple recovery, Apple sealed system volumes and signed system snapshots, Linux boot, active swap, and current boot/root volumes.
+- **PART-015:** When a shrink is limited, report the true minimum size and its cause — including Windows unmovable files (pagefile, hibernation file, MFT zone, VSS store) — with per-cause remediation guidance. Remediation actions are separate, explicit plans; never silent side effects.
+- **PART-016:** When a plan changes or regenerates identifiers (UUID, PARTUUID, disk GUID/MBR signature, volume serial, label), the planner MUST enumerate known dependent references — fstab, crypttab, BCD entries, bootloader configs, auto-unlock bindings — and either include supported update steps or attach an explicit warning listing exactly what the user must fix.
+
+### 7.4 File-system operations
+
+- **FS-001:** Windows first-class support: NTFS, FAT12/16/32, exFAT, and ReFS where documented native support permits.
+- **FS-002:** macOS first-class support: APFS containers/volumes, HFS+, FAT32, and exFAT.
+- **FS-003:** Linux first-class support: ext2/3/4, Btrfs, XFS, F2FS, FAT32, exFAT, NTFS, and swap according to validated tool support.
+- **FS-004:** Detect APFS, HFS+, ReFS, ext, Btrfs, XFS, F2FS, NTFS, FAT, exFAT, UDF, LVM PV, Linux RAID, LUKS, BitLocker, ZFS pool members, Storage Spaces, LDM metadata, and common legacy file systems.
+- **FS-005:** Check file-system health before shrink, move, copy, or conversion.
+- **FS-006:** Never implement a novel production file-system resizer; use authoritative native APIs/tools through adapters.
+- **FS-007:** Surface immutable technical limits, such as XFS not shrinking, as explicit blocked reasons.
+- **FS-008:** Preserve file-system UUIDs only when safe; prevent accidental duplicate UUIDs after clone.
+- **FS-009:** Verify file-system size, mountability, and reported free space after modification.
+- **FS-010:** Operations of severity ≥ 3 (PLAN-004) touching an encrypted layer MUST require explicit user acknowledgment that recovery material (recovery key, passphrase, escrow) is available, and MUST link the platform's key-verification guidance.
+
+### 7.5 Windows requirements
+
+- **WIN-001:** Use Windows Storage Management API and documented storage/volume APIs as the primary interface.
+- **WIN-002:** Treat VDS and DiskPart as isolated compatibility fallbacks, never the default abstraction.
+- **WIN-003:** Discover and manage basic GPT/MBR disks, drive letters, mount folders, and VHD/VHDX. Storage Spaces are detected, represented, and protected only (Section 2.1).
+- **WIN-004:** Detect legacy dynamic disks and support safe inspection and copy-based migration to basic disks; in-place LDM mutation is out of scope (Section 2.1).
+- **WIN-005:** Detect BitLocker state, protect keys, explain suspend/unlock/decrypt requirements, and restore protection after success.
+- **WIN-006:** Use VSS or documented volume-lock behavior where needed; never imply that VSS is a data backup.
+- **WIN-007:** Support Windows OS migration to HDD, SATA SSD, and NVMe, including EFI/MSR/Recovery partitions.
+- **WIN-008:** Validate UEFI/BCD boot configuration and provide repair actions.
+- **WIN-009:** Reboot/offline operations must resume the same cryptographically bound plan.
+- **WIN-010:** Ship signed installation, helper, updater, uninstaller, and rescue components.
+- **WIN-011:** Detect hibernation, Fast Startup, active pagefiles, and dirty volumes. Operations blocked by these states MUST name the state and its remediation. The product MUST NOT silently delete or move `hiberfil.sys` or pagefiles; such remediation is its own explicit plan step.
+
+### 7.6 Linux requirements
+
+- **LIN-001:** Use UDisks2 for discovery/authorization and libblockdev or authoritative native tools for mutations.
+- **LIN-002:** Support GPT/MBR, ext2/3/4, Btrfs, XFS, F2FS, FAT/exFAT, NTFS, and swap according to installed capabilities. The NTFS write stack (kernel `ntfs3` vs `ntfs-3g`) is selected and version-gated per ADR-L1.
+- **LIN-003:** Support LUKS2 create/open/close/key management without exposing secrets.
+- **LIN-004:** Support LVM2 PV, VG, LV, thin pool, snapshot, resize, activate, and deactivate workflows.
+- **LIN-005:** Support mdraid discovery, create, assemble, stop, grow where safe, member replacement, status, and metadata cleanup.
+- **LIN-006:** Detect device mapper, multipath, loop devices, Btrfs multi-device layouts, and active root/boot/swap dependencies.
+- **LIN-007:** Repair or regenerate GRUB and systemd-boot configuration through explicit plans.
+- **LIN-008:** Package as a signed `.deb` and an Arch package with declared optional file-system dependencies.
+- **LIN-009:** Use polkit rules scoped to validated plan execution, not broad command execution.
+- **LIN-010:** After any identifier change (PART-016), verify that `/etc/fstab`, `/etc/crypttab`, and bootloader references still resolve; unresolved references produce explicit warnings and offered fix steps.
+
+### 7.7 macOS requirements
+
+- **MAC-001:** Use Disk Arbitration for device events and mount/unmount/eject coordination.
+- **MAC-002:** Support GUID partition maps, APFS containers and volumes, HFS+, FAT32, exFAT, and disk images through documented mechanisms (APFS mutation surface per ADR-M1).
+- **MAC-003:** Represent APFS physical stores, containers, volumes, roles, reserve/quota values, and snapshots.
+- **MAC-004:** Detect FileVault and require a safe unlock/decrypt/offline path for affected operations.
+- **MAC-005:** Distinguish Intel, Apple Silicon, startup, recovery, and external boot layouts.
+- **MAC-006:** Treat Intel Boot Camp modification as a separate capability from inspection/migration.
+- **MAC-007:** Ship a signed, notarized universal application and privileged helper.
+- **MAC-008:** Do not target the Mac App Store if sandbox constraints prevent the declared functionality.
+- **MAC-009:** Honor SIP and the sealed system volume: sealed volumes and signed system snapshots are protected objects (PART-014). Operations macOS permits only in Recovery (notably on Apple Silicon) MUST report `blocked` with that exact reason, never attempt a workaround.
+- **MAC-010:** Detect Fusion Drives; all Fusion mutation is out of scope (Section 2.1).
+
+### 7.8 Clone, migration, and image engine
+
+- **IMG-001:** Clone a whole device or partition in used-block and sector-by-sector modes.
+- **IMG-002:** Lock source and destination identity and reject reversal or destination changes.
+- **IMG-003:** Support grow-to-fit and shrink-to-fit only after file-system and layout validation.
+- **IMG-004:** Align partitions and preserve or intentionally regenerate identifiers as the plan declares (with PART-016 consistency handling).
+- **IMG-005:** Verify copies with cryptographic checksums or authoritative file-system-aware verification.
+- **IMG-006:** Create and restore raw sparse images with optional compression, checksums, and split archives (image format per ADR-I1).
+- **IMG-007:** Resume interrupted image and clone jobs from a durable byte-range map.
+- **IMG-008:** Provide damaged-media mode that records unreadable regions, retries conservatively, and never writes to the source.
+- **IMG-009:** Mount or explore supported images read-only.
+- **IMG-010:** Estimate required destination capacity before apply.
+- **IMG-011:** Cross-sector-size operations (e.g., 512e ↔ 4Kn): cloning or restoring between devices with different logical sector sizes MUST recompute partition tables, alignment, and file-system geometry where the file system supports the target sector size, and MUST be `blocked` with a precise reason where it does not.
+
+### 7.9 Recovery, rescue, and boot repair
+
+- **REC-001:** Back up and restore partition-table metadata with device-identity validation.
+- **REC-002:** Perform quick and deep lost-partition scans without writing to the source.
+- **REC-003:** Preview candidate partitions, confidence, conflicts, and recoverable files before undelete.
+- **REC-004:** Restore a lost partition only through a normal immutable plan.
+- **REC-005:** Export recoverable files to a different device.
+- **REC-006:** Provide Windows UEFI/BCD and Linux GRUB/systemd-boot repair plans.
+- **REC-007:** Build a UEFI rescue environment using the same schemas, planner, journal, and helper validation (base image and Secure Boot chain per ADR-R1).
+- **REC-008:** Verify rescue media after creation and before system-disk operations that may require it.
+- **REC-009:** Surface the last durable checkpoint and valid roll-forward or recovery actions after interruption.
+- **REC-010:** Never advertise rollback when the underlying data transformation is not reversible (enforced via PLAN-008).
+- **REC-011:** Before mutating an encryption layer, create and verify a backup of its metadata (LUKS header, BitLocker metadata) with the same identity binding as PART-013. A failed or unverifiable backup blocks the operation (SAFE-005).
+
+### 7.10 Diagnostics and erase
+
+- **DIA-001:** Report SMART/NVMe health, temperature, wear, unsafe shutdowns, media errors, and critical warnings where supported.
+- **DIA-002:** Run a read-only surface scan with progress, cancellation, and a bad-region map.
+- **DIA-003:** Report TRIM/discard availability and alignment.
+- **DIA-004:** Support controller/device secure erase or sanitize only after capability, power, frozen-state, and target-identity checks.
+- **DIA-005:** Distinguish overwrite, crypto-erase, sanitize, format, discard, and file deletion; never call them equivalent.
+- **DIA-006:** Use stronger confirmation for whole-device erase and display the immutable device identity.
+- **DIA-007:** Produce a redacted diagnostic bundle that the user can inspect before export.
+
+### 7.11 GUI and dark design
+
+- **UI-001:** Default to a dark charcoal theme; also support system theme and accessible high contrast.
+- **UI-002:** Main workspace contains a device rail, topology map, inspector, and pending-plan drawer.
+- **UI-003:** Distinguish physical devices, partitions, containers, volumes, encryption, file systems, mounts, and free space visually and textually.
+- **UI-004:** Show `Current → Planned` topology for every mutation.
+- **UI-005:** Display exact target identity, operation order, risk severity and flags, offline/reboot needs, estimated affected range, and recovery action before Apply.
+- **UI-006:** Provide Guided and Expert density modes without hiding risk or safety facts.
+- **UI-007:** Never use color alone for identity, selection, file system, health, or risk.
+- **UI-008:** Meet WCAG 2.2 AA, keyboard-only operation, screen-reader semantics, 200% zoom, reduced motion, and color-blind-safe palettes.
+- **UI-009:** Require typed device-name confirmation for destructive whole-device actions.
+- **UI-010:** Show actionable constraints and errors, including cause, unchanged state, safe next step, and diagnostic details.
+- **UI-011:** Progress UI must distinguish planning, waiting for authorization, executing, verifying, reboot pending, recovering, failed, and complete.
+- **UI-012:** The UI MUST not claim completion until postconditions pass.
+- **UI-013:** v1 ships in English with all user-facing strings externalized for future localization. Exact byte values (MODEL-001) are always available in the inspector alongside IEC display units.
+
+### 7.12 CLI and automation
+
+- **CLI-001:** Provide human-readable output and stable versioned JSON.
+- **CLI-002:** Support inventory, capabilities, plan, validate, dry-run, apply-plan, status, resume, cancel where safe, and export-diagnostics.
+- **CLI-003:** The CLI MUST use the same planner, validator, helper, and plan schemas as the GUI.
+- **CLI-004:** Raw destructive commands that bypass planning MUST NOT exist.
+- **CLI-005:** Exit codes and error schemas MUST be documented and stable within a major version.
+- **CLI-006:** Secret input MUST use protected prompt/descriptor mechanisms, not command-line arguments.
+- **CLI-007:** Automation defaults to dry run unless an immutable reviewed plan is explicitly submitted.
+- **CLI-008:** Honor `NO_COLOR` and non-TTY detection; `--json` output contains no ANSI sequences; long operations expose machine-readable progress as JSON Lines events.
+
+### 7.13 Security, privacy, and supply chain
+
+- **SEC-001:** Authenticate the GUI/CLI to the local helper and authorize only exact plan hashes.
+- **SEC-002:** Reject replayed, expired, altered, cross-user, and cross-device plans.
+- **SEC-003:** Isolate parsers for hostile/corrupt metadata and fuzz their boundaries (targets enumerated in Section 11.4).
+- **SEC-004:** Sign applications, helpers, packages, updates, and rescue images (signing infrastructure per ADR-S1; rescue Secure Boot chain per ADR-R1).
+- **SEC-005:** Publish an SBOM and dependency/license inventory for each release.
+- **SEC-006:** Make telemetry opt-in and redact device serials, paths, labels, usernames, keys, and file names (recommended v1 posture: no telemetry, Section 2.1).
+- **SEC-007:** Support fully offline use with no account for core functionality.
+- **SEC-008:** Updates MUST be signature-verified, rollback-tested, and unable to downgrade security state silently (framework per ADR-U1).
+- **SEC-009:** Persist audit logs locally with explicit retention and redaction controls.
+- **SEC-010:** Supply chain: lockfiles are committed; `cargo audit` and `cargo deny` (advisories and licenses) gate CI; CI actions and builder images are pinned by digest; release builds SHOULD be reproducible, with deviations documented.
+
+### 7.14 Packaging and documentation
+
+- **PKG-001:** Produce signed Windows installer/uninstaller and update packages.
+- **PKG-002:** Produce signed/notarized macOS application, helper, and uninstall procedure.
+- **PKG-003:** Produce Debian and Arch packages with dependency metadata and clean removal behavior.
+- **PKG-004:** Package capability data, schemas, licenses, notices, and recovery documentation with the product.
+- **PKG-005:** Installation and removal MUST not modify disk layout or boot configuration unless an explicit user plan requests it.
+- **DOC-001:** Document every capability, limitation, cancellation rule, and recovery path.
+- **DOC-002:** Generate CLI and schema reference from source-controlled definitions where practical.
+- **DOC-003:** Maintain a platform/file-system capability matrix tied to automated test evidence (generated, Section 11.7).
+
+### 7.15 Execution environment
+
+- **EXE-001:** System sleep and hibernation MUST be inhibited while a plan is in Protecting, Executing, or Verifying; inhibition is released afterward and its failure to engage is surfaced before apply.
+- **EXE-002:** On battery power, plans with severity ≥ 3 or offline/system-disk steps MUST warn before apply; secure erase and sanitize SHOULD require external power where detectability permits.
+- **EXE-003:** Progress reports step identity and byte counts where meaningful; ETAs are labeled as estimates; progress never moves backward except on a declared, journaled retry.
+- **EXE-004:** Cancellable steps SHOULD acknowledge a cancel request within 2 seconds, even if safe unwinding then takes longer (PLAN-005 governs when cancel is offered).
+
+## 8. Execution state machine
+
+Top-level plan states:
+
+`Draft, Validated, AwaitingAuthorization, Revalidating, Protecting, Executing, Verifying, Completed, Paused, RebootPending, RecoveryRequired, Failed, Cancelled`
+
+**Terminal states:** `Completed`, `Failed`, `Cancelled`. Every terminal record includes an effect summary: `no-writes`, `partial`, or `complete`.
+
+### Transition table
+
+| From | To | Trigger |
+| --- | --- | --- |
+| Draft | Validated | Validator passes |
+| Validated | Draft | User edit, or invalidation (CONC-003) |
+| Validated | AwaitingAuthorization | User/CLI submits apply |
+| AwaitingAuthorization | Revalidating | Authorization granted (HLP-003) |
+| AwaitingAuthorization | Cancelled | User declines, or validity window expires (PLAN-007) — effect `no-writes` |
+| Revalidating | Protecting | Helper revalidation passes (HLP-002, PLAN-006) |
+| Revalidating | Failed | Identity/topology mismatch — effect `no-writes` (ACC-007) |
+| Protecting | Executing | Metadata/encryption backups complete and verified (PART-013, REC-011) |
+| Protecting | Failed | Backup failure (SAFE-005) — effect `no-writes` |
+| Executing | Verifying | Final step complete |
+| Executing | Paused | User pause at a cancellable or checkpoint boundary |
+| Executing | RebootPending | Declared reboot step reached |
+| Executing | RecoveryRequired | Step failure with recovery actions, or interruption detected on restart |
+| Executing | Cancelled | Cancel honored at a safe point (PLAN-005) after journaled unwind — effect `no-writes` or `partial` |
+| Paused | Executing | User resumes; topology re-verified first |
+| Paused | Cancelled | User cancels — effect per journal |
+| Paused | RecoveryRequired | Topology changed while paused |
+| RebootPending | Revalidating | Same plan hash resumes after boot (WIN-009) |
+| RebootPending | RecoveryRequired | Resume impossible or state divergent |
+| Verifying | Completed | Postconditions pass (UI-012) |
+| Verifying | RecoveryRequired | Postcondition failure |
+| RecoveryRequired | Executing | User selects a valid roll-forward action (REC-009) |
+| RecoveryRequired | Failed | User accepts failure; full report generated |
+
+No other transitions exist. The transition table MUST be published machine-readably in `schemas/`, and property tests MUST prove undeclared transitions are unrepresentable (Section 11.6).
+
+State transitions MUST be durable and idempotent (JRN-002, JRN-003). A restart MUST reconstruct status from the journal rather than guessing from UI state. `RecoveryRequired` persists across restarts until the user acts; recovery actions are themselves plans under this same contract.
+
+## 9. Platform support floors
+
+Initial floors; changeable only via ADR. The capability engine may narrow further at runtime (CAP-004); it may never widen below these floors.
+
+| Tier | Platform | Floor | Guarantee |
+| --- | --- | --- | --- |
+| Primary | Windows 11 | 23H2 | Full advertised matrix |
+| Compatibility | Windows 10 | 22H2 (build 19045) with ESU; LTSC 2021 | Read-only + core operations; advanced operations capability-gated |
+| Primary | macOS | 13 (Ventura), Apple Silicon and Intel | Full advertised matrix per ADR-M1 limits |
+| Primary | Debian / Ubuntu | Debian 12 / Ubuntu 22.04 LTS; kernel ≥ 5.15; UDisks2 ≥ 2.9 | Full advertised matrix |
+| Primary | Arch Linux | Current rolling | Full advertised matrix, tool-version-gated |
+
+Per-tool version floors live with the capability fixtures (CAP-006) in `docs/capabilities/`, not in this spec.
+
+## 10. Required user acceptance scenarios
+
+### ACC-001: Resize a Windows system volume
+
+Given a healthy GPT/UEFI Windows disk with BitLocker, the product:
+
+1. Identifies all EFI/MSR/Windows/Recovery relationships.
+2. Reports whether BitLocker suspension or unlock is required.
+3. Produces Current → Planned topology.
+4. Saves partition metadata.
+5. Executes online or resumes offline as declared.
+6. Verifies NTFS and boot configuration.
+7. Restores protection and reports the final exact sizes.
+
+### ACC-002: Clone Windows to a smaller SSD
+
+Given sufficient used space but a smaller destination, the product plans file-system shrink, partition resizing, clone, identifier handling, alignment, and boot repair. It refuses if the actual used data cannot fit.
+
+### ACC-003: Prepare dual boot
+
+Given a Windows device with available shrinkable space, the product creates a safe plan for Linux partitions without overwriting EFI/Recovery data and explains the bootloader implications.
+
+### ACC-004: Recover a deleted partition
+
+The product scans read-only, presents non-overlapping candidates and confidence, previews files, and restores metadata only after an explicit reviewed plan.
+
+### ACC-005: Linux LUKS/LVM resize
+
+The product orders file-system, LV, PV, encryption, and partition steps correctly for grow and shrink directions and blocks unsupported layer combinations.
+
+### ACC-006: APFS external drive management
+
+The product accurately displays the physical store, APFS container, volumes, roles, quotas, and free space and applies only operations supported by the current macOS environment.
+
+### ACC-007: Stale device plan
+
+If a target is removed and a similar-capacity device is connected, execution is rejected because immutable identity and snapshot checks fail.
+
+### ACC-008: Interruption
+
+At every declared checkpoint, forced termination or reboot results in a truthful journal state and either safe resume, safe roll-forward, or explicit recovery instructions.
+
+### ACC-009: Missing tool
+
+If a Linux file-system utility is absent or outside the tested version range, the capability becomes blocked with an installation/remediation message; the planner cannot create the affected write step.
+
+### ACC-010: Destructive erase
+
+The product shows immutable device identity and erase semantics, requires strong confirmation, verifies power/device state, and never targets the source or system disk through a selection race.
+
+### ACC-011: Keyboard-only accessible apply
+
+The full ACC-001 flow — device selection, plan review, typed confirmation, authorization, progress, completion — completes keyboard-only with correct screen-reader semantics (UI-008 evidence).
+
+### ACC-012: Checkpoint cancellation
+
+The user cancels mid-way through a long partition move. The product acknowledges promptly (EXE-004), stops at the declared checkpoint, the journal is truthful, the layout is consistent, and the user is offered valid resume or recovery actions (PLAN-005, REC-009).
+
+### ACC-013: Damaged-media clone
+
+Cloning a source with injected read errors, damaged-media mode maps unreadable regions, completes a best-effort image, never writes to the source, and the final report enumerates affected ranges (IMG-008).
+
+### ACC-014: Weak-identity removable target
+
+A USB enclosure exposes no serial/WWN. The product classifies identity as weak, requires the stronger confirmation path, refuses unattended apply without the recorded override, and re-probes immediately before apply (SAFE-003).
+
+### ACC-015: Cross-sector-size clone
+
+Cloning a 512e source to a 4Kn destination either recomputes geometry end-to-end and verifies the result, or blocks with a precise file-system-level reason. Restore in the reverse direction behaves equivalently (IMG-011).
+
+### ACC-016: Update rollback
+
+A deliberately failed update rolls back to the previous working version without losing plans, journals, or audit logs, and cannot silently downgrade security state (SEC-008).
+## 11. Testing contract
+
+### 11.1 Per-work-package obligations
+
+Every work package that can affect storage MUST include:
+
+- Unit tests for domain and validation rules.
+- Property tests for extent arithmetic and invariants.
+- Golden-image integration tests.
+- Negative tests for stale identity, corrupt metadata, missing dependencies, unsupported states, weak identity (SAFE-003), and permission denial.
+- Fault-injection tests for every durable checkpoint it introduces.
+- Schema compatibility tests for public JSON/RPC, including migration vectors for every schema version bump and rejection tests for incompatible versions.
+- Redaction tests for errors, logs, plans, and diagnostics.
+
+### 11.2 Invariants
+
+At minimum, automated tests MUST prove:
+
+- Partition extents do not overlap.
+- Extents remain inside the bound device.
+- Required alignment is preserved.
+- Protected partitions cannot be modified without an explicit supported plan.
+- Shrink order is file system before enclosing layers.
+- Grow order is enclosing layers before file system.
+- The source of clone/image/recovery is never written.
+- Duplicate UUIDs are handled according to the plan.
+- A helper cannot execute a plan with a different hash or topology.
+- Completion cannot occur before postcondition verification.
+- An interrupted move always leaves either the original mapping or a fully-copied, journal-recoverable state (PART-005).
+- No undeclared state-machine transition is representable (Section 8).
+- Two apply submissions racing for one device produce exactly one execution (CONC-005).
+
+### 11.3 Test environment architecture
+
+Three tiers; every tier is reproducible from the repository alone.
+
+- **T1 — Unprivileged, everywhere:** synthetic disk images as regular files; pure planner/validator/model tests. Runs on any developer machine and every CI job with no elevation (SAFE-002).
+- **T2 — Privileged, disposable VMs per OS:** loop/kpartx/LVM/mdraid and helper integration on Linux VMs; VHDX-backed disposable Windows VMs; disk-image-backed macOS VMs or hosted runners. Destructive suites run only here or in T3, gated by SAFE-007. Nested-virtualization limits per CI provider are documented in `docs/quality/`.
+- **T3 — Physical lab:** explicitly provisioned, labeled fixture devices (SAFE-001) with SAFE-007 interlocks. The hardware matrix is versioned in `docs/quality/hardware-matrix.md` and MUST cover at minimum: NVMe 512e, NVMe 4Kn, SATA SSD, USB HDD, USB flash, SD via reader, plus a hot-plug rig for INV-009 and removal-during-write tests.
+
+Fixture images are generated by scripts (deterministic, cached); binary disk images are never committed. A single task-runner entry point (e.g., `cargo xtask test --tier <n>`) runs identical commands locally and in CI (WP-000).
+
+### 11.4 Fuzzing
+
+`cargo-fuzz` targets MUST exist for every parser of on-disk or externally supplied bytes: GPT/MBR/APM headers, file-system probes, LVM/LUKS/mdraid metadata, plan/journal/RPC deserializers. Short fuzz smoke runs gate every PR touching a parser; scheduled long runs accumulate corpora; the release gate requires zero untriaged crashes or hangs.
+
+### 11.5 Stress and environment tests
+
+- Device-churn storms validating INV-009.
+- VM hard-kill power-loss tests during image/clone jobs at randomized offsets, plus at every declared checkpoint class (extends fault injection).
+- Sleep-inhibition and battery-state behavior (EXE-001/002) where the platform permits simulation.
+
+### 11.6 State-machine conformance
+
+Property tests generate transition sequences against the machine-readable table (Section 8); any undeclared transition or non-durable transition fails.
+
+### 11.7 Traceability (automated)
+
+CI generates `docs/traceability/` mapping every requirement ID to its tests and evidence artifacts. A work package claiming a requirement without linked evidence fails its gate. DOC-003's capability matrix is generated from CAP-006 fixtures plus test evidence — never hand-edited.
+
+### 11.8 Coverage
+
+Code coverage is measured per crate. Floors are set at M1 in repository configuration (not in this spec) and MUST NOT regress.
+
+## 12. Definition of done
+
+A requirement or work package is complete only when:
+
+1. Production implementation exists; no no-op, fake, or test-only success path remains.
+2. Relevant requirement IDs are linked in code/tests or task metadata, and the generated traceability map (11.7) shows the evidence.
+3. Tests required by Section 11 pass.
+4. Errors and unsupported cases are user-actionable.
+5. GUI and CLI behavior use the same canonical capability and plan logic.
+6. Public schemas and documentation are updated.
+7. Logs and diagnostics pass redaction tests.
+8. Platform-specific behavior is tested on its declared platform fixture.
+9. No write test touched a host or non-disposable device.
+10. The agent reports changed files, tests run, remaining limitations, and follow-up work, plus the spec version built against.
+11. Any architectural deviation is captured in an ADR merged with the change.
+
+## 13. Milestones and integration gates
+
+Work packages alone do not force integration; milestones do. A milestone exits only when its criteria pass on all three platforms (or the milestone explicitly scopes fewer). Milestones are sequential; work packages within a milestone parallelize per Section 14.
+
+| Milestone | Theme | Exit criteria |
+| --- | --- | --- |
+| **M0** | Foundations | CI green on Windows/macOS/Linux; schemas versioned with cross-language hash golden tests (MODEL-005); T1 fixture generator produces images; `xtask` single entry point works locally and in CI; accessibility harness runs; CODEOWNERS enforces ownership. |
+| **M1** | Trustworthy read-only product (internal alpha) | Inventory correct against fixtures on all platforms; capability engine honest (blocked/unsupported reasons verified); zero elevation anywhere; diagnostic bundle works; UI shows real topology read-only; CLI inventory/capabilities stable JSON; coverage floors set. |
+| **M2** | Planning and dry run | Planner/validator/simulated topology complete; plan drawer and Current → Planned UI live; ACC-001/002/003/005 pass in planning-only mode (no writes, validator-level dry run); risk model and consequence text rendered; journal core merged. |
+| **M3** | First safe writes (beta on disposable media) | Helpers ship on all platforms with per-apply authorization (HLP-003) demonstrated on each OS; basic GPT/MBR create/delete/format pass on T2; PLAN-009 full dry-run parity including helper revalidation; ACC-007 and ACC-008 pass; state-machine conformance tests pass; fault injection running in CI. |
+| **M4** | Full storage operations | File systems, resize/move, encryption-aware flows, clone/image engine, recovery scans, diagnostics; ACC-001…006, 009, 012, 013, 015 pass on fixtures; PART-015 shrink-cause reporting and PART-016 identifier consistency demonstrated; usability targets recorded in `docs/quality/ux-targets.md`. |
+| **M5** | Ship | Boot repair, rescue environment, secure erase, packaging/signing/updates on all platforms; ACC-010, 011, 014, 016 pass; Section 19 release gate satisfied. |
+
+M1 and M3 are honest early ship points if scope must later narrow: a read-only inspector and a basic-operations tool are each independently valuable and safe.
+
+## 14. Dependency-ordered work packages
+
+Agents may work in parallel only when packages do not overlap owned files and all prerequisites are complete. Dependencies are explicit work-package or ADR IDs only.
+
+| Package | Scope | Depends on | Milestone |
+| --- | --- | --- | --- |
+| WP-000 | Repository, CI (3 OS), xtask runner, CODEOWNERS, formatting, dependency policy (SEC-010), ADR template | None | M0 |
+| WP-010 | Canonical domain model, schema versioning, canonical encoding + hashing (MODEL-005, ADR-C1) | WP-000 | M0 |
+| WP-020 | Synthetic/golden disk image generator and T1/T2 destructive-test harness (SAFE-007 interlocks) | WP-000 | M0 |
+| WP-030 | Design tokens, dark UI shell, accessibility harness | WP-000 | M0 |
+| WP-040 | RPC schemas, transport per OS, handshake, helper authentication skeleton, redaction (RPC-001…006) | WP-010 | M0 |
+| WP-050 | Capability engine interfaces and fixtures | WP-010, WP-020 | M1 |
+| WP-W100 | Windows read-only inventory and health adapter | WP-010, WP-020, WP-050 | M1 |
+| WP-L100 | Linux read-only inventory and capability adapter | WP-010, WP-020, WP-050 | M1 |
+| WP-M100 | macOS read-only inventory, Disk Arbitration, APFS model | WP-010, WP-020, WP-050 | M1 |
+| WP-080 | CLI inventory/capabilities/plan/dry-run | WP-040, WP-050 | M1–M2 |
+| WP-060 | Pure planner, extent solver, risk model, simulated topology, reversal plans (PLAN-008) | WP-010, WP-050 | M2 |
+| WP-070 | Journal (JRN-001…006) and execution state machine (Section 8) | WP-010, WP-040 | M2 |
+| WP-090 | Current → Planned UI and plan drawer | WP-030, WP-060 | M2 |
+| WP-S100 | Fuzzing harness, parser fuzz targets, corpora CI (11.4) | WP-010 | M2, continuous |
+| WP-W110 | Windows helper, per-apply authorization (ADR-W1), basic GPT/MBR operations | WP-040, WP-060, WP-070, WP-W100 | M3 |
+| WP-L110 | Linux helper, GPT/MBR, file systems, polkit | WP-040, WP-060, WP-070, WP-L100 | M3 |
+| WP-M110 | macOS helper, GPT/APFS/HFS+ operations (ADR-M1) | WP-040, WP-060, WP-070, WP-M100 | M3 |
+| WP-085 | CLI apply/resume/status/cancel against live helpers | WP-070, WP-080, and ≥1 of WP-W110/WP-L110/WP-M110 | M3 |
+| WP-W120 | Windows file systems, BitLocker, unmovable-file reporting (PART-015, WIN-011), reboot/offline | WP-W110 | M4 |
+| WP-L120 | LUKS2, LVM2, mdraid, boot repair, fstab/crypttab consistency (LIN-010) | WP-L110 | M4 |
+| WP-M120 | FileVault, snapshots, SIP/SSV constraints (MAC-009), boot/recovery | WP-M110 | M4 |
+| WP-I100 | Shared clone/image/verify/resume engine (ADR-I1, IMG-011) | WP-010, WP-020, WP-070 | M4 |
+| WP-R100 | Partition-table + encryption-metadata backup (REC-011), lost-partition scan, preview | WP-010, WP-020, WP-060 | M4 |
+| WP-D100 | SMART/NVMe, surface scan, TRIM | WP-W100, WP-L100, WP-M100 (per-platform delivery) | M4 |
+| WP-095 | UI surfaces: diagnostics, recovery, erase, settings | WP-090, WP-D100, WP-R100 | M4 |
+| WP-W130 | Windows clone/migrate and boot repair | WP-W120, WP-I100 | M5 |
+| WP-R110 | Rescue environment and offline plan execution | WP-070, ADR-R1, and the helpers whose plans it executes (initially WP-L110, WP-W110) | M5 |
+| WP-D110 | Secure erase/sanitize | WP-D100, WP-W110, WP-L110, WP-M110 | M5 |
+| WP-DOC100 | Generated capability matrix, CLI/schema reference, traceability publishing (11.7, DOC-002/003) | WP-050, WP-080 | M4–M5 |
+| WP-P100 | Windows packaging/signing/update (ADR-S1, ADR-U1) | WP-W130, WP-085, WP-095 | M5 |
+| WP-P110 | Debian and Arch packaging | WP-L120, WP-085, WP-095 | M5 |
+| WP-P120 | macOS signing/notarization/update (ADR-S1, ADR-U1) | WP-M120, WP-085, WP-095 | M5 |
+| WP-Q100 | Cross-platform fault injection, model tests, release gates | All affected packages | M5 |
+
+An orchestrating agent SHOULD split large platform packages into narrowly owned subtasks while preserving the same prerequisite gates.
+
+## 15. Known hard problems and required ADRs
+
+Each ADR MUST be accepted before its dependent work package starts. These are the questions most likely to sink the project if answered implicitly.
+
+| ADR | Question | Blocks |
+| --- | --- | --- |
+| ADR-C1 | Canonical encoding and hash library for plans/snapshots; cross-language strategy | WP-010 |
+| ADR-W1 | Windows per-apply authorization mechanism (HLP-003): consent broker design, token binding, secure-desktop use | WP-W110 |
+| ADR-M1 | APFS mutation surface: `diskutil`-mediated operations, macOS version drift, absence of public partition-editing APIs; what is honestly supportable per macOS release | WP-M110 |
+| ADR-L1 | Linux NTFS stack: kernel `ntfs3` vs `ntfs-3g`, version gating, capability mapping | WP-L110 |
+| ADR-I1 | Image format: container layout, sparse/compression/split, resume map, format versioning | WP-I100 |
+| ADR-R1 | Rescue base image and Secure Boot chain: Linux-based (shim/MOK) vs WinPE (ADK licensing) vs both; driver coverage; how rescue media get signed | WP-R110 |
+| ADR-U1 | Per-OS update framework with verified rollback (SEC-008) | WP-P100/110/120 |
+| ADR-S1 | Signing infrastructure: certificates, HSM/EV handling, notarization, CI secret isolation | WP-P100/110/120 |
+| ADR-W2 | Long-term stance on Storage Spaces and dynamic-disk mutation (currently non-goals) | Future spec change only |
+
+## 16. Prohibited shortcuts
+
+Agents MUST NOT:
+
+- Claim support based only on command availability.
+- Parse human-localized command output when structured output or an API exists.
+- Use the UI layer as the source of truth for topology or execution state.
+- Put privileged code in the desktop renderer.
+- Accept a device path alone as identity.
+- Auto-select a replacement target after hot-plug.
+- Continue after a failed metadata backup unless the user chooses a separately supported recovery strategy.
+- Treat formatting as secure erase.
+- Treat a snapshot, restore point, VSS snapshot, or partition-table backup as a full data backup.
+- Log raw external-tool output without redaction and size limits.
+- Add AI-generated "smart" recommendations that cannot be reproduced by deterministic rules.
+- Mark a capability Stable without its matrix fixture and acceptance evidence.
+- Renumber, reuse, or delete requirement IDs (Section 0.1).
+- Ship or hide any flag, environment variable, or build option that bypasses helper validation in production builds.
+- Weaken, skip, or fixture-out safety tests to make CI pass.
+- Commit binary disk images; fixtures are generated by script (11.3).
+- Push directly to the default branch; all changes go through PRs with required checks (Section 1).
+- Swallow a cancel request without either honoring it or reporting why the current step is non-cancellable.
+
+## 17. Prompt template for implementation agents
+
+Use this template for every agent assignment:
+
+```text
+You are implementing one work package for the Cross-Platform Disk Partition Manager.
+
+Read, in order:
+1. Repository AGENTS.md
+2. AGENT_BUILD_SPEC.md (note the spec version)
+3. Relevant ADRs, schemas, and capability documents
+
+Spec version: <2.x.x>
+Work package: <WP-ID and title>
+Requirement IDs: <explicit IDs>
+Objective: <one bounded outcome>
+Prerequisites already verified: <package/ADR IDs and evidence>
+Owned paths: <exact files/directories the agent may edit>
+Do not edit: <shared or agent-owned paths>
+Test fixtures: <exact disposable images/VM profile and tier (T1/T2/T3)>
+Required acceptance scenarios: <ACC IDs or task-specific cases>
+Required commands/checks: <xtask targets, tests, formatters, schema validation>
+
+Constraints:
+- Never target host or user disks.
+- Do not bypass the planner, capability engine, or helper validation.
+- Do not change a public schema without an authorized versioned migration.
+- Do not add fake/no-op support.
+- Record all assumptions in the PR description; stop and report if the task
+  requires an unsupported or unsafe assumption.
+
+Deliver:
+1. Implementation.
+2. Automated tests.
+3. Updated schemas/docs/capability fixtures and traceability evidence.
+4. Summary of changed files.
+5. Tests run and results.
+6. Requirement IDs satisfied.
+7. Remaining limitations and exact follow-up packages.
+```
+
+## 18. Prompt template for review agents
+
+```text
+Review work package <WP-ID> against AGENT_BUILD_SPEC.md <spec version>.
+
+Check:
+- Assigned requirement IDs and acceptance scenarios.
+- Host-disk safety and disposable-test enforcement.
+- Device identity, identity strength, and stale-plan rejection.
+- Privilege boundary, per-apply authorization, and RPC authorization.
+- Extent/file-system ordering invariants.
+- Concurrency: locking, invalidation, racing applies (CONC-001…005).
+- Cancellation, journaling, verification, and recovery behavior.
+- Power/sleep behavior for long operations (EXE-001…004).
+- Secret/log/telemetry redaction.
+- Schema compatibility and canonical-hash stability.
+- Platform capability honesty, including preview labeling.
+- Accessibility on any UI surface touched (UI-007/008).
+- Automated test completeness and traceability evidence (11.7).
+
+Do not modify code unless explicitly assigned a fix task.
+Report findings in severity order with exact file and line references.
+State which requirements pass, fail, or lack evidence.
+```
+
+## 19. Release gate
+
+The product is not releasable until:
+
+- No open critical/high issue can select the wrong device, cause unexplained data loss, bypass privilege checks, leak secrets, or create an unbootable system outside a documented unsupported case.
+- Every write operation has preconditions, postconditions, cancellation semantics, journal behavior, and recovery documentation.
+- Fault-injected virtual/image tests complete with no unexplained topology divergence.
+- The physical-device qualification suite passes on the versioned hardware matrix (11.3).
+- The primary workflows — ACC-001, ACC-002, ACC-003, ACC-004, and ACC-010 — meet the task-completion and accessibility targets recorded in `docs/quality/ux-targets.md` (targets set no later than M4), and ACC-011 passes.
+- All shipped packages, updates, helpers, and rescue images are signed and rollback-tested (ACC-016).
+- The fuzz corpus has zero untriaged crashes or hangs (11.4).
+- Supply-chain gates are green: SBOM published, advisory/license checks pass, pinned toolchains verified (SEC-005, SEC-010).
+- The capability matrix matches actual automated evidence, generated per 11.7.
+
+This gate has no calendar exception.
+
+## 20. Glossary
+
+- **Adapter:** platform-specific translation layer between canonical operations and native APIs/tools.
+- **Capability:** the computed availability of one operation on one exact target in the current environment (CAP-001).
+- **Checkpoint:** a journaled, durable point during execution from which resume or recovery is defined.
+- **Disposable media:** storage that SAFE-001 permits tests to destroy.
+- **Dry run:** a full-pipeline rehearsal of a plan that stops before the first write (PLAN-009).
+- **Helper:** the signed, privileged per-OS process that revalidates and executes plans (Section 4.6).
+- **Identity strength:** strong/weak classification of a device identity record (SAFE-003).
+- **Journal:** the durable, append-only record of execution state (Section 4.7).
+- **Plan (OperationPlan):** the immutable, hash-bound description of requested storage changes (Section 6).
+- **Preview (capability):** planning allowed, apply refused pending qualification (CAP-003).
+- **Protected object:** a partition/volume the product refuses to modify without an explicit supported plan (PART-014).
+- **Reversal plan:** a generated plan that truthfully undoes another plan, where possible (PLAN-008).
+- **Roll-forward:** completing remaining valid work from the last durable checkpoint after interruption (REC-009).
+- **Snapshot (topology):** the immutable inventory state a plan was computed from, referenced by hash (PLAN-006).
+- **Tier (T1/T2/T3):** test environment classes defined in 11.3.
+- **Weak identity:** device identity lacking any stable hardware identifier (SAFE-003).
+- **Work package (WP):** a bounded, dependency-gated unit of implementation (Section 14).

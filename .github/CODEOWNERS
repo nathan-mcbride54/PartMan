@@ -1,0 +1,10 @@
+# WP-000 default ownership. Split this file as work packages gain dedicated
+# owners; do not weaken ownership for safety-critical paths.
+* @nathan-mcbride54
+
+/.github/ @nathan-mcbride54
+/AGENT_BUILD_SPEC.md @nathan-mcbride54
+/docs/adr/ @nathan-mcbride54
+/schemas/ @nathan-mcbride54
+/services/ @nathan-mcbride54
+
