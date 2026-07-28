@@ -1105,10 +1105,23 @@ list recorded the designator table as untested and the design built on it anyway
 
 1. **A per-platform observability record, established empirically and
    non-elevated, before any ADR freezes bytes.** Started in
-   `docs/quality/observability.md`; **Windows is established, macOS and Linux
-   are not.** (Round three proposed `docs/capabilities/`; it lives under
-   `docs/quality/` instead, because `docs/capabilities/` is where DOC-003's
-   generated matrix belongs and Section 11.7 forbids hand-editing that.)
+   `docs/quality/observability.md`; **Windows is established, Linux is partly
+   established, macOS is not.** (Round three proposed `docs/capabilities/`; it
+   lives under `docs/quality/` instead, because `docs/capabilities/` is where
+   DOC-003's generated matrix belongs and Section 11.7 forbids hand-editing
+   that.)
+
+   Measured so far, on both Windows and Debian: an unprivileged client **cannot**
+   read raw partition-table sectors, and on Linux it cannot probe a device for
+   signatures either (`blkid -p` is denied). What it *can* read on both platforms
+   is the kernel's own view — on Windows the complete partition list with each
+   partition's offset, size, type and GUID; on Linux `/proc/partitions`, sysfs
+   geometry, and the world-readable udev database carrying serial, WWN, bus and
+   path. **Part 5's conclusion needs re-checking against one case it did not
+   test:** the client's view of on-disk *signatures* is a cached udev value, while
+   the helper probes directly, so signature multiplicity — stale mdraid or ZFS
+   labels, a reformatted partition carrying two — may be asymmetric. That is not
+   roster identity, and it does feed a verdict.
 
    The Windows measurement already settles one thing and forces an amendment. A
    non-elevated client **cannot** read raw partition-table sectors

@@ -2,7 +2,8 @@
 
 - Spec version: 3.1.0
 - Requirement IDs: SAFE-002, SAFE-003, HLP-002, MODEL-005, INV-002, INV-003
-- Status: **Windows established. macOS and Linux not established.**
+- Status: **Windows established. Linux partly established (one distro, virtual
+  disks, no partitions). macOS not established.**
 
 ## Why this document exists
 
@@ -100,19 +101,85 @@ container reports when one store is absent.
 
 ## Linux
 
-**Not established.** Needs: whether `/dev/sdX` is readable by the invoking user
-(it is `brw-rw---- root:disk` on stock Debian, Ubuntu, and Fedora, so this varies
-with `disk` group membership and is therefore a per-user answer on one host —
-which is itself a problem, because two users on one machine must not produce
-different bodies), which of `/sys/class/block/*` and the udev database carry the
-partition list, and what `mmcblk*/device/cid` exposes for a native SD host versus
-a USB reader.
+**Partly established** 2026-07-28 on Debian under WSL2, kernel 6.6.114.1,
+systemd as PID 1 with udev running, as a normal user in groups
+`adm cdrom sudo dip plugdev users` — **not** `disk`, which is stock Debian.
 
-Note that Linux is the one platform where the answer can differ between two users
-of the same machine running the same build. Whatever the projection turns out to
-be, it has to be a **clamping** obligation on the client — deliberately ignoring
-what a privileged user happens to be able to see — not merely a discard
-obligation on the helper.
+Read the scope limits below before relying on any row.
+
+| Fact | Interface | Unprivileged | Notes |
+| --- | --- | --- | --- |
+| Device-node permissions | `/dev/sd*` | n/a | `brw-rw---- root:disk`, and the default user is not in `disk` |
+| **Raw sector read** | `dd if=/dev/sdX bs=512 count=1` | **No** | Denied, as on Windows |
+| **Direct signature probe** | `blkid -p /dev/sdX` | **No** | `Permission denied` |
+| Kernel block-device list | `/proc/partitions` | **Yes** | `-r--r--r--` |
+| Device list | `/sys/class/block/` | **Yes** | |
+| Total size, read-only flag | `/sys/class/block/*/size`, `/ro` | **Yes** | |
+| Logical + physical sector size | `/sys/class/block/*/queue/*_block_size` | **Yes** | |
+| Vendor, model, WWID | `/sys/class/block/*/device/{vendor,model,wwid}` | **Yes** | SCSI VPD pages 0x83/0xb0-b2 present as files |
+| Serial, WWN, bus, path | `/run/udev/data/b<major>:<minor>` | **Yes** | Directory `drwxr-xr-x`, entries `-rw-r--r--`; carries `ID_SERIAL`, `ID_SERIAL_SHORT`, `ID_WWN`, `ID_WWN_WITH_EXTENSION`, `ID_BUS`, `ID_PATH` |
+| File-system type and UUID | udev database, e.g. via `lsblk -f` | **Yes** | **Cached, not probed — see below** |
+| `blkid` with no arguments | cache file | n/a | Returned nothing; neither `/run/blkid/` nor `/etc/blkid.tab` existed |
+
+This confirms, rather than assumes, two claims the earlier rounds asserted:
+`/dev/sdX` really is `brw-rw---- root:disk` with the default user outside the
+`disk` group, and the udev database really is world-readable.
+
+### The finding: an unprivileged client's view of signatures is second-hand
+
+A direct probe is denied, but the udev database is world-readable and already
+holds the answer udev's own probe produced. So an unprivileged client does get
+file-system and signature type — **but it is a cached value that root's `udevd`
+computed at device-add time, not something the client observed.** The privileged
+helper, by contrast, can probe the device directly.
+
+That matters because FS-004 signature detection is what materializes
+`BackingSignature` nodes in the proposed model, and those nodes feed the
+protection verdict, which is **body** content. Two ways the two views can differ
+on unchanged hardware:
+
+- **Multiplicity.** A direct probe can enumerate every signature present,
+  including stale ones — the mdraid 1.2-alongside-0.90 case, ZFS tail labels, and
+  a reformatted partition carrying two file-system signatures, all already filed
+  by round three as a collision family. udev records a single primary type, and
+  is understood to set `ID_FS_AMBIVALENT` instead of `ID_FS_TYPE` when its probe
+  finds conflicting signatures. If so, the client sees "ambiguous" where the
+  helper sees "these two signatures at these two offsets".
+- **Population.** Anything udev did not process, or processed before a rule was
+  installed, is absent from the client's view and present in the helper's.
+
+**This is a dimension round two did not test.** Part 5 concluded that every fact
+asymmetric between client and helper is a *roster-identity* fact, and that no
+protection verdict needs roster identity. Signature multiplicity is not roster
+identity, and it does feed a verdict. That conclusion needs re-checking against
+this, not discarding — the access asymmetry established here is real, but whether
+it changes any verdict has not been established either way.
+
+### Scope limits — what this run does NOT establish
+
+- **The disks were WSL2 virtual SCSI disks.** Real NVMe, SATA, USB, and SD/MMC
+  device trees expose different files under `device/`; in particular `serial` was
+  absent here and `wwid` present, which is a SCSI-transport property.
+- **No partitions existed on any device**, so `ID_PART_ENTRY_*` and
+  `/sys/class/block/*/start` were not observed. The Linux equivalent of the
+  Windows partition-list finding is therefore **not** established, and it is the
+  row that decides the ADR-C3 checksum amendment on this platform.
+- **No removable medium and no card reader**, so SI-28 is untouched here, and
+  `mmcblk*/device/cid` was not observable.
+- `ID_FS_AMBIVALENT` was not observed directly; no multi-signature device was
+  present. It is named above as the mechanism to verify, not as a measured fact.
+- One distribution, one kernel, one user. Debian's default group set is the
+  claim being generalized; Ubuntu, Fedora, and Arch were not measured.
+
+### The per-user problem, now concrete
+
+Linux is the one platform where the answer differs between two users of the same
+machine running the same build: adding a user to `disk` grants both raw reads and
+`blkid -p`. Whatever projection is chosen, it must be a **clamping** obligation on
+the client — deliberately declining to look at what a privileged user happens to
+be able to see — not merely a discard obligation on the helper. Otherwise the
+same build produces different bodies for two users on one host, and PLAN-006
+fails for one of them.
 
 ## Reproducing this
 
