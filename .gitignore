@@ -1,0 +1,22 @@
+/target/
+/.idea/
+/.vscode/
+*.swp
+*.tmp
+*.log
+
+# Generated disposable disk fixtures are never committed (SAFE-001, Section 11.3).
+/tests/generated/
+*.img
+*.raw
+*.vhd
+*.vhdx
+*.qcow2
+
+# Local secrets and signing material must never enter the repository.
+.env
+.env.*
+*.key
+*.p12
+*.pfx
+

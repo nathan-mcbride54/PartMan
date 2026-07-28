@@ -1,0 +1,25 @@
+# Line endings are normalized to LF in the repository and in every working
+# tree. Without this, Git for Windows (`core.autocrlf=true` by default, including
+# on GitHub-hosted `windows-*` runners) checks out CRLF and `cargo fmt --check`
+# fails against `newline_style = "Unix"` in `rustfmt.toml`.
+* text=auto eol=lf
+
+# Windows-only scripts must keep CRLF to remain executable by cmd.exe.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Never normalize or diff binary content. Disposable disk fixtures are generated
+# and git-ignored (SAFE-001, Section 11.3); these rules are a defense in depth in
+# case one is ever added deliberately under a reviewed exception.
+*.png binary
+*.ico binary
+*.icns binary
+*.img binary
+*.raw binary
+*.vhd binary
+*.vhdx binary
+*.qcow2 binary
+
+# Generated lockfiles are reviewed but collapsed in pull-request diffs.
+Cargo.lock linguist-generated=true

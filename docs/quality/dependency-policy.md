@@ -1,0 +1,78 @@
+# Dependency and supply-chain policy
+
+This policy implements the WP-000 foundation for SEC-010 against
+`AGENT_BUILD_SPEC.md` 2.0.0.
+
+## Pinned inputs
+
+- Rust: 1.96.0, selected by `rust-toolchain.toml`.
+- Cargo deny: 0.19.4, installed with its published lockfile.
+- Cargo audit: 0.22.2, installed with its published lockfile.
+- GitHub checkout action: v6.0.2 at immutable commit
+  `de0fac2e4500dabe0009e67214ff5f5447ce83dd`.
+
+GitHub-hosted operating-system labels are fixed to `ubuntu-24.04`,
+`windows-2025`, and `macos-15`. No project-controlled builder container image is
+used in WP-000. If builder containers are introduced, they must be referenced
+by digest. Runner image provenance is recorded by GitHub in each job.
+
+## Rules
+
+- Commit `Cargo.lock` and use `--locked` in CI.
+- Reject wildcard Rust dependency versions.
+- Deny unknown registries and Git sources unless a reviewed policy change adds
+  an exact source.
+- Fail CI for known advisories, yanked crates, or disallowed licenses.
+- Pin every GitHub Action to a full commit SHA and retain the release tag in a
+  comment for auditability.
+- Dependency updates arrive through pull requests and run the full Tier-1 and
+  supply-chain gates.
+- A future release pipeline must publish an SBOM and dependency/license
+  inventory under SEC-005.
+
+## Enforced automatically
+
+`cargo xtask verify-actions` scans `.github/workflows/` and fails if any
+`uses:` reference resolves to anything other than a 40-character lowercase
+commit SHA (or a `sha256` digest for `docker://` images). Actions committed
+inside this repository, which carry no independent supply chain, are exempt.
+The check runs inside `cargo xtask ci` on all three operating systems and again
+as a Tier-1 unit test, and it fails closed when the workflow directory is
+missing or empty, so a renamed directory cannot make it pass vacuously.
+
+A mutable tag such as `@v6` is not a pin: the upstream account can move it onto
+new code that would then execute with this repository's credentials.
+
+## Deliberate absence of global `RUSTFLAGS`
+
+`.cargo/config.toml` intentionally defines no `[build] rustflags`. Cargo
+discovers that file from the current working directory, so the setting applies
+to every crate compiled anywhere inside the repository -- including third-party
+dependencies and the `cargo install` invocations above, which build their whole
+dependency trees under it. A repository-wide `-D warnings` therefore converts
+any new upstream warning into an unrelated job failure, and the exposure grows
+with each dependency and each rustc release. Lint levels belong in
+`[workspace.lints]`, which Cargo scopes to workspace members; `cargo xtask ci`
+promotes the remaining warnings to errors with
+`cargo clippy ... -- -D warnings`.
+
+## Pins not covered by Dependabot
+
+Dependabot updates `Cargo.toml`/`Cargo.lock` and workflow action SHAs. It does
+not update these, which must be reviewed manually each release cycle:
+
+- `channel` in `rust-toolchain.toml` and the matching `PINNED_RUST_VERSION` in
+  `tools/xtask/src/main.rs`, `rust-version` in `Cargo.toml`, and `msrv` in
+  `clippy.toml`, which must move together.
+- The `cargo install --version` pins for `cargo-deny` and `cargo-audit`, which
+  appear in `.github/workflows/ci.yml`, `CONTRIBUTING.md`, and this document.
+- The `runs-on` operating-system labels.
+
+## Local commands
+
+```text
+cargo install cargo-deny --version 0.19.4 --locked
+cargo install cargo-audit --version 0.22.2 --locked
+cargo xtask supply-chain
+```
+
