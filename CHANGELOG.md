@@ -74,6 +74,31 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Fixed
 
+- The TypeScript encoder had no `default` arm, so an unrecognized value kind fell
+  through the switch, `encode` returned zero bytes, and `hash` published SHA-256
+  of the empty string as a well-formed digest over an artifact with no encoding.
+  Rust cannot reach this, because its `match` is exhaustive at compile time.
+  Payload runtime types are now checked too: `TextEncoder` coerces a non-string
+  rather than failing, and `Uint8Array.from` truncates modulo 256. `fromHex`
+  refused nothing outside hex, where `Number.parseInt` yields NaN and stores as
+  0, so two distinct textual digests decoded to identical bytes.
+
+- Three signature fixtures wrote fields at the wrong offsets, found by an audit
+  of the project review. The mdraid 0.90 set UUID occupied `utime`, `state` and
+  `active_disks` rather than words 13 to 15, leaving the array identity three
+  quarters zero — `blkid` reported it as `fb2871eb-0000-0000-0000-000000000000`.
+  LUKS2 wrote its checksum algorithm and UUID inside the 48-byte label field,
+  leaving the fixture with no UUID at all. ext4 declared 8 MiB of blocks on a
+  4 MiB device, having reused a sector count as a block count. Each correction is
+  confirmed against `libblkid` rather than against the struct definition.
+
+- A subdirectory bypass in the SAFE-007 interlock, introduced by the fix for the
+  forged-manifest defect and missed by its own new tests. Containment was a path
+  prefix while the name came from `file_name()`, so a byte-identical copy at
+  `<root>/sub/blank-512.img` passed the root, name, length and digest checks at
+  once. The resolved path must now equal the exact location that fixture is
+  generated at.
+
 - The TypeScript encoder could emit bytes its own decoder rejects, violating
   `schemas/canonical-encoding.md` §6.1. `TextEncoder` substitutes U+FFFD for an
   unpaired surrogate rather than failing, so two distinct values encoded

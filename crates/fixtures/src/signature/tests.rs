@@ -121,3 +121,67 @@ fn the_multi_signature_fixture_carries_both_at_the_offsets_a_prober_reads() {
         &0xa92b_4efc_u32.to_le_bytes()
     );
 }
+
+#[test]
+fn the_090_set_uuid_occupies_its_four_non_adjacent_words() {
+    // The defect an audit found: words 13, 14 and 15 were written at bytes 128,
+    // 132 and 136 -- words 32, 33 and 34, which are `utime`, `state` and
+    // `active_disks`. Three quarters of the array identity was zero, and
+    // `blkid` showed it as `fb2871eb-0000-0000-0000-000000000000`.
+    let image = whole_disk(8192, |image| mdraid_090_at_end(image, "uuid-check"));
+    let offset = usize::try_from(mdraid_090_offset(&image)).expect("fits");
+    let sb = &image.bytes()[offset..offset + 256];
+    let uuid = *crate::layout::Guid::derived("uuid-check").as_bytes();
+
+    assert_eq!(&sb[20..24], &uuid[0..4], "set_uuid0, word 5");
+    assert_eq!(&sb[52..56], &uuid[4..8], "set_uuid1, word 13");
+    assert_eq!(&sb[56..60], &uuid[8..12], "set_uuid2, word 14");
+    assert_eq!(&sb[60..64], &uuid[12..16], "set_uuid3, word 15");
+
+    // No part of the identity may be zero-filled, which is what the bug looked
+    // like from outside.
+    assert!(
+        sb[52..64].iter().any(|byte| *byte != 0),
+        "the trailing three words must not be blank"
+    );
+}
+
+#[test]
+fn the_luks2_fields_do_not_land_inside_the_label() {
+    // `checksum_alg` was written at 24 and the UUID at 32, both inside the
+    // 48-byte `label` field, so the fixture had no UUID at all.
+    let image = whole_disk(8192, |image| {
+        luks2(image, "5f1c2d3e-4a5b-6c7d-8e9f-0a1b2c3d4e5f");
+    });
+    let header = image.bytes();
+
+    assert!(
+        header[24..72].iter().all(|byte| *byte == 0),
+        "label must be empty, not carrying other fields"
+    );
+    assert_eq!(&header[72..78], b"sha256", "checksum_alg at 72");
+    assert_eq!(
+        &header[168..204],
+        b"5f1c2d3e-4a5b-6c7d-8e9f-0a1b2c3d4e5f",
+        "uuid at 168"
+    );
+}
+
+#[test]
+fn the_ext4_block_count_matches_the_device_it_is_written_to() {
+    // The first version declared 8192 one-kibibyte blocks -- 8 MiB -- on a 4 MiB
+    // image, having reused a sector count as a block count.
+    for sectors in [8192_u64, 2048] {
+        let image = whole_disk(sectors, |image| ext4(image, "size-check"));
+        let declared = u32::from_le_bytes([
+            image.bytes()[1024 + 4],
+            image.bytes()[1024 + 5],
+            image.bytes()[1024 + 6],
+            image.bytes()[1024 + 7],
+        ]);
+        let device_kib = u32::try_from(sectors * 512 / 1024).expect("fits");
+        assert_eq!(declared, device_kib, "blocks must not exceed the device");
+        // s_first_data_block must be 1 at a 1 KiB block size.
+        assert_eq!(&image.bytes()[1024 + 20..1024 + 24], &1_u32.to_le_bytes());
+    }
+}

@@ -107,11 +107,24 @@ function writeValue(out: number[], value: Value, depth: number): void {
       return
     }
     case 'bytes': {
+      // `number[]` is narrowed by `Uint8Array.from` on the way out, which
+      // truncates modulo 256 rather than failing, so a value that is not
+      // actually a byte array must be refused before it reaches the buffer.
+      if (!(value.value instanceof Uint8Array)) {
+        throw new CanonicalError('bytes must be a Uint8Array')
+      }
       writeHead(out, 2, BigInt(value.value.length))
       for (const byte of value.value) out.push(byte)
       return
     }
     case 'text': {
+      // `TextEncoder.encode` coerces a non-string instead of failing, and
+      // `requireWellFormed` iterates `.length`, which is `undefined` on a
+      // number — so the loop body never runs and nothing catches it.
+      const payload: unknown = value.value
+      if (typeof payload !== 'string') {
+        throw new CanonicalError(`text must be a string, not ${typeof payload}`)
+      }
       requireWellFormed(value.value, 'text string')
       const raw = utf8(value.value)
       writeHead(out, 3, BigInt(raw.length))
@@ -146,6 +159,19 @@ function writeValue(out: number[], value: Value, depth: number): void {
     case 'null': {
       out.push(0xf6)
       return
+    }
+    default: {
+      // Rust reaches this by exhaustive `match` at compile time; TypeScript
+      // cannot, because a `Value` can be forged at runtime by any caller who
+      // constructs the object literal. Without this arm the switch fell
+      // through, `encode` returned zero bytes, and `hash` published SHA-256 of
+      // the empty string as a well-formed digest over an artifact that has no
+      // encoding — a producer authorising bytes nobody can revalidate, which is
+      // exactly what section 6.1 forbids.
+      const unknown: never = value
+      throw new CanonicalError(
+        `value kind ${JSON.stringify((unknown as { kind?: unknown }).kind)} is not in the profile`,
+      )
     }
   }
 }
@@ -458,6 +484,12 @@ export function toHex(input: Uint8Array): string {
 /** Parse lowercase hexadecimal into bytes. */
 export function fromHex(input: string): Uint8Array {
   if (input.length % 2 !== 0) throw new CanonicalError('hex needs an even length')
+  // `Number.parseInt` returns NaN for a non-hex pair, which stores as 0. Two
+  // different textual digests would then decode to the same bytes, and this
+  // function sits beside `hash` in the module SEC-001 authorizes against.
+  if (!/^[0-9a-fA-F]*$/.test(input)) {
+    throw new CanonicalError('hex contains a character outside 0-9a-fA-F')
+  }
   const out = new Uint8Array(input.length / 2)
   for (let i = 0; i < out.length; i++) {
     out[i] = Number.parseInt(input.slice(i * 2, i * 2 + 2), 16)
