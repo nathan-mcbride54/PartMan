@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-07-27
-- Spec version: 2.0.0
+- Spec version: 2.0.0 (decided against 2.0.0; superseded in part by ADR-C2 under 3.0.0)
 - Work packages unblocked: WP-010 (and transitively WP-040, WP-050, WP-060,
   WP-070, WP-S100, WP-I100, WP-R100)
 - Requirement IDs: MODEL-005, MODEL-003, MODEL-001, SEC-001, SEC-002, HLP-001,

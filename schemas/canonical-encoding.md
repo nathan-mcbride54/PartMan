@@ -1,6 +1,6 @@
 # PartMan canonical encoding, version 1
 
-- Spec version: 2.0.0
+- Spec version: 3.0.0
 - Requirement IDs: MODEL-005, MODEL-001, MODEL-003
 - Decided by: `docs/adr/0001-canonical-encoding-and-hashing.md` (ADR-C1)
 - Profile identifier: `pce/1`

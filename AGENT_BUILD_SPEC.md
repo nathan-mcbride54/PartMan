@@ -8,7 +8,7 @@ Interface: Dark-first desktop GUI plus a scriptable CLI
 
 ## 0. Document control
 
-- **Spec version:** 2.0.0
+- **Spec version:** 3.0.0
 - **Status:** Active normative contract
 - **Last updated:** 2026-07-28
 
@@ -33,6 +33,7 @@ If two requirements in this spec conflict, agents MUST stop, file a spec issue d
 
 | Version | Summary |
 | --- | --- |
+| 3.0.0 | Split every hashed artifact into a body and an envelope (MODEL-005), with an explicit rule for which side a field lands on: envelope only for the hash itself and for values the helper independently re-derives under HLP-002, body for everything else. Resolves three contradictions that made version 2.0.0 unimplementable — Section 6 required a plan to contain its own hash; hashing capture metadata and provenance made the PLAN-006 freshness comparison unsatisfiable, since two probes of unchanged hardware always differ; and it was undefined whether provenance sat inside the authorization boundary. Clarified CONC-004 (transitional marking is body content, so a transitional snapshot cannot masquerade as a stable one) and PLAN-006 (comparison is over body hashes). Fixed by ADR-C2. Filed as SI-03, SI-05, and SI-06 in `docs/spec-issues/`. |
 | 2.0.0 | Added document control, non-goals, identity-strength policy, helper/RPC/journal/concurrency contracts (HLP/RPC/JRN/CONC), canonical hashing (MODEL-005), plan TTL/reversal/dry-run parity (PLAN-007/008/009), reworked risk model (PLAN-004), full state-transition table, platform support floors, execution-environment requirements (EXE), new functional requirements (INV-009, CAP-007, PART-015/016, FS-010, WIN-011, LIN-010, MAC-009/010, IMG-011, REC-011, UI-013, CLI-008, SEC-010, SAFE-008/009), test-lab architecture, milestone plan, corrected work-package dependencies plus new WPs, required-ADR register, glossary, new acceptance scenarios ACC-011…016. Fixed SAFE-002 self-contradiction, undefined `preview`, CAP-005 helper-trust ambiguity, and the undefined "five primary workflows" in the release gate. See `SPEC_REVIEW_NOTES.md`. |
 | 1.0.0 | Initial specification. |
 
@@ -240,7 +241,7 @@ Agents MUST avoid circular dependencies. Platform adapters depend on canonical d
 - **CONC-001:** At most one plan may execute against a physical device at a time. An executing plan locks every device it binds for its full execution, including reboot-resumed phases.
 - **CONC-002:** Plans queued behind an executing plan MUST be revalidated against post-execution topology before they can be authorized.
 - **CONC-003:** External topology changes (hot-plug, third-party tool writes, mount changes) MUST invalidate affected Draft/Validated plans and surface the invalidation in GUI and CLI. Invalidated plans require re-planning; silent rebinding to a new snapshot is prohibited.
-- **CONC-004:** Discovery MUST remain read-only and safe to run during execution; snapshots taken while a plan executes MUST be marked transitional and are not valid planning bases.
+- **CONC-004:** Discovery MUST remain read-only and safe to run during execution; snapshots taken while a plan executes MUST be marked transitional and are not valid planning bases. The transitional marking is **body** content under MODEL-005, so a transitional snapshot can never be hash-equal to a stable snapshot of the same topology; capture timestamp and per-property provenance are envelope content, so two stable probes of unchanged hardware do compare equal. *(Clarified in 3.0.0.)*
 - **CONC-005:** Multiple clients (GUI and CLI concurrently) MUST observe consistent state through the same helper and journal. When two apply submissions race for the same device, exactly one wins; the loser receives a deterministic, explained rejection.
 
 ### 4.5 RPC contract
@@ -322,14 +323,20 @@ Every discovered property MUST record its source adapter and confidence: authori
 
 ### MODEL-005: Canonical encoding and hashing
 
-Every hashed artifact (plans, topology snapshots) MUST have exactly one canonical byte encoding, defined in `schemas/` (deterministic field ordering, no ambiguous numeric encodings). The plan hash is SHA-256 over the canonical bytes. All components — Rust and TypeScript — MUST produce identical hashes for identical logical content, proven by cross-language golden tests. The encoding choice is fixed by ADR-C1.
+Every hashed artifact (plans, topology snapshots) MUST be split into a **body** and an **envelope**. The body MUST have exactly one canonical byte encoding, defined in `schemas/` (deterministic field ordering, no ambiguous numeric encodings). The artifact hash is SHA-256 over the canonical bytes of the **body**. All components — Rust and TypeScript — MUST produce identical hashes for identical logical body content, proven by cross-language golden tests. The encoding choice is fixed by ADR-C1; the body/envelope boundary is fixed by ADR-C2.
+
+**Envelope rule.** A field belongs in the envelope only if it is the hash itself, or the privileged helper independently re-derives it and treats the client's copy as an untrusted hint (HLP-002). Every other field belongs in the body.
+
+Enforcing a value is not re-deriving it. The helper enforces the validity window (HLP-004) rather than recomputing it, so the window is body content; an unauthenticated expiry could be extended without invalidating the authorization it was bound to. When a field's side is unclear, it belongs in the body: an envelope field is one an attacker may alter without breaking a hash. *(Added in 3.0.0. A plan cannot contain its own hash, and hashing capture metadata would make the PLAN-006 freshness comparison unsatisfiable, because two probes of unchanged hardware always differ.)*
 
 ## 6. Operation-plan contract
 
-An `OperationPlan` MUST contain:
+An `OperationPlan` MUST consist of a hashed **body** and an **envelope** (MODEL-005).
+
+The **body** MUST contain:
 
 - Plan ID, schema version, creation timestamp, and application version.
-- Source topology snapshot hash.
+- Source topology snapshot body hash.
 - Complete bound device identities with identity strength (SAFE-003).
 - Requested outcome.
 - Ordered dependency graph of plan steps.
@@ -341,9 +348,15 @@ An `OperationPlan` MUST contain:
 - Backup and recovery actions.
 - Cancellation behavior for every step.
 - Expected capability/dependency versions.
-- Validity window (PLAN-007).
+- Validity window (PLAN-007). Body content deliberately: the helper enforces the window rather than re-deriving it, so an unauthenticated expiry could be extended without invalidating the authorization bound to the plan.
 - Reversal plan or reversal-impossibility statement (PLAN-008).
-- Cryptographic plan hash (MODEL-005).
+
+The **envelope** MUST contain:
+
+- The cryptographic plan hash (MODEL-005). It is the hash *of* the body and therefore cannot be *inside* it.
+- Discovery provenance and adapter attribution for values the helper re-derives (MODEL-004, HLP-002).
+
+Nothing else belongs in the envelope. *(Changed in 3.0.0: version 2.0.0 required the plan to contain its own hash, which is not constructible.)*
 
 ### PLAN-001: Pure planning
 
@@ -377,7 +390,7 @@ Each step MUST declare one of: cancellable, checkpoint-cancellable, or non-cance
 
 ### PLAN-006: Stale-plan rejection
 
-The helper MUST re-discover target topology and reject a mismatch before the first write and at declared revalidation checkpoints.
+The helper MUST re-discover target topology and reject a mismatch before the first write and at declared revalidation checkpoints. The comparison is over **body** hashes (MODEL-005): capture metadata and provenance are envelope content precisely so that an unchanged topology re-probes to an equal hash and this check is satisfiable. *(Clarified in 3.0.0.)*
 
 ### PLAN-007: Plan validity window
 
