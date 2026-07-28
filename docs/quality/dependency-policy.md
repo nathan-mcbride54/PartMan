@@ -98,3 +98,12 @@ cargo install cargo-audit --version 0.22.2 --locked
 cargo xtask supply-chain
 ```
 
+
+## Fuzzing toolchain
+
+`cargo-fuzz` requires nightly, so `fuzz/` is a bounded exception to the single
+pinned toolchain. The nightly is pinned by exact date and `cargo-fuzz` by exact
+version; both appear in `tools/xtask/src/main.rs` and
+`.github/workflows/ci.yml`, must move together, and are covered by neither
+Dependabot nor `cargo deny` (the crate is outside the workspace graph). Full
+rationale in `docs/quality/fuzzing.md`.
