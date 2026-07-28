@@ -24,6 +24,10 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   package has no runtime dependencies: hashing uses Web Crypto and testing uses
   `node:test`.
 - ADR-C1, accepted, fixing the canonical encoding and hash strategy.
+- ADR-C5, accepted, fixing the aggregation vocabulary: one `Aggregate` node in
+  place of three undefined Section 5 names, on-disk signatures as their own
+  nodes, and `StorageSnapshot`. Landed as spec 4.0.0. It resolves four of the
+  conflicts blocking WP-010 increment 3 and does not unblock it.
 
 - WP-000 repository foundation: pinned Rust workspace, Tier-1 task runner,
   cross-platform CI, formatting/lint policy, dependency policy, and ADR
@@ -58,6 +62,18 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   unchanged and still enforced by the allow-list.
 
 ### Fixed
+
+- The TypeScript encoder could emit bytes its own decoder rejects, violating
+  `schemas/canonical-encoding.md` §6.1. `TextEncoder` substitutes U+FFFD for an
+  unpaired surrogate rather than failing, so two distinct values encoded
+  identically and `encode` was not injective; a map holding both keys emitted a
+  declared size of two with byte-identical keys, which §3 makes invalid. The
+  encoder now refuses an ill-formed string instead of repairing it, and validates
+  map keys before sorting so the refusal cannot depend on insertion order. Rust
+  needed no change — `String` is validated UTF-8 — which is the point: the two
+  implementations had disagreed about what was *encodable*. Reachable without an
+  attacker, since NTFS permits unpaired surrogates in volume labels and INV-008
+  requires such structures be represented rather than discarded.
 
 - Windows could not pass `cargo fmt --check`. Git for Windows sets
   `core.autocrlf=true` in its system configuration by default, and the

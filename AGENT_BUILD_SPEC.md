@@ -8,13 +8,13 @@ Interface: Dark-first desktop GUI plus a scriptable CLI
 
 ## 0. Document control
 
-- **Spec version:** 3.1.0
+- **Spec version:** 4.0.0
 - **Status:** Active normative contract
 - **Last updated:** 2026-07-28
 
 ### 0.1 Versioning and stability
 
-- This spec uses semantic versioning. Additions bump minor; semantic changes to existing requirements bump major; editorial fixes bump patch.
+- This spec uses semantic versioning. Additions bump minor; semantic changes to existing requirements bump major; editorial fixes bump patch. The rule is about requirements, not about whether anything implements them: a semantic change is major even while the product is unbuilt. **3.1.0 was mis-numbered under this rule** — it redefined SAFE-003's identity strength, which is a semantic change to an existing requirement and should have been 4.0.0. It is left as issued, because renumbering an already-published version would break every citation to it, and recorded here so the rule is not read as optional.
 - Requirement IDs are permanent. They are never renumbered or reused. A withdrawn requirement keeps its ID, marked **Withdrawn**, with a one-line rationale.
 - Every change lands through a pull request labeled `spec-change`, with a changelog entry. Architectural changes additionally require an ADR.
 
@@ -33,6 +33,7 @@ If two requirements in this spec conflict, agents MUST stop, file a spec issue d
 
 | Version | Summary |
 | --- | --- |
+| 4.0.0 | Fixed the aggregation vocabulary (ADR-C5, resolves SI-07 through SI-10). Section 5 replaces `StorageContainer`, `StoragePool`, and `RaidSet` — three names it listed and never defined — with one `Aggregate` carrying a technology discriminant, adds `BackingSignature`, and renames `Snapshot` to `StorageSnapshot` to end its collision with Section 20's "Snapshot (topology)". MODEL-002 now states how non-linear relationships are modelled: membership has unbounded in-degree, so MAC-003's plural APFS physical stores become representable; an aggregate carries its *self-reported* member count rather than a count of members observed, because deciding from present members would classify a degraded Fusion set as an ordinary mutable container and reach a Section 2.1 MUST NOT by unplugging a cable; Btrfs multi-device is a file system with several backings rather than a container; FS-004's non-file-system signatures materialize as their own nodes so an exported pool or orphaned RAID member is represented rather than discarded (INV-008); and every closed enum over externally observed values carries an unrecognized variant. MODEL-005 gains a body-stability rule narrowing the envelope rule: a hashed body may carry a fact only if it is invariant under re-probe of unchanged hardware. Corrected the Section 20 weak-identity definition, which 3.1.0 left behind when it amended SAFE-003. Noted on ACC-014 that it covers only an *absent* identifier, not an enclosure reporting its own — confirmed on hardware as the more dangerous case and still open. Adversarial review rejected an amendment to MODEL-005's envelope rule that would have swept every descriptive field into the body, reintroducing the unsatisfiable-PLAN-006 failure ADR-C2 exists to prevent; recorded in ADR-C5. |
 | 3.1.0 | Identity strength is now a property of a single record (stable hardware identifier plus size, both sector sizes, and a positively determined partition-table state), with identity *matching* split out as a separate helper-side verdict over an ordered pair; partition-table state becomes three-valued so a blank device and an unreadable one are distinguishable (SAFE-003, ADR-C3, resolves SI-01 and SI-02). MODEL-004 provenance becomes a set of observations held in the envelope, with the four confidence values derived rather than stored, and a positively observed absence declared a value rather than an unavailability (ADR-C4, resolves SI-04). Adversarial review rejected two proposals that reached this point: exempting blank-media initialization from severity 4, which would have created a silent whole-device destruction path because an absent table does not mean absent data; and collapsing disputed body values to a single resolution bit, which would have violated SAFE-003's "all available identifiers" and erased the blank-versus-unreadable distinction. Both rejections are recorded in the ADRs. |
 | 3.0.0 | Split every hashed artifact into a body and an envelope (MODEL-005), with an explicit rule for which side a field lands on: envelope only for the hash itself and for values the helper independently re-derives under HLP-002, body for everything else. Resolves three contradictions that made version 2.0.0 unimplementable — Section 6 required a plan to contain its own hash; hashing capture metadata and provenance made the PLAN-006 freshness comparison unsatisfiable, since two probes of unchanged hardware always differ; and it was undefined whether provenance sat inside the authorization boundary. Clarified CONC-004 (transitional marking is body content, so a transitional snapshot cannot masquerade as a stable one) and PLAN-006 (comparison is over body hashes). Fixed by ADR-C2. Filed as SI-03, SI-05, and SI-06 in `docs/spec-issues/`. |
 | 2.0.0 | Added document control, non-goals, identity-strength policy, helper/RPC/journal/concurrency contracts (HLP/RPC/JRN/CONC), canonical hashing (MODEL-005), plan TTL/reversal/dry-run parity (PLAN-007/008/009), reworked risk model (PLAN-004), full state-transition table, platform support floors, execution-environment requirements (EXE), new functional requirements (INV-009, CAP-007, PART-015/016, FS-010, WIN-011, LIN-010, MAC-009/010, IMG-011, REC-011, UI-013, CLI-008, SEC-010, SAFE-008/009), test-lab architecture, milestone plan, corrected work-package dependencies plus new WPs, required-ADR register, glossary, new acceptance scenarios ACC-011…016. Fixed SAFE-002 self-contradiction, undefined `preview`, CAP-005 helper-trust ambiguity, and the undefined "five primary workflows" in the release gate. See `SPEC_REVIEW_NOTES.md`. |
@@ -285,13 +286,12 @@ The domain crate MUST define serializable, versioned types for:
 - `DeviceHealth`
 - `PartitionTable`
 - `Partition`
-- `StorageContainer`
+- `Aggregate`
+- `BackingSignature`
 - `Volume`
 - `FileSystem`
 - `EncryptionLayer`
-- `StoragePool`
-- `RaidSet`
-- `Snapshot`
+- `StorageSnapshot`
 - `Mount`
 - `FreeExtent`
 - `Capability`
@@ -304,6 +304,13 @@ The domain crate MUST define serializable, versioned types for:
 - `ExecutionResult`
 - `RecoveryAction`
 
+`Aggregate` replaces `StorageContainer`, `StoragePool`, and `RaidSet`, and
+`StorageSnapshot` replaces `Snapshot`. `BackingSignature` is new. *(Changed in
+4.0.0 by ADR-C5: the three replaced names were listed and never defined, so no
+requirement supplied a boundary between them, and the one-to-one shape "container"
+implies cannot express MAC-003's plural APFS physical stores. `Snapshot` collided
+with Section 20's "Snapshot (topology)".)*
+
 ### MODEL-001: Units
 
 All offsets and sizes MUST use unsigned byte counts in the canonical model. Sector counts MAY be included as derived platform data. UI values MUST preserve exact byte values while displaying IEC units by default.
@@ -314,7 +321,13 @@ The model MUST distinguish:
 
 `physical device → partition table → partition → encryption/container → volume → file system → mount`
 
-It MUST also represent non-linear relationships such as Storage Spaces, LVM, RAID, APFS containers, and Btrfs multi-device file systems.
+It MUST also represent non-linear relationships such as Storage Spaces, LVM, RAID, APFS containers, and Btrfs multi-device file systems. These are modelled as follows. *(Added in 4.0.0 by ADR-C5.)*
+
+- **One `Aggregate` type**, carrying a closed technology discriminant, expresses every aggregation. Membership is an edge from a `BackingSignature` to its consumer with **unbounded in-degree**, which is what makes MAC-003's plural APFS physical stores and MAC-010's two-store Fusion container representable at all.
+- An `Aggregate` MUST carry the aggregate's **self-reported member count**, not a count of members currently observed. A Fusion set with one store detached presents one present store; deciding from present members would classify it as an ordinary mutable container and reach a Section 2.1 MUST NOT by unplugging a cable.
+- **Btrfs multi-device is a `FileSystem` with an ordered set of n ≥ 1 backings**, not a container. Single-device is the cardinality-1 instance of that same shape, so `btrfs device add` changes the member set and not the node's shape.
+- **FS-004's non-file-system signatures are materialized as `BackingSignature` nodes** on the layer this chain assigns, never enumerated into the file-system kind. The consumer edge is optional: an observed signature whose aggregate is not observed — an exported ZFS pool, an unassembled mdraid member, an offline Storage Spaces disk — is represented rather than discarded (INV-008).
+- Every closed enum over externally observed values MUST carry an explicit unrecognized variant, or INV-008 becomes unsatisfiable the first time a platform ships a value the product does not know.
 
 ### MODEL-003: Stable serialization
 
@@ -335,6 +348,8 @@ Every hashed artifact (plans, topology snapshots) MUST be split into a **body** 
 **Envelope rule.** A field belongs in the envelope only if it is the hash itself, or the privileged helper independently re-derives it and treats the client's copy as an untrusted hint (HLP-002). Every other field belongs in the body.
 
 Enforcing a value is not re-deriving it. The helper enforces the validity window (HLP-004) rather than recomputing it, so the window is body content; an unauthenticated expiry could be extended without invalidating the authorization it was bound to. When a field's side is unclear, it belongs in the body: an envelope field is one an attacker may alter without breaking a hash. *(Added in 3.0.0. A plan cannot contain its own hash, and hashing capture metadata would make the PLAN-006 freshness comparison unsatisfiable, because two probes of unchanged hardware always differ.)*
+
+**Body-stability rule.** A hashed body MAY carry a fact only if that fact is invariant under re-probe of unchanged hardware. This *narrows* the envelope rule rather than replacing it — the envelope rule decides what is authenticated, this one decides whether PLAN-006 is satisfiable, and both MUST hold. Occupancy figures, mount sets, and storage-snapshot sets therefore belong to the envelope: they change without any storage change, through ordinary background activity. A fact that a verdict needs but that fails this rule is evidence the wrong fact was chosen, not grounds to relax the rule. *(Added in 4.0.0 by ADR-C5.)*
 
 ## 6. Operation-plan contract
 
@@ -722,6 +737,8 @@ Cloning a source with injected read errors, damaged-media mode maps unreadable r
 
 A USB enclosure exposes no serial/WWN. The product classifies identity as weak, requires the stronger confirmation path, refuses unattended apply without the recorded override, and re-probes immediately before apply (SAFE-003).
 
+This scenario covers only the case where an identifier is **absent**. An enclosure that exposes its *own* identifier for removable media it does not identify — a card reader reporting the same serial for every card, and for an empty slot — produces a *Strong* record under SAFE-003 and is not exercised here. That case is open and MUST NOT be treated as covered by this scenario. *(Noted in 4.0.0. Confirmed on hardware; the absent-identifier case is the one SAFE-003 anticipated, and it is not the dangerous one.)*
+
 ### ACC-015: Cross-sector-size clone
 
 Cloning a 512e source to a 4Kn destination either recomputes geometry end-to-end and verifies the result, or blocks with a precise file-system-level reason. Restore in the reverse direction behaves equivalently (IMG-011).
@@ -917,7 +934,7 @@ Read, in order:
 2. AGENT_BUILD_SPEC.md (note the spec version)
 3. Relevant ADRs, schemas, and capability documents
 
-Spec version: <2.x.x>
+Spec version: <4.x.x>
 Work package: <WP-ID and title>
 Requirement IDs: <explicit IDs>
 Objective: <one bounded outcome>
@@ -1002,7 +1019,9 @@ This gate has no calendar exception.
 - **Protected object:** a partition/volume the product refuses to modify without an explicit supported plan (PART-014).
 - **Reversal plan:** a generated plan that truthfully undoes another plan, where possible (PLAN-008).
 - **Roll-forward:** completing remaining valid work from the last durable checkpoint after interruption (REC-009).
-- **Snapshot (topology):** the immutable inventory state a plan was computed from, referenced by hash (PLAN-006).
+- **Aggregate:** one node type expressing every storage aggregation — LVM, mdraid, Storage Spaces, ZFS, APFS containers, LDM — distinguished by a technology discriminant rather than by separate types (MODEL-002, ADR-C5).
+- **Backing signature:** on-disk evidence that an extent belongs to an aggregation or encryption technology, modelled as its own node so it can be represented even when the consumer it names is not observed (FS-004, INV-008, ADR-C5).
+- **Snapshot (topology):** the immutable inventory state a plan was computed from, referenced by hash (PLAN-006). Distinct from `StorageSnapshot`, which is a storage-level object (APFS, LVM2, VSS, Btrfs, Apple signed system).
 - **Tier (T1/T2/T3):** test environment classes defined in 11.3.
-- **Weak identity:** device identity lacking any stable hardware identifier (SAFE-003).
+- **Weak identity:** a device identity record that is not Strong under SAFE-003 — most often one lacking any stable hardware identifier, but equally one whose partition-table state could not be determined, even when a serial or WWN is present. *(Corrected in 4.0.0. The 3.1.0 amendment changed SAFE-003 and left this restatement behind, so the glossary said a device with a serial and an unreadable table was not weak-identity, which is the case ADR-C3 deliberately added.)*
 - **Work package (WP):** a bounded, dependency-gated unit of implementation (Section 14).
