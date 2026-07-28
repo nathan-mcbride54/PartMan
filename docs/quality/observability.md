@@ -192,24 +192,41 @@ signatures with an offset per row. So the udev-cached view a client reads is
 single-valued *by construction*, and the enumerating interface is one the client
 cannot reach, because probing is denied.
 
-**Not established: whether a real device ever carries two signatures at once.**
-Two attempts to construct one both failed, each for an instructive reason:
+**Established, on the third attempt: a device does carry two signatures at once,
+and the single-answer interface reports the *stale* one.**
 
-1. Writing a bare `LABELONE` magic at offset 512 produced nothing. libblkid
-   validates an LVM2 label beyond its magic string, so this tested the forgery,
-   not the prober.
-2. `mkfs.ext4` followed by `mkswap -f` left **only** the swap signature —
-   `wipefs -n` showed one row at `0xff6` and the ext4 superblock at `0x438` was
-   gone. Current util-linux and e2fsprogs tools erase competing signatures when
-   they format.
+Two earlier attempts failed, each instructively. Writing a bare `LABELONE` magic
+produced nothing, because libblkid validates an LVM2 label's checksum — that
+tested the forgery, not the prober. Then `mkfs.ext4` followed by `mkswap -f` left
+only the swap signature, because current util-linux and e2fsprogs erase competing
+signatures when they format. That second result stands and narrows round three's
+collision-family list: **a partition reformatted by a current tool does not keep
+its old file-system signature.**
 
-That second result cuts against part of round three's collision-family list: a
-partition reformatted by a current tool does **not** keep its old file-system
-signature. The cases that plausibly survive are all *end-of-device* metadata,
-which start-of-device formatting never reaches — ZFS labels written at both ends
-where repurposing clears only the leading pair (round two's own observation),
-mdraid 0.90 and 1.0 superblocks near the end, and a GPT backup header after an
-image restore onto a larger disk. None of those was tested here.
+What survives is *end-of-device* metadata, which start-of-device formatting never
+reaches. WP-020's generator now builds exactly that case — a live ext4 superblock
+at `0x438` and an obsolete mdraid 0.90 superblock in the last 64 KiB-aligned
+block — and the two interfaces disagree:
+
+| Interface | Reports |
+| --- | --- |
+| `wipefs -n` | **both**: `linux_raid_member` at `0x3f0000` *and* `ext4` at `0x438` |
+| `blkid -p -o udev` (the form udev's builtin uses) | **one**: `ID_FS_TYPE=linux_raid_member`, `ID_FS_USAGE=raid` |
+
+Two consequences, and the second is worse than the arity gap alone:
+
+- `ID_FS_AMBIVALENT` **did not fire.** libblkid resolved the conflict by priority
+  rather than flagging ambiguity, so the earlier hypothesis that a client would
+  at least see "ambiguous" is wrong. It sees a confident, single, wrong-ish
+  answer.
+- The answer it settles on is the **stale** signature, not the live file system.
+  A client reading udev's cache calls this device a RAID member; its actual
+  content is an ext4 file system. The privileged helper, which can probe
+  directly, can see both.
+
+So the asymmetry is not merely that the client sees less. On this device the
+client and the helper would describe the same bytes differently, and the client's
+description is the one that is out of date.
 
 **A qualification round two did not test.** Part 5 concluded that every fact
 asymmetric between client and helper is a *roster-identity* fact, and that no

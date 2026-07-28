@@ -23,3 +23,4 @@ pub mod catalogue;
 pub mod interlock;
 pub mod layout;
 pub mod manifest;
+pub mod signature;

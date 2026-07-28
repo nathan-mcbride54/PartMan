@@ -13,6 +13,7 @@ use crate::layout::{
     MbrPartition, SectorSize,
 };
 use crate::manifest::{MANIFEST_FILE, Manifest};
+use crate::signature;
 
 /// Four mebibytes of 512-byte sectors.
 const SECTORS_4MIB_512: u64 = 8192;
@@ -79,6 +80,49 @@ pub fn catalogue() -> Vec<Fixture> {
             rationale: "INV-003 Apple Partition Map. Every field is big-endian, so a parser that \
                         assumes little-endian everywhere passes every other fixture here",
             build: apm_basic,
+        },
+        Fixture {
+            name: "luks2-whole-disk-512.img",
+            rationale: "FS-004 LUKS detection and LIN-003 LUKS2 support, whole-disk: MODEL-002 \
+                        permits an encryption layer with no intervening partition table",
+            build: || {
+                signature::whole_disk(SECTORS_4MIB_512, |image| {
+                    signature::luks2(image, "5f1c2d3e-4a5b-6c7d-8e9f-0a1b2c3d4e5f");
+                })
+            },
+        },
+        Fixture {
+            name: "lvm2-pv-orphan-512.img",
+            rationale: "FS-004 LVM PV detection, and ADR-C5's `consumer: Null`: a member whose \
+                        aggregate is not observed must be represented, not discarded (INV-008)",
+            build: || {
+                signature::whole_disk(SECTORS_4MIB_512, |image| {
+                    signature::lvm2_pv(image, "pvuuid000000000000000000000000000");
+                })
+            },
+        },
+        Fixture {
+            name: "mdraid-1.2-member-512.img",
+            rationale: "FS-004 Linux RAID detection and LIN-005 mdraid support; also an orphaned \
+                        member, since no array assembles from one fixture",
+            build: || {
+                signature::whole_disk(SECTORS_4MIB_512, |image| {
+                    signature::mdraid_12(image, "md-array-1.2");
+                })
+            },
+        },
+        Fixture {
+            name: "ext4-with-stale-mdraid-090-512.img",
+            rationale: "The multi-signature case: a current ext4 and an obsolete 0.90 array \
+                        membership on one device. A 0.90 superblock lives near the END, so \
+                        formatting the start never removes it. SI-27 files this as a collision \
+                        family and round three's narrowing of it rests on this fixture existing",
+            build: || {
+                signature::whole_disk(SECTORS_4MIB_512, |image| {
+                    signature::ext4(image, "stale-pair/fs");
+                    signature::mdraid_090_at_end(image, "stale-pair/array");
+                })
+            },
         },
     ]
 }

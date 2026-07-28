@@ -1241,15 +1241,24 @@ list recorded the designator table as untested and the design built on it anyway
    is the kernel's own view — on Windows the complete partition list with each
    partition's offset, size, type and GUID; on Linux `/proc/partitions`, sysfs
    geometry, and the world-readable udev database carrying serial, WWN, bus and
-   path. **Part 5's conclusion needs re-checking against one case it did not
-   test:** the client's view of on-disk *signatures* is a cached udev value that
-   is single-valued by construction, while the enumerating interface (`wipefs -n`)
-   is one the client cannot reach. That arity difference is not roster identity
-   and signature presence does feed a verdict. Whether it ever yields two
-   different bodies for one unchanged device is unestablished — two attempts to
-   build a multi-signature medium failed, and one of them showed that a partition
-   reformatted by a current tool does *not* retain its old file-system signature,
-   which narrows round three's collision-family list to end-of-device metadata.
+   path. **Part 5's conclusion is now falsified for one case, measured rather than
+   argued.** WP-020's generator builds a device carrying a live ext4 superblock
+   at `0x438` and a stale mdraid 0.90 superblock in the last 64 KiB-aligned
+   block — the end-of-device metadata that start-of-device formatting never
+   reaches. On it, `wipefs -n` reports **both** signatures while
+   `blkid -p -o udev`, the form udev's builtin uses, reports exactly one:
+   `linux_raid_member`. **`ID_FS_AMBIVALENT` did not fire**, so a client does not
+   even see "ambiguous" — and the single answer it does see is the *stale*
+   signature, not the live file system.
+
+   That is an asymmetry which is not roster identity, and signature presence
+   feeds a protection verdict. An unprivileged client would call this device a
+   RAID member; a helper that probes directly sees an ext4 file system as well.
+   Round four must treat client-and-helper signature agreement as something to be
+   established, not assumed. (One earlier finding survives and narrows the
+   collision families: a partition reformatted by a *current* tool does not
+   retain its old file-system signature, because `mkfs` and `mkswap` erase
+   competing ones.)
 
    The Windows measurement already settles one thing and forces an amendment. A
    non-elevated client **cannot** read raw partition-table sectors
