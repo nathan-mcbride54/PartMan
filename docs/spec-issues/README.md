@@ -251,6 +251,15 @@ interchangeable, and only the first survives a bug in the guard.
 
 ## SI-28 A card reader's serial identifies the transport, not the medium
 
+> **Confirmed on hardware, 2026-07-28.** Not a hypothesis. A USB SD reader
+> enumerates two LUNs — one holding a card, one **empty** — and both report the
+> same disk serial. A slot containing no medium cannot be reporting the medium's
+> identity. The two LUNs differ only by the trailing `&0`/`&1` of the PnP instance
+> path, which Section 16 forbids as identity, and Windows exposes no card
+> register (no CID, PSN, manufacturer or OEM id) to fall back on. Measurements in
+> `docs/quality/observability.md`. One round of resolution has already failed;
+> see Part 7.
+
 **Requirements:** SAFE-003, ADR-C3, ACC-014, UI-009, SEC-002 · **Blocks 3, hash-visible**
 
 SAFE-003 anticipates that a USB bridge or SD reader may expose *no* stable
@@ -292,6 +301,14 @@ is not.
 **This is a defect in an accepted decision.** ADR-C3 shipped in 3.1.0 and its
 Strong definition assumes a stable hardware identifier identifies the medium.
 Nothing is implemented against it yet, so the correction is still free.
+
+**A second gap the same measurement exposed.** Two USB flash drives of one model
+and identical capacity each offer *two different identifier strings from two
+layers* — a storage-layer serial and a USB descriptor serial, not equal for the
+same device. A plan binding one and a re-probe reading the other would not match.
+So the canonicalization item in Part 6 is understated: the question is not only
+how to normalize a serial, but **which** serial is the bound one, per platform
+and per transport.
 
 ## SI-29 Does Storage Spaces protection cover content inside a space?
 

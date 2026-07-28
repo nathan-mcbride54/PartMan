@@ -78,19 +78,67 @@ This repository does not decide that here. It is filed as a required amendment t
 ADR-C3 in Part 6 of `docs/spec-issues/README.md`, and this document supplies the
 measurement that makes it unavoidable rather than theoretical.
 
-### Bearing on SI-28
+### Removable media — SI-28 measured, and confirmed
 
-`MSFT_PhysicalDisk.BusType` distinguishes a native SD host (12) and MMC (13) from
-USB mass storage (7). That is an observable signal, and it is *not* the same
-question as SI-28's: bus type says how the device is attached, not whether the
-serial it reports belongs to the medium or to the enclosure. A USB flash drive
-(bus 7, medium soldered in) and a USB card reader (bus 7, medium removable)
-report the same bus type and need opposite answers.
+Established 2026-07-28 on the same host, same non-elevated session, with a USB
+SD card reader (one card) and two USB flash drives attached. Read-only; nothing
+was formatted, because nothing needed to be.
 
-No card reader or removable medium was attached during this run, so **SI-28's
-central claim is not established by this document.** What a reader reports with
-and without a card inserted, and whether it differs between two cards, must be
-measured on hardware before any ADR relies on it.
+**The reader's serial is the reader's, and an empty slot proves it.** The reader
+enumerates as **two LUNs** — one holding the card, one with no medium at all:
+
+| LUN | Medium present | Size | Partitions | Disk-reported serial |
+| --- | --- | --- | --- | --- |
+| `…&0` | No | *(none)* | 0 | `2012…5300` |
+| `…&1` | Yes | 255863784960 | 1 | `2012…5300` **(identical)** |
+
+A slot containing no medium reports the same serial as a slot holding a 256 GB
+card. **The serial cannot be a property of the medium.** This is a stronger
+proof than the two-card comparison SI-28 was filed on, and it needed only one
+card.
+
+The two LUNs differ solely by the trailing `&0` / `&1` in the PnP instance path —
+an enumeration artifact, and Section 16 forbids accepting a device path as
+identity.
+
+So for the card, ADR-C3 computes: a stable hardware identifier is present, total
+size and both sector sizes are present, and the partition-table state is
+positively determined (MBR). **The record is Strong**, and any other card of the
+same capacity in that slot produces a byte-identical one. SI-28 is not a
+hypothesis.
+
+Two further observations:
+
+- **The reader reports a different serial at the storage layer than in its USB
+  descriptor** (`2012…5300` versus `2015…1013`), so the value is synthesized by
+  the bridge rather than passed through. Its form — a 16-digit decimal string
+  resembling a timestamp — is consistent with a firmware constant, which would
+  make it collide across *different readers of the same model*, not merely across
+  cards. Not established; worth measuring with a second reader.
+- **Windows exposes no card register at all.** `MSFT_PhysicalDisk` carries no
+  property matching CID, PSN, manufacturer id, or OEM id. There is no
+  medium-attributable identifier to fall back on, so on this platform the honest
+  answer for a card in a reader is that none exists.
+
+### Bearing on the identifier question
+
+The two USB flash drives are the control case, and they produce a second finding.
+
+Both are the same model and **exactly the same capacity** (125155860480 bytes,
+512/512), so they are the population SI-27 calls indistinguishable — except that
+both report distinct serials, so they are in fact distinguishable, and Strong.
+
+But each device offers **two different identifier strings from two layers**: the
+storage-layer `SerialNumber` (12 characters) and the USB descriptor serial in the
+`USBSTOR` instance path (16 hex characters). They are not the same value for the
+same device. A plan binding one and a re-probe reading the other would not match.
+That is Part 6 item 4's canonicalization gap with a concrete instance: the
+question is not only how to normalize a serial, but **which** serial is the
+bound one.
+
+`MSFT_PhysicalDisk.BusType` does distinguish a native SD host (12) and MMC (13)
+from USB mass storage (7). It does not help here: the reader and the flash drives
+are all bus type 7 and need opposite answers.
 
 ## macOS
 
