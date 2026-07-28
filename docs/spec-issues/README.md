@@ -39,8 +39,13 @@ cheap exit.
 the hash authenticates — answered by ADR-C2 in spec 3.0.0. SI-01, SI-02, and
 SI-04 are answered by ADR-C3 and ADR-C4 in spec 3.1.0.
 
-Still blocking increment 3: **SI-07 through SI-11**. Both were analysed and both
-proposals failed adversarial review on specific grounds, recorded in Part 4.
+Still blocking increment 3: **SI-07 through SI-11**, plus **SI-27**, discovered
+during the second protection attempt. Round one is recorded in Part 4; round two
+and its result are in Part 5.
+
+The approach is settled — protection is proven by computation and the verdict is
+frozen into the hashed body — and round two established that the platform
+asymmetry which threatened it does not bite. What remains is mechanism.
 
 ## SI-01 Identity strength is not computable at discovery time
 
@@ -476,3 +481,93 @@ failed and the user has a next step, and "boot into Recovery" is precisely that.
 **What the next attempt needs.** A status mapping that keeps MAC-009 intact,
 distinguishing "this product will never do this" from "this platform will not
 permit it right now".
+
+---
+
+# Part 5 — Protection model, round two
+
+The decision owner chose the approach: **protection is proven by computation,
+not asserted**, with the derived verdict frozen into the hashed body so it is
+authenticated and a client/helper disagreement fails closed.
+
+A second design attempt under that constraint **validated the approach and
+failed on mechanism**. Both are recorded.
+
+## What the round established, and it is the important part
+
+The open worry was that an unprivileged client and a privileged helper might see
+membership differently, making a frozen verdict diverge on unchanged hardware —
+the same structural failure that hashing capture metadata caused for PLAN-006.
+
+Per-platform investigation (including empirical, non-elevated testing on
+Windows) found the asymmetry is real but **lands where it does not matter**:
+
+> Every asymmetric fact is a *roster-identity* fact — which pool, which group,
+> which volume group. No protection verdict in this product needs roster
+> identity.
+
+- **Windows LDM.** The group GUID and member roster are Administrator-only. But
+  Section 2.1 forbids in-place LDM editing *uniformly*, so the group is not a
+  verdict input. The per-disk GPT type that decides it reads unprivileged.
+- **Windows Storage Spaces.** Pool membership is readable unprivileged through
+  `MSFT_StoragePoolToPhysicalDisk` — verified on this machine from a
+  non-elevated session, contradicting the widespread claim that it needs
+  Administrator. A hardened host can revoke it by namespace ACL, but the member
+  disk also carries its own GPT type, which is not policy-gated.
+- **Linux ZFS and LVM.** An exported pool's vdev tree is root-only, and a VG
+  roster with no active LV is invisible. Neither is a verdict input: ZFS is
+  uniformly detect-only, LVM is uniformly supported. `ID_FS_TYPE=zfs_member` is
+  in the world-readable udev database.
+- **macOS Fusion.** The *only* case where member-set shape decides a verdict —
+  and macOS is the one platform where shape is fully readable unprivileged.
+
+The Fusion counterexample that killed round one and the asymmetry that
+threatened round two are **disjoint**. Shape is needed exactly where it is
+symmetric. That makes the chosen approach viable, and it is a fact about the
+platforms rather than a design choice, so it holds regardless of what is built
+on top.
+
+## Why round two was still rejected
+
+**1. Protection propagated through containment into unrelated siblings.** The
+closure treated "disk contains partition" and "aggregate has member" as one
+relation. On the standard root-on-ZFS layout — `zpool create tank /dev/sda2` —
+protection flowed from `sda2` up to `sda` and back down to `sda1`, making the
+**EFI System Partition immutable on every such machine**, which kills LIN-007
+bootloader repair and REC-006 for that entire population. The same composition
+fires on macOS: a Fusion store at `disk0s2` freezes `disk0s1`.
+
+Containment is not membership. Protecting a ZFS member must not protect its
+sibling ESP. The propagation rule has to distinguish the two edge kinds.
+
+**2. The hashed body would contain a graph, and nothing names its nodes.** This
+design is the first to freeze cross-references — backing edges, containment
+edges, divergence reports — into the body. Every obvious naming scheme breaks
+ADR-C2's requirement that identical hardware produce equal digests:
+
+- Path-derived names are unstable across reboot, replug, and enumeration race.
+- Positional indices are worse under INV-009 device churn.
+- Names derived from the identity record inherit SAFE-003's *connection path*,
+  so a replug changes the name — breaking the one case SAFE-003 explicitly
+  blesses.
+- Names derived from a path-free subset **collide** for exactly the population
+  ADR-C3 calls Weak: two identical blank USB sticks behind bridges with no
+  serial. Two nodes, one name, and the edge relation silently merges them.
+
+That is a new blocking gap, filed below as SI-27.
+
+## SI-27 The hashed body has no node-naming rule
+
+**Requirements:** MODEL-005, ADR-C2, SAFE-003, ADR-C3 · **Blocks 3, hash-visible**
+
+Until now the body was a bag of values with no internal references, so node
+identity never had to be canonical. Any protection closure, and any faithful
+representation of MODEL-002's layering, puts edges in the body and therefore
+needs a `NodeId` that is stable across re-probes of unchanged hardware and
+collision-free across simultaneously present devices.
+
+Section 5 lists no such type and neither ADR-C2 nor ADR-C4 addresses naming.
+The four obvious schemes each fail, as above. A resolution must state the
+derivation, its stability guarantee, and its behaviour when two Weak-identity
+devices are indistinguishable — including whether an indistinguishable pair is
+an error that fails closed rather than a silent merge.
