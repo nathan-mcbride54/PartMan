@@ -48,9 +48,13 @@ answered by ADR-C2 in spec 3.0.0. SI-01, SI-02, and SI-04 are answered by ADR-C3
 and ADR-C4 in spec 3.1.0. SI-07 through SI-10 have a **proposed** answer in
 ADR-C5, which is not yet accepted.
 
-Still blocking increment 3: **SI-11** and **SI-27**, plus **SI-28** through
-**SI-32**, filed by round three. Round one is recorded in Part 4, round two in
-Part 5, round three in Part 6.
+Still blocking increment 3: **SI-11** and **SI-27**; **SI-28** through **SI-31**,
+filed by round three; and **SI-33**, filed by round four of SI-28. SI-32 is
+editorial and blocks nothing. Round one is recorded in Part 4, round two in
+Part 5, round three in Part 6, and SI-28's fourth round in Part 7.
+
+SI-31's answer survived review and its *reasoning* did not; the corrections are
+recorded in the issue and change where the rule lives.
 
 The approach is settled — protection is proven by computation and the verdict is
 frozen into the hashed body — and round two established that the platform
@@ -58,7 +62,9 @@ asymmetry which threatened it does not bite. What remains is mechanism.
 
 **Read SI-28 first.** It is the only defect found so far that destroys data
 without requiring a bug in anything being designed, and it lands on an
-already-accepted decision.
+already-accepted decision. One attempt to resolve it has already failed, and the
+reason is in Part 7: it is not a classification problem, so reclassifying the
+record does not close it.
 
 ## SI-01 Identity strength is not computable at discovery time
 
@@ -354,11 +360,67 @@ would each reach for a different one and MODEL-005 parity would fail on the firs
 extent set — silently, since both produce valid canonical encodings of the same
 logical value.
 
-**Recommended:** plain bytewise over each element's fully canonical encoded
-bytes, stated as a new section, with golden vectors straddling every integer
-width boundary (0, 23, 24, 255, 256, 65535, 65536, `2^32`, `2^32 + 1`). Adding a
-section that fixes an omission is a clarification under §7, not a profile version
-bump — but only if it is made before any set-valued type is written.
+**Recommended answer, on a corrected ground: plain bytewise over each element's
+fully canonical encoded bytes.** The answer survived adversarial review; the
+reasoning first offered for it did not, and the scope, the document, and the
+proposed evidence were all wrong. Recorded in full because the corrections are
+what make this safe to land.
+
+**The original derivation was false.** It claimed §3 *is already* plain bytewise
+over encoded bytes, so a general rule would merely restate it. Two comparators
+restrict to §3 on text keys, not one — plain bytewise over encoded, **and**
+length-first over encoded, since total encoded length is strictly increasing in
+payload length. §3 cannot select between them. Worse, §3 states its own
+provenance as RFC 8949 §4.2.3 length-first, "not the bytewise ordering of
+§4.2.1", and says "the choice is deliberate". Plain bytewise for elements is
+§4.2.1, so this **creates** a second convention rather than avoiding one. An
+experiment showing length-first-over-string agrees with bytewise-over-encoded on
+3,721 text pairs demonstrated that one candidate matches §3, not that only one
+does.
+
+**The ground that does hold.** A set element's order carries no semantic content,
+so the tiebreak is implementability. Rust's `<[u8] as Ord>::cmp` is plain
+unsigned bytewise, so `elements.sort()` is correct by default while length-first
+would be a silent wrong answer in the language most likely to reach for the
+default. Concretely: the committed `nested containers` vector's array elements
+are `a16179f6` and `f5`, already bytewise-ascending, so **no committed digest
+moves under plain bytewise — one would move under length-first.**
+
+**Scope: sets only, never arrays.** The filed title said "array and set
+elements", and that is too broad. Constraining arrays narrows §1's Array range
+("any sequence of values"), which §7 makes a new profile version rather than an
+in-place clarification — §7's clarification clause covers only input the profile
+already declares invalid, and `decode` **accepts** a descending two-element array
+today in both languages. It would also break two committed fuzz targets:
+`roundtrip_value.rs` asserts `encode` refuses only with `DepthLimitExceeded` or
+`NegativeOutOfRange`, and asserts `decode(encode(v)) == v`.
+
+**Document: not this one.** If the rule binds sets only — which is right — it
+cannot be a `pce/1` rule, because **`pce/1` has no Set kind**. The descending
+bytes decode to a plain `Array` with no discriminant and no ordering check, and
+no variant of the codec error type applies. It belongs to the per-schema
+validation pass that Part 6 item 7 already names as the sole decode boundary,
+with its own error type.
+
+**The proposed evidence would not have caught this.** Both fixture loaders build
+arrays in file order and never sort, so a golden vector asserts only "these bytes
+encode this given sequence" — which both comparators reproduce. SI-31 would have
+been closed with evidence blind to SI-31. The test has to exercise the sort.
+
+**Two prerequisite defects in the encoder, found by the same review.**
+
+1. `encode` was not injective in TypeScript: `TextEncoder` substitutes U+FFFD for
+   an unpaired surrogate, so two distinct values produced identical bytes and the
+   encoder could emit a map declaring two byte-identical keys — bytes its own
+   decoder rejects, violating §6.1. Reproduced, then fixed; Rust was unaffected
+   because `String` is validated UTF-8, which means the two implementations had
+   disagreed about what was *encodable*.
+2. **Encoding an element resets the depth budget.** The only exported byte
+   producer in either language starts at depth 0, so a 100-deep element encodes
+   standalone in both while the spliced 200-deep result is rejected by both
+   decoders. Same §6.1 class, unfixed, and it becomes reachable exactly when
+   set-valued fields exist. Whatever lands this rule must state how per-element
+   encoding accounts for depth.
 
 ## SI-32 The glossary's weak-identity definition contradicts SAFE-003
 
@@ -376,7 +438,40 @@ is not weak-identity, which is precisely the case ADR-C3 added.
 The amendment edited the requirement and not the definition that restates it.
 Recorded rather than fixed in place because it is normative text: the fix is one
 line and belongs in the next spec change, whose version bump is already open (see
-ADR-C5).
+ADR-C5). Round four found that ACC-014 and ACC-007 need amendment in the same
+pass, so fold all three into one spec change rather than three.
+
+## SI-33 A continuity witness for media that cannot be told apart
+
+**Requirements:** SAFE-003, PLAN-006, HLP-004, ADR-C2, ADR-C3 · **Blocks 3**
+
+Filed by round four of SI-28, which established that SI-28 cannot be resolved by
+classification alone (Part 7). This is the only mechanism anyone has proposed
+that discriminates two media whose recorded identity fields are equal.
+
+The idea: bind the plan not only to *what the target reports* but to a witness
+that **the medium was never exchanged** between plan creation and apply. It names
+nothing and identifies nothing; it witnesses non-interruption. Windows exposes a
+media-change counter through `IOCTL_STORAGE_CHECK_VERIFY2`, and comparable
+signals exist elsewhere.
+
+**Do not file this as solved by the counter's existence.** The variant reachable
+on a zero-access non-elevated handle may return a value the class driver already
+holds, and a witness that is *evaluable but stale* fails open in precisely the
+vector it exists for — plan, swap, apply, seconds apart, within one attach
+session — while the plan carries a field implying the check was made. That is
+worse than no witness, because it converts an admitted gap into a false
+assurance.
+
+**Liveness is a precondition on any design, not a detail.** Read the counter,
+exchange the medium with no intervening I/O, re-read immediately, and assert the
+value moved; repeat with a sixty-second idle gap to detect poll-driven behaviour;
+then close and reopen the handle and assert it survives. Until that passes on
+real hardware, this is a hypothesis.
+
+Placement is also open: a witness is compared rather than re-derived, so ADR-C2's
+rule argues for the body, but a witness that changes on every attach makes
+PLAN-006 unsatisfiable if hashed naively.
 
 ---
 
@@ -1189,3 +1284,132 @@ Recorded so round four does not chase them.
   untestability refuted.** The class cannot be computed from the declared inputs,
   but Regime B leaves CAP-003 status unchanged and produces only a reason, so the
   class never enters a verdict and need not be body content at all.
+
+---
+
+# Part 7 — Identity attribution for separable media, SI-28 round four
+
+**Not accepted. SI-28 remains open and still blocks WP-010 increment 3.**
+
+Five lenses raised twenty-two objections against a design that recommended a new
+body-resident attribution axis. The final review upheld four fatal findings and
+added one empirical result of its own.
+
+The governing finding reframes the issue rather than failing a mechanism:
+
+> **SI-28 is not a classification problem, and no classification change can
+> resolve it.** SAFE-003's weak-identity policy does not discriminate the two
+> cards. Typed device-name confirmation (UI-009) displays the *reader's* name for
+> both; the immediate pre-apply re-probe returns a byte-identical record; and the
+> replug allowance is not the vector, because the reader never leaves the port.
+> Only the unattended-apply refusal bites — and SAFE-003 gives that refusal a
+> first-class escape hatch ("unless the plan carries an explicit weak-identity
+> override recorded at plan creation") which the dominant real workflow, batch
+> card provisioning, records once in a template. **A protection that every
+> affected user must switch off to do the thing they came to do is not a
+> protection.**
+
+Reclassifying the record from Strong to Weak — which is what all three filed
+options do, by different routes — therefore leaves the destruction path open.
+
+## Direction that survived
+
+- **The honesty correction.** ADR-C3's Strong definition inherits an unstated
+  assumption from SAFE-003: that a stable hardware identifier identifies the
+  medium. That is false for the population SAFE-003 was written about. Saying so
+  costs nothing and is not in dispute.
+- **Attribution is not provenance.** ADR-C4's observation set answers "which
+  adapter reported this"; attribution answers "which component the value
+  denotes". `observed / unavailable / failed` has no slot for the second. This
+  survives the rejection of the option it was written to defend.
+- **A function's arguments must live where the function does.** ADR-C3 makes
+  strength computable from one record because "it asks only what the record
+  contains", so an input to a body value cannot be envelope content. The
+  *evidence* half is different: which interfaces were consulted and what each
+  returned is exactly an ADR-C4 observation and belongs in the envelope, since
+  MODEL-004 already requires "the method used" to be recorded there.
+- **The continuity witness**, now filed as SI-33. It is the only proposal that
+  discriminates two media whose recorded fields are equal.
+
+## Why the mechanism was not accepted
+
+1. **The one claimed positive capability was never demonstrated, and is
+   circular.** The design asserted that Windows can prove a medium separable by
+   comparing the storage stack's reported serial against the parent USB node's.
+   That comparison was never performed. Re-run non-elevated on the development
+   host: `MSFT_PhysicalDisk` returns two rows, both `BusType=17` (NVMe), with
+   **zero** rows in `BusType {7, 12, 13}`, and both cited PnP nodes report
+   `Present=False`. There was no storage-reported serial to compare against. What
+   the design would have compared is a PnP device instance ID that USBSTOR
+   *composes from* the USB descriptor's `iSerialNumber` — so the match is
+   manufactured by the enumerator, not observed. Strip it and the proposal
+   reduces on Windows to "everything behind a bridge is Indeterminate", which is
+   the blunt option plus a hash-visible body field.
+2. **The observation surface is a property of the observer, not the device, so it
+   cannot be body content.** Either it records what the adapter actually called —
+   and the unprivileged client (udev database, CIM) and the privileged helper
+   (VPD, SG_IO) then write different bodies for one device on one host, so
+   PLAN-006 can never pass — or it is clamped to a constant per platform and
+   transport, carrying no information beyond transport class, at which point the
+   axis degenerates to the blunt option. `docs/quality/observability.md` states
+   this constraint in terms, and the design did not test itself against it. The
+   second horn is sharper than the objections claimed: the measured NVMe device
+   reports `UniqueIdFormat=8` (SCSI Name String) with an `eui.` prefix and
+   enumerates under a SCSI device path, because Windows synthesizes SCSI identity
+   for NVMe through `stornvme`. So "which interface the adapter called" is one
+   observation where the design's enum has three.
+3. **The identifier being annotated is itself unspecified.** One NVMe device
+   exposes four distinct identifier strings from a single unprivileged CIM class —
+   `SerialNumber` (20 chars), `UniqueId` (20, `eui.`-prefixed),
+   `AdapterSerialNumber` (25), and `FruId` (15) — with `SerialNumber` equal to
+   neither `UniqueId` nor `AdapterSerialNumber`. Nothing normative says which is
+   *the* stable hardware identifier, or how to canonicalize it. The proposal
+   attaches a second unspecified field to each element of a set whose elements are
+   themselves unspecified.
+4. **The gate on freezing identity bytes is unmet.** `docs/quality/observability.md`
+   states that an entry marked not established MUST NOT be relied on by an ADR
+   that freezes canonical bytes. macOS is entirely unestablished and Linux only
+   partly so, and the proposal's only positive case for removable media rests on
+   `mmcblk*/device/cid`, on a platform where that has not been measured.
+
+## What the next attempt needs
+
+1. **Take the measurements before designing.** No attribution row may be frozen
+   before established Linux and macOS rows exist in
+   `docs/quality/observability.md`. Name IOKit keys for macOS, not
+   `system_profiler` output — Section 16 forbids parsing formatted output when an
+   API exists.
+2. **Design over device properties, never over observer properties.** Any
+   body-resident input must be something the client and the helper both read to
+   the same value by construction, and must not be an observation of a *sibling*
+   device. Transport class is the only discriminant that clears this bar today
+   (`MSFT_PhysicalDisk.BusType`, verified non-elevated, distinguishing 7, 12, 13
+   and 17). If that is the honest floor, argue against the blunt option on cost
+   rather than claiming capabilities that do not exist.
+3. **State a normative observation order per platform**, as a clamping rule, or
+   client and helper will not agree. This is a prerequisite for all identity work,
+   not only for SI-28.
+4. **Settle the identifier before annotating it.** Part 6 item 4's serial and WWN
+   canonicalization is a hard prerequisite, and it must fix *which* identifier is
+   bound and *which single API* supplies it per platform — not merely how to
+   normalize whatever an adapter happened to fetch.
+5. **Do not create a set-valued field to carry this.** SAFE-003 enumerates fixed
+   identifier slots, so any per-identifier annotation is a fixed-text-key map,
+   which §3 already orders. Making a live data-destruction defect wait on SI-31
+   would be a dependency a design chose, not one it inherited.
+6. **Amend SI-28's filing text** to the general predicate rather than the
+   card-reader instance, so round five does not re-derive the classification
+   framing that all three filed options share.
+
+## What this round does not license
+
+SI-28 must not be closed by any decision that does not carry a discriminating
+mechanism. A classification change that leaves the destruction path open while
+this register records the issue resolved is round three's absorption-lemma
+failure in a new place. **A false claim of closure is worse than an admitted
+gap.**
+
+Nothing is implemented — `crates/domain/src` holds only the `pce/1` codec and
+`packages/canonical/src` its mirror, no identity type exists in either language,
+and ADR-C3 is unimplemented. The correction is still free, which is exactly why
+freezing a wrong rule now is the expensive option and deferring is not.
