@@ -7,6 +7,17 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- WP-010 increment 1: the `pce/1` canonical encoding. `schemas/canonical-encoding.md`
+  specifies it normatively, and `crates/domain` implements the encoder, a strict
+  validating decoder, and SHA-256 hashing over canonical bytes (MODEL-005).
+  Golden vectors pin the encoding byte-for-byte, including the `2^53` and
+  `2^64 - 1` boundaries that RFC 8785 could not have carried as JSON numbers.
+  The decoder rejects rather than repairs: non-shortest arguments, floats, tags,
+  indefinite lengths, non-text or misordered map keys, duplicate keys,
+  ill-formed UTF-8, lengths beyond the input, nesting past a fixed depth limit,
+  and trailing bytes.
+- ADR-C1, accepted, fixing the canonical encoding and hash strategy.
+
 - WP-000 repository foundation: pinned Rust workspace, Tier-1 task runner,
   cross-platform CI, formatting/lint policy, dependency policy, and ADR
   template.

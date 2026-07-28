@@ -1,0 +1,13 @@
+[package]
+name = "partman-domain"
+description = "Canonical domain model and canonical encoding for PartMan"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+publish = false
+
+[dependencies]
+sha2 = { version = "0.10.9", default-features = false }
+
+[lints]
+workspace = true

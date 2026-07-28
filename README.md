@@ -32,7 +32,8 @@ disposable-environment proof required by SAFE-007.
 
 The dependency order is normative in Section 14 of the build specification.
 After WP-000, the M0 packages that can begin are WP-010, WP-020, and WP-030.
-WP-010 remains blocked on an accepted ADR-C1.
+ADR-C1 is accepted, so WP-010 is in progress; see `docs/work-packages/WP-010.md`
+for its increments. WP-020 and WP-030 are unstarted.
 
 ## License
 
