@@ -97,10 +97,17 @@ pub enum Refusal {
         /// The path as supplied.
         path: PathBuf,
     },
-    /// A target's bytes are not any image this repository generated.
+    /// A target is not, by name and bytes, an image this build generates.
     TargetNotGenerated {
         /// The path as supplied.
         path: PathBuf,
+    },
+    /// A target is reachable under more than one name.
+    TargetHasOtherNames {
+        /// The path as supplied.
+        path: PathBuf,
+        /// How many names refer to this file.
+        links: u64,
     },
 }
 
@@ -140,7 +147,13 @@ impl fmt::Display for Refusal {
             ),
             Self::TargetNotGenerated { path } => write!(
                 formatter,
-                "{} is not an image this repository generated",
+                "{} is not, by name and bytes, an image this build generates",
+                path.display()
+            ),
+            Self::TargetHasOtherNames { path, links } => write!(
+                formatter,
+                "{} is reachable under {links} names; a destructive suite must address a file \
+                 with exactly one",
                 path.display()
             ),
         }
@@ -158,11 +171,12 @@ impl std::error::Error for Refusal {}
 ///
 /// Returns [`Refusal`] whenever any of SAFE-007's three factors is absent or
 /// any check cannot be completed.
-pub fn authorize(
-    root: &Path,
-    manifest: &Manifest,
-    request: &Request,
-) -> Result<Authorization, Refusal> {
+pub fn authorize(root: &Path, request: &Request) -> Result<Authorization, Refusal> {
+    // Expectations come from the compiled catalogue, never from a file inside
+    // the directory being verified. Accepting a caller-supplied manifest was the
+    // defect that let a hand-written one authorize an arbitrary target.
+    let manifest = &crate::catalogue::expected();
+
     // Factor 1: an explicit profile, from the command line.
     if request.profile.as_deref() != Some(DESTRUCTIVE_PROFILE) {
         return Err(Refusal::ProfileMissing);
@@ -223,11 +237,59 @@ fn verify_target(root: &Path, manifest: &Manifest, target: &Path) -> Result<Path
         });
     }
 
-    // The decisive check: these exact bytes must be an image the generator
-    // produced. Nothing the caller says can substitute for it.
+    // A hard link is a regular file, and canonicalizing one still yields a path
+    // under the root, so neither check above sees it. Requiring the content to
+    // equal a generated fixture already means a link can only ever point at
+    // something that *is* a fixture — but a second name for the file is still a
+    // second thing a destructive suite could reach, so refuse it where the
+    // platform will say.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        if metadata.nlink() > 1 {
+            return Err(Refusal::TargetHasOtherNames {
+                path: target.to_path_buf(),
+                links: metadata.nlink(),
+            });
+        }
+    }
+
+    // The decisive check, and it is now anchored to the compiled catalogue: this
+    // file must be a fixture *by name*, and its length and bytes must be exactly
+    // that fixture's. Membership by digest alone was too weak — it let any file
+    // pass so long as some entry, anywhere in the manifest, shared its digest.
+    let name = resolved
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| Refusal::TargetNotGenerated {
+            path: target.to_path_buf(),
+        })?;
+    let entry = manifest
+        .entry(name)
+        .ok_or_else(|| Refusal::TargetNotGenerated {
+            path: target.to_path_buf(),
+        })?;
+
+    // The path must be *exactly* the one this fixture is generated at, not
+    // merely somewhere beneath the root with the right file name. `starts_with`
+    // plus `file_name` admits `<root>/sub/blank-512.img` — an ordinary copy in a
+    // subdirectory, with a matching name, length, and digest. That combination
+    // was verified to authorize before this equality replaced it.
+    if resolved != root.join(name) {
+        return Err(Refusal::TargetOutsideRoot {
+            path: target.to_path_buf(),
+        });
+    }
+
+    if metadata.len() != entry.length {
+        return Err(Refusal::TargetNotGenerated {
+            path: target.to_path_buf(),
+        });
+    }
+
     let bytes = std::fs::read(&resolved).map_err(|error| unresolvable(target, &error))?;
     let digest = hex(&Sha256::digest(&bytes));
-    if !manifest.contains_digest(&digest) {
+    if !constant_time_eq(digest.as_bytes(), entry.digest.as_bytes()) {
         return Err(Refusal::TargetNotGenerated {
             path: target.to_path_buf(),
         });

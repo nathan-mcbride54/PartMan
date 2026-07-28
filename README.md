@@ -66,7 +66,7 @@ reports status only and never redefines either.
 | `xtask` single entry point works locally and in CI | Met |
 | Schemas versioned, with cross-language hash golden tests (MODEL-005) | Partial — the golden tests exist and gate CI; MODEL-003 schema versioning is not implemented |
 | CODEOWNERS enforces ownership | Partial — CODEOWNERS requires owner review, but does not reject a diff touching paths outside a work package's assignment |
-| T1 fixture generator produces images | Met — `cargo xtask fixtures` produces eight images deterministically (WP-020 increment 1) |
+| T1 fixture generator produces images | Met — `cargo xtask fixtures` produces 13 images deterministically (WP-020 increment 1) |
 | Accessibility harness runs | Not started (WP-030) |
 
 The two partial rows are tracked as known gaps in `docs/traceability/WP-000.md`

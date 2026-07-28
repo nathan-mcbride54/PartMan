@@ -1,15 +1,15 @@
 # Dependency and supply-chain policy
 
 This policy implements the WP-000 foundation for SEC-010 against
-`AGENT_BUILD_SPEC.md` 3.1.0.
+`AGENT_BUILD_SPEC.md` 4.0.0.
 
 ## Pinned inputs
 
 - Rust: 1.96.0, selected by `rust-toolchain.toml`.
 - Cargo deny: 0.19.4, installed with its published lockfile.
 - Cargo audit: 0.22.2, installed with its published lockfile.
-- GitHub checkout action: v6.0.2 at immutable commit
-  `de0fac2e4500dabe0009e67214ff5f5447ce83dd`.
+- GitHub checkout action: v7.0.1 at immutable commit
+  `3d3c42e5aac5ba805825da76410c181273ba90b1`.
 
 GitHub-hosted operating-system labels are fixed to `ubuntu-24.04`,
 `windows-2025`, and `macos-15`. No project-controlled builder container image is

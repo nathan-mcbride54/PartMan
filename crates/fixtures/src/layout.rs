@@ -453,6 +453,51 @@ fn write_fixed_ascii(field: &mut [u8], text: &str) {
     }
 }
 
+/// Replace the backup table with an independently valid one that disagrees.
+///
+/// This is what ADR-C3 means by a table that "parses ambiguously", and it is a
+/// different thing from a damaged one. Both copies checksum correctly and each
+/// is internally consistent, so a reader has two trustworthy descriptions of the
+/// same disk and no ground for preferring either. Nothing can be positively
+/// determined, which is exactly the `Indeterminate` state.
+///
+/// Contrast [`corrupt_primary_header_crc`], which damages one copy and leaves
+/// the other authoritative — recoverable, not indeterminate.
+///
+/// # Panics
+///
+/// Panics if the image is too small to hold both copies of the table.
+pub fn write_conflicting_backup(image: &mut Image, label: &str, partitions: &[GptPartition]) {
+    let sectors = image.sectors();
+    let array_sectors = entry_array_sectors(image.sector());
+    assert!(
+        sectors > 2 * array_sectors + 3,
+        "image too small for a GPT with both copies"
+    );
+
+    let last = sectors - 1;
+    let first_usable = 2 + array_sectors;
+    let last_usable = last - array_sectors - 1;
+    let backup_entry_lba = last - array_sectors;
+
+    let array = gpt_entry_array(partitions);
+    let array_crc = crc32(&array);
+    // The same disk GUID: two tables for one disk, not two disks.
+    let disk_guid = Guid::derived(&format!("{label}/disk"));
+
+    image.write_at(backup_entry_lba, 0, &array);
+    let backup = gpt_header(
+        last,
+        1,
+        first_usable,
+        last_usable,
+        backup_entry_lba,
+        disk_guid,
+        array_crc,
+    );
+    image.write_at(last, 0, &backup);
+}
+
 /// Corrupt a GPT primary header's CRC without disturbing its signature.
 ///
 /// This is the fixture ADR-C3's `Indeterminate` partition-table state exists

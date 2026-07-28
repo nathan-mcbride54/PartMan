@@ -41,8 +41,21 @@ impl Manifest {
     /// Build a manifest from generated images.
     ///
     /// The token is derived from the entries, so it is stable for a given
-    /// fixture set and cannot be known without having generated that set. It is
-    /// one of SAFE-007's three factors, never the only one.
+    /// fixture set and changes the moment that set does.
+    ///
+    /// **It is not a secret, and must not be described as one.** Since
+    /// expectations moved to the compiled catalogue, the token is a pure
+    /// function of source: it is identical on every machine building this
+    /// commit, needs no I/O to compute, and `cargo xtask fixtures` prints it to
+    /// stdout, where CI captures it into a log. Anyone who can read the
+    /// repository can derive it.
+    ///
+    /// What it proves is narrower: that the operator ran the generator and
+    /// deliberately passed back what it recorded. That is a real but weak
+    /// factor, and SAFE-007's strength here rests on the target verification —
+    /// which is computed from bytes and cannot be asserted — not on this. If a
+    /// factor with independent strength is wanted, it has to be a per-generation
+    /// value that is not derivable from source.
     ///
     /// # Panics
     ///
@@ -61,17 +74,7 @@ impl Manifest {
             );
         }
 
-        // Derived from the entries in sorted order, so the token is a function
-        // of the fixture set rather than of iteration order.
-        let mut hasher = Sha256::new();
-        for (name, entry) in &entries {
-            hasher.update(name.as_bytes());
-            hasher.update(b" ");
-            hasher.update(entry.digest.as_bytes());
-            hasher.update(b"\n");
-        }
-        let token = hex(&hasher.finalize());
-
+        let token = derive_token(&entries);
         Self { token, entries }
     }
 
@@ -172,11 +175,46 @@ impl Manifest {
             }
         }
 
-        Ok(Self {
-            token: token.ok_or(ManifestError::MissingToken)?,
-            entries,
-        })
+        let token = token.ok_or(ManifestError::MissingToken)?;
+
+        // The token is a *function* of the entries, so a parsed manifest whose
+        // token does not follow from its own entries is a forgery, not a
+        // manifest. Accepting it was the defect that let a hand-written file
+        // authorize an arbitrary target: the token proved only that someone had
+        // written a token.
+        if !constant_time_eq(token.as_bytes(), derive_token(&entries).as_bytes()) {
+            return Err(ManifestError::TokenDoesNotFollowFromEntries);
+        }
+
+        Ok(Self { token, entries })
     }
+}
+
+/// Derive a manifest's token from its entries, in sorted order.
+///
+/// Sorted so the token is a function of the fixture set rather than of the order
+/// the entries happened to be built or parsed in.
+fn derive_token(entries: &BTreeMap<String, Entry>) -> String {
+    let mut hasher = Sha256::new();
+    for (name, entry) in entries {
+        hasher.update(name.as_bytes());
+        hasher.update(b" ");
+        hasher.update(entry.digest.as_bytes());
+        hasher.update(b"\n");
+    }
+    hex(&hasher.finalize())
+}
+
+/// Compare without an early exit.
+fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut difference = 0_u8;
+    for (a, b) in left.iter().zip(right) {
+        difference |= a ^ b;
+    }
+    difference == 0
 }
 
 /// Why a manifest could not be parsed.
@@ -192,6 +230,8 @@ pub enum ManifestError {
     MissingToken,
     /// The same fixture name appeared twice.
     DuplicateName(String),
+    /// The declared token is not the one these entries derive.
+    TokenDoesNotFollowFromEntries,
 }
 
 impl fmt::Display for ManifestError {
@@ -205,6 +245,9 @@ impl fmt::Display for ManifestError {
             Self::DuplicateToken => formatter.write_str("manifest declares more than one token"),
             Self::MissingToken => formatter.write_str("manifest declares no token"),
             Self::DuplicateName(name) => write!(formatter, "manifest repeats the name {name:?}"),
+            Self::TokenDoesNotFollowFromEntries => {
+                formatter.write_str("manifest token does not follow from its own entries")
+            }
         }
     }
 }

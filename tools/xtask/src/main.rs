@@ -241,22 +241,21 @@ fn run_tier(tier: u8, profile: Option<&str>) -> Result<(), TaskError> {
 /// Section 12 and Section 16 forbid.
 fn destructive_tier(tier: u8, profile: Option<&str>) -> Result<(), TaskError> {
     let root = fixture_root();
-    let manifest = catalogue::load_manifest(&root).map_err(|error| {
-        TaskError::Safety(format!(
-            "no usable fixture manifest in {}: {error}. Run `cargo xtask fixtures` first; \
-             SAFE-007 has nothing to verify a target against until you do",
-            root.display()
-        ))
-    })?;
 
-    let targets = manifest.names().map(|name| root.join(name)).collect();
+    // The target list comes from the compiled catalogue, not from the manifest
+    // on disk. Reading it from disk would let whoever wrote that file choose
+    // what a destructive suite addresses.
+    let targets = catalogue::expected()
+        .names()
+        .map(|name| root.join(name))
+        .collect();
     let request = interlock::Request {
         profile: profile.map(ToOwned::to_owned),
         token: env::var(interlock::TOKEN_VARIABLE).ok(),
         targets,
     };
 
-    let authorization = interlock::authorize(&root, &manifest, &request).map_err(|refusal| {
+    let authorization = interlock::authorize(&root, &request).map_err(|refusal| {
         TaskError::Safety(format!("Tier {tier} refused: {refusal}. Nothing was run"))
     })?;
 

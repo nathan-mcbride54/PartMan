@@ -25,8 +25,9 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   `node:test`.
 - WP-020 increment 1: `crates/fixtures`, the deterministic disk-image generator,
   and the SAFE-007 disposable-target interlock. `cargo xtask fixtures` writes
-  eight synthetic images — GPT, 4Kn GPT, MBR, blank, corrupt-header, missing
-  backup, hybrid MBR/GPT, and APM — into the gitignored `tests/generated/`, each
+  synthetic disk images — GPT, 4Kn GPT, MBR, blank, damaged-primary,
+  conflicting-tables, hybrid MBR/GPT, APM, and on-disk signatures for LUKS2,
+  LVM2 and mdraid — into the gitignored `tests/generated/`, each
   a pure function of the code that builds it, so two machines produce identical
   bytes and nothing binary is ever committed. The interlock requires all three of
   SAFE-007's proofs and computes disposability from a target's own bytes rather

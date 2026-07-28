@@ -36,7 +36,7 @@ impl Sandbox {
     }
 
     fn authorize(&self, request: &Request) -> Result<Authorization, Refusal> {
-        authorize(&self.root, &self.manifest, request)
+        authorize(&self.root, request)
     }
 }
 
@@ -348,6 +348,129 @@ fn the_fixture_root_must_exist() {
         token: Some(manifest.token().to_owned()),
         targets: vec![missing.join("x.img")],
     };
-    let refusal = authorize(missing, &manifest, &request).expect_err("must fail closed");
+    let refusal = authorize(missing, &request).expect_err("must fail closed");
     assert!(matches!(refusal, Refusal::ManifestUnreadable(_)));
+}
+
+#[test]
+fn a_forged_manifest_cannot_authorize_a_file_the_generator_never_produced() {
+    // The defect a project review found, reproduced as a test. Previously the
+    // interlock derived its expectations from `MANIFEST` -- a user-writable file
+    // in the very directory being verified -- so writing a manifest that named
+    // an arbitrary file's digest, with any well-formed token, authorized it.
+    //
+    // Expectations now come from the compiled catalogue, so nothing written to
+    // the fixture directory can change what the interlock expects.
+    let sandbox = Sandbox::new("forged-manifest");
+
+    let victim = sandbox.target("victim.img");
+    fs::write(&victim, b"pretend this is the user's boot disk").expect("writing must succeed");
+
+    let digest = crate::manifest::hex(&sha2::Sha256::digest(
+        b"pretend this is the user's boot disk",
+    ));
+    let forged = format!(
+        "{}\ntoken {}\nimage {digest} 36 victim.img\n",
+        crate::manifest::MANIFEST_HEADER,
+        "a".repeat(64),
+    );
+    fs::write(sandbox.root.join(crate::manifest::MANIFEST_FILE), forged)
+        .expect("writing the forged manifest must succeed");
+
+    let request = Request {
+        profile: Some(DESTRUCTIVE_PROFILE.to_owned()),
+        token: Some("a".repeat(64)),
+        targets: vec![victim],
+    };
+    let refusal = sandbox
+        .authorize(&request)
+        .expect_err("a forged manifest must not authorize anything");
+    assert!(matches!(refusal, Refusal::TokenMismatch), "{refusal}");
+}
+
+#[test]
+fn a_real_fixture_under_the_wrong_name_is_refused() {
+    // Membership by digest alone was too weak: any file passed so long as some
+    // manifest entry shared its digest. A fixture's bytes under another name are
+    // still not that fixture.
+    let sandbox = Sandbox::new("wrong-name");
+    let bytes = fs::read(sandbox.target("blank-512.img")).expect("fixture must be readable");
+    let renamed = sandbox.target("not-a-catalogue-name.img");
+    fs::write(&renamed, &bytes).expect("writing must succeed");
+
+    let refusal = sandbox
+        .authorize(&sandbox.request(vec![renamed]))
+        .expect_err("a fixture under an unexpected name must be refused");
+    assert!(
+        matches!(refusal, Refusal::TargetNotGenerated { .. }),
+        "{refusal}"
+    );
+}
+
+#[test]
+fn a_fixture_whose_bytes_belong_to_a_different_fixture_is_refused() {
+    // The other half of the same defect: right directory, right catalogue name,
+    // but the content of a different entry.
+    let sandbox = Sandbox::new("swapped-content");
+    let other = fs::read(sandbox.target("mbr-basic-512.img")).expect("readable");
+    fs::write(sandbox.target("blank-512.img"), &other).expect("writing must succeed");
+
+    let refusal = sandbox
+        .authorize(&sandbox.request(vec![sandbox.target("blank-512.img")]))
+        .expect_err("content must match the entry for that name, not merely some entry");
+    assert!(
+        matches!(refusal, Refusal::TargetNotGenerated { .. }),
+        "{refusal}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_hard_link_into_the_fixture_root_is_refused() {
+    // A hard link is a regular file and canonicalizes inside the root, so
+    // neither of those checks sees it. Requiring content to equal a generated
+    // fixture already means a link can only point at something that is one, but
+    // a second name is still a second thing a destructive suite could reach.
+    let sandbox = Sandbox::new("hard-link");
+    let real = sandbox.target("blank-512.img");
+    let link = sandbox.target("gpt-basic-512.img");
+    fs::remove_file(&link).expect("clearing the target name must succeed");
+    fs::hard_link(&real, &link).expect("creating the hard link must succeed");
+
+    let refusal = sandbox
+        .authorize(&sandbox.request(vec![link]))
+        .expect_err("a hard-linked target must be refused");
+    assert!(
+        matches!(
+            refusal,
+            Refusal::TargetHasOtherNames { .. } | Refusal::TargetNotGenerated { .. }
+        ),
+        "{refusal}"
+    );
+}
+
+use sha2::Digest as _;
+
+#[test]
+fn a_fixture_copy_in_a_subdirectory_is_refused() {
+    // The hole the first attempt at this fix left open, and which its own new
+    // tests did not catch. Containment was `starts_with(root)` and the name came
+    // from `file_name()`, so a byte-identical copy at `<root>/sub/blank-512.img`
+    // satisfied the root check, the name lookup, the length check and the digest
+    // check at once. It authorized. The path must be exactly where that fixture
+    // is generated, not merely underneath the root.
+    let sandbox = Sandbox::new("subdirectory");
+    let sub = sandbox.root.join("sub");
+    fs::create_dir_all(&sub).expect("creating the subdirectory must succeed");
+    let bytes = fs::read(sandbox.target("blank-512.img")).expect("fixture must be readable");
+    let copy = sub.join("blank-512.img");
+    fs::write(&copy, &bytes).expect("writing the copy must succeed");
+
+    let refusal = sandbox
+        .authorize(&sandbox.request(vec![copy]))
+        .expect_err("a copy in a subdirectory must be refused");
+    assert!(
+        matches!(refusal, Refusal::TargetOutsideRoot { .. }),
+        "{refusal}"
+    );
 }
