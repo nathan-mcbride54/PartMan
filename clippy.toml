@@ -1,2 +1,7 @@
 msrv = "1.96"
 
+# The product name is prose, not an item, so `doc_markdown` must not demand
+# backticks around it. `".."` extends clippy's default list rather than
+# replacing it.
+doc-valid-idents = ["PartMan", ".."]
+
