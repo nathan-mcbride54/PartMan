@@ -14,8 +14,6 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   Actions. It runs inside `cargo xtask ci` and as a Tier-1 test, and fails
   closed when no workflow can be read.
 - `.gitattributes` normalizes line endings to LF in every working tree.
-- `LICENSE-APACHE` and `LICENSE-MIT` supply the dual license already declared
-  in `Cargo.toml`.
 - `SECURITY.md` defines a private disclosure channel and reporting scope.
 - Job timeouts on both CI jobs.
 
@@ -34,6 +32,12 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   release that introduces a lint. Workspace lint scope now comes from
   `[workspace.lints]`, and `cargo xtask ci` still fails on any warning in
   workspace code through `cargo clippy -- -D warnings`.
+
+- The project is deliberately unlicensed until it is complete. The `license`
+  key is gone from `Cargo.toml`, and `[licenses.private] ignore = true` in
+  `deny.toml` exempts `publish = false` crates from the license gate, which
+  otherwise fails with `error[unlicensed]`. Third-party dependency licensing is
+  unchanged and still enforced by the allow-list.
 
 ### Fixed
 

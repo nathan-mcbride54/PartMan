@@ -36,12 +36,10 @@ WP-010 remains blocked on an accepted ADR-C1.
 
 ## License
 
-Dual-licensed under either of
+None yet. This project is deliberately unlicensed while it is incomplete, so
+default copyright applies and no rights to use, copy, modify, or distribute it
+are granted. A license will be chosen before the first release.
 
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
-- MIT license ([LICENSE-MIT](LICENSE-MIT))
-
-at your option. Unless you state otherwise, any contribution you intentionally
-submit for inclusion in this work is dual-licensed on those terms, with no
-additional conditions.
+Until then, do not submit outside contributions: without license terms, the
+rights in a contribution are undefined for both sides.
 
