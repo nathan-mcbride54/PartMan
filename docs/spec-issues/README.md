@@ -13,39 +13,52 @@ them proposes an answer as though it were decided.**
 Seven parallel readers extracted the Section 5 domain-type requirements from the
 specification during WP-010 increment 3, and three adversarial reviewers checked
 the resulting design for completeness, safety, and encoding fidelity. Thirty
-conflict reports and twenty-five design findings were deduplicated into the
+conflict reports and twenty-five design findings were deduplicated into the first
 twenty-six issues below.
+
+SI-27 was found by the second attempt at the protection model, and SI-28 through
+SI-32 by the third, which put one design to five adversarial lenses. That is the
+pattern to expect: each attempt at a hard decision surfaces conflicts the previous
+one could not see, because it had not yet reached the layer they live in.
 
 ## Why this blocked increment 3
 
-Ten of these are **hash-visible**: the choice changes the canonical bytes of a
-plan or topology snapshot. Under MODEL-005 and ADR-C1, changing a hashed
-artifact's shape later is not a refactor — it invalidates every hash the product
-has ever issued, and there is no migration for an authorization token that no
-longer matches. Guessing now and correcting later is the one option with no
-cheap exit.
+Most of the blocking ones are **hash-visible**: the choice changes the canonical
+bytes of a plan or topology snapshot. Under MODEL-005 and ADR-C1, changing a
+hashed artifact's shape later is not a refactor — it invalidates every hash the
+product has ever issued, and there is no migration for an authorization token
+that no longer matches. Guessing now and correcting later is the one option with
+no cheap exit.
 
 ## Legend
 
 - **Blocks 3** — must be decided before WP-010 increment 3 writes the type.
 - **Hash-visible** — the decision changes canonical bytes.
 - **Later** — decidable before the work package named, not before increment 3.
+- **Editorial** — a defect in normative text with no decision to make, so it
+  blocks nothing and is fixed by the next spec change.
 
 ---
 
 # Part 1 — Blocking WP-010 increment 3
 
-**Six resolved, five remain.** SI-03, SI-05, and SI-06 were one question — what
-the hash authenticates — answered by ADR-C2 in spec 3.0.0. SI-01, SI-02, and
-SI-04 are answered by ADR-C3 and ADR-C4 in spec 3.1.0.
+**Six resolved, four proposed, two remain — plus what round three found.**
+SI-03, SI-05, and SI-06 were one question — what the hash authenticates —
+answered by ADR-C2 in spec 3.0.0. SI-01, SI-02, and SI-04 are answered by ADR-C3
+and ADR-C4 in spec 3.1.0. SI-07 through SI-10 have a **proposed** answer in
+ADR-C5, which is not yet accepted.
 
-Still blocking increment 3: **SI-07 through SI-11**, plus **SI-27**, discovered
-during the second protection attempt. Round one is recorded in Part 4; round two
-and its result are in Part 5.
+Still blocking increment 3: **SI-11** and **SI-27**, plus **SI-28** through
+**SI-32**, filed by round three. Round one is recorded in Part 4, round two in
+Part 5, round three in Part 6.
 
 The approach is settled — protection is proven by computation and the verdict is
 frozen into the hashed body — and round two established that the platform
 asymmetry which threatened it does not bite. What remains is mechanism.
+
+**Read SI-28 first.** It is the only defect found so far that destroys data
+without requiring a bug in anything being designed, and it lands on an
+already-accepted decision.
 
 ## SI-01 Identity strength is not computable at discovery time
 
@@ -159,6 +172,8 @@ The specification does not separate topological content from capture metadata.
 
 ## SI-07 StorageContainer, StoragePool, and RaidSet have no boundary
 
+> **Proposed resolution in ADR-C5**, not yet accepted — one `Aggregate` node with a closed technology discriminant, membership as a `Backs` edge of unbounded in-degree, and a self-reported member count so that detect-only is a function of kind *and* membership.
+
 **Requirements:** Section 5, MODEL-002, MAC-003, MAC-010 · **Blocks 3, hash-visible**
 
 Section 5 lists all three and defines none. MODEL-002 lumps "Storage Spaces,
@@ -172,6 +187,8 @@ Fusion per MAC-010), which a one-to-one `StorageContainer` cannot express.
 
 ## SI-08 Btrfs multi-device: container, or file system with many backings?
 
+> **Proposed resolution in ADR-C5**, not yet accepted — a file system with an ordered set of n ≥ 1 backings, single-device being the cardinality-1 instance of the same shape, so `btrfs device add` changes the member set and not the node shape.
+
 **Requirements:** MODEL-002, FS-003, LIN-006, MAC-003 · **Blocks 3, hash-visible**
 
 MODEL-002 places file system strictly above volume, yet requires representing
@@ -180,6 +197,8 @@ performs the aggregation role a container performs for APFS. APFS gets an
 explicit container type; Btrfs gets none.
 
 ## SI-09 FS-004 detects things that are not file systems
+
+> **Proposed resolution in ADR-C5**, not yet accepted — signatures materialize as `BackingSignature` nodes with an optional consumer, `FileSystemKind` stays purely file systems, and the routing rule for an unrecognized signature is stated in the ADR rather than left to an adapter.
 
 **Requirements:** FS-004, MODEL-002 · **Blocks 3, hash-visible**
 
@@ -193,6 +212,8 @@ mandated layering, or FS-004 results are materialized as
 and every snapshot hash.
 
 ## SI-10 The `Snapshot` type has no defined scope
+
+> **Proposed resolution in ADR-C5**, not yet accepted — renamed `StorageSnapshot`, covering APFS, LVM2, Apple signed system, VSS, and Btrfs. The node is envelope content, and MAC-009's signed system snapshots reach protection through a flag on the file system that carries them, which is what makes this answerable independently of SI-27.
 
 **Requirements:** Section 5, Section 20, MAC-003, LIN-004, PART-015, FS-003 · **Blocks 3**
 
@@ -220,13 +241,152 @@ This decides whether a detect-only marking makes a plan step naming such a node
 **unrepresentable**, or merely rejected at runtime. The two are not
 interchangeable, and only the first survives a bug in the guard.
 
+## Filed by round three
+
+## SI-28 A card reader's serial identifies the transport, not the medium
+
+**Requirements:** SAFE-003, ADR-C3, ACC-014, UI-009, SEC-002 · **Blocks 3, hash-visible**
+
+SAFE-003 anticipates that a USB bridge or SD reader may expose *no* stable
+hardware identifier, and classifies the record Weak when that happens. It does
+not anticipate the inverse, which is at least as common: **a reader that exposes
+its own serial.**
+
+Many USB SD and CF readers report the reader's serial number over the mass
+storage class; the card's own CID serial is not exposed. So two blank cards of
+the same capacity, read through one reader, produce records that are byte-equal
+in serial, WWN, total bytes, both sector sizes, connection path, and — both being
+blank — partition-table state. Under ADR-C3 that record is **Strong**, because it
+carries a stable hardware identifier and a positively determined table state.
+
+Three protections then do not apply, all of which were written for exactly this
+device class:
+
+- ACC-014 and SAFE-003's weak-identity policy: typed device-name confirmation
+  (UI-009) and refusal of unattended apply.
+- SAFE-003's helper re-check: `IdentityMatch` **succeeds**, because every field
+  the reader reports is unchanged.
+- SEC-002's cross-device rejection: the two cards are one device by every
+  recorded field.
+
+A plan bound to card A therefore executes destructively against card B. No
+collision check can catch it — the two cards are never simultaneously present, so
+there is nothing to compare. This is not a naming problem; it is a claim about
+what a serial identifies.
+
+**Options:** (a) a stable hardware identifier counts toward Strong only when it
+is attributable to the medium rather than the enclosure, which needs a normative,
+per-platform rule for when that attribution is knowable; (b) removable media
+behind a bridge transport are Weak regardless of reported identifiers, which is
+blunt and re-imposes the friction ADR-C3 removed on genuinely strong removables;
+(c) Strong requires a medium-attributable identifier *or* a positively determined
+non-blank table state, so a blank card in a reader is Weak but a partitioned one
+is not.
+
+**This is a defect in an accepted decision.** ADR-C3 shipped in 3.1.0 and its
+Strong definition assumes a stable hardware identifier identifies the medium.
+Nothing is implemented against it yet, so the correction is still free.
+
+## SI-29 Does Storage Spaces protection cover content inside a space?
+
+**Requirements:** Section 2.1, WIN-003, PART-014 · **Blocks 3, hash-visible**
+
+Section 2.1 says "detect, represent, and protect pools/spaces; no pool or space
+mutation". WIN-003 says Storage Spaces are "detected, represented, and protected
+only". Neither says whether a *file system inside* a space is a protected object
+or an ordinary target that happens to sit on unusual backing.
+
+The narrow reading protects the pool and the space objects while permitting an
+NTFS resize inside a space; the broad reading protects everything above the pool.
+The two produce different capability answers for the same volume on the same
+machine, and the choice feeds the protection verdict, so it is hash-visible and
+not migratable later.
+
+## SI-30 Does "never modified" for the sealed system volume cover deletion?
+
+**Requirements:** Section 2.1, MAC-009, PART-014, CAP-003 · **Blocks 3**
+
+Section 2.1 requires that Apple sealed system volumes and signed system snapshots
+are "never modified" and limits boot-volume work to documented supported paths.
+MAC-009 makes them protected objects and requires `blocked` with a stated reason
+for operations macOS permits only in Recovery.
+
+Whole-object deletion is neither, and the requirements point opposite ways.
+Erasing `Macintosh HD` is not a modification *of* the sealed volume, which argues
+for treating it as an ordinary destructive operation gated by MAC-009's Recovery
+rule (`blocked` + a reason). But Section 2.1's non-goal argues that the product
+never does it at all (`unsupported`). Round three's design routed it to
+`unsupported` in two places and recommended `blocked` in a third, and its
+verification plan hardcoded the first — freezing the answer to MAC-009's
+most-cited target by accident.
+
+This is the same axis round one was rejected on, so it is filed rather than
+picked.
+
+## SI-31 `pce/1` specifies no ordering for array and set elements
+
+**Requirements:** MODEL-005, ADR-C1, `schemas/canonical-encoding.md` §3 · **Blocks 3, hash-visible**
+
+Filed against `schemas/canonical-encoding.md` rather than against two conflicting
+requirements, because the defect is an omission in a normative document.
+
+§3 fixes map key ordering as length-first then bytewise, and notes that this is
+"equivalently, and identically in result" a plain bytewise comparison of the
+fully encoded key. That equivalence holds for **text keys**, whose heads are
+monotonic in length. It does not generalize, and the profile never states an
+ordering for array elements.
+
+Part 3 of this document already agreed that set ordering must be over each
+element's fully canonical encoding. Every set-valued field in the domain model —
+partitions, free extents, backings, observations — therefore depends on a
+comparator the profile does not define, and the two candidates disagree on
+ordinary values:
+
+```
+{len: 5, off: 300}  -> a2636c656e05636f666619012c   (13 bytes)
+{len: 6, off:   0}  -> a2636c656e06636f666600       (11 bytes)
+```
+
+Length-first orders the second first; plain bytewise orders the first first.
+Rust's `Vec<u8>` ordering is plain bytewise and the existing `compare_keys` /
+`compareKeys` helpers are length-first over text, so the two implementations
+would each reach for a different one and MODEL-005 parity would fail on the first
+extent set — silently, since both produce valid canonical encodings of the same
+logical value.
+
+**Recommended:** plain bytewise over each element's fully canonical encoded
+bytes, stated as a new section, with golden vectors straddling every integer
+width boundary (0, 23, 24, 255, 256, 65535, 65536, `2^32`, `2^32 + 1`). Adding a
+section that fixes an omission is a clarification under §7, not a profile version
+bump — but only if it is made before any set-valued type is written.
+
+## SI-32 The glossary's weak-identity definition contradicts SAFE-003
+
+**Requirements:** Section 20, SAFE-003, ADR-C3 · **Editorial, does not block**
+
+Section 20 defines weak identity as "device identity lacking any stable hardware
+identifier (SAFE-003)". Since 3.1.0, SAFE-003 also classifies as Weak a record
+whose partition-table state could not be determined, **even when a serial or WWN
+is present** — that distinction is the whole point of ADR-C3's three-valued table
+state, and the ADR calls it a deliberate tightening.
+
+Read as written, the glossary says a device with a serial and an unreadable GPT
+is not weak-identity, which is precisely the case ADR-C3 added.
+
+The amendment edited the requirement and not the definition that restates it.
+Recorded rather than fixed in place because it is normative text: the fix is one
+line and belongs in the next spec change, whose version bump is already open (see
+ADR-C5).
+
 ---
 
 # Part 2 — Blocking later work packages
 
 ## SI-12 Multipath devices and the single connection path
 
-**Requirements:** SAFE-003, LIN-006, INV-001 · **Later (WP-L100), hash-visible**
+> **Reclassified by round three: this now blocks SI-27, and therefore increment 3.** Two paths to one LUN must deduplicate to a single device node with the path set in the envelope, or any node-naming scheme is wrong on the first SAN it meets — a multipath pair is one device seen twice, which is the opposite of two ambiguous devices and needs the opposite treatment.
+
+**Requirements:** SAFE-003, LIN-006, INV-001 · **Blocks 3 (was: Later, WP-L100), hash-visible**
 
 SAFE-003 models one connection path per identity record and makes a path change
 the special case for removable replug. LIN-006 requires detecting multipath and
@@ -299,6 +459,8 @@ contradiction, and the answer decides whether the plan carries an
 authorization-requirement field distinct from severity.
 
 ## SI-19 A reversal plan has no snapshot to bind to
+
+> **Amended by round three.** Not orthogonal to naming, as previously assumed, but strictly harder. Round three showed that most nodes a plan creates *can* be named from position relative to already-named nodes — a new encryption layer from its backing partition, a new file system from the mapper device. The residue that cannot is small and enumerable: volumes minted inside an existing container (`newfs_apfs`) and LVM snapshots, which have no position to be named from until they exist. That residue is this issue's, not SI-27's.
 
 **Requirements:** PLAN-008, PLAN-002, PLAN-006, HLP-004, Section 6 · **Later (WP-060)**
 
@@ -436,9 +598,13 @@ They do **not** require a specification change.
 
 # Part 4 — Analysed, not yet decided
 
-Two of the four remaining decisions were analysed and their proposals rejected
-by adversarial review. The *direction* of each survives; the mechanism does not.
-Recorded so the next attempt starts from the objection rather than from scratch.
+Both remaining decisions were analysed in round one and both proposals were
+rejected by adversarial review. The *direction* of each survives; the mechanism
+does not. Recorded so the next attempt starts from the objection rather than from
+scratch.
+
+*(When this was written, four decisions remained. ADR-C3 and ADR-C4 have since
+resolved two of them.)*
 
 ## SI-07 to SI-10, the aggregation vocabulary
 
@@ -571,3 +737,423 @@ The four obvious schemes each fail, as above. A resolution must state the
 derivation, its stability guarantee, and its behaviour when two Weak-identity
 devices are indistinguishable — including whether an indistinguishable pair is
 an error that fails closed rather than a silent merge.
+
+---
+
+# Part 6 — Aggregation, protection, and naming, round three
+
+Round three answered all six remaining blockers in one design. **Four resolved,
+proposed as ADR-C5.** Two did not. Five adversarial lenses raised fifty-eight
+objections; the author refuted none of them, and the final review upheld the
+fatal findings while correcting four objections that were wrong in their
+reasoning or their worked example. Recorded so round four starts from the
+objection.
+
+The most durable finding of the round is an attack result rather than a design
+result, and it governs both open issues:
+
+> **Fail-closed-by-unencodability is not fail-closed.** Every collision in the
+> submitted naming scheme surfaced as an encoder error, and an encoder error
+> produces no artifact — nothing to display, nothing to journal, no
+> `Indeterminate` verdict, and no SAFE-005 refusal, because a refusal must be
+> encodable to be issued. On a whole-host snapshot that turns a two-device
+> ambiguity into a denial of discovery for every device on the machine,
+> reachable by an unprivileged party with a cheap USB stick, and it defeats
+> INV-008 in the strongest possible way. **Any scheme whose collision behaviour
+> is "the codec refuses" is wrong by construction.**
+
+## SI-11, protection strength for non-goals (round three)
+
+**Direction that survived.**
+
+- **The three-regime mapping**, which is the first attempt to satisfy what Part 4
+  asked for. Regime A (Section 2.1 non-goal) → `unsupported` with an
+  out-of-scope reason; Regime A′ (SAFE-005 ambiguity) → `blocked`; Regime B
+  (PART-014) → **status unchanged**, reason attached; Regime C (Recovery-only,
+  missing tool, dirty volume) → `blocked`. MAC-009 stays intact and nothing is
+  removed from PART-014, so round one's error is not repeated: on Apple Silicon,
+  operations macOS permits only in Recovery report `blocked` with that reason,
+  which is MAC-009's literal requirement.
+- **The rejection of Regime B → `blocked`.** CAP-001 computes capability per
+  exact target with no plan in scope, and CAP-005 requires GUI, CLI, and planner
+  served from one engine, so a status that flips on whether a plan happens to
+  exist is not a property of the target. The alternative reports `blocked` for
+  shrinking `C:` on every Windows machine and fails ACC-001.
+- **No fifth CAP-003 value.** CAP-003 already mandates "plus a reason and
+  remediation", so a closed reason enum is the specified home. A fifth status
+  would touch CAP-005, CAP-007, ACC-009, PLAN-009, FS-007, SAFE-004, IMG-011, and
+  MAC-009.
+- **A three-valued verdict** — permitted, refused, indeterminate — carrying
+  ADR-C3's three-valued table state and ADR-C4's positively-observed-absence rule
+  one layer up. A binary verdict encodes an EIO reading a ZFS uberblock as "not a
+  member", on the failing-disk population the product exists for.
+- **Three edge kinds, not one**, which is the categorical fix for round two's
+  sibling-capture failure rather than a special case: containment (positional
+  nesting in one addressable byte space), backing (evidence → consumer), and
+  production (producer → product). The failures below are in the closure over
+  these edges, not in the edge taxonomy.
+- **Copy-as-source as a shape property rather than a per-node policy**, which
+  generalizes the WIN-004 allowance beyond LDM.
+
+**Why the mechanism was not accepted.** Six defects, two of which destroy data
+with both defence layers passing.
+
+1. **The closure has no downward dependency rule.** On the documented
+   root-on-ZFS-over-LUKS layout — `luksFormat /dev/sdb1`, `cryptsetup open`,
+   `zpool create tank /dev/mapper/cryptzfs` — deleting `sdb1` reaches the LUKS
+   signature and the encryption layer (permitted under LIN-003) and stops. With
+   no downward production rule the pool below is unreachable, the worst verdict
+   is permitted, the plan constructs, **the helper recomputes the identical
+   verdict, and the body hashes match.** A Section 2.1 MUST NOT is violated with
+   no override, no confirmation, and no mention of the pool in PLAN-004
+   consequence text or UI-005. The absorption lemma is the statement of the bug:
+   "every closure path terminates at a producer-root" is the claim that the model
+   never inspects what a producer produces. Two further instances: `vgremove` on
+   a VG holding a ZFS-backed LV, and `mdadm --zero-superblock` on an array
+   carrying a pool.
+2. **The residual arm defaulted to permitted, which is fail-open.** An unreadable
+   GPT yields an indeterminate table state with nothing enumerable beneath it and
+   no matching arm, so initializing a live vdev member computes permitted. That
+   reproduces, one layer up, the exact collapse ADR-C3 and ADR-C4 were written to
+   forbid — a known-unknown treated as a negative — inside the lattice built to
+   prevent it. An unrecognized file system falls to the same wildcard,
+   contradicting SAFE-005's first clause verbatim, and Section 0.2 makes SAFE-005
+   override this design. The transport enum listed only iSCSI, NBD, and Ceph RBD
+   while Section 2.1 says "etc.", so an NVMe-over-TCP namespace — an ordinary
+   `/dev/nvme1n1` on any kernel since 5.0 — was fully mutable.
+3. **Round two's sibling capture was re-derived**, found independently by three
+   lenses, through the clause putting a created node's parent in the directly
+   affected set. Creating a partition on the design's own root-on-ZFS example
+   puts the whole device in that set and descends to the pool member, so ACC-003
+   is `unsupported` on every root-on-ZFS machine, every Fusion Mac with free
+   space, and every GPT dynamic disk. The stated non-interference theorem is
+   false as proved: it discharges the containment case with "a step that
+   byte-covers or destroy-targets the whole device", which does not cover the
+   parent-of-created clause written three lines above it. Worked example 3
+   asserts an affected set its own rule contradicts.
+4. **A device-scope refusal is unreachable from below.** With no upward
+   containment rule, `mkfs.ext4 /dev/sdb1` on an iSCSI LUN never reaches the
+   device's transport, so Section 2.1's network-block-device prohibition binds
+   only when the whole device is the step target.
+5. **The regime mapping is missing a CAP-002 dimension.** Capability is computed
+   with no plan in scope, so a refused node makes `copy`, `read`, and `detect`
+   report `unsupported` — advertising WIN-004's only sanctioned escape from a
+   dynamic disk as not implemented, and reporting `unsupported` for `detect` on a
+   Storage Spaces pool against WIN-003 and Section 2.1's preamble. Planner and
+   capability engine then disagree on one target/operation pair, which CAP-005
+   forbids. Separately, an ambiguous-identity refusal routed to Regime A, so two
+   indistinguishable USB sticks report `unsupported` with a reason naming no
+   technology and citing no Section 2.1 clause.
+6. **The type-level guarantee does not cover the closure.** The proposed
+   constructor receives neither the written ranges nor the structural effects, so
+   it can consult only the target's own verdict — and the design states that
+   verdict is permitted for the ZFS member's host partition. For the case SI-11
+   is actually about, a permitted target whose closure reaches a refused node, the
+   submitted answer is "rejected at runtime", which is the option SI-11 says does
+   not survive a bug in the guard.
+
+Also rejected: an unconditionally refused orphan signature. ZFS writes label
+pairs at both ends of a vdev and ordinary repurposing clears only the leading
+pair, so a bench-tested disk pulled from a pool would be `unsupported` for
+initialization, DIA-004 sanitize, and ACC-010 forever, with the only stated
+escape being an unsupervised `zpool labelclear` outside the product — the exact
+hazard the product exists to prevent. And a locked encryption layer was permitted
+in every state, so a BitLocker- or LUKS-locked container holding a pool is
+destroyed at `supported`, severity 4, while FS-010 and REC-011 fire and imply the
+contents were considered.
+
+**What the next attempt needs.**
+
+1. **A closure that reaches a Section 2.1 object *below* the node being written,
+   with a proof it does not re-derive sibling capture.** The candidate to start
+   from — hand-checked by the final review against every layout in the submission
+   and deliberately *not* accepted — is a second fixpoint over substrate
+   destruction, closed under downward containment, upward backing, and a new
+   downward production rule restricted to substrate destruction. Non-interference
+   appears to hold because that rule's products are virtual devices or volumes
+   and never a physical device, so `lvresize lv_home` cannot reach `lv_root` (a
+   volume is not a producer) and Btrfs `delete(sdc1)` cannot reach `sdb1` (a file
+   system is not a producer). **This must be proved as a property test alongside
+   the sibling theorem, not asserted.** The open parameter is which effect classes
+   count as substrate destruction; that single choice decides over- versus
+   under-refusal and is currently undefined.
+2. **An inverted default.** Enumerate permitted explicitly per kind and variant
+   and make the residual arm indeterminate. Add arms for an indeterminate
+   partition table, an unrecognized file system, and a locked encryption layer,
+   and read the consumer edge in the ZFS, Storage Spaces, LDM, and CoreStorage
+   arms as the APFS arm already does, so an orphan is indeterminate (`blocked`,
+   remediable) rather than refused (`unsupported`, no next step). Then settle in
+   the ADR, not in an adapter, which table-repair operations are permitted
+   against an indeterminate table and on what acknowledgment — REC-001 and
+   REC-004 exist for exactly that disk.
+3. **A directly-affected set that targets table writes at the table node.** Give
+   the partition table explicit extents (primary GPT, backup GPT, MBR sector,
+   each EBR) and replace "the parent of each created node" with "the partition
+   table of that parent, plus the free extents consumed". Re-prove the theorem
+   against a create-in-free-space step and a delete step, with a property test
+   generating steps that write only the table region. Regressions in both
+   directions on the root-on-ZFS fixture: creating a BIOS boot partition on `sda`
+   must construct; initializing `sda` must not.
+4. **Node-local inheritance for device-scope refusals, not a closure rule.** A
+   node's verdict is the worst of its own predicate and its root device's
+   device-scope refusal. This covers transport, device read-only, and whole-device
+   refusals, and cannot re-derive sibling capture, because a partition inherits
+   only its own device's device-scope refusal — an ESP on an iSCSI LUN is
+   correctly refused while an ESP on a SATA disk carrying a ZFS member is not,
+   since that refusal lives on the backing signature.
+5. **A CAP-002 operation-class dimension.** A refused verdict suppresses only the
+   mutating operations and never `detect`, `read`, or `copy`-as-source. Add a
+   source-access predicate with an enforced read-only mode the helper verifies: a
+   refused or indeterminate node may be a source operand only if **every** step
+   touching it is a source step — FS-005's health check on a dirty-log NTFS
+   inside an LDM partition otherwise either writes to an LDM volume or kills
+   WIN-004. Route ambiguous identity to Regime A′.
+6. **The guarantee at the step level.** The only constructor for a mutating plan
+   step takes the snapshot body plus written ranges, effect class, target, and
+   structural effects, runs the closure, and returns a result. State that decoding
+   re-runs the closure, since the promised negative-deserialization test depends
+   on it, and cost the TypeScript mirror explicitly, because the GUI decodes plans
+   and MODEL-005 requires byte-identical agreement. The alternative — dropping the
+   affected set from the body and re-deriving it helper-side — is cheaper and
+   costs the authentication of that set; it must be argued on its own terms rather
+   than assumed away.
+7. **The verdict's place in the body argued as a named exception, not a rule
+   change.** See ADR-C5's rejection of the MODEL-005 amendment. The genuine
+   tension is resolved the way ADR-C2 resolved CONC-004's transitional marking: a
+   narrow, named over-inclusion defended on ADR-C2's own terms.
+8. **A CONC-001 bind set defined independently**, as the transitive closure of the
+   affected set under reverse backing, reverse production, **and ancestor
+   containment**, down to and including every device node. As written the bind set
+   traverses no containment edges, so shrinking `sda1` binds no physical device
+   and two plans rewrite one GPT concurrently — a lost-update path CONC-005's
+   exactly-one-wins never sees.
+9. **The extent accessor made total and normative.** Restrict its domain to the
+   extent-bearing kinds and state that the extent clause is vacuous elsewhere;
+   qualify every range with its host so a multi-device step such as `btrfs
+   balance` is unambiguous; declare one address space per containment-forest root
+   so an MBR logical's offset is not device-absolute to one adapter and
+   parent-relative to another. Write the GPT reserved-region, minimum-gap, and
+   alignment rules down, or remove free extents from the hashed body entirely —
+   they carry no verdict input, and PART-009 and PART-012 compute placement from
+   the planner's own policy.
+10. **The `RecoveryRequired` interaction answered, not deferred.** Section 8 makes
+    that state unbounded, so a ruleset change can strand a machine mid-move with
+    its PLAN-008 reversal plan invalidated and REC-010's advertised rollback
+    evaporated. **The cost is intrinsic to freezing derived verdicts, not to the
+    ruleset-version field** — the body hash of unchanged hardware moves whether or
+    not a version field exists, so relocating the field to the envelope buys
+    nothing. Define an update-time re-derivation route coordinated with SI-20,
+    SI-21, and SI-22, and do not evaluate an in-flight plan under the ruleset it
+    declares — that is the CAP-007 downgrade-by-assertion hazard the design itself
+    cites elsewhere. HLP-002, CAP-007, and SAFE-008 already forbid it; restate the
+    prohibition at the point of implementation pressure, with the negative test.
+11. **The PART-014 class function written out**, exhaustively over all nine
+    enumerated kinds, sourced from live helper-side discovery including mount
+    path, partition flags, and label. Regime B never enters a verdict, so the
+    class need not be body content — which is also what removes mounts and the
+    active-swap flag from the hashed body. A class list that cannot name each
+    PART-014 item one-for-one is not a resolution of SI-11; the submitted one
+    cannot identify Debian's `/boot`, which carries the generic Linux filesystem
+    GUID.
+
+## SI-27, the hashed body has no node-naming rule (round three)
+
+**Direction that survived.**
+
+- **The decomposition, which dissolves round two's dilemma.** Round two searched
+  for one name that was simultaneously an intra-artifact reference and a device
+  identity, which is why every candidate failed. They are two objects. SAFE-003's
+  identity record already exists, already lives in the plan body, and already has
+  a helper-side match verdict with per-field replug tolerance under ADR-C3. A node
+  identifier is a **document-local address** whose only job is to let edges in one
+  body reference nodes in that same body. No objection attacked this framing;
+  every objection attacked a specific derivation input.
+- **Derived, never stored.** The decoder recomputes each identifier from the
+  node's own naming fields and rejects any edge naming an unknown referent, so a
+  declared-versus-derived disagreement is unrepresentable — there is nothing
+  declared for an attacker to pick.
+- **Naming by position relative to already-named nodes**, which **falsifies round
+  two's claim that no content-derived scheme can name a node the plan creates.**
+  A new encryption layer is named from its backing partition, a new file system
+  from the mapper device, a created partition from its device and declared start
+  offset, and an initialized table from the parent alone so a minted disk GUID
+  enters no name. The residue belongs to SI-19, which is amended accordingly.
+- **Two schema identifiers** for captured and simulated topologies, so
+  canonical-encoding §5 domain separation makes a simulated topology structurally
+  incapable of being accepted where PLAN-006 requires a captured one.
+- **The exclusion list and its reasoning**, which survive even where the positive
+  scheme fails: connection path and OS instance id (SAFE-003, Section 16),
+  positional indices and counters (Part 3, INV-009), partition-table state and
+  checksum (PART-001 and PART-013 change it), length (UI-004 must diff a shrink),
+  regenerable identifiers (PART-016, FS-008), partition type (PART-008), and
+  adapter-formatted text. **"Divergence is worse than collision — collision fails
+  closed, divergence produces a check that can never pass"** is right, and the
+  design's own unnormalized-serial defect is an instance of it.
+
+**Why it was not accepted.** Beyond the unencodability finding above:
+
+1. **The collision enumeration is false.** Four families exist where two were
+   claimed: multipath (one LUN as two paths — one device seen twice, the opposite
+   of two ambiguous devices, and needing the opposite treatment); **every virtual
+   device**, whose naming map has no discriminant beyond technology and size with
+   a null source for loop devices, VHDX, and attached images; stale signatures
+   (mdraid 1.2 alongside a surviving 0.90 superblock, a ZFS tail label pair, two
+   file-system signatures on one reformatted partition); and table entries (Boot
+   Camp hybrid MBR aliasing one offset in two views, a corrupt or fuzzed GPT,
+   REC-003's conflicting recovery candidates). The proposed fold is defined over
+   the device projection and reaches none of them.
+2. **The design cannot be tested by its own test plan.** Section 11.3 makes
+   synthetic images and loop devices the T1/T2 fixture medium, and the submitted
+   verification plan calls for a four-member mdraid RAID10, a two-device Btrfs,
+   and a two-store APFS container. Those are equal-size loop devices; they
+   collide, and virtual devices have no fold.
+3. **The fold is not closed under the naming relation.** File systems,
+   aggregates, encryption layers, and volumes are named *from* their backings
+   rather than nested under them, so a consumer whose backings are folded has no
+   encoding — and worked example 5 commits the error in writing. Closing the fold
+   means a serialled NVMe becomes unplannable because two blank USB sticks were
+   attached.
+4. **Naming an aggregate from its smallest member makes the name a function of
+   the observed member set**, and is withdrawn. An EIO on one PV label region
+   moves the minimum and renames the aggregate, every volume, every file system,
+   and every mount — on the failing-disk population the product exists for,
+   invisible to the verdict machinery because the aggregate is permitted in both
+   probes. LIN-005 member replacement and `vgextend` do the same deliberately.
+   The stated justification was also factually wrong: LVM2's VG name and id live
+   in the text metadata area on every PV, not only in the label sector, so a
+   native designator is available for the one technology used to argue the
+   fallback was necessary.
+5. **Parent-plus-offset is not injective for a partition**, and the injectivity
+   proof misreads Section 11.2, which lists properties tests must prove about the
+   plans the product *produces*, not a guarantee about hardware presented to
+   discovery. INV-003 requires detecting hybrid and inconsistent tables; REC-003
+   requires previewing conflicting candidates. Host-plus-technology is likewise
+   not injective for a backing signature, and the file-system naming map omits
+   the kind entirely.
+6. **Serial and WWN are unnormalized text at the root of the recursion**, which
+   is the design's own anti-formatted-text rule not applied one line above where
+   it was stated. `naa.…`, `0x…`, and bare uppercase are three values for one
+   drive; a non-UTF-8 serial cannot be encoded at all; and a one-character case
+   difference renames every node in the body.
+7. **Collision detection is a validation-layer property, not a codec property.**
+   `decode` returns a schema-agnostic value with a codec-level error set, and the
+   key comparator compares adjacent text keys during the streaming scan.
+   Verifying that nodes are strictly increasing by identifier requires a
+   schema-aware second pass. Since HLP-001 applies by hash and SEC-001 authorizes
+   exact hashes, a body with duplicate identifiers can be hashed and circulated
+   before any check runs.
+8. **Names depend on other nodes.** The duplicate-designator rule re-designates an
+   aggregate that was uniquely named before a collision, so attaching an ordinary
+   backup clone renames a dozen nodes on the internal disk.
+9. **Physical block size is in the device name**, so a 512e drive moved between a
+   SATA port and a USB bridge renames — falsifying the design's own claim that
+   transport is naming-invisible, and failing a T3 hardware-matrix case that
+   already exists.
+
+**What the next attempt needs.**
+
+1. **Resolve SI-12 first.** Multipath is a prerequisite, not a parallel question,
+   and SI-12 is reclassified in Part 2 accordingly.
+2. **A naming input for virtual devices that is the backing object's identity**,
+   which requires a **fourth edge kind** for host-backed virtual devices (loop,
+   dm-linear, plain dm-crypt, VHD/VHDX, attached images) — none of which has an
+   on-disk signature, and therefore none of which has any legal edge to whatever
+   holds its bytes today. That edge also needs a file or byte-range-within-file-
+   system node that exists neither in the proposed kinds nor in Section 5, so it
+   is a spec addition. It additionally fixes CONC-001, whose bind set is currently
+   *empty* for a loop device — so a plan imaging `/dev/sda` and a plan writing a
+   table to a loop device backed by a file on `sda1` execute concurrently against
+   one disk, invisible to the T1/T2 tiers because that is the population those
+   tiers run on. **Both new edge kinds break the typing rule that no backing or
+   production edge targets a physical device, which is the sole premise of the
+   no-sibling-capture theorem. The theorem must be re-proved under the new edge
+   set, not patched.**
+3. **A collision behaviour that produces an artifact.** Every candidate must
+   answer: what does the body contain when two nodes of one kind collide? Add a
+   fuzz target asserting that **no on-disk byte sequence can make snapshot
+   encoding fail.** Treat the proposed fold as rejected rather than repairable: it
+   is not closed under the naming relation, it makes a node's name depend on other
+   nodes, and it does not reach three of the four collision families.
+4. **Repairs already established, which round four may assume**: a backing
+   signature gains its primary signature offset; a file system gains its kind and
+   primary superblock offset (both invariant under `btrfs device add`, so ADR-C5's
+   SI-08 cardinality argument is untouched); serial and WWN become bytes with a
+   normative, versioned per-platform canonicalization; physical block size leaves
+   the naming map and stays a compared body field; the duplicate-designator case
+   sets a flag without re-designating.
+5. **Partition naming under a corrupt or hybrid table.** The remaining candidate —
+   a distinct node kind holding conflicting entries verbatim, marked
+   indeterminate, plus an explicit statement that a body carrying such evidence is
+   not a planning base — satisfies INV-008 and gives REC-003 a home, and has had
+   no adversarial review. Add a role discriminant to the partition table,
+   re-parent partitions onto the table rather than the device, and give the
+   partition type a form able to carry APM's 32-byte ASCII type string, which the
+   proposed enum cannot express despite listing APM as a table kind.
+6. **The array comparator, stated normatively.** Filed as SI-31.
+7. **The validation pass named explicitly** as the sole decode boundary per
+   schema, with its own error type distinct from the `pce/1` error enum, and
+   encoder-side symmetry per canonical-encoding §6.1.
+8. **A stated property, with a property test: a node's identifier depends only on
+   that node and its ancestors, never on the presence of other nodes.** Round
+   three violates this in two places and declares neither.
+
+## Preconditions on round four, in either issue
+
+These are gates, not follow-ups. Round two was rejected for building on an
+unverified platform claim, and round three did it again — its own known-weakness
+list recorded the designator table as untested and the design built on it anyway.
+
+1. **A per-platform observability record, established empirically and
+   non-elevated, before any ADR freezes bytes**, covering raw sector 0/1 reads,
+   GPT header CRC, mdraid superblock, LUKS2 header, ZFS label, LVM2 PV label and
+   metadata area, APFS container superblock, and Storage Spaces metadata.
+   `/dev/sda` is `brw-rw---- root:disk` on stock Debian, Ubuntu, and Fedora, and
+   round three asserted an unprivileged projection it never established. **The
+   projection is a clamping obligation on the client, not only a discard
+   obligation on the helper** — otherwise a user in the `disk` group and a user
+   outside it produce different bodies on one host with one build. The apparent
+   dilemma is not forced: ADR-C3 says "a table was read and hashed" without fixing
+   *what* was read, and a checksum over the world-readable kernel-exposed
+   partition list serves SAFE-003's replug clause, whose purpose is detecting a
+   table rewrite. **ADR-C3 needs an amendment stating what `Present { checksum }`
+   is computed over**, because the two readings are not equal and the choice is
+   hash-visible. Round four must not begin believing Linux identity is
+   universally Weak.
+2. **A per-technology native designator table**, established before naming is
+   frozen: LVM2 VG id from the PV metadata area, mdraid array UUID, APFS container
+   UUID, ZFS pool GUID, LUKS UUID, Storage Spaces pool object id, LDM group GUID.
+   With member-derived naming withdrawn this is load-bearing rather than an
+   optimization: where no member-independent designator is readable, the aggregate
+   is indeterminate and is not a plan operand.
+3. **`probe_tag` defined normatively** — which prober, which offset, which magic
+   bytes. ADR-C5 makes it load-bearing in eight enums and a naming input.
+4. **Preserved-unknown structure needs its two budgets separated.** Cap depth at a
+   small constant for the stack-safety property, and set the size cap against real
+   metadata: LUKS2's default metadata area is 16 KiB per copy — a 4 KiB binary
+   header plus a 12 KiB JSON area — so a 4 KiB cap cannot hold an ordinary
+   `luksFormat --type luks2` header before anyone crafts anything, and LIN-003
+   makes LUKS2 first-class. State the over-cap outcome normatively so INV-008
+   stays auditable, and version the SAFE-006 redaction rule so a redaction change
+   is a visible body-hash event.
+
+## Objections that were raised and did *not* survive review
+
+Recorded so round four does not chase them.
+
+- **NVMe multi-namespace collision — refuted.** `/sys/block/nvme0nX/wwid` reports
+  a per-namespace NGUID or EUI-64, so the identifier is present and distinct.
+  Multipath and loop devices carry that objection; the NVMe sub-case does not.
+- **The array-comparator worked example — corrected, conclusion upheld.** The
+  originally offered byte pair does not invert under the two candidate orderings.
+  The inverting pair is recorded in SI-31 and was verified against this
+  repository's own encoder.
+- **"Nothing forbids the helper evaluating a client-declared ruleset version" —
+  downgraded.** HLP-002 makes client output "an untrusted hint, never an input to
+  authorization", CAP-007 says a client cannot upgrade a capability by asserting
+  it, and SAFE-008 ships schemas compiled into the helper. The spec already
+  forbids the shortcut; the design merely failed to restate it where the
+  implementation pressure appears.
+- **"PART-014's Linux boot class is untestable" — under-enforcement upheld,
+  untestability refuted.** The class cannot be computed from the declared inputs,
+  but Regime B leaves CAP-003 status unchanged and produces only a reason, so the
+  class never enters a verdict and need not be body content at all.
