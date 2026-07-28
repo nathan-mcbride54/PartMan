@@ -361,3 +361,130 @@ decision. It is not merely a field-placement change.
 4. Finish Linux and macOS observability before freezing identity or graph bytes.
 5. Resume WP-010 increment 3 only after S1, SI-27/SI-12, SI-28/SI-33, and SI-31
    have decisions with executable evidence.
+
+---
+
+# Response to this review
+
+- Responded: 2026-07-28
+- Responding agent: the author of the work reviewed
+- Repository state at response: `af80dd7` (`main`), specification 4.0.0
+- Method: **every finding acted on was reproduced first.** None was accepted on
+  the review's word, and none was dismissed without a test. All that were checked
+  held.
+
+Read this section before re-reviewing. Roughly a third of what follows changed
+after the review was written, and two of the changes are themselves things a
+reviewer should be suspicious of.
+
+## The most important thing to know
+
+**The High-1 recommendation, implemented, did not close the hole — and its own
+new tests did not catch that.**
+
+The recommendation was to "verify exact name, length, and digest, not membership
+by digest alone." That was implemented as `resolved.file_name()` for the name
+while containment stayed `resolved.starts_with(root)`. Those compose badly: a
+byte-identical copy at `<root>/sub/blank-512.img` has the right file name,
+matches that entry's length and digest, and is under the root. **It authorized.**
+Three new tests sat beside it, all green.
+
+It was found by an independent audit of this review, verified by running it, and
+closed by requiring the resolved path to equal `root.join(name)` — an equality,
+not a prefix, with a regression test.
+
+The general lesson is the one this review already makes elsewhere: implementing a
+recommendation is not the same as closing the hole it describes, and green tests
+added alongside a change say nothing about the case nobody imagined.
+
+## Finding-by-finding status
+
+| Finding | Status |
+| --- | --- |
+| **High** — forged manifest, caller-forgeable target proof | **Fixed.** Reproduced first: a hand-written `MANIFEST` with an all-`a` token authorized an arbitrary file. Expectations now come from `catalogue::expected()`, computed from compiled code with no I/O; `authorize` no longer accepts a caller-supplied manifest; targets verify by exact path, name, length, and digest; `Manifest::parse` recomputes the token and rejects a mismatch. Then the subdirectory bypass above, also fixed. |
+| **High** — authorization binds a path, not the verified file | **Open, deliberately.** Deferred to WP-020 increment 2, which must not be written without it. There is no consumer of `Authorization` to hold a handle *through* yet, and the fix differs on Windows and Unix. Recorded in the work package rather than left implicit. |
+| **High** — the `Indeterminate` fixture is recoverable | **Fixed, and correct.** Verified: primary CRC invalid, backup CRC valid. Renamed to `gpt-invalid-primary-valid-backup-512.img` under an honest rationale; added `gpt-conflicting-tables-512.img` with two independently valid, disagreeing tables; and replaced the filename test with one that classifies bytes using an oracle that recomputes both checksums independently of the writer. |
+| **High** — the register contradicts itself on S1 | **Fixed.** The opening summary now separates the settled half (protection is computed, never declared) from the reopened half (whether the verdict is frozen into the body). The review's framing was more precise than the register's and is the one adopted: the fixture falsifies the *universal symmetry premise*; it does not prove verdict divergence. Filed as **SI-34** with the review's three-way option set. |
+| **Medium** — real-prober acceptance is manual | **Open.** Agreed. Needs a pinned Linux CI job. |
+| **Medium** — raw-byte hash APIs bypass validation | **Open.** Agreed, and scoped as the review scoped it: before WP-010 increment 3. |
+| **Medium** — generation leaves obsolete files | **Fixed.** `generate` now prunes non-catalogue files, but only in a directory that already holds one of our manifests, so a mistyped root cannot delete a user's files. |
+| **Low** — status and traceability drift | **Fixed.** Fixture counts, the stale `3.1.0` and checkout `v6.0.2` citations, the traceability record contradicting itself about LUKS/LVM/RAID, and the pre-WP-020 Tier-1 description. |
+
+## What this review did not find
+
+An audit of this review turned up four defects it missed. They are in the same
+code, so they are worth knowing about before the next pass.
+
+1. **The TypeScript encoder had no `default` arm.** An unrecognized value kind
+   fell through the switch, `encode` returned zero bytes, and `hash` published
+   SHA-256 of the empty string as a well-formed digest over an artifact with no
+   encoding — §6.1's failure, in the module SEC-001 authorizes against. Rust
+   cannot reach it because its `match` is exhaustive at compile time. Fixed,
+   along with runtime payload-type checks and `fromHex`, which mapped non-hex to
+   zero bytes via `Number.parseInt` returning NaN.
+2. **Three signature fixtures had fields at the wrong offsets.** mdraid 0.90's
+   set UUID occupied `utime`, `state` and `active_disks` instead of words 13–15;
+   LUKS2 wrote `checksum_alg` and its UUID inside the 48-byte `label` field; ext4
+   declared 8 MiB of blocks on a 4 MiB device. All fixed and re-confirmed against
+   `libblkid` — the mdraid UUID went from `fb2871eb-0000-0000-0000-000000000000`
+   to `fb2871eb-405c-788b-e2c6-fb8cfe3b5444`.
+
+   The symptom of the mdraid one was visible in probe output already recorded in
+   `docs/quality/observability.md` and not read carefully enough.
+3. **The token is not a secret, and the High-1 fix made that more true.** Since
+   expectations moved to the compiled catalogue, the token is a pure function of
+   source: identical on every machine building a given commit, computable with no
+   I/O, and printed to stdout by `cargo xtask fixtures` where CI captures it.
+   SAFE-007's three factors are effectively two. This is now stated plainly in
+   `manifest.rs` and the work package rather than papered over. A factor with
+   independent strength would have to be a per-generation value not derivable
+   from source. **That is an open design question, not a fixed defect.**
+4. **Windows has no link coverage at all.** The `nlink` guard is `#[cfg(unix)]`
+   because Rust exposes the Windows link count only through unstable APIs, so
+   closing it needs `windows-sys` in a crate whose only dependency is `sha2` — a
+   dependency-policy decision rather than a code change. On the primary platform.
+
+## Where the next reviewer should look
+
+Ranked by what is most likely to be wrong and least likely to be noticed.
+
+1. **Tests whose names are the safety claim.** This is the systemic weakness in
+   this work, and both the `Indeterminate` mislabel and the subdirectory bypass
+   trace to it. Known remaining instances:
+   `authorization_cannot_be_forged_outside_this_module` still asserts only that a
+   value can be passed to a function, and reportedly stays green with
+   `verify_target`'s body short-circuited; several `assert!(len >= n)` catalogue
+   and vector assertions let entries be deleted silently. **No test binds a
+   catalogue fixture's bytes to its stated rationale** — every layout and
+   signature test rebuilds its own image from its own literals rather than
+   calling the catalogue's builder. That gap is the root cause, not a separate
+   item.
+2. **Anything claimed rather than measured.** The pattern across this review and
+   its audit is that the code was mostly sound and the *claims about it* were
+   not. Prose in a pull-request body, a work package, or a traceability row
+   deserves the same scepticism as an assertion in a test.
+3. **The remaining `libblkid` gap.** BitLocker, Storage Spaces, LDM, and a
+   recognized ZFS member still have no fixtures. ZFS is documented as attempted
+   and failed: `libblkid` skips its prober below 64 MiB, and at 64 MiB with the
+   uberblock magic verified in all four labels it still reports nothing. The
+   remaining condition is unestablished.
+4. **SI-34 is filed, not decided.** The recommended answer is recorded as
+   *recommended*, with the two things it depends on named as unresolved: which
+   facts belong in the freshness projection is the unfinished observability work,
+   and the monotonicity claim needs a proof that extra helper evidence can never
+   make a verdict less restrictive. The review's qualification about SI-27 is
+   recorded too, and it corrected an overstatement: moving the verdict out of the
+   body reduces SI-27's burden and does not remove it, because ADR-C5 puts
+   membership and signature facts there independently of any verdict.
+
+## Verification at the time of this response
+
+- `cargo xtask ci` — passes, 106 tests.
+- `cargo xtask cross-language` — passes, 20 TypeScript tests, typecheck clean.
+- Every signature fixture re-probed read-only with `libblkid` 2.41 and `wipefs`.
+- The original forged-manifest attack and the subdirectory bypass were each
+  re-run against the fix and now refuse.
+- Nothing in this response or the work behind it touched a host disk, user disk,
+  mounted volume, or non-disposable device.
+
+Landed as pull requests #24 and #25.
