@@ -362,6 +362,39 @@ fn nesting_beyond_the_depth_limit_is_rejected_not_crashed() {
     assert!(decode(&shallow).is_ok());
 }
 
+/// The encoder and decoder must agree on what is representable.
+///
+/// Before this was enforced, `encode` accepted arbitrary nesting and happily
+/// produced bytes that `decode` then rejected with `DepthLimitExceeded`. A
+/// producer would have computed and published a hash over an artifact no
+/// conforming decoder could revalidate — and, since `encode` recursed without
+/// bound, a deep enough value was a stack overflow rather than an error.
+#[test]
+fn the_encoder_enforces_the_same_depth_limit_as_the_decoder() {
+    let mut deep = Value::Unsigned(0);
+    for _ in 0..=MAX_DEPTH {
+        deep = Value::Array(vec![deep]);
+    }
+    assert_eq!(encode(&deep), Err(Error::DepthLimitExceeded));
+
+    // One level inside the limit encodes, and what it produces decodes.
+    let mut permitted = Value::Unsigned(0);
+    for _ in 0..(MAX_DEPTH - 1) {
+        permitted = Value::Array(vec![permitted]);
+    }
+    let bytes = encode(&permitted).expect("within the limit");
+    assert_eq!(decode(&bytes), Ok(permitted));
+}
+
+/// Anything the encoder emits, the decoder accepts.
+#[test]
+fn encoder_output_is_always_decodable() {
+    for (value, _) in golden_vectors() {
+        let bytes = encode(&value).expect("golden vectors encode");
+        assert_eq!(decode(&bytes), Ok(value), "round trip");
+    }
+}
+
 #[test]
 fn empty_input_is_rejected() {
     assert_eq!(decode(&[]), Err(Error::UnexpectedEnd));

@@ -136,6 +136,21 @@ allocation before the data is known to be present. Obligation 8 exists so that
 deeply nested input cannot exhaust the stack of a recursive decoder; the limit
 is a documented constant, and exceeding it is an error rather than a crash.
 
+## 6.1 Encoder obligations
+
+An encoder MUST refuse any value it cannot produce canonical bytes for, and MUST
+enforce **the same depth limit as the decoder** (obligation 8).
+
+This symmetry is not tidiness. An encoder that accepts deeper nesting than the
+decoder emits bytes every conforming decoder must reject, so a producer computes
+and publishes a hash over an artifact that nobody can revalidate — and, being
+recursive, overflows its stack rather than returning an error on a deep enough
+value. Stating the limit only as a decoder rule is precisely how that gap
+arises.
+
+The property to test, in every implementation, is that **anything the encoder
+emits, the decoder accepts**.
+
 ## 7. Versioning
 
 This profile is identified as `pce/1`. A change to §1, §2, §3, or §5 is a new
