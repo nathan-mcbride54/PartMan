@@ -151,6 +151,17 @@ arises.
 The property to test, in every implementation, is that **anything the encoder
 emits, the decoder accepts**.
 
+An encoder MUST also refuse a text value that its host language permits but this
+profile cannot represent, rather than repairing it. The known instance is
+JavaScript: a string may hold an unpaired surrogate, and `TextEncoder`
+substitutes U+FFFD instead of failing. Two distinct values then encode to
+identical bytes, so the encoder stops being injective and can emit a map whose
+declared size counts two byte-identical keys — input §3 makes invalid and every
+conforming decoder rejects. Rust cannot construct the value at all, because
+`String` is validated UTF-8, so refusing is also what keeps two implementations
+agreeing on what is encodable. Repairing to U+FFFD would be the malleability
+§6 exists to prevent, applied at the wrong end of the pipe.
+
 ## 7. Versioning
 
 This profile is identified as `pce/1`. A change to §1, §2, §3, or §5 is a new
