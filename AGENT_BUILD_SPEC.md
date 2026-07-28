@@ -8,7 +8,7 @@ Interface: Dark-first desktop GUI plus a scriptable CLI
 
 ## 0. Document control
 
-- **Spec version:** 3.0.0
+- **Spec version:** 3.1.0
 - **Status:** Active normative contract
 - **Last updated:** 2026-07-28
 
@@ -33,6 +33,7 @@ If two requirements in this spec conflict, agents MUST stop, file a spec issue d
 
 | Version | Summary |
 | --- | --- |
+| 3.1.0 | Identity strength is now a property of a single record (stable hardware identifier plus size, both sector sizes, and a positively determined partition-table state), with identity *matching* split out as a separate helper-side verdict over an ordered pair; partition-table state becomes three-valued so a blank device and an unreadable one are distinguishable (SAFE-003, ADR-C3, resolves SI-01 and SI-02). MODEL-004 provenance becomes a set of observations held in the envelope, with the four confidence values derived rather than stored, and a positively observed absence declared a value rather than an unavailability (ADR-C4, resolves SI-04). Adversarial review rejected two proposals that reached this point: exempting blank-media initialization from severity 4, which would have created a silent whole-device destruction path because an absent table does not mean absent data; and collapsing disputed body values to a single resolution bit, which would have violated SAFE-003's "all available identifiers" and erased the blank-versus-unreadable distinction. Both rejections are recorded in the ADRs. |
 | 3.0.0 | Split every hashed artifact into a body and an envelope (MODEL-005), with an explicit rule for which side a field lands on: envelope only for the hash itself and for values the helper independently re-derives under HLP-002, body for everything else. Resolves three contradictions that made version 2.0.0 unimplementable — Section 6 required a plan to contain its own hash; hashing capture metadata and provenance made the PLAN-006 freshness comparison unsatisfiable, since two probes of unchanged hardware always differ; and it was undefined whether provenance sat inside the authorization boundary. Clarified CONC-004 (transitional marking is body content, so a transitional snapshot cannot masquerade as a stable one) and PLAN-006 (comparison is over body hashes). Fixed by ADR-C2. Filed as SI-03, SI-05, and SI-06 in `docs/spec-issues/`. |
 | 2.0.0 | Added document control, non-goals, identity-strength policy, helper/RPC/journal/concurrency contracts (HLP/RPC/JRN/CONC), canonical hashing (MODEL-005), plan TTL/reversal/dry-run parity (PLAN-007/008/009), reworked risk model (PLAN-004), full state-transition table, platform support floors, execution-environment requirements (EXE), new functional requirements (INV-009, CAP-007, PART-015/016, FS-010, WIN-011, LIN-010, MAC-009/010, IMG-011, REC-011, UI-013, CLI-008, SEC-010, SAFE-008/009), test-lab architecture, milestone plan, corrected work-package dependencies plus new WPs, required-ADR register, glossary, new acceptance scenarios ACC-011…016. Fixed SAFE-002 self-contradiction, undefined `preview`, CAP-005 helper-trust ambiguity, and the undefined "five primary workflows" in the release gate. See `SPEC_REVIEW_NOTES.md`. |
 | 1.0.0 | Initial specification. |
@@ -118,14 +119,16 @@ Every plan that writes storage MUST bind each target to an immutable identity re
 - Connection/location path.
 - Total bytes.
 - Logical and physical sector size.
-- Partition-table type and checksum.
+- Partition-table type and state, which MUST distinguish `Present` (read and hashed), `Absent` (positively observed to have none), and `Indeterminate` (unreadable or ambiguous). Only the first two are positively determined. A blank device can therefore be Strong; a device whose table failed to parse cannot. *(Changed in 3.1.0 by ADR-C3.)*
 
 The helper MUST reject the plan if identity or topology has changed.
 
-**Identity strength.** Each identity record MUST be classified:
+**Identity strength.** Identity strength is a property of a *single* record, computable without a counterpart, so that INV-002 can report it at discovery and Section 6 can carry it in a plan. Each identity record MUST be classified:
 
-- **Strong:** at least one stable hardware identifier (serial or WWN) plus size, sector geometry, and partition-table checksum all match.
-- **Weak:** no stable hardware identifier available (common behind USB bridges and SD readers).
+- **Strong:** the record carries at least one stable hardware identifier (serial or WWN), together with total size, both logical and physical sector size, and a *positively determined* partition-table state.
+- **Weak:** any of the above is missing — most often no stable hardware identifier (common behind USB bridges and SD readers), or a partition-table state that could not be determined.
+
+**Identity match** is a separate verdict over an ordered pair of records, produced only by the helper when it compares a plan's bound record against its own freshly derived one. It is not interchangeable with strength. *(Changed in 3.1.0 by ADR-C3: 2.0.0 defined strength as a comparison outcome while requiring it wherever no counterpart exists.)*
 
 Policy:
 
@@ -319,7 +322,11 @@ Public plans, topology snapshots, journals, and CLI JSON MUST include a schema v
 
 ### MODEL-004: Provenance
 
-Every discovered property MUST record its source adapter and confidence: authoritative, inferred, unavailable, or conflicting.
+Every discovered property MUST record, in the artifact **envelope** (MODEL-005), the set of observations that produced it. Each observation MUST name its source adapter and adapter version, the method used, and an outcome: the value observed, an unavailability reason, or a read error.
+
+The confidence values `authoritative`, `inferred`, `unavailable`, and `conflicting` are **derived** from that set and MUST NOT be stored independently of it, so that no record can assert a confidence its observations contradict.
+
+A positively observed *absence* is a value, not an unavailability. `unavailable` means the adapter could not determine the property; it does not mean the property was determined to be absent. Conflating the two collapses a blank device and an unreadable one into the same record, which PART-001 would then initialize alike. *(Changed in 3.1.0 by ADR-C4: 2.0.0 named a single source adapter while permitting a `conflicting` value that presupposes two.)*
 
 ### MODEL-005: Canonical encoding and hashing
 

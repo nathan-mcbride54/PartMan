@@ -1,7 +1,7 @@
 # Dependency and supply-chain policy
 
 This policy implements the WP-000 foundation for SEC-010 against
-`AGENT_BUILD_SPEC.md` 3.0.0.
+`AGENT_BUILD_SPEC.md` 3.1.0.
 
 ## Pinned inputs
 
