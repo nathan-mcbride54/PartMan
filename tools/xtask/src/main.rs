@@ -28,6 +28,7 @@ fn main() -> ExitCode {
 #[derive(Debug, PartialEq, Eq)]
 enum Task {
     Ci,
+    CrossLanguage,
     Fmt,
     FmtCheck,
     Help,
@@ -50,6 +51,7 @@ fn parse(args: &[OsString]) -> Result<Task, TaskError> {
 
     match command {
         "ci" => nullary(Task::Ci, command, rest),
+        "cross-language" => nullary(Task::CrossLanguage, command, rest),
         "fmt" => nullary(Task::Fmt, command, rest),
         "fmt-check" => nullary(Task::FmtCheck, command, rest),
         "help" | "--help" | "-h" => nullary(Task::Help, command, rest),
@@ -81,6 +83,7 @@ fn execute(task: &Task) -> Result<(), TaskError> {
             ])?;
             run_tier(1)
         }
+        Task::CrossLanguage => cross_language(),
         Task::Fmt => cargo(&["fmt", "--all"]),
         Task::FmtCheck => cargo(&["fmt", "--all", "--", "--check"]),
         Task::Help => {
@@ -159,6 +162,52 @@ fn verify_toolchain() -> Result<(), TaskError> {
     }
 
     Ok(())
+}
+
+/// Prove the MODEL-005 cross-language parity requirement.
+///
+/// The Rust half runs inside `cargo xtask ci`; this command adds the TypeScript
+/// half, which needs a Node toolchain. It is deliberately not folded into `ci`,
+/// so that a contributor working only on Rust is not required to install Node.
+/// CI runs it as its own required job, so the proof is never merely skipped.
+fn cross_language() -> Result<(), TaskError> {
+    let package = repository_root().join("packages/canonical");
+    if !package.join("package.json").is_file() {
+        return Err(TaskError::Policy(format!(
+            "{} is missing; the MODEL-005 parity proof cannot run",
+            package.join("package.json").display()
+        )));
+    }
+    npm(&package, &["ci"])?;
+    // This is the only gate with a Node toolchain, so SEC-010's advisory
+    // requirement for npm dependencies is enforced here rather than in
+    // `supply-chain`, which runs without Node.
+    npm(&package, &["audit", "--audit-level=moderate"])?;
+    npm(&package, &["run", "typecheck"])?;
+    npm(&package, &["test"])
+}
+
+fn npm(directory: &Path, args: &[&str]) -> Result<(), TaskError> {
+    // npm ships as a shell script plus a .cmd shim on Windows, so the command
+    // name differs by platform. Nothing here is user-controlled.
+    let program = if cfg!(windows) { "npm.cmd" } else { "npm" };
+    let status = Command::new(program)
+        .args(args)
+        .current_dir(directory)
+        .status()
+        .map_err(|source| TaskError::Launch {
+            program: program.to_owned(),
+            source,
+        })?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(TaskError::CommandFailed {
+            program: format!("{program} {}", args.join(" ")),
+            code: status.code(),
+        })
+    }
 }
 
 /// The repository root, derived from this crate's compile-time location.
@@ -315,6 +364,7 @@ fn print_help() {
 PartMan repository tasks
 
   cargo xtask ci                 Run the complete unprivileged Tier-1 gate
+  cargo xtask cross-language     Prove Rust and TypeScript hash identically
   cargo xtask fmt                Format the Rust workspace
   cargo xtask fmt-check          Verify Rust formatting
   cargo xtask test --tier 1      Run safe, unprivileged tests
@@ -410,6 +460,10 @@ mod tests {
     #[test]
     fn parser_maps_every_documented_task() {
         assert_eq!(parse(&args(&["ci"])).expect("ci"), Task::Ci);
+        assert_eq!(
+            parse(&args(&["cross-language"])).expect("cross-language"),
+            Task::CrossLanguage
+        );
         assert_eq!(parse(&args(&["fmt"])).expect("fmt"), Task::Fmt);
         assert_eq!(
             parse(&args(&["fmt-check"])).expect("fmt-check"),

@@ -11,6 +11,12 @@ and product requirements are normative.
 - Keep edits inside the owned paths listed in the work-package assignment.
 - Use `cargo xtask ci` as the local Tier-1 gate.
 - Use `cargo xtask test --tier 1` for the unprivileged test suite.
+- Use `cargo xtask cross-language` for the MODEL-005 Rust/TypeScript hash-parity
+  proof. It needs Node and is therefore not part of `cargo xtask ci`; CI runs it
+  as its own required job.
+- Both implementations read `schemas/canonical-encoding-vectors.json`. Never
+  give either language its own copy of the vectors: an implementation checked
+  against a table it also owns proves only self-consistency.
 - Tier 2 and Tier 3 are intentionally unavailable until WP-020 provides the
   multi-factor disposable-target interlock required by SAFE-007.
 - Use `cargo xtask supply-chain` after installing the pinned versions documented

@@ -10,4 +10,11 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+  # The canonical codec is on the plan-authorization path, so its dependency
+  # updates get the same weekly review as the Rust ones.
+  - package-ecosystem: npm
+    directory: /packages/canonical
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
 
