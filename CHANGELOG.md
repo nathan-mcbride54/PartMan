@@ -16,6 +16,13 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   indefinite lengths, non-text or misordered map keys, duplicate keys,
   ill-formed UTF-8, lengths beyond the input, nesting past a fixed depth limit,
   and trailing bytes.
+- WP-010 increment 2: `packages/canonical`, the TypeScript half of MODEL-005.
+  Both languages now read one shared fixture,
+  `schemas/canonical-encoding-vectors.json`, so parity is proven against a
+  single source rather than two per-language tables that could drift.
+  `cargo xtask cross-language` runs the proof and gates CI as its own job. The
+  package has no runtime dependencies: hashing uses Web Crypto and testing uses
+  `node:test`.
 - ADR-C1, accepted, fixing the canonical encoding and hash strategy.
 
 - WP-000 repository foundation: pinned Rust workspace, Tier-1 task runner,

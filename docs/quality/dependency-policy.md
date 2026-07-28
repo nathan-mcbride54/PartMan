@@ -56,6 +56,28 @@ with each dependency and each rustc release. Lint levels belong in
 promotes the remaining warnings to errors with
 `cargo clippy ... -- -D warnings`.
 
+## Node and npm
+
+`packages/canonical` exists because MODEL-005 requires TypeScript and Rust to
+produce identical hashes. Its policy mirrors the Cargo one:
+
+- `package-lock.json` is committed, and CI installs with `npm ci`, which fails
+  rather than silently resolving a different tree.
+- `devDependencies` are pinned to exact versions, not ranges.
+- `npm audit --audit-level=moderate` gates CI. It runs inside
+  `cargo xtask cross-language` because that is the only gate with a Node
+  toolchain; `cargo xtask supply-chain` runs without Node.
+- The package has **no runtime dependencies**. Hashing uses Web Crypto and
+  testing uses `node:test`, both built in. This is deliberate: the codec is on
+  the authorization path, and every dependency there would be one more thing
+  whose upgrade could change a hash.
+- Node itself is pinned by exact version in the workflow, and
+  `actions/setup-node` is digest-pinned like every other action.
+
+`cargo xtask cross-language` is intentionally **not** part of `cargo xtask ci`,
+so a contributor working only on Rust need not install Node. CI runs it as its
+own job, so the MODEL-005 proof is never merely skipped.
+
 ## Pins not covered by Dependabot
 
 Dependabot updates `Cargo.toml`/`Cargo.lock` and workflow action SHAs. It does

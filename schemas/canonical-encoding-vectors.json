@@ -1,0 +1,353 @@
+{
+  "profile": "pce/1",
+  "specification": "schemas/canonical-encoding.md",
+  "note": "Shared fixture. Every implementation, in every language, MUST reproduce canonical and sha256 exactly. Integers are decimal strings because this profile exists precisely because JSON numbers cannot carry u64.",
+  "vectors": [
+    {
+      "name": "unsigned zero",
+      "value": {
+        "uint": "0"
+      },
+      "canonical": "00",
+      "sha256": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d"
+    },
+    {
+      "name": "unsigned 23, last embedded",
+      "value": {
+        "uint": "23"
+      },
+      "canonical": "17",
+      "sha256": "8f11b05da785e43e713d03774c6bd3405d99cd3024af334ffd68db663aa37034"
+    },
+    {
+      "name": "unsigned 24, first one-byte",
+      "value": {
+        "uint": "24"
+      },
+      "canonical": "1818",
+      "sha256": "7c6348f7ea8a4e831aafe688a2557d7a3ab0be8549cdb190a029956ade971b15"
+    },
+    {
+      "name": "unsigned 255",
+      "value": {
+        "uint": "255"
+      },
+      "canonical": "18ff",
+      "sha256": "fcaae93768b1722dcefc0a06729388acfe35a4d08cbdfc996309a15fad7e62af"
+    },
+    {
+      "name": "unsigned 256, first two-byte",
+      "value": {
+        "uint": "256"
+      },
+      "canonical": "190100",
+      "sha256": "70aa0275e34b1dd6f23f2e97a23ffaffa642ad71a935484e5e878d33c89f1e21"
+    },
+    {
+      "name": "unsigned 65535",
+      "value": {
+        "uint": "65535"
+      },
+      "canonical": "19ffff",
+      "sha256": "459fbd327a935784702aca36217445923f8794e11be0b8a2e9f9b3ea9b800e91"
+    },
+    {
+      "name": "unsigned 65536, first four-byte",
+      "value": {
+        "uint": "65536"
+      },
+      "canonical": "1a00010000",
+      "sha256": "2928012187f03446d1e9ec37dae5cc9586656c20bd6e28ff4953181b933cb3f0"
+    },
+    {
+      "name": "unsigned 2^32-1",
+      "value": {
+        "uint": "4294967295"
+      },
+      "canonical": "1affffffff",
+      "sha256": "74925985507bbda0c27009d32686859a69ac1e7d2870986694ee73ece429bd68"
+    },
+    {
+      "name": "unsigned 2^32, first eight-byte",
+      "value": {
+        "uint": "4294967296"
+      },
+      "canonical": "1b0000000100000000",
+      "sha256": "ff0a4ebee87c783ebeb2197fb436cfee11c1172a7363c7c133e085878c7d58ff"
+    },
+    {
+      "name": "unsigned 2^53-1, last exact JSON number",
+      "value": {
+        "uint": "9007199254740991"
+      },
+      "canonical": "1b001fffffffffffff",
+      "sha256": "14f502e8a30340288b9da98ed55d9f230c8a92ee86336198df6d1b4e278f3d1e"
+    },
+    {
+      "name": "unsigned 2^53, first inexact JSON number",
+      "value": {
+        "uint": "9007199254740992"
+      },
+      "canonical": "1b0020000000000000",
+      "sha256": "fd0911b2c0ce1a9126457f47050c3a0260ed8677eb1a136464639d5644351781"
+    },
+    {
+      "name": "unsigned u64 max",
+      "value": {
+        "uint": "18446744073709551615"
+      },
+      "canonical": "1bffffffffffffffff",
+      "sha256": "2d7cb0927d162df726656d7155780f0486760e4327b537b54d0187e57209517c"
+    },
+    {
+      "name": "negative -1",
+      "value": {
+        "neg": "-1"
+      },
+      "canonical": "20",
+      "sha256": "36a9e7f1c95b82ffb99743e0c5c4ce95d83c9a430aac59f84ef3cbfab6145068"
+    },
+    {
+      "name": "negative -24",
+      "value": {
+        "neg": "-24"
+      },
+      "canonical": "37",
+      "sha256": "7902699be42c8a8e46fbbb4501726517e86b22c56a189f7625a6da49081b2451"
+    },
+    {
+      "name": "negative -25",
+      "value": {
+        "neg": "-25"
+      },
+      "canonical": "3818",
+      "sha256": "dd7baa54409c052850ed2e03e586086bfed37a275ae4aee888711cd7c46bc91f"
+    },
+    {
+      "name": "negative i64 min",
+      "value": {
+        "neg": "-9223372036854775808"
+      },
+      "canonical": "3b7fffffffffffffff",
+      "sha256": "67e32b647dedafb41220d36a02052aef91939a03a6fa875a68645cc07f290606"
+    },
+    {
+      "name": "empty text",
+      "value": {
+        "text": ""
+      },
+      "canonical": "60",
+      "sha256": "8d33f520a3c4cef80d2453aef81b612bfe1cb44c8b2025630ad38662763f13d3"
+    },
+    {
+      "name": "text a",
+      "value": {
+        "text": "a"
+      },
+      "canonical": "6161",
+      "sha256": "961b6dd3ede3cb8ecbaacbd68de040cd78eb2ed5889130cceb4c49268ea4d506"
+    },
+    {
+      "name": "text two-byte utf8",
+      "value": {
+        "text": "é"
+      },
+      "canonical": "62c3a9",
+      "sha256": "701813d6d5ac9e087e4b469881bd4bf116fee5027a3b7ea436d513b0d8049737"
+    },
+    {
+      "name": "text astral plane",
+      "value": {
+        "text": "😀"
+      },
+      "canonical": "64f09f9880",
+      "sha256": "e34a1fc83bfacd5f8ed9ec359705b76b1e2191071451202cddb73cbc0887ba54"
+    },
+    {
+      "name": "text with embedded NUL",
+      "value": {
+        "text": "a\u0000b"
+      },
+      "canonical": "63610062",
+      "sha256": "78dbb32fb9678d05dfbdb6731da73e8007719fc8420e54b7ded8fc2e53244039"
+    },
+    {
+      "name": "empty bytes",
+      "value": {
+        "bytes": ""
+      },
+      "canonical": "40",
+      "sha256": "c3641f8544d7c02f3580b07c0f9887f0c6a27ff5ab1d4a3e29caf197cfc299ae"
+    },
+    {
+      "name": "bytes 0102",
+      "value": {
+        "bytes": "0102"
+      },
+      "canonical": "420102",
+      "sha256": "06c39d2157eb9b844484f88dc7e7c22052f256f8f25c36def7b0296b8d7a387b"
+    },
+    {
+      "name": "false",
+      "value": {
+        "bool": false
+      },
+      "canonical": "f4",
+      "sha256": "2017ff3461395672aa0aa4f64894fd2f95a4b120e2690e8951656d79adc2eed2"
+    },
+    {
+      "name": "true",
+      "value": {
+        "bool": true
+      },
+      "canonical": "f5",
+      "sha256": "27abdeddfe8503496adeb623466caa47da5f63abd2bc6fa19f6cfcb73ecfed70"
+    },
+    {
+      "name": "null",
+      "value": {
+        "null": true
+      },
+      "canonical": "f6",
+      "sha256": "b0b2988b6bbe724bacda5e9e524736de0bc7dae41c46b4213c50e1d35d4e5f13"
+    },
+    {
+      "name": "empty array",
+      "value": {
+        "array": []
+      },
+      "canonical": "80",
+      "sha256": "76be8b528d0075f7aae98d6fa57a6d3c83ae480a8469e668d7b0af968995ac71"
+    },
+    {
+      "name": "array of two",
+      "value": {
+        "array": [
+          {
+            "uint": "1"
+          },
+          {
+            "uint": "2"
+          }
+        ]
+      },
+      "canonical": "820102",
+      "sha256": "94f3e3eb591c6fbe01668206677a28adc2c950a15a69f508e320af788f9a3629"
+    },
+    {
+      "name": "empty map",
+      "value": {
+        "map": []
+      },
+      "canonical": "a0",
+      "sha256": "c19a797fa1fd590cd2e5b42d1cf5f246e29b91684e2f87404b81dc345c7a56a0"
+    },
+    {
+      "name": "single entry map",
+      "value": {
+        "map": [
+          [
+            "a",
+            {
+              "uint": "1"
+            }
+          ]
+        ]
+      },
+      "canonical": "a1616101",
+      "sha256": "eb989b4a620fd259ae02181bdab4fc3eb6dc6b45eb7322999bb1416bce318926"
+    },
+    {
+      "name": "map length-first ordering",
+      "value": {
+        "map": [
+          [
+            "aa",
+            {
+              "uint": "2"
+            }
+          ],
+          [
+            "z",
+            {
+              "uint": "1"
+            }
+          ]
+        ]
+      },
+      "canonical": "a2617a0162616102",
+      "sha256": "ade2165710f494d77ff74f543cb07dec2423ece94abcae8a2ba49b6e1400c9bc"
+    },
+    {
+      "name": "map key prefix of another",
+      "value": {
+        "map": [
+          [
+            "ab",
+            {
+              "uint": "2"
+            }
+          ],
+          [
+            "a",
+            {
+              "uint": "1"
+            }
+          ]
+        ]
+      },
+      "canonical": "a261610162616202",
+      "sha256": "4dd2888c622e70f06cad855c5c4f10dfbc29c21043faa6d9ddc6a82063dc6d7c"
+    },
+    {
+      "name": "map key length crosses argument form",
+      "value": {
+        "map": [
+          [
+            "kkkkkkkkkkkkkkkkkkkkkkkk",
+            {
+              "uint": "2"
+            }
+          ],
+          [
+            "kkkkkkkkkkkkkkkkkkkkkkk",
+            {
+              "uint": "1"
+            }
+          ]
+        ]
+      },
+      "canonical": "a2776b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b0178186b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b02",
+      "sha256": "5b01dc0a91318cd6757d0634e3fcaf40d27b5dac7bf7d069dc3fb290d21e5fce"
+    },
+    {
+      "name": "nested containers",
+      "value": {
+        "map": [
+          [
+            "x",
+            {
+              "array": [
+                {
+                  "map": [
+                    [
+                      "y",
+                      {
+                        "null": true
+                      }
+                    ]
+                  ]
+                },
+                {
+                  "bool": true
+                }
+              ]
+            }
+          ]
+        ]
+      },
+      "canonical": "a1617882a16179f6f5",
+      "sha256": "62fc29f75466acab73b836f6228de8f22c9fca8c00ddc1e8e28bc0105e31df97"
+    }
+  ]
+}
