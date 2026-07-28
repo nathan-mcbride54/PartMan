@@ -1,8 +1,8 @@
 # ADR-C5: One aggregation node, on-disk signatures as nodes, and the scope of `StorageSnapshot`
 
-- Status: **Proposed** — needs the decision owner's acceptance
+- Status: Accepted
 - Date: 2026-07-28
-- Spec version: 3.1.0
+- Spec version: 4.0.0
 - Work packages blocked: WP-010 increment 3 (**partially; see Scope**)
 - Requirement IDs: Section 5, MODEL-002, MODEL-003, MODEL-005, MAC-002,
   MAC-003, MAC-009, MAC-010, FS-003, FS-004, LIN-004, LIN-005, LIN-006,
@@ -19,8 +19,12 @@ not refute the vocabulary. Everything the review landed on the vocabulary is
 folded into the decision below, and what was rejected is recorded so the next
 round starts from the objection rather than from scratch.
 
-Unlike ADR-C2, ADR-C3, and ADR-C4, this ADR carries no delegation from the
-decision owner. It is submitted as a proposal.
+Accepted by the decision owner on 2026-07-28, after being submitted as a
+proposal with its costs stated — in particular the eight-technology parser,
+fuzz-target, and fixture commitment, and the major version bump. The owner also
+settled the two questions this ADR raised without answering: the release is
+4.0.0, and Section 0.1's bump rule is about requirements rather than
+implementations, so 3.1.0 stands as issued but is recorded as mis-numbered.
 
 ## Context
 

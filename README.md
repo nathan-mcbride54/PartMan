@@ -1,7 +1,7 @@
 # PartMan
 
 PartMan is a safety-first, cross-platform disk partition manager defined by
-`AGENT_BUILD_SPEC.md` 3.1.0. The intended product is a dark-first Tauri desktop
+`AGENT_BUILD_SPEC.md` 4.0.0. The intended product is a dark-first Tauri desktop
 application plus a scriptable CLI, backed by a shared Rust domain, planner,
 validator, journal, image engine, and per-platform privileged helpers.
 
@@ -87,7 +87,8 @@ Section 14 of the specification is normative. Current state:
 | --- | --- | --- |
 | WP-000 | Repository, CI, `xtask`, CODEOWNERS, dependency policy | Complete |
 | ADR-C1 | Canonical encoding and hash strategy | Accepted |
-| WP-010 | Canonical domain model, schema versioning, encoding and hashing | In progress, see `docs/work-packages/WP-010.md` |
+| ADR-C2 … ADR-C5 | Hashed-artifact body/envelope split, identity strength, provenance shape, aggregation vocabulary | Accepted |
+| WP-010 | Canonical domain model, schema versioning, encoding and hashing | In progress, blocked at increment 3; see `docs/work-packages/WP-010.md` |
 | WP-020 | Disk-image fixture generator and destructive-test interlocks | Not started |
 | WP-030 | Design tokens, dark UI shell, accessibility harness | Not started |
 

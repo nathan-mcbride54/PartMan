@@ -42,19 +42,29 @@ no cheap exit.
 
 # Part 1 — Blocking WP-010 increment 3
 
-**Six resolved, four proposed, two remain — plus what round three found.**
-SI-03, SI-05, and SI-06 were one question — what the hash authenticates —
-answered by ADR-C2 in spec 3.0.0. SI-01, SI-02, and SI-04 are answered by ADR-C3
-and ADR-C4 in spec 3.1.0. SI-07 through SI-10 have a **proposed** answer in
-ADR-C5, which is not yet accepted.
+**Eleven resolved, five remain.** SI-03, SI-05, and SI-06 were one question —
+what the hash authenticates — answered by ADR-C2 in spec 3.0.0. SI-01, SI-02, and
+SI-04 are answered by ADR-C3 and ADR-C4 in spec 3.1.0. SI-07 through SI-10 are
+answered by ADR-C5 in spec 4.0.0, which also corrects SI-32.
 
-Still blocking increment 3: **SI-11** and **SI-27**; **SI-28** through **SI-31**,
-filed by round three; and **SI-33**, filed by round four of SI-28. SI-32 is
-editorial and blocks nothing. Round one is recorded in Part 4, round two in
-Part 5, round three in Part 6, and SI-28's fourth round in Part 7.
+Still blocking increment 3: **SI-11**, **SI-27**, **SI-28**, **SI-31**, and
+**SI-33**. SI-12 blocks SI-27 and therefore blocks the increment too; SI-29 and
+SI-30 are inputs to SI-11. Round one is recorded in Part 4, round two in Part 5,
+round three in Part 6, and SI-28's fourth round in Part 7.
 
 SI-31's answer survived review and its *reasoning* did not; the corrections are
 recorded in the issue and change where the rule lives.
+
+**SI-28's interim posture is decided, and it is a mitigation rather than a
+resolution.** The decision owner chose the conservative floor: destructive
+whole-device operations on removable media behind a bridge that exposes no
+medium-attributable identifier are refused, and the continuity witness (SI-33)
+is the route by which that refusal may later be relaxed. That order is
+deliberate — a blunt rule can be narrowed once a discriminating mechanism is
+proven, whereas a permissive rule cannot be tightened after plans have been
+issued against it. **SI-28 stays open**, because the floor does not discriminate
+two media and Part 7's warning against false closure applies to it as much as to
+any other proposal.
 
 The approach is settled — protection is proven by computation and the verdict is
 frozen into the hashed body — and round two established that the platform
@@ -178,7 +188,7 @@ The specification does not separate topological content from capture metadata.
 
 ## SI-07 StorageContainer, StoragePool, and RaidSet have no boundary
 
-> **Proposed resolution in ADR-C5**, not yet accepted — one `Aggregate` node with a closed technology discriminant, membership as a `Backs` edge of unbounded in-degree, and a self-reported member count so that detect-only is a function of kind *and* membership.
+> **Resolved in spec 4.0.0 by ADR-C5** — one `Aggregate` node with a closed technology discriminant, membership as a `Backs` edge of unbounded in-degree, and a self-reported member count so that detect-only is a function of kind *and* membership.
 
 **Requirements:** Section 5, MODEL-002, MAC-003, MAC-010 · **Blocks 3, hash-visible**
 
@@ -193,7 +203,7 @@ Fusion per MAC-010), which a one-to-one `StorageContainer` cannot express.
 
 ## SI-08 Btrfs multi-device: container, or file system with many backings?
 
-> **Proposed resolution in ADR-C5**, not yet accepted — a file system with an ordered set of n ≥ 1 backings, single-device being the cardinality-1 instance of the same shape, so `btrfs device add` changes the member set and not the node shape.
+> **Resolved in spec 4.0.0 by ADR-C5** — a file system with an ordered set of n ≥ 1 backings, single-device being the cardinality-1 instance of the same shape, so `btrfs device add` changes the member set and not the node shape.
 
 **Requirements:** MODEL-002, FS-003, LIN-006, MAC-003 · **Blocks 3, hash-visible**
 
@@ -204,7 +214,7 @@ explicit container type; Btrfs gets none.
 
 ## SI-09 FS-004 detects things that are not file systems
 
-> **Proposed resolution in ADR-C5**, not yet accepted — signatures materialize as `BackingSignature` nodes with an optional consumer, `FileSystemKind` stays purely file systems, and the routing rule for an unrecognized signature is stated in the ADR rather than left to an adapter.
+> **Resolved in spec 4.0.0 by ADR-C5** — signatures materialize as `BackingSignature` nodes with an optional consumer, `FileSystemKind` stays purely file systems, and the routing rule for an unrecognized signature is stated in the ADR rather than left to an adapter.
 
 **Requirements:** FS-004, MODEL-002 · **Blocks 3, hash-visible**
 
@@ -219,7 +229,7 @@ and every snapshot hash.
 
 ## SI-10 The `Snapshot` type has no defined scope
 
-> **Proposed resolution in ADR-C5**, not yet accepted — renamed `StorageSnapshot`, covering APFS, LVM2, Apple signed system, VSS, and Btrfs. The node is envelope content, and MAC-009's signed system snapshots reach protection through a flag on the file system that carries them, which is what makes this answerable independently of SI-27.
+> **Resolved in spec 4.0.0 by ADR-C5** — renamed `StorageSnapshot`, covering APFS, LVM2, Apple signed system, VSS, and Btrfs. The node is envelope content, and MAC-009's signed system snapshots reach protection through a flag on the file system that carries them, which is what makes this answerable independently of SI-27.
 
 **Requirements:** Section 5, Section 20, MAC-003, LIN-004, PART-015, FS-003 · **Blocks 3**
 
@@ -440,6 +450,8 @@ been closed with evidence blind to SI-31. The test has to exercise the sort.
    encoding accounts for depth.
 
 ## SI-32 The glossary's weak-identity definition contradicts SAFE-003
+
+> **Corrected in spec 4.0.0.** The glossary now defines weak identity as any record that is not Strong under SAFE-003, which covers an indeterminate table state as well as an absent identifier. ACC-014 gained a note in the same pass, recording that it exercises only the *absent*-identifier case.
 
 **Requirements:** Section 20, SAFE-003, ADR-C3 · **Editorial, does not block**
 
