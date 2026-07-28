@@ -1,4 +1,8 @@
+# Anchored to the root AND matched at any depth. A bare '/target/' misses the
+# build output of every nested crate, which is how ~200 build artifacts once
+# reached a commit.
 /target/
+target/
 node_modules/
 /.idea/
 /.vscode/

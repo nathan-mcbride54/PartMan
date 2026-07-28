@@ -35,10 +35,16 @@ cheap exit.
 
 # Part 1 — Blocking WP-010 increment 3
 
-**Three resolved.** SI-03, SI-05, and SI-06 were one question — what the hash
-authenticates — and are answered by ADR-C2 and spec 3.0.0. Eight remain.
+**Six resolved, five remain.** SI-03, SI-05, and SI-06 were one question — what
+the hash authenticates — answered by ADR-C2 in spec 3.0.0. SI-01, SI-02, and
+SI-04 are answered by ADR-C3 and ADR-C4 in spec 3.1.0.
+
+Still blocking increment 3: **SI-07 through SI-11**. Both were analysed and both
+proposals failed adversarial review on specific grounds, recorded in Part 4.
 
 ## SI-01 Identity strength is not computable at discovery time
+
+> **Resolved in spec 3.1.0 by ADR-C3** — strength is a property of one record; matching is a separate helper-side verdict.
 
 **Requirements:** SAFE-003, INV-002, Section 6 · **Blocks 3, hash-visible**
 
@@ -58,6 +64,8 @@ two named distinctly; (b) strength is re-probe-only and absent from discovery
 and plan bytes — which contradicts INV-002 and Section 6 as written.
 
 ## SI-02 Blank and table-less media can never be Strong
+
+> **Resolved in spec 3.1.0 by ADR-C3** — option (b): partition-table state is three-valued, so a positively observed absence is determined and a blank device can be Strong, while an unreadable table cannot. The proposal to also exempt blank-media initialization from severity 4 was **rejected**; see the ADR.
 
 **Requirements:** SAFE-003, INV-003, PART-001 · **Blocks 3**
 
@@ -93,6 +101,8 @@ outside the authorization boundary that SAFE-003 and SEC-001/002 establish.
 invalidates every hash previously issued.
 
 ## SI-04 MODEL-004 cannot express its own `conflicting` value
+
+> **Resolved in spec 3.1.0 by ADR-C4** — option (a): provenance is a set of observations held in the envelope, with the four confidence values derived rather than stored. The proposal to also collapse disputed body values to a single resolution bit was **rejected**; see the ADR.
 
 **Requirements:** MODEL-004, INV-007, SAFE-005, UI-010 · **Blocks 3, hash-visible**
 
@@ -416,3 +426,53 @@ They do **not** require a specification change.
 - **Copy-as-source is not mutation.** A binary per-node policy cannot express
   LDM's "migration off dynamic disks only via copy to basic disks". *(WIN-004,
   Section 2.1)*
+
+---
+
+# Part 4 — Analysed, not yet decided
+
+Two of the four remaining decisions were analysed and their proposals rejected
+by adversarial review. The *direction* of each survives; the mechanism does not.
+Recorded so the next attempt starts from the objection rather than from scratch.
+
+## SI-07 to SI-10, the aggregation vocabulary
+
+**Direction that survived.** One aggregation node type carrying a technology
+discriminant, rather than three disjoint types. Btrfs multi-device is a file
+system with several backings, not a container. FS-004's non-file-system
+signatures are materialized as container and encryption nodes rather than
+enumerated into `FileSystemKind`, which preserves MODEL-002's layering.
+
+**Why it was not accepted.** The proposal's load-bearing justification was that
+detect-only status would be a total function over the closed kind enum. It is
+not, on the first non-goal it maps: an Apple Fusion container and an ordinary
+mutable APFS container carry the same kind and differ only by member-set shape
+(MAC-010). Detect-only is therefore a function over kind *and* members — the
+coarse-kind failure the proposal listed as a future risk, occurring immediately
+against a Section 2.1 MUST NOT. Splitting the kind by instance shape contradicts
+the proposal's own rule that the discriminant is the technology.
+
+**What the next attempt needs.** Either a detect-only predicate defined over kind
+and membership rather than kind alone, or a reason why membership-derived
+protection is safe to compute outside the hashed body.
+
+## SI-11, protection strength for non-goals
+
+**Direction that survived.** Detect-only should be enforced structurally rather
+than only at runtime, and it must propagate to members, not merely upward:
+marking a ZFS pool while leaving its member partitions mutable protects nothing.
+Read-as-source must be distinguishable from mutation, so Section 2.1's permitted
+copy-based migration off dynamic disks (WIN-004) stays possible.
+
+**Why it was not accepted.** The proposal removed Apple sealed volumes from
+PART-014 and required mutating operations on a detect-only target to report
+`unsupported` and never `blocked`. That contradicts MAC-009, which makes sealed
+volumes protected objects and requires exactly `blocked`, with a stated reason,
+for operations macOS permits only in Recovery. The proposal amended neither, so
+merging it would have shipped a fresh Section 1.11 conflict on day one. The
+reasoning underneath was also wrong: `blocked` means a runtime precondition
+failed and the user has a next step, and "boot into Recovery" is precisely that.
+
+**What the next attempt needs.** A status mapping that keeps MAC-009 intact,
+distinguishing "this product will never do this" from "this platform will not
+permit it right now".
