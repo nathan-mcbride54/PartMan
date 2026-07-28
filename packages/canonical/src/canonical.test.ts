@@ -168,3 +168,51 @@ test('text is not Unicode-normalized', () => {
   const decomposed = text('é')
   assert.notEqual(toHex(encode(precomposed)), toHex(encode(decomposed)))
 })
+
+test('an unpaired surrogate is refused rather than repaired to U+FFFD', () => {
+  // `TextEncoder` substitutes U+FFFD for an unpaired surrogate instead of
+  // failing, which would make `encode` non-injective: text('\uD800') and the
+  // replacement character would both produce 63efbfbd. Repairing rather than
+  // refusing is the malleability ADR-C1 forbids.
+  assert.throws(() => encode(text('\uD800')), CanonicalError)
+  assert.throws(() => encode(text('\uDFFF')), CanonicalError)
+  assert.throws(() => encode(text('a\uD800b')), CanonicalError)
+
+  // The replacement character itself is an ordinary value and still encodes.
+  assert.equal(toHex(encode(text('\uFFFD'))), '63efbfbd')
+  // A well-formed pair is one scalar value and must not be caught by this.
+  assert.equal(toHex(encode(text('\u{1F600}'))), '64f09f9880')
+})
+
+test('the encoder never emits a map whose declared size counts byte-equal keys', () => {
+  // The regression this guards. `compareKeys` reports these two distinct
+  // JavaScript strings equal, because both encode to efbfbd, while `Map` still
+  // holds two entries. Before the well-formedness check the encoder emitted
+  // a263efbfbd0163efbfbd02 -- a map declaring two entries with identical keys,
+  // which section 3 makes invalid and this package's own decoder rejects.
+  // Section 6.1 requires that anything the encoder emits, the decoder accepts.
+  assert.equal(compareKeys('\uD800', '\uFFFD'), 0)
+
+  const both = new Map<string, Value>([
+    ['\uD800', uint(1n)],
+    ['\uFFFD', uint(2n)],
+  ])
+  assert.equal(both.size, 2)
+  assert.throws(() => encode(map(both)), CanonicalError)
+
+  // Insertion order must not change the answer, since keys are checked before
+  // they are sorted.
+  const reversed = new Map<string, Value>([
+    ['\uFFFD', uint(2n)],
+    ['\uD800', uint(1n)],
+  ])
+  assert.throws(() => encode(map(reversed)), CanonicalError)
+})
+
+test('Rust cannot represent what TypeScript had to be taught to refuse', () => {
+  // Not a test of Rust, but a statement of why the fix is one-sided: Rust's
+  // `String` is validated UTF-8, so the ill-formed value is unconstructible
+  // there and only the TypeScript half could produce it. The decoder side was
+  // always symmetric -- both reject the surrogate encoded on the wire.
+  assert.throws(() => decode(fromHex('63eda080')), CanonicalError)
+})

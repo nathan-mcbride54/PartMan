@@ -112,6 +112,7 @@ function writeValue(out: number[], value: Value, depth: number): void {
       return
     }
     case 'text': {
+      requireWellFormed(value.value, 'text string')
       const raw = utf8(value.value)
       writeHead(out, 3, BigInt(raw.length))
       for (const byte of raw) out.push(byte)
@@ -125,8 +126,11 @@ function writeValue(out: number[], value: Value, depth: number): void {
     case 'map': {
       writeHead(out, 5, BigInt(value.value.size))
       // A JavaScript Map iterates in insertion order, which is not encoding
-      // order, so the keys are sorted here.
-      const keys = [...value.value.keys()].sort(compareKeys)
+      // order, so the keys are sorted here. Well-formedness is checked before
+      // the sort, so the refusal does not depend on insertion order.
+      const keys = [...value.value.keys()]
+      for (const key of keys) requireWellFormed(key, 'map key')
+      keys.sort(compareKeys)
       for (const key of keys) {
         const raw = utf8(key)
         writeHead(out, 3, BigInt(raw.length))
@@ -152,6 +156,49 @@ function requireRange(value: bigint, low: bigint, high: bigint, kind: string): v
   }
   if (value < low || value > high) {
     throw new CanonicalError(`${kind} value ${value} is outside ${low}..=${high}`)
+  }
+}
+
+/**
+ * Reject a string that is not well-formed UTF-16.
+ *
+ * This is the string counterpart of the `number`-versus-`bigint` hazard, and it
+ * is the more dangerous of the two because nothing in the type system hints at
+ * it. A JavaScript string may hold an unpaired surrogate, and `TextEncoder`
+ * *repairs* rather than refuses: it substitutes U+FFFD. Two distinct strings
+ * therefore encode to identical bytes, which breaks two profile properties at
+ * once.
+ *
+ * `encode` stops being injective, so `text('\uD800')` and `text('�')`
+ * produce the same `63efbfbd`. Worse, {@link compareKeys} then reports the two
+ * map keys equal while `Map` still holds them as two entries, so the encoder
+ * emitted `a263efbfbd0163efbfbd02`: a map declaring two entries whose keys are
+ * byte-identical. Section 3 makes that input invalid and this package's own
+ * decoder rejects it — violating section 6.1's rule that anything the encoder
+ * emits, the decoder accepts. A producer would publish a hash over an artifact
+ * nobody can revalidate.
+ *
+ * Rust cannot construct the value at all, because `String` is validated UTF-8,
+ * so refusing here is also what keeps the two implementations agreeing on what
+ * is encodable (MODEL-005).
+ *
+ * Reachable without an attacker: NTFS permits unpaired surrogates in names and
+ * volume labels, and INV-008 requires such structures be represented rather
+ * than discarded. Repairing to U+FFFD would be the malleability ADR-C1 forbids,
+ * so this refuses instead.
+ */
+function requireWellFormed(value: string, kind: string): void {
+  for (let i = 0; i < value.length; i++) {
+    const unit = value.charCodeAt(i)
+    if (unit < 0xd800 || unit > 0xdfff) continue
+    // A trailing surrogate here has no leading partner, and a leading surrogate
+    // must be followed by a trailing one.
+    if (unit >= 0xdc00) throw new CanonicalError(`${kind} has an unpaired surrogate at ${i}`)
+    const next = i + 1 < value.length ? value.charCodeAt(i + 1) : -1
+    if (next < 0xdc00 || next > 0xdfff) {
+      throw new CanonicalError(`${kind} has an unpaired surrogate at ${i}`)
+    }
+    i++
   }
 }
 
