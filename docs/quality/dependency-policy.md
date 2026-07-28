@@ -19,7 +19,11 @@ by digest. Runner image provenance is recorded by GitHub in each job.
 ## Rules
 
 - Commit `Cargo.lock` and use `--locked` in CI.
-- Reject wildcard Rust dependency versions.
+- Reject wildcard Rust dependency versions, except for path dependencies between
+  crates in this workspace. Those carry no version requirement, which the check
+  reports as `*`, but they resolve to a sibling directory in this repository and
+  cannot float to whatever was published most recently — which is the risk the
+  rule exists to prevent. A genuine `foo = "*"` from a registry stays denied.
 - Deny unknown registries and Git sources unless a reviewed policy change adds
   an exact source.
 - Fail CI for known advisories, yanked crates, or disallowed licenses.
