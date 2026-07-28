@@ -7,9 +7,21 @@ validator, journal, image engine, and per-platform privileged helpers.
 
 ## Current status
 
-WP-000 foundation work is in progress. The repository currently contains only
-unprivileged development infrastructure. It does not discover, plan, or mutate
-storage, and it must not be represented as a usable partition manager.
+**Not a usable partition manager, and must not be represented as one.** Nothing
+here discovers, plans, or mutates storage. There is no GUI, no CLI, no planner,
+and no privileged helper.
+
+What does exist:
+
+- Repository foundation: pinned toolchain, three-OS CI, the `xtask` task
+  runner, dependency and lint policy (WP-000).
+- The `pce/1` canonical encoding: a byte-exact encoder, a strict validating
+  decoder, and SHA-256 hashing, implemented in Rust (`crates/domain`) and
+  TypeScript (`packages/canonical`) and proven to agree (WP-010, increments 1
+  and 2).
+
+The domain crate performs no I/O and launches no process. Tier 2 and Tier 3
+test suites fail closed and cannot run at all yet.
 
 ## Safe local gate
 
@@ -17,9 +29,18 @@ storage, and it must not be represented as a usable partition manager.
 cargo xtask ci
 ```
 
-The command verifies the pinned toolchain, GitHub Action digest pinning,
-formatting, linting, and Tier-1 unit tests. Tier 1 never requires elevation and
-contains no destructive storage operations.
+Verifies the pinned toolchain, GitHub Action digest pinning, formatting,
+linting, and Tier-1 Rust tests. Tier 1 never requires elevation and contains no
+destructive storage operations.
+
+```text
+cargo xtask cross-language
+```
+
+Proves that Rust and TypeScript produce identical hashes for identical content
+(MODEL-005). It needs a Node toolchain, so it is deliberately **not** part of
+`cargo xtask ci`; CI runs it as its own required job so the proof cannot be
+silently skipped.
 
 ```text
 cargo xtask test --tier 1
@@ -28,12 +49,50 @@ cargo xtask test --tier 1
 Tier 2 and Tier 3 deliberately fail closed until WP-020 implements the
 disposable-environment proof required by SAFE-007.
 
+Run `cargo xtask help` for the full command list.
+
+## Roadmap
+
+Milestones and their exit criteria are normative in Section 13 of the build
+specification; work-package order is normative in Section 14. This section
+reports status only and never redefines either.
+
+### M0 — Foundations (in progress)
+
+| Exit criterion | Status |
+| --- | --- |
+| CI green on Windows, macOS, and Linux | Met |
+| `xtask` single entry point works locally and in CI | Met |
+| Schemas versioned, with cross-language hash golden tests (MODEL-005) | Partial — the golden tests exist and gate CI; MODEL-003 schema versioning is not implemented |
+| CODEOWNERS enforces ownership | Partial — CODEOWNERS requires owner review, but does not reject a diff touching paths outside a work package's assignment |
+| T1 fixture generator produces images | Not started (WP-020) |
+| Accessibility harness runs | Not started (WP-030) |
+
+The two partial rows are tracked as known gaps in `docs/traceability/WP-000.md`
+and `docs/traceability/WP-010.md`. They are recorded rather than rounded up:
+a milestone that exits on a criterion nobody verified is worse than one that
+exits late.
+
+### M1 through M5
+
+Not started. Their themes and exit criteria are in Section 13 of the
+specification and are not restated here, because a second copy of a normative
+table is a second copy to drift.
+
 ## Work-package order
 
-The dependency order is normative in Section 14 of the build specification.
-After WP-000, the M0 packages that can begin are WP-010, WP-020, and WP-030.
-ADR-C1 is accepted, so WP-010 is in progress; see `docs/work-packages/WP-010.md`
-for its increments. WP-020 and WP-030 are unstarted.
+Section 14 of the specification is normative. Current state:
+
+| Package | Scope | Status |
+| --- | --- | --- |
+| WP-000 | Repository, CI, `xtask`, CODEOWNERS, dependency policy | Complete |
+| ADR-C1 | Canonical encoding and hash strategy | Accepted |
+| WP-010 | Canonical domain model, schema versioning, encoding and hashing | In progress, see `docs/work-packages/WP-010.md` |
+| WP-020 | Disk-image fixture generator and destructive-test interlocks | Not started |
+| WP-030 | Design tokens, dark UI shell, accessibility harness | Not started |
+
+WP-020 and WP-030 depend only on WP-000 and could begin in parallel. WP-040 is
+the first package gated on WP-010.
 
 ## License
 
@@ -43,4 +102,3 @@ are granted. A license will be chosen before the first release.
 
 Until then, do not submit outside contributions: without license terms, the
 rights in a contribution are undefined for both sides.
-

@@ -20,6 +20,18 @@ cargo xtask ci
 This is unprivileged Tier 1 only. Tier 2 and Tier 3 are unavailable until
 WP-020 supplies the required disposable-environment interlocks.
 
+If you changed anything under `crates/domain/src/canonical/`,
+`packages/canonical/`, or `schemas/`, also run the MODEL-005 parity proof. It
+needs a Node toolchain, which is why it is separate from `cargo xtask ci`:
+
+```text
+cargo xtask cross-language
+```
+
+Both implementations read `schemas/canonical-encoding-vectors.json`. Never give
+either language its own copy of the vectors; an implementation checked against a
+table it also owns proves only self-consistency.
+
 Supply-chain checks use separately installed, pinned tools:
 
 ```text
