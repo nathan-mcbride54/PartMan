@@ -24,6 +24,13 @@ and product requirements are normative.
   against a table it also owns proves only self-consistency.
 - Tier 2 and Tier 3 are intentionally unavailable until WP-020 provides the
   multi-factor disposable-target interlock required by SAFE-007.
+- Use `cargo xtask tokens` to audit `schemas/design-tokens.json` against
+  UI-001, UI-007 and UI-008. It runs inside `cargo xtask ci`. That file is the
+  single source of truth for the visual language: when a front end exists it
+  must read it rather than keep its own palette, for the same reason the
+  canonical vectors are shared. Never weaken a threshold to make a colour pass —
+  the first palette failed ten checks and the colours were changed, not the
+  floors.
 - Use `cargo xtask supply-chain` after installing the pinned versions documented
   in `docs/quality/dependency-policy.md`.
 - Pin every GitHub Action to a full commit SHA with the release tag in a

@@ -19,6 +19,10 @@ What does exist:
   decoder, and SHA-256 hashing, implemented in Rust (`crates/domain`) and
   TypeScript (`packages/canonical`) and proven to agree (WP-010, increments 1
   and 2).
+- The design tokens and the accessibility harness that computes WCAG 2.2 AA
+  contrast, redundant non-colour channels, and colour-vision separation from
+  them (WP-030 increment 1). There is still no user interface for them to
+  style.
 
 The domain crate performs no I/O and launches no process. Tier 2 and Tier 3
 test suites fail closed and cannot run at all yet.
@@ -67,7 +71,7 @@ reports status only and never redefines either.
 | Schemas versioned, with cross-language hash golden tests (MODEL-005) | Partial — the golden tests exist and gate CI; MODEL-003 schema versioning is not implemented |
 | CODEOWNERS enforces ownership | Partial — CODEOWNERS requires owner review, but does not reject a diff touching paths outside a work package's assignment |
 | T1 fixture generator produces images | Met — `cargo xtask fixtures` produces 13 images deterministically (WP-020 increment 1) |
-| Accessibility harness runs | Not started (WP-030) |
+| Accessibility harness runs | Partial — `cargo xtask tokens` computes UI-001/007/008 from `schemas/design-tokens.json` and gates CI (WP-030 increment 1). It renders nothing, so the keyboard, screen-reader, zoom and reduced-motion halves of UI-008 are untouched |
 
 The two partial rows are tracked as known gaps in `docs/traceability/WP-000.md`
 and `docs/traceability/WP-010.md`. They are recorded rather than rounded up:
@@ -91,7 +95,7 @@ Section 14 of the specification is normative. Current state:
 | ADR-C2 … ADR-C5 | Hashed-artifact body/envelope split, identity strength, provenance shape, aggregation vocabulary | Accepted |
 | WP-010 | Canonical domain model, schema versioning, encoding and hashing | In progress, blocked at increment 3; see `docs/work-packages/WP-010.md` |
 | WP-020 | Disk-image fixture generator and destructive-test interlocks | In progress — increment 1 delivered; see `docs/work-packages/WP-020.md` |
-| WP-030 | Design tokens, dark UI shell, accessibility harness | Not started |
+| WP-030 | Design tokens, dark UI shell, accessibility harness | In progress — increment 1 delivered; see `docs/work-packages/WP-030.md` |
 
 WP-020 and WP-030 depend only on WP-000 and could begin in parallel. WP-040 is
 the first package gated on WP-010.

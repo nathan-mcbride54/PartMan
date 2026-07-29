@@ -1,0 +1,209 @@
+{
+  "tokenSetVersion": "1.0.0",
+  "specVersion": "4.0.0",
+  "note": "Single source of truth for PartMan's visual language. The accessibility harness in crates/tokens reads this file; a future Tauri front end MUST read this same file rather than keeping its own copy. An implementation checked against a table it also owns proves only self-consistency.",
+
+  "themes": {
+    "dark": {
+      "label": "Dark (default)",
+      "requirement": "UI-001 default dark charcoal",
+      "colors": {
+        "surface.sunken": "#101216",
+        "surface.base": "#16181C",
+        "surface.raised": "#1E2127",
+        "surface.overlay": "#272B33",
+        "text.primary": "#F2F4F7",
+        "text.secondary": "#B6BDC8",
+        "text.muted": "#8B94A3",
+        "border.default": "#767E8D",
+        "border.strong": "#9AA3B2",
+        "focus.ring": "#6BA8FF",
+        "entity.device": "#7FB3FF",
+        "entity.partition": "#7BD5A0",
+        "entity.container": "#C9A6FF",
+        "entity.volume": "#6FD3D8",
+        "entity.encryption": "#FFC46B",
+        "entity.filesystem": "#9DB4D0",
+        "entity.mount": "#86E0B8",
+        "entity.freeSpace": "#767E8D",
+        "severity.informational": "#A8C0DC",
+        "severity.reversible": "#8FE3C0",
+        "severity.disruptive": "#FFD27A",
+        "severity.dataMoving": "#FF9450",
+        "severity.destructive": "#E86A6A",
+        "progress.planning": "#A8C0DC",
+        "progress.awaitingAuthorization": "#FFD27A",
+        "progress.executing": "#7FB3FF",
+        "progress.verifying": "#6FD3D8",
+        "progress.rebootPending": "#C9A6FF",
+        "progress.recovering": "#FF9450",
+        "progress.failed": "#E86A6A",
+        "progress.complete": "#8FE3C0"
+      }
+    },
+
+    "high-contrast": {
+      "label": "High contrast",
+      "requirement": "UI-001 accessible high contrast",
+      "colors": {
+        "surface.sunken": "#000000",
+        "surface.base": "#000000",
+        "surface.raised": "#0A0A0A",
+        "surface.overlay": "#141414",
+        "text.primary": "#FFFFFF",
+        "text.secondary": "#F0F0F0",
+        "text.muted": "#D8D8D8",
+        "border.default": "#B0B0B0",
+        "border.strong": "#FFFFFF",
+        "focus.ring": "#7FD4FF",
+        "entity.device": "#9CCBFF",
+        "entity.partition": "#8BEFB4",
+        "entity.container": "#DCBBFF",
+        "entity.volume": "#8CE8ED",
+        "entity.encryption": "#FFD98A",
+        "entity.filesystem": "#C3D4E8",
+        "entity.mount": "#A0F0CB",
+        "entity.freeSpace": "#9AA3B2",
+        "severity.informational": "#BBD3F0",
+        "severity.reversible": "#A8F5D0",
+        "severity.disruptive": "#FFE08A",
+        "severity.dataMoving": "#FF9A55",
+        "severity.destructive": "#F07070",
+        "progress.planning": "#BBD3F0",
+        "progress.awaitingAuthorization": "#FFE08A",
+        "progress.executing": "#9CCBFF",
+        "progress.verifying": "#8CE8ED",
+        "progress.rebootPending": "#DCBBFF",
+        "progress.recovering": "#FF9A55",
+        "progress.failed": "#F07070",
+        "progress.complete": "#A8F5D0"
+      }
+    },
+
+    "light": {
+      "label": "Light (system)",
+      "requirement": "UI-001 system theme support",
+      "colors": {
+        "surface.sunken": "#E8EAEE",
+        "surface.base": "#FFFFFF",
+        "surface.raised": "#F6F7F9",
+        "surface.overlay": "#EDEFF3",
+        "text.primary": "#14161A",
+        "text.secondary": "#3D444F",
+        "text.muted": "#5A6270",
+        "border.default": "#7F8899",
+        "border.strong": "#5C6472",
+        "focus.ring": "#1A5FBF",
+        "entity.device": "#12539E",
+        "entity.partition": "#0F6B41",
+        "entity.container": "#5B32A8",
+        "entity.volume": "#0B5F63",
+        "entity.encryption": "#7A4A00",
+        "entity.filesystem": "#37516B",
+        "entity.mount": "#0D6647",
+        "entity.freeSpace": "#6B7482",
+        "severity.informational": "#3A5573",
+        "severity.reversible": "#0B6E52",
+        "severity.disruptive": "#9A6600",
+        "severity.dataMoving": "#A34A00",
+        "severity.destructive": "#8E0B1A",
+        "progress.planning": "#37516B",
+        "progress.awaitingAuthorization": "#9A6600",
+        "progress.executing": "#12539E",
+        "progress.verifying": "#0B5F63",
+        "progress.rebootPending": "#5B32A8",
+        "progress.recovering": "#A34A00",
+        "progress.failed": "#8E0B1A",
+        "progress.complete": "#0B6E52"
+      }
+    }
+  },
+
+  "contrastRules": {
+    "note": "WCAG 2.2. 'text' is Success Criterion 1.4.3 Contrast (Minimum) at AA: 4.5:1 for normal text. 'ui' is 1.4.11 Non-text Contrast: 3:1 for user-interface components and graphical objects. A role listed as 'ui' MUST NOT be used to render normal-size text, and that restriction is the reason its threshold is lower.",
+    "thresholds": { "text": 4.5, "ui": 3.0 },
+    "pairings": [
+      { "foreground": "text.primary", "background": "surface.base", "kind": "text" },
+      { "foreground": "text.primary", "background": "surface.raised", "kind": "text" },
+      { "foreground": "text.primary", "background": "surface.overlay", "kind": "text" },
+      { "foreground": "text.primary", "background": "surface.sunken", "kind": "text" },
+      { "foreground": "text.secondary", "background": "surface.base", "kind": "text" },
+      { "foreground": "text.secondary", "background": "surface.raised", "kind": "text" },
+      { "foreground": "text.muted", "background": "surface.base", "kind": "text" },
+      { "foreground": "text.muted", "background": "surface.raised", "kind": "text" },
+
+      { "foreground": "border.default", "background": "surface.base", "kind": "ui" },
+      { "foreground": "border.strong", "background": "surface.base", "kind": "ui" },
+      { "foreground": "focus.ring", "background": "surface.base", "kind": "ui" },
+      { "foreground": "focus.ring", "background": "surface.raised", "kind": "ui" },
+
+      { "foreground": "entity.device", "background": "surface.base", "kind": "text" },
+      { "foreground": "entity.partition", "background": "surface.base", "kind": "text" },
+      { "foreground": "entity.container", "background": "surface.base", "kind": "text" },
+      { "foreground": "entity.volume", "background": "surface.base", "kind": "text" },
+      { "foreground": "entity.encryption", "background": "surface.base", "kind": "text" },
+      { "foreground": "entity.filesystem", "background": "surface.base", "kind": "text" },
+      { "foreground": "entity.mount", "background": "surface.base", "kind": "text" },
+      { "foreground": "entity.freeSpace", "background": "surface.base", "kind": "ui" },
+
+      { "foreground": "severity.informational", "background": "surface.base", "kind": "text" },
+      { "foreground": "severity.reversible", "background": "surface.base", "kind": "text" },
+      { "foreground": "severity.disruptive", "background": "surface.base", "kind": "text" },
+      { "foreground": "severity.dataMoving", "background": "surface.base", "kind": "text" },
+      { "foreground": "severity.destructive", "background": "surface.base", "kind": "text" },
+      { "foreground": "severity.destructive", "background": "surface.raised", "kind": "text" },
+
+      { "foreground": "progress.planning", "background": "surface.base", "kind": "text" },
+      { "foreground": "progress.awaitingAuthorization", "background": "surface.base", "kind": "text" },
+      { "foreground": "progress.executing", "background": "surface.base", "kind": "text" },
+      { "foreground": "progress.verifying", "background": "surface.base", "kind": "text" },
+      { "foreground": "progress.rebootPending", "background": "surface.base", "kind": "text" },
+      { "foreground": "progress.recovering", "background": "surface.base", "kind": "text" },
+      { "foreground": "progress.failed", "background": "surface.base", "kind": "text" },
+      { "foreground": "progress.complete", "background": "surface.base", "kind": "text" }
+    ]
+  },
+
+  "nonColorChannels": {
+    "note": "UI-007: colour is never the only carrier of identity, selection, file system, health, or risk. Every role below declares the redundant channels that must accompany it wherever it is rendered. This table -- not the colour-vision simulation -- is the actual guarantee that a colour-blind user reads the same information a colour-sighted one does.",
+    "roles": {
+      "entity.device": { "icon": "drive", "label": "Device", "shape": "rect-square" },
+      "entity.partition": { "icon": "slice", "label": "Partition", "shape": "rect-notched" },
+      "entity.container": { "icon": "box", "label": "Container", "shape": "rect-double" },
+      "entity.volume": { "icon": "layers", "label": "Volume", "shape": "rect-rounded" },
+      "entity.encryption": { "icon": "lock", "label": "Encrypted", "shape": "badge-lock" },
+      "entity.filesystem": { "icon": "file-tree", "label": "File system", "shape": "rect-plain" },
+      "entity.mount": { "icon": "link", "label": "Mounted", "shape": "badge-link" },
+      "entity.freeSpace": { "icon": "dashed", "label": "Free space", "shape": "rect-dashed" },
+
+      "severity.informational": { "icon": "info", "label": "Informational", "shape": "dot" },
+      "severity.reversible": { "icon": "undo", "label": "Reversible", "shape": "dot" },
+      "severity.disruptive": { "icon": "pause-octagon", "label": "Disruptive", "shape": "chevron" },
+      "severity.dataMoving": { "icon": "arrows-shuffle", "label": "Data-moving", "shape": "chevron-double" },
+      "severity.destructive": { "icon": "triangle-exclamation", "label": "Destructive", "shape": "triangle" },
+
+      "progress.planning": { "icon": "compass", "label": "Planning", "shape": "dot" },
+      "progress.awaitingAuthorization": { "icon": "shield-question", "label": "Waiting for authorization", "shape": "dot-hollow" },
+      "progress.executing": { "icon": "play", "label": "Executing", "shape": "bar-active" },
+      "progress.verifying": { "icon": "magnifier-check", "label": "Verifying", "shape": "bar-check" },
+      "progress.rebootPending": { "icon": "power-cycle", "label": "Reboot pending", "shape": "dot-hollow" },
+      "progress.recovering": { "icon": "life-ring", "label": "Recovering", "shape": "bar-warn" },
+      "progress.failed": { "icon": "circle-cross", "label": "Failed", "shape": "cross" },
+      "progress.complete": { "icon": "circle-check", "label": "Complete", "shape": "check" }
+    }
+  },
+
+  "colorVisionSeparation": {
+    "note": "A smell test, not a proof. Roles whose confusion would mislead a user about risk are simulated under three colour-vision deficiencies and required to stay apart by a CIE76 delta-E floor. Passing is NOT evidence that two colours are distinguishable in practice -- CIE76 is the crudest of the delta-E formulae and the simulation is a model. The guarantee lives in nonColorChannels; this check exists to catch the case where two roles collapse to the same colour, which is a design mistake worth failing a build over.",
+    "minimumDeltaE": 12.0,
+    "mustRemainDistinct": [
+      ["severity.reversible", "severity.destructive"],
+      ["severity.reversible", "severity.dataMoving"],
+      ["severity.disruptive", "severity.destructive"],
+      ["severity.informational", "severity.destructive"],
+      ["progress.complete", "progress.failed"],
+      ["progress.executing", "progress.failed"],
+      ["progress.complete", "progress.recovering"]
+    ]
+  }
+}

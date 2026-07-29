@@ -12,6 +12,9 @@ publish = false
 # rather than shelling out keeps the interlock's decision inside one process, so
 # there is no gap between "authorized" and "ran".
 partman-fixtures = { path = "../../crates/fixtures" }
+# The WP-030 accessibility harness. Same reasoning as above: depending on the
+# library rather than shelling out keeps the audit's verdict inside one process.
+partman-tokens = { path = "../../crates/tokens" }
 
 [lints]
 workspace = true
