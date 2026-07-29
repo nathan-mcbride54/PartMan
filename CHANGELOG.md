@@ -107,6 +107,15 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- `cargo xtask verify-actions` enforces the rule it reports. SEC-010 and
+  `AGENTS.md` require every action pinned to a full commit SHA **with the release
+  tag in a trailing comment**, and the error message said exactly that — but the
+  scanner stripped the comment before checking and `is_pinned` validated only the
+  SHA, so a bare 40-character digest passed a gate that claimed to require a tag.
+  The comment is now carried through and must name a version. Without one a
+  reviewer cannot tell which release a digest corresponds to, so a bump becomes
+  40 hex characters to resolve by hand. The repository's own workflows already
+  complied, so nothing had to change to pass it — which is why the gap survived.
 - `xtask` separates command parsing from execution, so every documented task,
   rejected task, and tier decision is unit-tested without launching a
   subprocess.
