@@ -211,6 +211,144 @@ fn mutations() -> Vec<Mutation> {
                 set.contrast_rules.pairings[0].foreground = "text.invented".to_owned();
             },
         },
+        // ------------------------------------------------------------------
+        // Everything below was demonstrated as a *live bypass* by the
+        // 2026-07-29 project audit. Each one passed the entire Tier-1 gate
+        // before the policy was moved out of the audited file.
+        // ------------------------------------------------------------------
+        Mutation {
+            name: "the file lowers the WCAG text floor to 3.0 so a dim colour fits under it",
+            requirement: "UI-008",
+            apply: |set| {
+                // The audit's exact reproduction: this pairing plus a dimmed
+                // colour passed all 160 tests, reporting 3.33:1 on normal text.
+                set.contrast_rules.thresholds.insert("text".to_owned(), 3.0);
+                set.themes
+                    .get_mut("light")
+                    .expect("light")
+                    .colors
+                    .insert("text.secondary".to_owned(), "#7F8899".to_owned());
+            },
+        },
+        Mutation {
+            name: "the file lowers only the threshold, leaving every colour compliant",
+            requirement: "UI-008",
+            apply: |set| {
+                // Weakening the standard is a finding even when nothing
+                // currently violates it, because the next palette edit would
+                // land against the lowered bar.
+                set.contrast_rules.thresholds.insert("ui".to_owned(), 1.5);
+            },
+        },
+        Mutation {
+            name: "the file stops restating a WCAG threshold entirely",
+            requirement: "UI-008",
+            apply: |set| {
+                set.contrast_rules.thresholds.remove("text");
+            },
+        },
+        Mutation {
+            name: "the file lowers the colour-separation floor instead of fixing the palette",
+            requirement: "UI-007",
+            apply: |set| {
+                set.color_vision_separation.minimum_delta_e = 1.0;
+            },
+        },
+        Mutation {
+            name: "a required entity role is deleted from every theme, pairing and channel table",
+            requirement: "UI-003",
+            apply: |set| {
+                // The audit's second reproduction. Consistent deletion made a
+                // coordinated omission indistinguishable from a smaller
+                // product: 234 checks became 228 and the gate stayed green.
+                for theme in set.themes.values_mut() {
+                    theme.colors.remove("entity.container");
+                }
+                set.contrast_rules.pairings.retain(|pairing| {
+                    pairing.foreground != "entity.container"
+                        && pairing.background != "entity.container"
+                });
+                set.non_color_channels.roles.remove("entity.container");
+            },
+        },
+        Mutation {
+            name: "a PLAN-004 severity is deleted from the vocabulary",
+            requirement: "UI-003",
+            apply: |set| {
+                for theme in set.themes.values_mut() {
+                    theme.colors.remove("severity.dataMoving");
+                }
+                set.contrast_rules.pairings.retain(|pairing| {
+                    pairing.foreground != "severity.dataMoving"
+                        && pairing.background != "severity.dataMoving"
+                });
+                set.non_color_channels.roles.remove("severity.dataMoving");
+                set.color_vision_separation
+                    .must_remain_distinct
+                    .retain(|pair| {
+                        pair[0] != "severity.dataMoving" && pair[1] != "severity.dataMoving"
+                    });
+            },
+        },
+        Mutation {
+            name: "a role keeps its colour but is dropped from every contrast pairing",
+            requirement: "UI-008",
+            apply: |set| {
+                // Present in the file, checked by nothing. Before the roster
+                // contract this was invisible, because coverage was defined by
+                // whatever the pairing list happened to contain.
+                set.contrast_rules.pairings.retain(|pairing| {
+                    pairing.foreground != "severity.destructive"
+                        && pairing.background != "severity.destructive"
+                });
+            },
+        },
+        Mutation {
+            name: "the reversible/destructive risk pair is quietly removed from the distinct list",
+            requirement: "UI-007",
+            apply: |set| {
+                // The single most important pair in the product: "fully
+                // undoable" against "data is intentionally destroyed".
+                set.color_vision_separation
+                    .must_remain_distinct
+                    .retain(|pair| {
+                        !(pair.contains(&"severity.reversible".to_owned())
+                            && pair.contains(&"severity.destructive".to_owned()))
+                    });
+            },
+        },
+        Mutation {
+            name: "the whole distinct-pair list is emptied",
+            requirement: "UI-007",
+            apply: |set| {
+                set.color_vision_separation.must_remain_distinct.clear();
+            },
+        },
+        Mutation {
+            name: "a meaningful role is invented without going through the specification",
+            requirement: "UI-003",
+            apply: |set| {
+                for theme in set.themes.values_mut() {
+                    theme
+                        .colors
+                        .insert("severity.catastrophic".to_owned(), "#FF0000".to_owned());
+                }
+            },
+        },
+        Mutation {
+            name: "the token set claims a specification version the vocabulary was not derived from",
+            requirement: "UI-008",
+            apply: |set| {
+                set.spec_version = "5.0.0".to_owned();
+            },
+        },
+        Mutation {
+            name: "the token set loses its own version",
+            requirement: "UI-008",
+            apply: |set| {
+                set.token_set_version = String::new();
+            },
+        },
     ]
 }
 

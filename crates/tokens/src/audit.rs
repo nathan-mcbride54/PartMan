@@ -21,6 +21,7 @@ use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
 use crate::color::{Deficiency, Srgb, contrast_ratio, delta_e_76, simulate};
+use crate::policy;
 use crate::tokens::TokenSet;
 
 /// One thing the harness objected to.
@@ -101,7 +102,9 @@ impl Report {
 #[must_use]
 pub fn audit(set: &TokenSet) -> Report {
     let mut report = Report::default();
+    check_declared_policy_agrees(set, &mut report);
     check_themes_present(set, &mut report);
+    check_required_roster(set, &mut report);
     check_contrast(set, &mut report);
     check_non_color_channels(set, &mut report);
     check_color_vision(set, &mut report);
@@ -109,11 +112,183 @@ pub fn audit(set: &TokenSet) -> Report {
     report
 }
 
+/// The token file may restate the policy for a front end to read. It may not
+/// *decide* it.
+///
+/// Found by the 2026-07-29 audit: lowering the file's own `text` threshold to
+/// 3.0 let normal text pass at 3.33:1 through the whole Tier-1 gate. The floors
+/// now come from [`crate::policy`], and the file's copies are required to agree
+/// with them exactly. A disagreement is a finding, not a new setting.
+fn check_declared_policy_agrees(set: &TokenSet, report: &mut Report) {
+    report.checks += 1;
+    if set.token_set_version.trim().is_empty() {
+        report.findings.push(Finding {
+            requirement: "UI-008",
+            detail: "token set declares no tokenSetVersion, so a front end cannot tell which \
+                     vocabulary it holds"
+                .to_owned(),
+        });
+    }
+
+    report.checks += 1;
+    if set.spec_version != policy::REQUIRED_SPEC_VERSION {
+        report.findings.push(Finding {
+            requirement: "UI-008",
+            detail: format!(
+                "token set declares specVersion {:?}, but this harness encodes the vocabulary of {:?}; \
+                 re-derive the roles before changing it",
+                set.spec_version,
+                policy::REQUIRED_SPEC_VERSION
+            ),
+        });
+    }
+
+    for (kind, declared) in &set.contrast_rules.thresholds {
+        report.checks += 1;
+        match policy::threshold_for(kind) {
+            None => report.findings.push(Finding {
+                requirement: "UI-008",
+                detail: format!(
+                    "token set declares threshold {kind:?}, which is not a WCAG category this \
+                     harness recognises"
+                ),
+            }),
+            Some(required) => {
+                if (declared - required).abs() > f64::EPSILON {
+                    report.findings.push(Finding {
+                        requirement: "UI-008",
+                        detail: format!(
+                            "token set declares the {kind:?} floor as {declared}, but WCAG 2.2 AA \
+                             requires {required}. The file may restate the policy; it may not \
+                             lower it."
+                        ),
+                    });
+                }
+            }
+        }
+    }
+
+    // Both categories must be restated, so a front end reading this file cannot
+    // silently inherit a missing one as "no constraint".
+    for kind in ["text", "ui"] {
+        report.checks += 1;
+        if !set.contrast_rules.thresholds.contains_key(kind) {
+            report.findings.push(Finding {
+                requirement: "UI-008",
+                detail: format!("token set does not restate the {kind:?} WCAG threshold"),
+            });
+        }
+    }
+
+    report.checks += 1;
+    let declared = set.color_vision_separation.minimum_delta_e;
+    if (declared - policy::COLOR_SEPARATION_FLOOR).abs() > f64::EPSILON {
+        report.findings.push(Finding {
+            requirement: "UI-007",
+            detail: format!(
+                "token set declares a colour-separation floor of {declared}, but the project's \
+                 recorded floor is {}. Changing it is an ADR, not a palette edit.",
+                policy::COLOR_SEPARATION_FLOOR
+            ),
+        });
+    }
+}
+
+/// The product vocabulary is fixed by the specification, not by the palette.
+///
+/// Found by the 2026-07-29 audit: deleting `entity.container` from every theme,
+/// every pairing and the channel table left the gate green and simply evaluated
+/// six fewer checks, so a coordinated omission was indistinguishable from a
+/// smaller product. UI-003 names the entity types, PLAN-004 the severities and
+/// UI-011 the progress states; membership is now exact in both directions.
+fn check_required_roster(set: &TokenSet, report: &mut Report) {
+    let Some(reference) = set.themes.get(policy::DEFAULT_THEME) else {
+        return;
+    };
+
+    for required in policy::required_meaning_bearing_roles() {
+        report.checks += 1;
+        if !reference.colors.contains_key(required) {
+            report.findings.push(Finding {
+                requirement: "UI-003",
+                detail: format!(
+                    "role {required:?} is required by the specification's vocabulary but is not \
+                     defined in the {:?} theme",
+                    policy::DEFAULT_THEME
+                ),
+            });
+        }
+    }
+
+    // The reverse direction: a meaning-bearing role the contract does not know
+    // about is a vocabulary change that has not been through the specification.
+    for role in reference
+        .colors
+        .keys()
+        .filter(|role| policy::carries_meaning(role))
+    {
+        report.checks += 1;
+        if !policy::required_meaning_bearing_roles().any(|required| required == role) {
+            report.findings.push(Finding {
+                requirement: "UI-003",
+                detail: format!(
+                    "role {role:?} carries meaning but is not in the specification-derived \
+                     vocabulary; add it to crates/tokens/src/policy.rs with its requirement, or \
+                     remove it"
+                ),
+            });
+        }
+    }
+
+    // Every meaning-bearing role must actually be contrast-checked somewhere.
+    // Without this, a role could exist, declare its channels, and never appear
+    // in a pairing -- present in the file and covered by nothing.
+    for required in policy::required_meaning_bearing_roles() {
+        report.checks += 1;
+        let paired = set
+            .contrast_rules
+            .pairings
+            .iter()
+            .any(|pairing| pairing.foreground == required || pairing.background == required);
+        if !paired {
+            report.findings.push(Finding {
+                requirement: "UI-008",
+                detail: format!(
+                    "role {required:?} appears in no contrast pairing, so nothing checks whether \
+                     it is legible"
+                ),
+            });
+        }
+    }
+
+    // And every risk pair the project decided must stay distinct has to be
+    // present, so the list cannot be shortened to make a palette pass.
+    for (one, other) in policy::REQUIRED_DISTINCT_PAIRS {
+        report.checks += 1;
+        let present = set
+            .color_vision_separation
+            .must_remain_distinct
+            .iter()
+            .any(|pair| {
+                (pair[0] == one && pair[1] == other) || (pair[0] == other && pair[1] == one)
+            });
+        if !present {
+            report.findings.push(Finding {
+                requirement: "UI-007",
+                detail: format!(
+                    "the pair ({one:?}, {other:?}) must remain distinguishable under colour-vision \
+                     deficiency, but the token set no longer declares it"
+                ),
+            });
+        }
+    }
+}
+
 /// UI-001 requires a dark default, a system theme, and an accessible
 /// high-contrast theme. A token set missing one of them cannot satisfy it, and
 /// the absence is easier to introduce than to notice.
 fn check_themes_present(set: &TokenSet, report: &mut Report) {
-    for required in ["dark", "high-contrast", "light"] {
+    for required in policy::REQUIRED_THEMES {
         report.checks += 1;
         if !set.themes.contains_key(required) {
             report.findings.push(Finding {
@@ -126,7 +301,7 @@ fn check_themes_present(set: &TokenSet, report: &mut Report) {
     // Every theme must define the same roles. A role present in one theme and
     // absent from another is a component that renders in the default theme and
     // falls back to nothing in high contrast -- exactly where it matters most.
-    let Some(reference) = set.themes.get("dark") else {
+    let Some(reference) = set.themes.get(policy::DEFAULT_THEME) else {
         return;
     };
     let expected: BTreeSet<&String> = reference.colors.keys().collect();
@@ -153,7 +328,9 @@ fn check_contrast(set: &TokenSet, report: &mut Report) {
     for (theme_name, theme) in &set.themes {
         for pairing in &set.contrast_rules.pairings {
             report.checks += 1;
-            let Some(&threshold) = set.contrast_rules.thresholds.get(&pairing.kind) else {
+            // From `policy`, never from `set`. The file being audited does not
+            // get a vote on the standard it is audited against.
+            let Some(threshold) = policy::threshold_for(&pairing.kind) else {
                 report.findings.push(Finding {
                     requirement: "UI-008",
                     detail: format!(
@@ -226,13 +403,13 @@ fn check_non_color_channels(set: &TokenSet, report: &mut Report) {
     // Which roles carry meaning that UI-007 names: identity, selection, file
     // system, health, risk. Surfaces and text do not, so requiring an icon for
     // `surface.base` would be noise that trains a reader to ignore the rule.
-    let carries_meaning = |role: &str| {
-        role.starts_with("entity.")
-            || role.starts_with("severity.")
-            || role.starts_with("progress.")
-    };
-
-    for role in reference.colors.keys().filter(|role| carries_meaning(role)) {
+    // The predicate lives in `policy` so this loop and `check_required_roster`
+    // cannot drift apart about what "meaningful" means.
+    for role in reference
+        .colors
+        .keys()
+        .filter(|role| policy::carries_meaning(role))
+    {
         report.checks += 1;
         match set.non_color_channels.roles.get(role) {
             None => report.findings.push(Finding {
@@ -292,7 +469,8 @@ fn check_non_color_channels(set: &TokenSet, report: &mut Report) {
 /// Roles whose confusion would mislead about risk must stay apart under each
 /// simulated colour-vision deficiency.
 fn check_color_vision(set: &TokenSet, report: &mut Report) {
-    let floor = set.color_vision_separation.minimum_delta_e;
+    // From `policy`, never from `set`. See `check_declared_policy_agrees`.
+    let floor = policy::COLOR_SEPARATION_FLOOR;
     for (theme_name, theme) in &set.themes {
         for pair in &set.color_vision_separation.must_remain_distinct {
             let (Some(one), Some(other)) = (theme.colors.get(&pair[0]), theme.colors.get(&pair[1]))

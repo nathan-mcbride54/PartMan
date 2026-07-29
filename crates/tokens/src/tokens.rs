@@ -15,14 +15,29 @@ use serde::Deserialize;
 use crate::color::{ColorError, Srgb};
 
 /// The parsed token set.
+///
+/// `deny_unknown_fields` throughout: the module documentation calls this reader
+/// strict, and until the 2026-07-29 audit it was not — an unrecognised key was
+/// silently dropped, so a misspelled `nonColorChannels` would have disabled
+/// UI-007 while the file still looked complete. Prose lives in explicit `note`
+/// fields so that denying the rest costs nothing.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TokenSet {
     /// Version of the token vocabulary itself.
     #[serde(rename = "tokenSetVersion")]
     pub token_set_version: String,
     /// The `AGENT_BUILD_SPEC.md` version this set was written against.
+    ///
+    /// Checked against [`crate::policy::REQUIRED_SPEC_VERSION`] by the audit:
+    /// the roles here are derived from UI-003, PLAN-004 and UI-011, so a set
+    /// claiming a different specification version has to be re-derived rather
+    /// than assumed compatible.
     #[serde(rename = "specVersion")]
     pub spec_version: String,
+    /// Free prose for a human reader. Carried so it can be denied elsewhere.
+    #[serde(default)]
+    pub note: String,
     /// Every theme, keyed by name. `dark` is the UI-001 default.
     pub themes: BTreeMap<String, Theme>,
     /// The WCAG rules the harness enforces.
@@ -38,6 +53,7 @@ pub struct TokenSet {
 
 /// One theme's colour roles.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Theme {
     /// Human-readable name.
     pub label: String,
@@ -49,8 +65,16 @@ pub struct Theme {
 
 /// WCAG thresholds and the pairings they apply to.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ContrastRules {
+    /// Free prose for a human reader.
+    #[serde(default)]
+    pub note: String,
     /// Threshold name (`text`, `ui`) to minimum ratio.
+    ///
+    /// **Restated for a front end to read, not authoritative.** The audit takes
+    /// its floors from [`crate::policy`] and requires these to agree; the file
+    /// may not lower the standard it is judged by.
     pub thresholds: BTreeMap<String, f64>,
     /// Every foreground/background pair the product promises to render.
     pub pairings: Vec<Pairing>,
@@ -58,6 +82,7 @@ pub struct ContrastRules {
 
 /// One foreground/background promise.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Pairing {
     /// Role drawn on top.
     pub foreground: String,
@@ -69,13 +94,18 @@ pub struct Pairing {
 
 /// UI-007's table of redundant, non-colour channels.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct NonColorChannels {
+    /// Free prose for a human reader.
+    #[serde(default)]
+    pub note: String,
     /// Role name to the channels that must accompany it.
     pub roles: BTreeMap<String, Channels>,
 }
 
 /// The channels that carry a role's meaning when colour cannot.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Channels {
     /// Icon identifier.
     pub icon: String,
@@ -88,8 +118,15 @@ pub struct Channels {
 /// Roles that must not collapse onto one another under simulated colour-vision
 /// deficiency.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ColorVisionSeparation {
+    /// Free prose for a human reader.
+    #[serde(default)]
+    pub note: String,
     /// CIE76 floor.
+    ///
+    /// **Restated, not authoritative.** See
+    /// [`crate::policy::COLOR_SEPARATION_FLOOR`].
     #[serde(rename = "minimumDeltaE")]
     pub minimum_delta_e: f64,
     /// Pairs whose confusion would mislead about risk or outcome.

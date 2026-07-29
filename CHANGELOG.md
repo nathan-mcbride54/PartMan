@@ -218,6 +218,37 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Fixed
 
+- WP-030 increment 1a: the accessibility harness no longer takes its standards
+  from the file it audits. The 2026-07-29 project audit demonstrated two live
+  bypasses through the whole Tier-1 gate: lowering the token file's own `text`
+  threshold from 4.5 to 3.0 let normal-size text pass at **3.33:1**, and
+  deleting `entity.container` from every theme, pairing and channel table at
+  once passed with six fewer checks — a coordinated omission indistinguishable
+  from a smaller product, while UI-003 requires containers to be represented.
+  Both are the self-consistency failure `AGENTS.md` records for the canonical
+  vectors, committed inside the harness written to enforce that rule on
+  colours: increment 1's mutation table mutated colours thoroughly and never
+  mutated the policy.
+
+  The WCAG floors, the colour-separation floor, the required themes and the
+  full UI-003/PLAN-004/UI-011 role vocabulary now live in
+  `crates/tokens/src/policy.rs`, outside the audited file. The JSON restates
+  the floors for a front end to read, and the audit requires the restatement to
+  agree exactly — a lowered value is a finding, not a new setting. Twelve
+  mutations were added (threshold lowering with and without a hidden colour,
+  threshold removal, role deletion, pairing removal, risk-pair removal, role
+  invention, version mismatches); re-running the audit's own reproductions now
+  yields 3 and 2 findings where both yielded none. The reader is genuinely
+  strict too: `deny_unknown_fields` throughout, so a misspelled
+  `nonColorChannels` key can no longer silently disable the UI-007 check.
+
+- `docs/quality/test-tiers.md` overstated the SAFE-007 token: it said the token
+  "cannot be known without having generated that fixture set", but the token is
+  a pure function of the source, identical on every machine building the same
+  commit. The file now carries the honest account `docs/work-packages/WP-020.md`
+  always had — the factor is weak, three factors are effectively two, and the
+  interlock's strength rests on targets byte-equalling generated images.
+
 - The TypeScript encoder had no `default` arm, so an unrecognized value kind fell
   through the switch, `encode` returned zero bytes, and `hash` published SHA-256
   of the empty string as a well-formed digest over an artifact with no encoding.

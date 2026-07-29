@@ -32,6 +32,7 @@
 
 pub mod audit;
 pub mod color;
+pub mod policy;
 pub mod tokens;
 
 pub use audit::{Report, audit};
