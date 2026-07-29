@@ -1,5 +1,6 @@
 //! Safe, unprivileged repository task runner.
 
+use std::collections::BTreeMap;
 use std::env;
 use std::ffi::{OsStr, OsString};
 use std::fmt;
@@ -58,6 +59,7 @@ enum Task {
     SupplyChain,
     Test { tier: u8, profile: Option<String> },
     Tokens,
+    VerifyOwnership,
     VerifyActions,
     VerifyLicenses,
     VerifyToolchain,
@@ -85,6 +87,7 @@ fn parse(args: &[OsString]) -> Result<Task, TaskError> {
         "probe" => nullary(Task::Probe, command, rest),
         "supply-chain" => nullary(Task::SupplyChain, command, rest),
         "tokens" => nullary(Task::Tokens, command, rest),
+        "verify-ownership" => nullary(Task::VerifyOwnership, command, rest),
         "verify-actions" => nullary(Task::VerifyActions, command, rest),
         "verify-licenses" => nullary(Task::VerifyLicenses, command, rest),
         "verify-toolchain" => nullary(Task::VerifyToolchain, command, rest),
@@ -101,6 +104,7 @@ fn execute(task: &Task) -> Result<(), TaskError> {
             verify_toolchain()?;
             verify_action_pins(&repository_root())?;
             verify_manifest_licenses(&repository_root())?;
+            verify_path_ownership(&repository_root())?;
             audit_tokens()?;
             cargo(&["fmt", "--all", "--", "--check"])?;
             cargo(&[
@@ -157,6 +161,7 @@ fn execute(task: &Task) -> Result<(), TaskError> {
         Task::Tokens => audit_tokens(),
         Task::VerifyActions => verify_action_pins(&repository_root()),
         Task::VerifyLicenses => verify_manifest_licenses(&repository_root()),
+        Task::VerifyOwnership => verify_path_ownership(&repository_root()),
         Task::VerifyToolchain => verify_toolchain(),
     }
 }
@@ -767,6 +772,254 @@ fn verify_action_pins(root: &Path) -> Result<(), TaskError> {
 
 /// The SPDX expression every manifest in this repository must declare.
 const PROJECT_LICENSE: &str = "MIT OR Apache-2.0";
+
+/// Every tracked file is claimed by a work package, and every claim matches
+/// something.
+///
+/// Section 1.10 says CI enforces path ownership via CODEOWNERS. It cannot:
+/// CODEOWNERS requires an owner's review and says nothing about which work
+/// package a path belongs to. `docs/traceability/WP-000.md` has recorded that
+/// gap since WP-000, and both 2026-07-29 audits found real consequences —
+/// WP-030 increment 1 edited five files it did not own, and the assignment was
+/// widened afterwards to match.
+///
+/// This closes the half that is mechanically decidable. The `owned-paths`
+/// blocks in `docs/work-packages/WP-*.md` are the single source of truth, so
+/// the prose a reviewer reads *is* the data the checker parses, and:
+///
+/// - a file nothing claims is a violation, which is what catches a new file
+///   appearing outside every assignment;
+/// - a claim matching no file is a violation, which is what catches a stale or
+///   mistyped claim — except in an `owned-paths-reserved` block, where matching
+///   nothing is the point and is reported instead;
+/// - overlaps are reported, not forbidden. `tools/xtask/**` is genuinely shared
+///   by three packages, and forbidding that would only push the sharing back
+///   into prose where nothing can see it.
+///
+/// **What this does not do:** decide whether a given change was made by the
+/// package that owns the path. That needs a mapping from a pull request to a
+/// work package, which is process metadata this repository does not carry, and
+/// it is the remaining half of issue #39. Sub-file grants — "its own status rows
+/// in `README.md`" — are narrower than any path checker can express and stay a
+/// review obligation.
+fn verify_path_ownership(root: &Path) -> Result<(), TaskError> {
+    let tracked = tracked_files(root)?;
+    let packages = ownership_claims(root)?;
+    if packages.is_empty() {
+        return Err(TaskError::Policy(
+            "no work package declares an `owned-paths` block; ownership cannot be verified"
+                .to_owned(),
+        ));
+    }
+
+    let mut violations = Vec::new();
+    let mut reservations = Vec::new();
+    let mut overlaps: BTreeMap<String, Vec<String>> = BTreeMap::new();
+
+    for (package, claims) in &packages {
+        for claim in claims {
+            let matched: Vec<&String> = tracked
+                .iter()
+                .filter(|file| claim_matches(&claim.pattern, file))
+                .collect();
+            if matched.is_empty() {
+                if claim.reserved {
+                    reservations.push(format!("{package}: {}", claim.pattern));
+                } else {
+                    violations.push(format!(
+                        "{package} claims `{}`, which matches no tracked file; a stale claim \
+                         reads as coverage",
+                        claim.pattern
+                    ));
+                }
+            }
+            if !claim.reserved {
+                for file in matched {
+                    overlaps
+                        .entry(file.clone())
+                        .or_default()
+                        .push(package.clone());
+                }
+            }
+        }
+    }
+
+    for file in &tracked {
+        if !overlaps.contains_key(file) {
+            violations.push(format!(
+                "{file} is claimed by no work package; add it to an `owned-paths` block or \
+                 explain why it exists"
+            ));
+        }
+    }
+
+    let shared: Vec<(&String, &Vec<String>)> = overlaps
+        .iter()
+        .filter(|(_, owners)| owners.len() > 1)
+        .collect();
+
+    if violations.is_empty() {
+        println!(
+            "verify-ownership: {} tracked file(s) claimed across {} package(s); {} shared, \
+             {} reserved",
+            tracked.len(),
+            packages.len(),
+            shared.len(),
+            reservations.len()
+        );
+        for reservation in &reservations {
+            println!("  reserved (matches nothing yet): {reservation}");
+        }
+        Ok(())
+    } else {
+        Err(TaskError::Policy(format!(
+            "Section 1.10 requires every path to belong to a work-package assignment. \
+             Findings:\n  {}",
+            violations.join("\n  ")
+        )))
+    }
+}
+
+/// One declared claim.
+struct OwnershipClaim {
+    pattern: String,
+    /// From an `owned-paths-reserved` block: matching nothing is expected.
+    reserved: bool,
+}
+
+/// Files git tracks, as forward-slash relative paths.
+///
+/// `git ls-files` rather than a directory walk, so `.gitignore` is honoured by
+/// the tool that defines it instead of being reimplemented. Fails closed: no
+/// git, no output, or an empty list is an error, because a check that verifies
+/// ownership of nothing would pass.
+fn tracked_files(root: &Path) -> Result<Vec<String>, TaskError> {
+    let output = Command::new("git")
+        .args(["ls-files", "-z"])
+        .current_dir(root)
+        .output()
+        .map_err(|source| TaskError::Launch {
+            program: "git".to_owned(),
+            source,
+        })?;
+    if !output.status.success() {
+        return Err(TaskError::Policy(format!(
+            "`git ls-files` failed, so path ownership cannot be verified: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    let files: Vec<String> = String::from_utf8_lossy(&output.stdout)
+        .split('\0')
+        .filter(|entry| !entry.is_empty())
+        .map(str::to_owned)
+        .collect();
+    if files.is_empty() {
+        return Err(TaskError::Policy(
+            "`git ls-files` reported no files; refusing to verify ownership of nothing".to_owned(),
+        ));
+    }
+    Ok(files)
+}
+
+/// Parse every `owned-paths` block out of `docs/work-packages/WP-*.md`.
+fn ownership_claims(root: &Path) -> Result<BTreeMap<String, Vec<OwnershipClaim>>, TaskError> {
+    let directory = root.join("docs/work-packages");
+    let entries = fs::read_dir(&directory).map_err(|source| TaskError::Io {
+        path: directory.clone(),
+        source,
+    })?;
+    let mut packages = BTreeMap::new();
+    for entry in entries {
+        let path = entry
+            .map_err(|source| TaskError::Io {
+                path: directory.clone(),
+                source,
+            })?
+            .path();
+        let name = path
+            .file_stem()
+            .and_then(OsStr::to_str)
+            .unwrap_or_default()
+            .to_owned();
+        if !name.starts_with("WP-") {
+            continue;
+        }
+        let text = fs::read_to_string(&path).map_err(|source| TaskError::Io {
+            path: path.clone(),
+            source,
+        })?;
+        let mut claims = Vec::new();
+        let mut inside: Option<bool> = None;
+        for line in text.lines() {
+            let trimmed = line.trim();
+            match inside {
+                None => {
+                    if trimmed == "```owned-paths" {
+                        inside = Some(false);
+                    } else if trimmed == "```owned-paths-reserved" {
+                        inside = Some(true);
+                    }
+                }
+                Some(reserved) => {
+                    if trimmed == "```" {
+                        inside = None;
+                        continue;
+                    }
+                    let pattern = trimmed
+                        .split_once('#')
+                        .map_or(trimmed, |(before, _)| before.trim());
+                    if pattern.is_empty() {
+                        continue;
+                    }
+                    validate_claim_pattern(&name, pattern)?;
+                    claims.push(OwnershipClaim {
+                        pattern: pattern.to_owned(),
+                        reserved,
+                    });
+                }
+            }
+        }
+        if inside.is_some() {
+            return Err(TaskError::Policy(format!(
+                "{name}: an `owned-paths` block is not closed"
+            )));
+        }
+        if claims.is_empty() {
+            return Err(TaskError::Policy(format!(
+                "{name} declares no owned paths; every work package must state its assignment \
+                 in an `owned-paths` block"
+            )));
+        }
+        packages.insert(name, claims);
+    }
+    Ok(packages)
+}
+
+/// Only exact paths and `prefix/**` are supported, and anything else is an
+/// error rather than a pattern quietly matching nothing — the failure mode the
+/// action scanner was audited for twice.
+fn validate_claim_pattern(package: &str, pattern: &str) -> Result<(), TaskError> {
+    if pattern.contains('\\') {
+        return Err(TaskError::Policy(format!(
+            "{package}: claim `{pattern}` uses a backslash; declare paths with forward slashes"
+        )));
+    }
+    let body = pattern.strip_suffix("/**").unwrap_or(pattern);
+    if body.contains('*') {
+        return Err(TaskError::Policy(format!(
+            "{package}: claim `{pattern}` uses an unsupported wildcard. Only an exact path or \
+             `directory/**` is understood"
+        )));
+    }
+    Ok(())
+}
+
+fn claim_matches(pattern: &str, file: &str) -> bool {
+    match pattern.strip_suffix("/**") {
+        Some(prefix) => file.starts_with(&format!("{prefix}/")),
+        None => pattern == file,
+    }
+}
 
 /// Refuse if `fuzz/Cargo.lock` no longer matches `fuzz/Cargo.toml`.
 ///
@@ -1479,6 +1732,7 @@ PartMan repository tasks
   cargo xtask tokens             Audit the design tokens for UI-001/007/008
   cargo xtask verify-actions     Verify every GitHub Action is pinned by digest
   cargo xtask verify-licenses    Verify every manifest declares MIT OR Apache-2.0
+  cargo xtask verify-ownership   Verify every tracked path belongs to a work package
   cargo xtask verify-toolchain   Verify the pinned Rust compiler
 "
     );
@@ -1526,8 +1780,9 @@ impl fmt::Display for TaskError {
 mod tests {
     use super::{
         ActionReference, LineReading, Task, TaskError, action_reference, action_references,
-        is_pinned, parse, parse_test, reference_shaped_tokens, repository_root, run_tier,
-        verify_action_pins, verify_manifest_licenses,
+        claim_matches, is_pinned, parse, parse_test, reference_shaped_tokens, repository_root,
+        run_tier, validate_claim_pattern, verify_action_pins, verify_manifest_licenses,
+        verify_path_ownership,
     };
     use std::ffi::OsString;
     use std::fs;
@@ -1598,6 +1853,10 @@ mod tests {
             Task::SupplyChain
         );
         assert_eq!(parse(&args(&["tokens"])).expect("tokens"), Task::Tokens);
+        assert_eq!(
+            parse(&args(&["verify-ownership"])).expect("verify-ownership"),
+            Task::VerifyOwnership
+        );
         assert_eq!(
             parse(&args(&["verify-actions"])).expect("verify-actions"),
             Task::VerifyActions
@@ -1976,6 +2235,58 @@ jobs:
         assert!(verify_manifest_licenses(&root).is_err(), "invalid JSON");
 
         fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn every_tracked_path_belongs_to_a_work_package() {
+        verify_path_ownership(&repository_root())
+            .expect("every tracked file is claimed by a work-package assignment");
+    }
+
+    #[test]
+    fn ownership_claim_patterns_are_understood_or_refused() {
+        // A pattern the checker cannot interpret must be an error, not a
+        // pattern that quietly matches nothing. That is the failure mode the
+        // action scanner was audited for twice, and it applies here for the
+        // same reason: a claim matching nothing reads as coverage.
+        for good in [
+            "crates/domain/**",
+            "Cargo.toml",
+            "docs/work-packages/WP-000.md",
+        ] {
+            validate_claim_pattern("WP-test", good).unwrap_or_else(|error| {
+                panic!("{good:?} should be understood, got {error}");
+            });
+        }
+        for bad in [
+            "crates/*/src",
+            "*.md",
+            "crates/**/tests",
+            "crates\\domain\\**",
+        ] {
+            assert!(
+                validate_claim_pattern("WP-test", bad).is_err(),
+                "{bad:?} must be refused rather than silently matching nothing"
+            );
+        }
+    }
+
+    #[test]
+    fn claim_matching_is_prefix_exact_not_substring() {
+        // `crates/tokens/**` must not claim `crates/tokens-extra/lib.rs`: a
+        // sibling directory sharing a name prefix is a different package's
+        // territory, and a substring match would silently annex it.
+        assert!(claim_matches(
+            "crates/tokens/**",
+            "crates/tokens/src/lib.rs"
+        ));
+        assert!(!claim_matches(
+            "crates/tokens/**",
+            "crates/tokens-extra/src/lib.rs"
+        ));
+        assert!(!claim_matches("crates/tokens/**", "crates/tokens"));
+        assert!(claim_matches("Cargo.toml", "Cargo.toml"));
+        assert!(!claim_matches("Cargo.toml", "fuzz/Cargo.toml"));
     }
 
     #[test]

@@ -127,6 +127,31 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   invents is invisible to it; and the colour-vision check is a model, not a
   proof — UI-007's redundant channels are the guarantee. M0's "accessibility
   harness runs" criterion is therefore **partially** met.
+- `cargo xtask verify-ownership`, closing the mechanically decidable half of
+  Section 1.10. Every `docs/work-packages/WP-*.md` now carries an `owned-paths`
+  block, which is the same text a reviewer reads, so the prose and the enforced
+  data are one thing rather than two that drift. The check refuses a tracked
+  file no package claims and a claim matching no file — both mutations were run
+  — and reports overlaps rather than forbidding them, because `tools/xtask/**`
+  is genuinely shared by three packages and forbidding that would push the
+  sharing into prose where nothing can see it. All 100 tracked files are
+  claimed. It runs inside `cargo xtask ci`.
+
+  Only exact paths and `directory/**` are understood, and anything else is an
+  error rather than a pattern silently matching nothing — the failure mode the
+  action scanner was audited for twice.
+
+  WP-030's increment-2 assignment is reserved *ahead of the work*, in an
+  `owned-paths-reserved` block the checker reports rather than requires to
+  match. Both audits observed that WP-030's assignment did not authorize
+  creating a Tauri shell and that widening scope in a pull-request description
+  afterwards is the pattern ownership exists to prevent. The reservation also
+  records the audits' design constraint: the front end consumes a generated
+  typed accessor, never a copy of the palette.
+
+  What this does **not** do is decide whether a given change came from the
+  package owning the path — that needs a pull-request-to-package mapping this
+  repository does not carry, and it is the remaining half of issue #39.
 - ADR-0007, accepted, deciding what SAFE-007's disposable-test token proves.
   WP-020 carried "decide a genuinely independent token factor" as an open
   precondition since increment 1, and both audits repeated it. The queued
