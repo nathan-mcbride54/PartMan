@@ -1,5 +1,14 @@
 [alias]
-xtask = "run --package xtask --"
+# `--locked` sits in the alias itself because the alias is the gate's boundary.
+# The 2026-07-29 project audit deleted a package entry from Cargo.lock and ran
+# `cargo xtask ci`: Cargo silently regenerated the entry while building xtask,
+# and every internal `--locked` command then ran against the repaired file —
+# 160 tests passed on a lockfile the repository had never committed. The
+# `--locked` flags inside xtask only bind once xtask is already built; this one
+# binds the build that loads the gate. If it refuses after you edited a
+# manifest, that is the point: update Cargo.lock in the same change, with
+# `cargo update --package <name>` or a plain `cargo check`.
+xtask = "run --locked --package xtask --"
 
 # No `[build] rustflags` entry is defined on purpose.
 #

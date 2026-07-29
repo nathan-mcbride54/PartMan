@@ -18,7 +18,20 @@ by digest. Runner image provenance is recorded by GitHub in each job.
 
 ## Rules
 
-- Commit `Cargo.lock` and use `--locked` in CI.
+- Commit `Cargo.lock` and use `--locked` in CI — **including at the gate's own
+  boundary**. The `xtask` alias in `.cargo/config.toml` carries `--locked`,
+  because the flags inside the binary bind only once the binary is built. The
+  2026-07-29 audit deleted a lockfile entry and watched `cargo xtask ci`
+  silently regenerate it while building `xtask`, then pass every test against a
+  lockfile the repository had never committed. A Tier-1 test fails if the alias
+  loses the flag.
+- Commit `fuzz/Cargo.lock` too. The fuzz crate is excluded from the workspace,
+  so the root lockfile never covers it; until 2026-07-29 its lock was
+  gitignored, and every fresh CI checkout resolved the fuzzer dependencies to
+  whatever the registry served that day — outside every gate, on the job that
+  executes hostile-byte parser tests. `cargo xtask fuzz` now verifies the lock
+  with `--locked` before fuzzing, `cargo xtask supply-chain` checks the fuzz
+  graph against this same policy, and Dependabot updates `/fuzz` weekly.
 - Reject wildcard Rust dependency versions, except for path dependencies between
   crates in this workspace. Those carry no version requirement, which the check
   reports as `*`, but they resolve to a sibling directory in this repository and
@@ -47,16 +60,65 @@ by digest. Runner image provenance is recorded by GitHub in each job.
 
 ## Enforced automatically
 
-`cargo xtask verify-actions` scans `.github/workflows/` and fails if any
-`uses:` reference resolves to anything other than a 40-character lowercase
-commit SHA (or a `sha256` digest for `docker://` images). Actions committed
-inside this repository, which carry no independent supply chain, are exempt.
-The check runs inside `cargo xtask ci` on all three operating systems and again
-as a Tier-1 unit test, and it fails closed when the workflow directory is
-missing or empty, so a renamed directory cannot make it pass vacuously.
+`cargo xtask verify-actions` scans `.github/workflows/` — and, when present,
+every YAML file under `.github/actions/`, because a local composite action's
+own `uses:` references are remote supply chain like any other — and fails if
+any `uses:` reference resolves to anything other than a 40-character lowercase
+commit SHA (or a `sha256` digest for `docker://` images) with the release tag
+in a trailing comment. Actions committed inside this repository, which carry no
+independent supply chain, are exempt from pinning; their metadata files are
+scanned regardless. The check runs inside `cargo xtask ci` on all three
+operating systems and again as a Tier-1 unit test, and it fails closed when the
+workflow directory is missing or empty, so a renamed directory cannot make it
+pass vacuously.
+
+The scanner enforces a **deliberately small YAML subset** and refuses what it
+cannot positively read, rather than parsing all of YAML. A block-style `uses`
+key — bare or quoted, with optional space before the colon — whose value is a
+plain or quoted scalar on the same line is read; flow mappings, block scalars,
+aliases, anchors, escaped quoted keys, explicit-key syntax, and values
+continuing on the next line are each a named violation. The 2026-07-29 audit
+demonstrated why silence is the wrong failure mode: `"uses":` is the same YAML
+key as `uses:`, GitHub executes it, and the previous scanner reported success
+with one *fewer* reference — the mutable tag was invisible rather than
+rejected. Refusing the exotic spelling makes it a build failure to fix instead
+of a reference to miss. Full structural YAML parsing would require adding a
+YAML dependency to the tool that gates dependencies; that trade is available if
+the subset ever pinches, and it is a reviewed decision, not a default.
 
 A mutable tag such as `@v6` is not a pin: the upstream account can move it onto
 new code that would then execute with this repository's credentials.
+
+The trailing release-tag comment is required and format-checked, but **nothing
+verifies that the named tag actually resolves to the pinned SHA** — that would
+need the network at gate time. Checking the correspondence is a review
+obligation on every action bump, recorded here rather than implied to be
+automated.
+
+`cargo xtask verify-licenses` walks every `Cargo.toml` and `package.json` in
+the repository and fails unless each declares `MIT OR Apache-2.0` (directly or
+via `license.workspace = true`) and both licence texts exist. This closes the
+WP-000 gap where `fuzz/Cargo.toml` (outside cargo-deny's graph) and
+`packages/canonical/package.json` (outside any Cargo tooling) could lose their
+declarations with CI green. It runs inside `cargo xtask ci`.
+
+## Documented deviation: hosted runner images are not digest-pinned
+
+SEC-010 requires CI actions **and builder images** to be pinned by digest. The
+actions are; the builder images are not, and cannot be on GitHub-hosted
+runners: `ubuntu-24.04`, `windows-2025`, and `macos-15` are labels whose image
+contents GitHub updates in place, and GitHub offers no digest-addressed way to
+select them. This is a deviation from the normative requirement, not
+compliance with it.
+
+Residual risk: a runner-image update can change toolchain-adjacent behaviour
+under CI without a commit — mitigated, not eliminated, by the pinned Rust
+toolchain, pinned actions, and locked dependency graphs, and by GitHub
+recording each run's resolved image version in the job log. Revisit condition:
+when release builds exist (ADR-S1, Section 19), decide whether they require
+digest-pinned self-hosted or container-based builders; a release artefact built
+on a mutable image weakens SEC-010's reproducibility goal in a way a CI test
+run does not.
 
 ## Deliberate absence of global `RUSTFLAGS`
 
@@ -119,6 +181,13 @@ cargo xtask supply-chain
 `cargo-fuzz` requires nightly, so `fuzz/` is a bounded exception to the single
 pinned toolchain. The nightly is pinned by exact date and `cargo-fuzz` by exact
 version; both appear in `tools/xtask/src/main.rs` and
-`.github/workflows/ci.yml`, must move together, and are covered by neither
-Dependabot nor `cargo deny` (the crate is outside the workspace graph). Full
-rationale in `docs/quality/fuzzing.md`.
+`.github/workflows/ci.yml` and must move together. Full rationale in
+`docs/quality/fuzzing.md`.
+
+Pinning the runner never pinned the code it resolves and builds, and until
+2026-07-29 nothing did: `fuzz/Cargo.lock` was gitignored and the crate sits
+outside the workspace graph, so its dependencies were advisory-, licence- and
+source-checked by nobody. The lock is now committed, verified with `--locked`
+before every fuzz run, checked by `cargo xtask supply-chain` as a second graph
+under this same `deny.toml`, and updated by a dedicated `/fuzz` Dependabot
+entry.
