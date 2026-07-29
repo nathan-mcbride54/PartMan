@@ -37,9 +37,23 @@ jobs:
       - name: Run the unprivileged Tier-1 gate
         run: cargo xtask ci
 
+  # Ran on Linux alone while runner minutes were metered against a private
+  # repository, where Windows bills 2x and macOS 10x. On a public repository
+  # standard runners are unmetered, and this job is genuinely OS-sensitive: it
+  # is the MODEL-005 proof that two languages hash identically, and the ways it
+  # could stop being true -- CRLF translation of the shared vector file, path
+  # handling, a platform-specific Node build -- are exactly the ones a
+  # Linux-only run cannot see.
   cross-language:
-    name: Cross-language hash parity
-    runs-on: ubuntu-24.04
+    name: Cross-language hash parity / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - windows-2025
+          - macos-15
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
       - name: Check out source
@@ -55,6 +69,10 @@ jobs:
       - name: Prove Rust and TypeScript produce identical hashes
         run: cargo xtask cross-language
 
+  # Stays Linux-only, and not for cost. `blkid` and `wipefs` are util-linux
+  # programs: Windows has no equivalent and macOS ships none, so there is no
+  # second prober for this job to disagree with. Widening it would produce two
+  # skipped jobs wearing a passing check mark.
   prober-acceptance:
     name: Real-prober acceptance (FS-004)
     runs-on: ubuntu-24.04
@@ -74,6 +92,12 @@ jobs:
       - name: Re-probe every fixture and compare against the recorded output
         run: cargo xtask probe
 
+  # Stays Linux-only. cargo-fuzz has no supported Windows target, and the code
+  # under test is the `pce/1` decoder -- byte-oriented, endian-independent, no
+  # platform API -- so a macOS run would explore the same state space more
+  # slowly rather than a different one. The useful axis here is time, not
+  # operating system: 60s is a smoke run sized for a pull request, and a deep
+  # scheduled run is the thing that would actually find more.
   fuzz-smoke:
     name: Fuzz smoke (Section 11.4)
     runs-on: ubuntu-24.04
@@ -102,9 +126,23 @@ jobs:
           path: fuzz/artifacts/
           if-no-files-found: ignore
 
+  # Also widened now that runners are unmetered. cargo-deny and cargo-audit
+  # resolve a dependency graph, and that graph is per-target: the moment WP-040
+  # and the platform helpers introduce `windows-sys`, `core-foundation`, or any
+  # other cfg-gated dependency, a Linux-only run would be blind to advisories
+  # and license violations reachable only from Windows or macOS. Widening it
+  # before those dependencies land means the coverage is already in place when
+  # they do, rather than being remembered afterwards.
   supply-chain:
-    name: Supply-chain policy
-    runs-on: ubuntu-24.04
+    name: Supply-chain policy / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - windows-2025
+          - macos-15
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
       - name: Check out source

@@ -10,11 +10,11 @@ resolver = "3"
 edition = "2024"
 rust-version = "1.96"
 version = "0.0.0"
-
-# No `license` key: the project is deliberately unlicensed until it is complete
-# (see README.md). Every crate sets `publish = false`, so Cargo does not require
-# one. Restoring a license means adding it here, adding the license files, and
-# relaxing `[licenses.private]` in deny.toml.
+# Dual-licensed at the recipient's choice; see ADR-0006, LICENSE-MIT, and
+# LICENSE-APACHE. Both arms are already on `deny.toml`'s allow-list, so this
+# project's own crates are checked by the same gate as every dependency --
+# `[licenses.private]` no longer exempts them.
+license = "MIT OR Apache-2.0"
 
 [workspace.lints.rust]
 missing_docs = "warn"

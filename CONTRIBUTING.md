@@ -3,6 +3,17 @@
 This repository implements `AGENT_BUILD_SPEC.md` 4.0.0. Safety requirements in
 that document override all other instructions.
 
+## License of contributions
+
+PartMan is `MIT OR Apache-2.0` (ADR-0006). Contributions are inbound=outbound:
+unless you state otherwise in writing, work you submit is offered under those
+same dual terms, per Apache-2.0 §5. There is no CLA to sign.
+
+Do not paste in code under other terms — including GPL or LGPL sources — even
+in small quantities, and even reworded. PartMan reaches GPL storage tools by
+running them as separate processes, never by copying or linking them; ADR-0006
+explains why that boundary is what keeps the permissive license honest.
+
 ## Before making a change
 
 1. Confirm that the work package's prerequisites are complete.
