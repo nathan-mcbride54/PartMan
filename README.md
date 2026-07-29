@@ -73,10 +73,11 @@ reports status only and never redefines either.
 | T1 fixture generator produces images | Met — `cargo xtask fixtures` produces 13 images deterministically (WP-020 increment 1) |
 | Accessibility harness runs | Partial — `cargo xtask tokens` computes UI-001/007/008 from `schemas/design-tokens.json` and gates CI (WP-030 increment 1). It renders nothing, so the keyboard, screen-reader, zoom and reduced-motion halves of UI-008 are untouched |
 
-The two partial rows are tracked as known gaps in `docs/traceability/WP-000.md`
-and `docs/traceability/WP-010.md`. They are recorded rather than rounded up:
-a milestone that exits on a criterion nobody verified is worse than one that
-exits late.
+The three partial rows are tracked as known gaps in
+`docs/traceability/WP-000.md`, `docs/traceability/WP-010.md`, and
+`docs/traceability/WP-030.md`. They are recorded rather than rounded up: a
+milestone that exits on a criterion nobody verified is worse than one that exits
+late.
 
 ### M1 through M5
 

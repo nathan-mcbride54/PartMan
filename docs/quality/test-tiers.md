@@ -14,10 +14,14 @@ Tier 1 is unprivileged and safe on every developer host. It currently contains:
 - Fixture and interlock tests: deterministic image synthesis, partition-table
   state classification, signature layout, and the SAFE-007 refusal cases
   (WP-020).
+- Design-token and accessibility tests: WCAG contrast, colour-vision
+  simulation, the specification-derived role vocabulary, and the mutation table
+  that proves each check can fail (WP-030).
 
 Filesystem access is limited to reading `.github/workflows/` for the action-pin
-check, `schemas/canonical-encoding-vectors.json` for the shared vectors, and
-temporary directories the fixture tests create and remove themselves. No test
+check, `schemas/canonical-encoding-vectors.json` for the shared vectors,
+`schemas/design-tokens.json` for the WP-030 accessibility harness, and temporary
+directories the fixture and token tests create and remove themselves. No test
 opens a block device at any tier.
 Later packages may add pure planner, validator, and regular-file fixture tests.
 
@@ -44,10 +48,19 @@ implemented and enforced together:
 
 - the **profile**, `--profile destructive`, taken from the command line and never
   from the environment, so it cannot be inherited from a parent shell;
-- the **token**, `PARTMAN_DISPOSABLE_TOKEN`, which must match the manifest
-  `cargo xtask fixtures` writes, so it cannot be known without having generated
-  that fixture set;
-- the **verified target**, re-read and re-hashed against that manifest.
+- the **token**, `PARTMAN_DISPOSABLE_TOKEN`, which must match what
+  `cargo xtask fixtures` records. **This factor is weak, and recorded as such.**
+  This file used to say the token "cannot be known without having generated that
+  fixture set", which was wrong: the token is a pure function of the source, so
+  it is identical on every machine that builds the same commit, and it is
+  printed where CI captures it. It proves the operator ran the generator and
+  passed back what it recorded, nothing more. SAFE-007's three factors are
+  therefore effectively two; `docs/work-packages/WP-020.md` is the authoritative
+  account and names an independent token decision as an increment-2
+  precondition;
+- the **verified target**, re-read, re-hashed, and required to byte-equal an
+  image the compiled fixture catalogue produces. This is where the interlock's
+  strength actually rests.
 
 A single environment variable is never sufficient proof, and disposability is
 computed from a target's own bytes rather than asserted by whoever asked. A block
