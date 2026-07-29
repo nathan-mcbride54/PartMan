@@ -266,21 +266,13 @@ fn probe_fixtures() -> Result<(), TaskError> {
     let mut failures = Vec::new();
     for expectation in prober::expectations() {
         let path = root.join(expectation.fixture);
+        // `blkid` exits 2 when it detects nothing, which is the correct and
+        // expected answer for the blank fixture.
+        let raw_udev = probe_output("blkid", &["-p", "-o", "udev"], &path, &[0, 2])?;
+        let raw_wipefs = probe_output("wipefs", &["-n", "--output", "OFFSET,TYPE"], &path, &[0])?;
         let observed = prober::Observation {
-            udev: prober::parse_udev(&probe_output(
-                "blkid",
-                &["-p", "-o", "udev"],
-                &path,
-                // `blkid` exits 2 when it detects nothing, which is the correct
-                // and expected answer for the blank fixture.
-                &[0, 2],
-            )?),
-            signatures: prober::parse_wipefs(&probe_output(
-                "wipefs",
-                &["-n", "--output", "OFFSET,TYPE"],
-                &path,
-                &[0],
-            )?),
+            udev: prober::parse_udev(&raw_udev),
+            signatures: prober::parse_wipefs(&raw_wipefs),
         };
 
         let disagreements = prober::compare(&expectation, &observed);
@@ -292,6 +284,23 @@ fn probe_fixtures() -> Result<(), TaskError> {
                 println!("          {reason}");
             }
             println!("        recorded because: {}", expectation.note);
+            // What the tools actually said, verbatim. A disagreement is a
+            // measurement, and the next decision — fixture regressed, or prober
+            // changed — cannot be made from a diff of parsed values alone.
+            println!("        what the probers actually said:");
+            for (tool, text) in [
+                ("blkid -p -o udev", &raw_udev),
+                ("wipefs -n", &raw_wipefs),
+                ("blkid -p", &probe_output("blkid", &["-p"], &path, &[0, 2])?),
+            ] {
+                println!("          $ {tool}");
+                if text.trim().is_empty() {
+                    println!("            (no output)");
+                }
+                for line in text.lines() {
+                    println!("            {line}");
+                }
+            }
             failures.push(expectation.fixture);
         }
     }
