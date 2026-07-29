@@ -16,10 +16,18 @@
 //! [`interlock`], and the property it is built around is that disposability is
 //! *computed* from the target's own bytes rather than asserted by whoever asked.
 //!
+//! A third obligation was added after a project review. Section 11.7 fails a
+//! work package that claims a requirement without linked evidence, and this
+//! crate had been claiming several: each fixture recorded a rationale that no
+//! test could see. [`evidence`] binds the two, so a fixture's purpose is
+//! computed from its bytes and generation refuses to write one that has stopped
+//! serving it.
+//!
 //! This crate performs no privileged operation, opens no device, and launches no
 //! process. It writes files where it is told to and refuses everything else.
 
 pub mod catalogue;
+pub mod evidence;
 pub mod interlock;
 pub mod layout;
 pub mod manifest;

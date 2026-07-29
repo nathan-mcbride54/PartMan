@@ -34,6 +34,33 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   than accepting an assertion: a block device cannot pass, because its bytes will
   never equal a generated fixture. Tier 2 and Tier 3 still refuse, now for the
   honest reason that no destructive suite exists to run.
+- WP-020 increment 1d: `crates/fixtures/src/evidence.rs`, which binds every
+  fixture's bytes to the rationale recorded beside it. Until now nothing did:
+  every layout and signature test rebuilt its own image from its own literals,
+  so the catalogue was free to produce something else. Measured before it was
+  fixed — with the LUKS2 builder emptied to a blank image and the
+  multi-signature builder stripped of the stale mdraid superblock the Part 5
+  asymmetry finding rests on, **all 64 tests passed**. Each catalogue entry now
+  has a claim computed from its bytes; the set is exhaustive in both directions;
+  each claim is paired with a mutation it must reject, so a check that cannot
+  fail is caught; and `generate` refuses to write an image that no longer serves
+  its purpose, naming what was lost. The oracles reimplement CRC-32, LVM2's CRC
+  and mdraid's folded sum by different methods from the writers they check, each
+  anchored outside the repository — to the published IEEE check value, and to
+  three checksum fields `libblkid` 2.41 accepted, pinned with their provenance.
+
+  The module was put through an adversarial pass before being proposed, and it
+  found the first version repeating the defect it was written to end. The gate in
+  `generate` was load-bearing on nothing — deleting it kept all 74 tests green,
+  because every test fed it the real catalogue, which passes. Its
+  "anchored outside this repository" claim held for one checksum of three:
+  changing an initial constant in both writer and oracle kept everything green
+  while making every fixture undetectable. And ten claims accepted mutations that
+  destroyed a fixture's purpose while leaving its checksums valid — most sharply,
+  "two tables that disagree" was proven by comparing entry-array CRCs, which one
+  character of a partition *name* satisfies while both copies describe identical
+  extents. All are closed, and the details are in
+  `docs/work-packages/WP-020.md`.
 - ADR-C1, accepted, fixing the canonical encoding and hash strategy.
 - ADR-C5, accepted, fixing the aggregation vocabulary: one `Aggregate` node in
   place of three undefined Section 5 names, on-disk signatures as their own
@@ -91,6 +118,32 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   leaving the fixture with no UUID at all. ext4 declared 8 MiB of blocks on a
   4 MiB device, having reused a sector count as a block count. Each correction is
   confirmed against `libblkid` rather than against the struct definition.
+
+- Two documented claims that had outrun their code, corrected in opposite
+  directions. `corrupt_primary_header_crc` still described itself as producing
+  ADR-C3's `Indeterminate` state, contradicting `write_conflicting_backup` in the
+  same file, which had already been corrected; the layout test repeated it. Both
+  now say *recoverable*. And the review response's note that
+  `authorization_cannot_be_forged_outside_this_module` "reportedly stays green
+  with `verify_target`'s body short-circuited" — read as evidence the interlock
+  suite was blind to that mutation — is false. It was run: **ten tests fail**,
+  covering traversal, subdirectory copies, modified bytes, wrong names, missing
+  targets and mixed requests. The named test does stay green, because it asserts
+  a compile-time property rather than target verification. "Reportedly" marked a
+  claim that had never been executed, in a document written about that exact
+  failure.
+- `every_generated_fixture_authorizes` asserted `targets.len() >= 8`. A floor
+  lets catalogue entries be deleted silently while the test still reads as
+  coverage; it is now an equality against the catalogue's own length.
+- `gpt-missing-backup-512.img` had a backup. It zeroed the last sector only,
+  leaving 16 KiB of byte-identical backup entry array at LBAs 8159 to 8190 —
+  which any recovery tool that scans rather than seeking to the last LBA would
+  find, on a fixture named for having no backup. The whole backup copy is now
+  erased.
+- `gpt-basic-512.img` and `gpt-basic-4kn.img` shared a disk GUID, both deriving
+  it from the literal `"gpt-basic"`. Two different media with one identity is a
+  manufactured instance of the collision SI-27 is trying to reason about. Found
+  by a new catalogue-wide identity check that no single-image claim could see.
 
 - A subdirectory bypass in the SAFE-007 interlock, introduced by the fix for the
   forged-manifest defect and missed by its own new tests. Containment was a path
