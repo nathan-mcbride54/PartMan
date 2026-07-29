@@ -60,7 +60,13 @@ implemented and enforced together:
   precondition;
 - the **verified target**, re-read, re-hashed, and required to byte-equal an
   image the compiled fixture catalogue produces. This is where the interlock's
-  strength actually rests.
+  strength actually rests. Since 2026-07-29 the verification runs through an
+  **open file handle that the authorization then holds**: `fstat`, length, and
+  every content byte are read from the handle, and that same handle is what a
+  destructive consumer receives, so rebinding the path after authorization
+  cannot redirect a write. On Windows the handle's share mode also refuses
+  concurrent writes, deletion, and renames while the authorization lives. The
+  authorization is non-cloneable and consumed once.
 
 A single environment variable is never sufficient proof, and disposability is
 computed from a target's own bytes rather than asserted by whoever asked. A block

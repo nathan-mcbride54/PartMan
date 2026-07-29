@@ -218,6 +218,36 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Fixed
 
+- WP-020 increment 2a: authorization holds the object it verified, not the
+  name it found it under. The 2026-07-29 audit ranked this the most important
+  precondition before any Tier-2 write: `Authorization` carried a
+  `Vec<PathBuf>`, and a name can be rebound between verification and
+  destructive use. It now carries open `File` handles — `fstat`, the hard-link
+  count, the length, and every content byte are read through the handle, and
+  the handle itself is what a destructive consumer receives, so renaming or
+  swapping the path afterwards changes what the *name* means, never what the
+  authorization holds. On Windows the handle's share mode refuses concurrent
+  writes, deletion, and renames — through any name, hard links included — for
+  as long as the authorization lives; the replace-after-authorization test
+  asserts those refusals there and asserts write-through-handle reaches the
+  verified object on POSIX. The proof is non-cloneable (a `compile_fail`
+  doctest pins it) and consumed once.
+
+  The first version of this fix repeated the defect it was written to end,
+  and only planting regressions found it: downgrading the handle `fstat` to a
+  by-path `stat` kept every test green, because the difference only shows
+  during a race no unit test can stage. `verify_object` now takes no usable
+  path, and its test deletes the path before verifying — handle-purity proven
+  deterministically. Both planted regressions (`stat`-by-path,
+  `fs::read`-by-path) fail that test by name.
+
+  Deliberately not done here: platform no-follow open flags (hardcoding
+  `O_NOFOLLOW` values without `libc` is its own defect factory; the by-name
+  symlink refusal stays as hygiene and post-open object verification makes a
+  raced symlink harmless), and the independent-token decision, which needs an
+  entropy source and is a dependency-policy change — still recorded open in
+  `docs/work-packages/WP-020.md`.
+
 - The gate can no longer repair the lockfile it claims to enforce. The
   2026-07-29 audit deleted a package entry from `Cargo.lock` and ran
   `cargo xtask ci`: Cargo silently regenerated the entry while building `xtask`
