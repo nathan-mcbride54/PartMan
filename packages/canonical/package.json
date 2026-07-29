@@ -2,6 +2,7 @@
   "name": "@partman/canonical",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT OR Apache-2.0",
   "description": "TypeScript implementation of the pce/1 canonical encoding (MODEL-005)",
   "type": "module",
   "engines": {

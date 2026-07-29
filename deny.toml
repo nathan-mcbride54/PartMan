@@ -21,14 +21,20 @@ allow = [
 confidence-threshold = 0.93
 unused-allowed-license = "allow"
 
-# The allow-list above governs third-party dependencies and is unchanged.
-#
-# This project's own crates carry no `license` key while it is unlicensed
-# (Cargo.toml, README.md), which cargo-deny reports as `error[unlicensed]`.
-# Skipping crates marked `publish = false` scopes that exemption to exactly the
-# workspace members and never to a dependency. Set this back to `false` when the
-# project adopts a license.
-private = { ignore = true }
+# The allow-list above governs third-party dependencies and this project's own
+# crates alike. The exemption that used to live here -- skipping `publish =
+# false` crates because the project carried no `license` key -- is gone: every
+# workspace member now declares `MIT OR Apache-2.0` (ADR-0006), so the gate
+# checks them too. Leave this `false`. Setting it back to `true` would let a
+# workspace crate lose its license key without failing CI, which is the exact
+# drift SEC-005's per-release license inventory has to rule out.
+private = { ignore = false }
+
+# The Rust allow-list cannot see a C library reached through FFI: a `-sys` crate
+# declares its own license, not that of the system library it links. ADR-0006
+# forbids linking GPL libraries (libparted in particular) precisely because
+# nothing here would catch it. External storage tools are invoked as separate
+# processes under SAFE-004, which carries no such obligation.
 
 [bans]
 multiple-versions = "warn"

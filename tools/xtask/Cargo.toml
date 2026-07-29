@@ -4,6 +4,7 @@ description = "Safe repository task runner for PartMan"
 edition.workspace = true
 rust-version.workspace = true
 version.workspace = true
+license.workspace = true
 publish = false
 
 [dependencies]

@@ -26,13 +26,24 @@ by digest. Runner image provenance is recorded by GitHub in each job.
   rule exists to prevent. A genuine `foo = "*"` from a registry stays denied.
 - Deny unknown registries and Git sources unless a reviewed policy change adds
   an exact source.
-- Fail CI for known advisories, yanked crates, or disallowed licenses.
+- Fail CI for known advisories, yanked crates, or disallowed licenses. This
+  includes the workspace's own crates: they declare `MIT OR Apache-2.0`
+  (ADR-0006) and `[licenses] private` is `ignore = false`, so a workspace member
+  that loses its license key fails the same gate a dependency would.
 - Pin every GitHub Action to a full commit SHA and retain the release tag in a
   comment for auditability.
 - Dependency updates arrive through pull requests and run the full Tier-1 and
   supply-chain gates.
 - A future release pipeline must publish an SBOM and dependency/license
   inventory under SEC-005.
+- Never link a GPL library. ADR-0006 makes this binding: `libparted`
+  (GPL-3.0-or-later) is the named hazard, since it is the obvious dependency for
+  a partition editor and linking it would relicense the product by operation of
+  law. LGPL libraries such as `libblkid` and `libblockdev` may be linked
+  dynamically; GPL *programs* are invoked as separate processes under SAFE-004,
+  which carries no such obligation. `cargo deny` cannot enforce this — a `-sys`
+  crate declares its own license, not that of the C library it links — so it is
+  a review obligation at the integration commit, not an automated check.
 
 ## Enforced automatically
 
