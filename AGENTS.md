@@ -50,3 +50,32 @@ and product requirements are normative.
   nightly toolchain, so it is not part of `cargo xtask ci`; CI runs it as its
   own job. `fuzz/` is excluded from the workspace and is the only place nightly
   is permitted. See `docs/quality/fuzzing.md`.
+
+## What CI runs, and what it does not
+
+Actions minutes are billed on this private repository, and not uniformly:
+**Linux is 1×, Windows 2×, macOS 10×**, with every job rounded up to the minute.
+The 45-second macOS leg was therefore the most expensive job in the workflow.
+
+So the jobs are split by what changes their answer, across three workflow files
+— a `paths` filter applies to a whole file, which is why they are separate:
+
+| Workflow | Runs on a pull request | Always runs on `main`, weekly, and on demand |
+| --- | --- | --- |
+| `ci.yml` | Tier 1 on ubuntu and windows, cross-language, prober | plus Tier 1 on macOS |
+| `fuzz.yml` | only when `crates/domain`, `packages/canonical`, `fuzz` or `schemas` changed | yes |
+| `supply-chain.yml` | only when a manifest, `deny.toml` or the toolchain changed | yes |
+
+Two consequences to hold in mind rather than rediscover:
+
+- **A green pull request has not been checked on macOS**, and has probably not
+  been fuzzed or supply-chain scanned. Those run at merge. Do not read a green
+  PR as a full gate.
+- **There is no branch protection** — GitHub Free does not offer it on private
+  repositories — so nothing mechanically prevents merging a red pull request.
+  Merging on green is a discipline here, not an enforcement, and "not pending"
+  is not the same as "passed".
+
+`cargo xtask ci` remains the local gate and is unaffected by any of this. Prefer
+batching commits before pushing: every push to an open pull request starts a
+fresh run.

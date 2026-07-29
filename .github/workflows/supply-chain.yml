@@ -1,0 +1,57 @@
+name: Supply chain
+
+# Split out of `ci.yml` so it can be triggered on what actually changes its
+# answer. At roughly eight and a half minutes it was the longest job in the
+# workflow, and it ran on every push regardless of whether a dependency moved.
+#
+# Two triggers, because the result changes for two different reasons:
+#
+#   * a manifest changed — that is the `paths` filter below;
+#   * an advisory was published — that is the weekly schedule. Nothing in this
+#     repository changes when RUSTSEC files a new advisory against a crate this
+#     project already depends on, so a code-triggered scan alone would miss it
+#     until the next unrelated dependency edit.
+#
+# The schedule is the load-bearing half. Dropping it to save minutes would leave
+# advisories undetected for as long as the manifests happen not to change.
+on:
+  pull_request:
+    paths:
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - 'deny.toml'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/supply-chain.yml'
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supply-chain-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  supply-chain:
+    name: Supply-chain policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned policy tools
+        run: |
+          cargo install cargo-deny --version 0.19.4 --locked
+          cargo install cargo-audit --version 0.22.2 --locked
+      - name: Enforce advisory, license, and source policy
+        run: cargo xtask supply-chain

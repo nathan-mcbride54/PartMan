@@ -107,6 +107,18 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- CI is split into three workflows so each job runs when its answer can change.
+  The free Actions allowance was exhausted, and the cause was multipliers rather
+  than waste: on a private repository Linux bills at 1×, Windows at 2× and macOS
+  at **10×**, with each job rounded up to the minute, so the 45-second macOS leg
+  cost more than the eight-minute supply-chain scan. A full run was ~32 minutes.
+  macOS now runs on `main`, weekly and on demand rather than on every pull-request
+  push; `fuzz.yml` runs when a parser changes, which is what Section 11.4 asks
+  for; `supply-chain.yml` runs when a manifest changes **and** weekly, because an
+  advisory can be published without this repository changing at all. A typical
+  pull-request push drops to about 9 minutes with no loss of coverage on `main`.
+  The trade is recorded in `AGENTS.md`: a green pull request has not been checked
+  on macOS, fuzzed, or supply-chain scanned.
 - `xtask` separates command parsing from execution, so every documented task,
   rejected task, and tier decision is unit-tested without launching a
   subprocess.

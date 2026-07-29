@@ -5,6 +5,10 @@ on:
   push:
     branches:
       - main
+  # Weekly, so the legs that do not run on every pull request still run against
+  # unchanged code on a known cadence.
+  schedule:
+    - cron: '0 6 * * 1'
   workflow_dispatch:
 
 permissions:
@@ -18,6 +22,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # The two platforms every pull request is gated on. Windows is the primary
+  # target and Linux is where the prober work lives.
   tier-1:
     name: Tier 1 / ${{ matrix.os }}
     strategy:
@@ -26,8 +32,34 @@ jobs:
         os:
           - ubuntu-24.04
           - windows-2025
-          - macos-15
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Run the unprivileged Tier-1 gate
+        run: cargo xtask ci
+
+  # macOS is billed at **ten times** wall-clock on a private repository, against
+  # Linux at one and Windows at two. The 45-second macOS leg was therefore the
+  # single most expensive job here — dearer than the eight-minute supply-chain
+  # scan — and it ran on every push to every branch.
+  #
+  # It is a separate job rather than a third matrix entry because a matrix
+  # cannot be filtered by event without a computed `fromJSON` expression, and
+  # plain YAML that cannot misparse is worth six duplicated lines.
+  #
+  # The trade is named rather than buried: a macOS-only regression is now caught
+  # at merge instead of before it. That is acceptable *for now* only because
+  # there is no macOS implementation to regress — `docs/quality/observability.md`
+  # records the platform as "not established" — and it must be revisited when
+  # MAC-00x work begins.
+  tier-1-macos:
+    name: Tier 1 / macos-15
+    if: github.event_name != 'pull_request'
+    runs-on: macos-15
     timeout-minutes: 30
     steps:
       - name: Check out source
@@ -74,47 +106,8 @@ jobs:
       - name: Re-probe every fixture and compare against the recorded output
         run: cargo xtask probe
 
-  fuzz-smoke:
-    name: Fuzz smoke (Section 11.4)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      # cargo-fuzz needs nightly for libFuzzer. The date is pinned for the same
-      # reason rust-toolchain.toml pins a version: an unpinned nightly changes
-      # under CI without a commit. Must match FUZZ_TOOLCHAIN in tools/xtask.
-      - name: Install the pinned fuzzing toolchain
-        run: rustup toolchain install nightly-2026-07-01 --profile minimal
-      - name: Install pinned cargo-fuzz
-        run: cargo install cargo-fuzz --version 0.13.2 --locked
-      - name: Smoke-fuzz the parsers
-        run: cargo xtask fuzz --seconds 60
-      # A crash leaves a reproducer in fuzz/artifacts/. Binary fixtures are
-      # never committed (Section 11.3), so it is uploaded for triage instead.
-      - name: Upload crash reproducers
-        if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: fuzz-artifacts
-          path: fuzz/artifacts/
-          if-no-files-found: ignore
-
-  supply-chain:
-    name: Supply-chain policy
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Install pinned policy tools
-        run: |
-          cargo install cargo-deny --version 0.19.4 --locked
-          cargo install cargo-audit --version 0.22.2 --locked
-      - name: Enforce advisory, license, and source policy
-        run: cargo xtask supply-chain
+# `Fuzz smoke` and `Supply-chain policy` used to live here. They now have their
+# own workflows, because a `paths` filter applies to a whole workflow file and
+# they are the two jobs whose answer depends on what changed rather than on
+# every change. See `fuzz.yml` and `supply-chain.yml`.
 
