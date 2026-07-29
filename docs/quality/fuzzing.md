@@ -64,6 +64,15 @@ fuzzing is an explicit, bounded exception to that rule:
 - `fuzz/` is **excluded from the workspace**, so `cargo xtask ci` never attempts
   to build it on stable and the exception cannot leak into ordinary builds.
 - `cargo-fuzz` itself is pinned to 0.13.2 and installed with `--locked`.
+- Exclusion from the workspace also excludes this crate from the root
+  `Cargo.lock` and from the supply-chain gates that read it — a gap the
+  2026-07-29 audit demonstrated, since the fuzz lock was gitignored and every
+  fresh CI run resolved `libfuzzer-sys` and `arbitrary` to whatever the
+  registry served that day. `fuzz/Cargo.lock` is now **committed**;
+  `cargo xtask fuzz` refuses to run if it no longer matches the manifest;
+  `cargo xtask supply-chain` checks this graph against the same `deny.toml` as
+  the workspace; and a dedicated `/fuzz` Dependabot entry updates it. Pinning
+  the runner was never the same thing as pinning the code it builds.
 
 Nothing outside `fuzz/` may require nightly.
 

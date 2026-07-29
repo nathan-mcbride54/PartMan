@@ -15,6 +15,11 @@ allow = [
   "ISC",
   "MIT",
   "MPL-2.0",
+  # University of Illinois/NCSA: permissive, BSD-3-Clause-shaped, OSI-approved.
+  # Required because `libfuzzer-sys` is `(MIT OR Apache-2.0) AND NCSA` — the
+  # AND makes it mandatory, not electable — and the fuzz graph is checked
+  # against this same policy now that it is checked at all (2026-07-29 audit).
+  "NCSA",
   "Unicode-3.0",
   "Zlib",
 ]

@@ -218,6 +218,56 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Fixed
 
+- The gate can no longer repair the lockfile it claims to enforce. The
+  2026-07-29 audit deleted a package entry from `Cargo.lock` and ran
+  `cargo xtask ci`: Cargo silently regenerated the entry while building `xtask`
+  itself, and all 160 tests passed against a lockfile the repository had never
+  committed — the internal `--locked` flags bind only once the binary is
+  built. `--locked` now sits in the `xtask` alias, the boundary that builds the
+  gate; the same mutation now refuses with "cannot update the lock file". A
+  Tier-1 test fails by name if the alias loses the flag.
+
+- `cargo xtask verify-actions` no longer goes blind on valid YAML. The audit
+  rewrote one pinned step as `"uses": actions/checkout@v7` — the same YAML key,
+  and GitHub executes it — and the scanner reported *success with one fewer
+  reference*: the mutable tag was invisible rather than rejected. The scanner
+  now enforces a deliberately small YAML subset and **refuses what it cannot
+  positively read**: quoted keys are recognized and checked, while flow
+  mappings, block scalars, aliases, anchors, escaped quoted keys, explicit-key
+  syntax, and values continuing on the next line are each a named violation.
+  Local composite actions under `.github/actions/` are scanned too — exempting
+  `./` references is safe only if their own metadata is read. What remains
+  manual is recorded: nothing verifies a tag comment resolves to its pinned
+  SHA, and that is a review obligation, not an automated check.
+
+- The fuzz crate's dependency graph is no longer outside every gate.
+  `fuzz/Cargo.lock` was gitignored and the crate is excluded from the
+  workspace, so every fresh CI run resolved `libfuzzer-sys` and `arbitrary` to
+  whatever the registry served that day and ran their build scripts — on the
+  job that executes hostile-byte parser tests, checked by no advisory, licence,
+  or source policy. The lock is committed; `cargo xtask fuzz` refuses a stale
+  lock before the nightly toolchain is even involved; `cargo xtask
+  supply-chain` checks the fuzz graph as a second graph under the same
+  `deny.toml` (which required allowing NCSA — `libfuzzer-sys` is
+  `(MIT OR Apache-2.0) AND NCSA`, so the permissive NCSA arm is mandatory, and
+  the addition is commented in `deny.toml`); and a `/fuzz` Dependabot entry
+  updates what nothing previously watched.
+
+- `cargo xtask verify-licenses` closes the recorded WP-000 gap: it walks every
+  `Cargo.toml` and `package.json`, fails unless each declares
+  `MIT OR Apache-2.0` and both licence texts exist, and runs inside
+  `cargo xtask ci`. Previously `fuzz/Cargo.toml` and
+  `packages/canonical/package.json` could lose their licence keys with CI
+  green.
+
+- WP-000 is reclassified from Complete to in progress. Section 12 defines done
+  as generated traceability showing a package's evidence, and
+  `docs/traceability/` is hand-maintained; the audit also demonstrated two
+  fail-open evidence paths in what Complete claimed to cover. The README row
+  now says what is delivered and what is not, and the hosted-runner deviation
+  from SEC-010's builder-image digest rule is documented with its residual risk
+  in `docs/quality/dependency-policy.md` instead of being silently absorbed.
+
 - WP-030 increment 1a: the accessibility harness no longer takes its standards
   from the file it audits. The 2026-07-29 project audit demonstrated two live
   bypasses through the whole Tier-1 gate: lowering the token file's own `text`

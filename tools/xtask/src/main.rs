@@ -11,6 +11,10 @@ use partman_fixtures::{catalogue, interlock, prober};
 
 const PINNED_RUST_VERSION: &str = "1.96.0";
 const WORKFLOW_DIRECTORY: &str = ".github/workflows";
+/// Composite actions committed to this repository. Optional, unlike the
+/// workflow directory — but scanned whenever present, because a local action's
+/// own `uses:` references are remote supply chain like any other.
+const LOCAL_ACTIONS_DIRECTORY: &str = ".github/actions";
 
 /// Toolchain used only for fuzzing.
 ///
@@ -55,6 +59,7 @@ enum Task {
     Test { tier: u8, profile: Option<String> },
     Tokens,
     VerifyActions,
+    VerifyLicenses,
     VerifyToolchain,
 }
 
@@ -81,6 +86,7 @@ fn parse(args: &[OsString]) -> Result<Task, TaskError> {
         "supply-chain" => nullary(Task::SupplyChain, command, rest),
         "tokens" => nullary(Task::Tokens, command, rest),
         "verify-actions" => nullary(Task::VerifyActions, command, rest),
+        "verify-licenses" => nullary(Task::VerifyLicenses, command, rest),
         "verify-toolchain" => nullary(Task::VerifyToolchain, command, rest),
         "test" => parse_test(rest),
         other => Err(TaskError::Usage(format!(
@@ -94,6 +100,7 @@ fn execute(task: &Task) -> Result<(), TaskError> {
         Task::Ci => {
             verify_toolchain()?;
             verify_action_pins(&repository_root())?;
+            verify_manifest_licenses(&repository_root())?;
             audit_tokens()?;
             cargo(&["fmt", "--all", "--", "--check"])?;
             cargo(&[
@@ -118,13 +125,31 @@ fn execute(task: &Task) -> Result<(), TaskError> {
         }
         Task::SupplyChain => {
             cargo(&["deny", "check", "advisories", "bans", "licenses", "sources"])?;
-            cargo(&["audit", "--deny", "warnings"])
+            cargo(&["audit", "--deny", "warnings"])?;
+            // The fuzz crate is excluded from the workspace, so the two
+            // commands above never see its dependency graph. Until 2026-07-29
+            // nothing did: its lockfile was gitignored and its dependencies
+            // were advisory-, licence- and source-checked by nobody, on the
+            // job that executes hostile-byte parser tests. Same policy file,
+            // second graph.
+            cargo(&[
+                "deny",
+                "--manifest-path",
+                "fuzz/Cargo.toml",
+                "check",
+                "advisories",
+                "bans",
+                "licenses",
+                "sources",
+            ])?;
+            cargo(&["audit", "--deny", "warnings", "--file", "fuzz/Cargo.lock"])
         }
         Task::Test { tier, ref profile } => run_tier(tier, profile.as_deref()),
         Task::Fixtures => generate_fixtures(),
         Task::Probe => probe_fixtures(),
         Task::Tokens => audit_tokens(),
         Task::VerifyActions => verify_action_pins(&repository_root()),
+        Task::VerifyLicenses => verify_manifest_licenses(&repository_root()),
         Task::VerifyToolchain => verify_toolchain(),
     }
 }
@@ -568,6 +593,39 @@ fn fuzz(seconds: u32) -> Result<(), TaskError> {
         )));
     }
 
+    // The fuzz crate is excluded from the workspace, so nothing upstream of
+    // this point has proved its committed lockfile still matches its manifest.
+    // `--locked` refuses rather than repairs; without this, a fresh checkout
+    // resolved the fuzzer dependencies to whatever the registry served that
+    // day and ran their build scripts outside every policy gate — on the job
+    // that exists to execute hostile-byte parser tests (2026-07-29 audit).
+    // The verification deliberately runs before the nightly toolchain is
+    // involved, so a stale lock is reported as a stale lock and not as a
+    // toolchain problem.
+    let output = Command::new("cargo")
+        .args([
+            "metadata",
+            "--locked",
+            "--format-version",
+            "1",
+            "--manifest-path",
+            "fuzz/Cargo.toml",
+        ])
+        .current_dir(repository_root())
+        .output()
+        .map_err(|source| TaskError::Launch {
+            program: "cargo".to_owned(),
+            source,
+        })?;
+    if !output.status.success() {
+        return Err(TaskError::Policy(format!(
+            "fuzz/Cargo.lock does not match fuzz/Cargo.toml; commit an updated lock rather \
+             than letting the fuzz job resolve fresh dependencies outside the supply-chain \
+             gates.\n{}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+
     for target in FUZZ_TARGETS {
         println!("fuzz: {target} for {seconds}s");
         let toolchain = format!("+{FUZZ_TOOLCHAIN}");
@@ -653,6 +711,18 @@ fn verify_action_pins(root: &Path) -> Result<(), TaskError> {
         )));
     }
 
+    // Composite actions committed to this repository run `uses:` references of
+    // their own. Exempting a local action from digest checks is safe only if
+    // its remote references are inspected; scanning nothing under
+    // `.github/actions/` would make `./.github/actions/foo` a place to keep a
+    // mutable tag. The directory is optional — workflows are not — so its
+    // absence is fine, but when present every YAML file under it is read.
+    let actions_directory = root.join(LOCAL_ACTIONS_DIRECTORY);
+    if actions_directory.is_dir() {
+        yaml_files_under(&actions_directory, &mut workflows)?;
+        workflows.sort();
+    }
+
     let mut violations = Vec::new();
     let mut pinned = 0_usize;
     for workflow in &workflows {
@@ -687,6 +757,152 @@ fn verify_action_pins(root: &Path) -> Result<(), TaskError> {
     }
 }
 
+/// The SPDX expression every manifest in this repository must declare.
+const PROJECT_LICENSE: &str = "MIT OR Apache-2.0";
+
+/// Every manifest declares the project licence, and the licence texts exist.
+///
+/// `cargo deny` gates the workspace crates, but two manifests sit outside its
+/// graph: `fuzz/Cargo.toml` is excluded from the workspace, and
+/// `packages/canonical/package.json` is not Cargo at all. Until this check
+/// existed, either could lose its licence declaration with every gate green —
+/// recorded as a known gap in `docs/traceability/WP-000.md` from the day the
+/// licence was adopted, and closed here rather than carried.
+///
+/// The check walks the tree rather than reading a fixed list, so a future
+/// crate or package is covered the day it is added, not the day someone
+/// remembers to register it.
+fn verify_manifest_licenses(root: &Path) -> Result<(), TaskError> {
+    let mut violations = Vec::new();
+    let mut checked = 0_usize;
+
+    for text_name in ["LICENSE-MIT", "LICENSE-APACHE"] {
+        let path = root.join(text_name);
+        checked += 1;
+        if !fs::metadata(&path).is_ok_and(|meta| meta.is_file() && meta.len() > 0) {
+            violations.push(format!(
+                "{text_name} is missing or empty; the declared licence has no text"
+            ));
+        }
+    }
+
+    let mut manifests = Vec::new();
+    manifest_files_under(root, &mut manifests)?;
+    manifests.sort();
+    for manifest in &manifests {
+        checked += 1;
+        let text = fs::read_to_string(manifest).map_err(|source| TaskError::Io {
+            path: manifest.clone(),
+            source,
+        })?;
+        let name = manifest
+            .strip_prefix(root)
+            .unwrap_or(manifest)
+            .display()
+            .to_string()
+            .replace('\\', "/");
+        let is_cargo = manifest
+            .file_name()
+            .is_some_and(|file| file == OsStr::new("Cargo.toml"));
+        let declared = if is_cargo {
+            // Exact lines, not substrings: `license = "GPL-3.0 OR MIT..."`
+            // must not pass by containing the expression somewhere inside.
+            text.lines().map(str::trim).any(|line| {
+                line == format!("license = \"{PROJECT_LICENSE}\"")
+                    || line == "license.workspace = true"
+            })
+        } else {
+            text.lines()
+                .map(str::trim)
+                .any(|line| line.starts_with(&format!("\"license\": \"{PROJECT_LICENSE}\"")))
+        };
+        if !declared {
+            violations.push(format!(
+                "{name} does not declare `{PROJECT_LICENSE}` (directly or via \
+                 `license.workspace = true`)"
+            ));
+        }
+    }
+
+    if violations.is_empty() {
+        println!("verify-licenses: {checked} manifest(s) and licence text(s) verified");
+        Ok(())
+    } else {
+        Err(TaskError::Policy(format!(
+            "SEC-005's licence inventory requires every manifest to declare the project \
+             licence. Offending files:\n  {}",
+            violations.join("\n  ")
+        )))
+    }
+}
+
+/// Collect every `Cargo.toml` and `package.json` under `directory`, skipping
+/// build output and vendored trees.
+fn manifest_files_under(directory: &Path, found: &mut Vec<PathBuf>) -> Result<(), TaskError> {
+    let entries = fs::read_dir(directory).map_err(|source| TaskError::Io {
+        path: directory.to_owned(),
+        source,
+    })?;
+    for entry in entries {
+        let path = entry
+            .map_err(|source| TaskError::Io {
+                path: directory.to_owned(),
+                source,
+            })?
+            .path();
+        let name = path.file_name().and_then(OsStr::to_str).unwrap_or("");
+        if path.is_dir() {
+            // Build output, dependency trees, fuzzer data, and generated
+            // fixtures contain third-party manifests this policy does not
+            // govern.
+            if matches!(
+                name,
+                ".git"
+                    | "target"
+                    | "node_modules"
+                    | "corpus"
+                    | "artifacts"
+                    | "coverage"
+                    | "generated"
+            ) {
+                continue;
+            }
+            manifest_files_under(&path, found)?;
+        } else if name == "Cargo.toml" || name == "package.json" {
+            found.push(path);
+        }
+    }
+    Ok(())
+}
+
+/// Collect every `.yml`/`.yaml` file under `directory`, recursively.
+fn yaml_files_under(directory: &Path, found: &mut Vec<PathBuf>) -> Result<(), TaskError> {
+    let entries = fs::read_dir(directory).map_err(|source| TaskError::Io {
+        path: directory.to_owned(),
+        source,
+    })?;
+    for entry in entries {
+        let path = entry
+            .map_err(|source| TaskError::Io {
+                path: directory.to_owned(),
+                source,
+            })?
+            .path();
+        if path.is_dir() {
+            yaml_files_under(&path, found)?;
+        } else if path
+            .extension()
+            .and_then(OsStr::to_str)
+            .is_some_and(|extension| {
+                extension.eq_ignore_ascii_case("yml") || extension.eq_ignore_ascii_case("yaml")
+            })
+        {
+            found.push(path);
+        }
+    }
+    Ok(())
+}
+
 /// One `uses:` entry, with the trailing comment the policy requires.
 ///
 /// The comment is carried rather than discarded. It used to be stripped before
@@ -700,11 +916,24 @@ struct ActionReference {
     reference: String,
     /// Text after `#` on the same line, trimmed. `None` when absent.
     comment: Option<String>,
+    /// Why the scanner could not positively read this `uses` construct.
+    ///
+    /// `Some` is an automatic violation. The 2026-07-29 project audit rewrote
+    /// one pinned step as `"uses": actions/checkout@v7` — valid YAML that
+    /// GitHub executes — and the scanner reported success with one *fewer*
+    /// reference: the mutable action was invisible rather than rejected. The
+    /// scanner now enforces a deliberately small YAML subset and refuses
+    /// anything outside it, so an exotic spelling is a failure to fix, never
+    /// a reference to miss.
+    unrecognized: Option<String>,
 }
 
 impl ActionReference {
     /// Why this reference fails SEC-010, or `None` if it satisfies it.
     fn violation(&self) -> Option<String> {
+        if let Some(reason) = &self.unrecognized {
+            return Some(reason.clone());
+        }
         // An action committed to this repository carries no independent supply
         // chain, so it needs neither a digest nor a release tag.
         if self.reference.starts_with("./") {
@@ -741,30 +970,130 @@ fn names_a_release(comment: &str) -> bool {
     })
 }
 
+/// What one line of workflow YAML says about `uses`.
+#[derive(Debug, PartialEq, Eq)]
+enum LineReading {
+    /// A `uses` reference the scanner positively parsed.
+    Reference {
+        reference: String,
+        comment: Option<String>,
+    },
+    /// A `uses`-shaped construct outside the enforced subset.
+    ///
+    /// Always a violation. The alternative — interpreting leniently or
+    /// skipping — is what let a quoted key carry a mutable tag past this gate.
+    Unrecognized(String),
+}
+
 /// Extract every `uses:` entry in a workflow, with its trailing comment.
 fn action_references(text: &str) -> Vec<ActionReference> {
     text.lines()
         .enumerate()
         .filter_map(|(index, line)| {
-            action_reference(line).map(|(reference, comment)| ActionReference {
-                line: index + 1,
-                reference: reference.to_owned(),
-                comment: comment.map(str::to_owned),
+            action_reference(line).map(|reading| match reading {
+                LineReading::Reference { reference, comment } => ActionReference {
+                    line: index + 1,
+                    reference,
+                    comment,
+                    unrecognized: None,
+                },
+                LineReading::Unrecognized(reason) => ActionReference {
+                    line: index + 1,
+                    reference: line.trim().to_owned(),
+                    comment: None,
+                    unrecognized: Some(reason),
+                },
             })
         })
         .collect()
 }
 
-/// Split one `uses:` line into its reference and its trailing comment.
-fn action_reference(line: &str) -> Option<(&str, Option<&str>)> {
-    let mut trimmed = line.trim_start();
+/// Read one line for a `uses` construct.
+///
+/// The scanner enforces a deliberately small YAML subset: a block-mapping
+/// `uses` key — bare, double-quoted, or single-quoted, with optional space
+/// before the colon — whose value is a plain or quoted scalar on the same
+/// line. Everything else `uses`-shaped is [`LineReading::Unrecognized`], which
+/// is an automatic violation. Failing closed on the exotic spellings is the
+/// lesson of the 2026-07-29 audit; a scanner that skips what it cannot parse
+/// reports one fewer reference instead of one violation, and success with a
+/// smaller number is still success.
+fn action_reference(line: &str) -> Option<LineReading> {
+    let trimmed = line.trim_start();
     if trimmed.starts_with('#') {
         return None;
     }
-    if let Some(item) = trimmed.strip_prefix("- ") {
-        trimmed = item.trim_start();
+    // YAML explicit-key syntax (`? key`) can spell any key, including `uses`,
+    // across two lines. Nothing in a workflow needs it.
+    if trimmed.starts_with("? ") || trimmed == "?" {
+        return Some(LineReading::Unrecognized(
+            "YAML explicit-key syntax is outside the subset this scanner enforces; \
+             write plain `key: value` mappings"
+                .to_owned(),
+        ));
     }
-    let value = trimmed.strip_prefix("uses:")?.trim();
+    let mut rest = trimmed;
+    if let Some(item) = rest.strip_prefix("- ") {
+        rest = item.trim_start();
+    }
+
+    // A double-quoted key may contain escapes, so `"u\x73es"` decodes to a key
+    // this scanner cannot see without implementing YAML string decoding.
+    // Escaped keys have no legitimate use in a workflow; refuse them all.
+    if let Some(reason) = escaped_quoted_key(rest) {
+        return Some(LineReading::Unrecognized(reason));
+    }
+
+    if let Some(value) = uses_key_value(rest) {
+        return Some(read_uses_value(value));
+    }
+
+    // Flow mappings (`- { name: x, uses: y }`) put the key mid-line, where the
+    // block-style reader above cannot see it. Detect and refuse rather than
+    // parse: flow YAML has its own quoting and nesting rules, and a partial
+    // implementation of them would be this same defect rebuilt.
+    flow_style_uses(rest).map(LineReading::Unrecognized)
+}
+
+/// The value following a block-style `uses` key, if this line has one.
+///
+/// Accepts `uses`, `"uses"`, and `'uses'`, each with optional whitespace
+/// before the colon — all spellings YAML reads as the same key.
+fn uses_key_value(rest: &str) -> Option<&str> {
+    for spelling in ["uses", "\"uses\"", "'uses'"] {
+        if let Some(after_key) = rest.strip_prefix(spelling) {
+            let after_key = after_key.trim_start();
+            if let Some(value) = after_key.strip_prefix(':') {
+                return Some(value);
+            }
+        }
+    }
+    None
+}
+
+/// Parse the scalar value of a `uses` key, or refuse the shapes that would
+/// need a real YAML parser to read faithfully.
+fn read_uses_value(value: &str) -> LineReading {
+    let value = value.trim();
+    let refuse = |what: &str| {
+        LineReading::Unrecognized(format!(
+            "`uses` value is {what}, which is outside the subset this scanner enforces; \
+             write the reference as a plain scalar on the same line"
+        ))
+    };
+    if value.is_empty() {
+        // The reference may continue on the next line as a plain scalar or a
+        // nested node. The old scanner skipped this shape, making it a way to
+        // hide a reference; a value the scanner cannot see is a violation.
+        return refuse("not on the same line as its key");
+    }
+    match value.as_bytes()[0] {
+        b'|' | b'>' => return refuse("a block scalar"),
+        b'*' => return refuse("a YAML alias"),
+        b'&' => return refuse("anchored"),
+        b'{' | b'[' => return refuse("a flow collection"),
+        _ => {}
+    }
     // The comment is returned rather than dropped. Discarding it here is what
     // made the tag half of SEC-010 unenforceable further up.
     let (value, comment) = match value.split_once('#') {
@@ -772,8 +1101,102 @@ fn action_reference(line: &str) -> Option<(&str, Option<&str>)> {
         None => (value, None),
     };
     let value = value.trim().trim_matches(['"', '\'']);
-    let comment = comment.filter(|text| !text.is_empty());
-    (!value.is_empty()).then_some((value, comment))
+    let comment = comment.map(str::to_owned).filter(|text| !text.is_empty());
+    if value.is_empty() {
+        return refuse("empty");
+    }
+    LineReading::Reference {
+        reference: value.to_owned(),
+        comment,
+    }
+}
+
+/// A double-quoted mapping key containing a backslash, at the start of this
+/// line's content.
+fn escaped_quoted_key(rest: &str) -> Option<String> {
+    let inner = rest.strip_prefix('"')?;
+    let closing = inner.find('"')?;
+    let key = &inner[..closing];
+    let after = inner[closing + 1..].trim_start();
+    (key.contains('\\') && after.starts_with(':')).then(|| {
+        format!(
+            "quoted mapping key \"{key}\" contains an escape; escaped keys are outside \
+             the subset this scanner enforces"
+        )
+    })
+}
+
+/// A `uses` key in flow-mapping position — immediately after `{` or `,`,
+/// allowing whitespace and one layer of quotes.
+///
+/// Prose is deliberately not matched: `run: echo "uses: x"` has no `{` or `,`
+/// introducing the token, so scripts that merely mention `uses` stay ignored.
+/// A quoted flow key containing an escape is refused for the same reason as at
+/// line start.
+fn flow_style_uses(rest: &str) -> Option<String> {
+    let bytes = rest.as_bytes();
+    for (index, byte) in bytes.iter().enumerate() {
+        if *byte != b'{' && *byte != b',' {
+            continue;
+        }
+        let mut cursor = index + 1;
+        while bytes.get(cursor).is_some_and(|b| *b == b' ' || *b == b'\t') {
+            cursor += 1;
+        }
+        let quote = match bytes.get(cursor) {
+            Some(&q @ (b'"' | b'\'')) => {
+                cursor += 1;
+                Some(q)
+            }
+            _ => None,
+        };
+        let key_start = cursor;
+        if let Some(quote) = quote {
+            while bytes.get(cursor).is_some_and(|b| *b != quote) {
+                cursor += 1;
+            }
+            if cursor >= bytes.len() {
+                continue;
+            }
+            let key = &rest[key_start..cursor];
+            cursor += 1;
+            while bytes.get(cursor).is_some_and(|b| *b == b' ' || *b == b'\t') {
+                cursor += 1;
+            }
+            if bytes.get(cursor) == Some(&b':') {
+                if key == "uses" {
+                    return Some(flow_refusal());
+                }
+                if key.contains('\\') {
+                    return Some(format!(
+                        "quoted flow-mapping key {key:?} contains an escape; escaped keys \
+                         are outside the subset this scanner enforces"
+                    ));
+                }
+            }
+        } else {
+            while bytes
+                .get(cursor)
+                .is_some_and(|b| !matches!(*b, b':' | b' ' | b'\t' | b',' | b'}'))
+            {
+                cursor += 1;
+            }
+            let key = &rest[key_start..cursor];
+            while bytes.get(cursor).is_some_and(|b| *b == b' ' || *b == b'\t') {
+                cursor += 1;
+            }
+            if bytes.get(cursor) == Some(&b':') && key == "uses" {
+                return Some(flow_refusal());
+            }
+        }
+    }
+    None
+}
+
+fn flow_refusal() -> String {
+    "`uses` appears inside a flow mapping, which is outside the subset this scanner \
+     enforces; write the step in block style"
+        .to_owned()
 }
 
 fn is_pinned(reference: &str) -> bool {
@@ -838,6 +1261,7 @@ PartMan repository tasks
   cargo xtask supply-chain       Run cargo-deny and cargo-audit
   cargo xtask tokens             Audit the design tokens for UI-001/007/008
   cargo xtask verify-actions     Verify every GitHub Action is pinned by digest
+  cargo xtask verify-licenses    Verify every manifest declares MIT OR Apache-2.0
   cargo xtask verify-toolchain   Verify the pinned Rust compiler
 "
     );
@@ -884,10 +1308,12 @@ impl fmt::Display for TaskError {
 #[cfg(test)]
 mod tests {
     use super::{
-        ActionReference, Task, TaskError, action_reference, action_references, is_pinned, parse,
-        parse_test, repository_root, run_tier, verify_action_pins,
+        ActionReference, LineReading, Task, TaskError, action_reference, action_references,
+        is_pinned, parse, parse_test, repository_root, run_tier, verify_action_pins,
+        verify_manifest_licenses,
     };
     use std::ffi::OsString;
+    use std::fs;
 
     fn args(values: &[&str]) -> Vec<OsString> {
         values.iter().map(OsString::from).collect()
@@ -958,6 +1384,10 @@ mod tests {
         assert_eq!(
             parse(&args(&["verify-actions"])).expect("verify-actions"),
             Task::VerifyActions
+        );
+        assert_eq!(
+            parse(&args(&["verify-licenses"])).expect("verify-licenses"),
+            Task::VerifyLicenses
         );
         assert_eq!(
             parse(&args(&["verify-toolchain"])).expect("verify-toolchain"),
@@ -1117,7 +1547,212 @@ jobs:
             "actions/setup-node@0000000000000000000000000000000000000000"
         );
         assert_eq!(found[1].comment, None);
-        assert_eq!(action_reference("        uses:"), None);
+        // A `uses` key with no inline value used to be skipped. Its value may
+        // continue on the next line, where this scanner cannot see it, so it is
+        // now refused rather than ignored.
+        assert!(matches!(
+            action_reference("        uses:"),
+            Some(LineReading::Unrecognized(_))
+        ));
+    }
+
+    #[test]
+    fn a_quoted_uses_key_is_scanned_not_skipped() {
+        // The 2026-07-29 audit's live bypass: `"uses"` is the same YAML key as
+        // `uses`, GitHub executes it, and the scanner reported success with one
+        // fewer reference — the mutable action was invisible, not rejected.
+        for spelling in [
+            "\"uses\": actions/checkout@v7",
+            "'uses': actions/checkout@v7",
+            "- \"uses\": actions/checkout@v7",
+            "uses : actions/checkout@v7",
+        ] {
+            let found = action_references(spelling);
+            assert_eq!(found.len(), 1, "{spelling:?} must register");
+            assert!(
+                found[0].violation().is_some(),
+                "{spelling:?} carries a mutable tag and must be a violation"
+            );
+        }
+
+        // And the same spellings with a real pin are accepted, so the fix is
+        // recognition, not a blanket ban on quoting.
+        let pinned = format!("\"uses\": actions/checkout@{} # v7.0.1", "a".repeat(40));
+        let found = action_references(&pinned);
+        assert_eq!(found.len(), 1);
+        assert_eq!(
+            found[0].violation(),
+            None,
+            "a properly pinned quoted key is fine: {:?}",
+            found[0]
+        );
+    }
+
+    #[test]
+    fn constructs_outside_the_yaml_subset_are_refused_not_skipped() {
+        // Each of these is valid YAML that carries (or could carry) a `uses`
+        // reference somewhere a line scanner cannot faithfully read. Every one
+        // must surface as a violation; silence is how the quoted-key bypass
+        // survived. The flow-mapping case is refused even when its pin is
+        // valid, because reading flow YAML correctly needs a real parser.
+        let sha = "a".repeat(40);
+        for construct in [
+            format!("- {{ name: x, uses: actions/checkout@{sha} }} # v7.0.1"),
+            format!("- {{ \"uses\": actions/checkout@{sha} }} # v7.0.1"),
+            "uses: |".to_owned(),
+            "uses: >".to_owned(),
+            "uses: *pinned_elsewhere".to_owned(),
+            format!("uses: &anchor actions/checkout@{sha} # v7.0.1"),
+            format!("\"u\\x73es\": actions/checkout@{sha} # v7.0.1"),
+            "? uses".to_owned(),
+        ] {
+            let found = action_references(&construct);
+            assert_eq!(found.len(), 1, "{construct:?} must register");
+            assert!(
+                found[0].unrecognized.is_some(),
+                "{construct:?} must be refused as outside the subset"
+            );
+            assert!(
+                found[0].violation().is_some(),
+                "an unrecognized construct is always a violation"
+            );
+        }
+    }
+
+    #[test]
+    fn prose_that_mentions_uses_still_does_not_register() {
+        // Scripts may legitimately talk about actions. The flow detector keys
+        // on `{` and `,` in key position, so quoted prose stays prose.
+        for prose in [
+            "        run: echo \"uses: actions/checkout@v6\"",
+            "      # uses: actions/stale@v9",
+            "        run: grep uses ci.yml",
+        ] {
+            assert_eq!(
+                action_reference(prose),
+                None,
+                "{prose:?} is not a reference"
+            );
+        }
+    }
+
+    #[test]
+    fn every_repository_manifest_declares_the_project_licence() {
+        verify_manifest_licenses(&repository_root())
+            .expect("every manifest in this repository declares MIT OR Apache-2.0");
+    }
+
+    #[test]
+    fn a_manifest_that_loses_its_licence_key_is_a_violation() {
+        // The WP-000 gap this check closes: fuzz/Cargo.toml sits outside
+        // cargo-deny's graph and package.json outside any licence gate, so
+        // either could lose its declaration with CI green. Each mutation below
+        // must fail, and the passing tree proves the check is not vacuous.
+        let root =
+            std::env::temp_dir().join(format!("partman-xtask-licenses-{}", std::process::id()));
+        let write = |relative: &str, contents: &str| {
+            let path = root.join(relative);
+            fs::create_dir_all(path.parent().expect("parent")).expect("create parent");
+            fs::write(path, contents).expect("write manifest");
+        };
+
+        write("LICENSE-MIT", "MIT License\n");
+        write("LICENSE-APACHE", "Apache License\n");
+        write(
+            "Cargo.toml",
+            "[workspace.package]\nlicense = \"MIT OR Apache-2.0\"\n",
+        );
+        write(
+            "crates/member/Cargo.toml",
+            "[package]\nlicense.workspace = true\n",
+        );
+        write(
+            "packages/web/package.json",
+            "{\n  \"license\": \"MIT OR Apache-2.0\"\n}\n",
+        );
+        verify_manifest_licenses(&root).expect("a fully declared tree passes");
+
+        // A Cargo manifest with no licence key.
+        write("crates/member/Cargo.toml", "[package]\nname = \"member\"\n");
+        assert!(verify_manifest_licenses(&root).is_err(), "missing key");
+        write(
+            "crates/member/Cargo.toml",
+            "[package]\nlicense.workspace = true\n",
+        );
+
+        // A different licence is a violation, not a variation.
+        write(
+            "packages/web/package.json",
+            "{\n  \"license\": \"GPL-3.0-only\"\n}\n",
+        );
+        assert!(verify_manifest_licenses(&root).is_err(), "wrong licence");
+        write(
+            "packages/web/package.json",
+            "{\n  \"license\": \"MIT OR Apache-2.0\"\n}\n",
+        );
+
+        // A declaration with no licence text behind it is a violation too.
+        fs::remove_file(root.join("LICENSE-APACHE")).expect("remove licence text");
+        assert!(verify_manifest_licenses(&root).is_err(), "missing text");
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn the_xtask_alias_enforces_the_lockfile_at_the_gate_boundary() {
+        // The `--locked` flags inside this binary bind only once the binary is
+        // built. The build that loads the gate is governed by the alias in
+        // `.cargo/config.toml`, and the 2026-07-29 audit showed what its
+        // absence permits: a deleted Cargo.lock entry was silently regenerated
+        // while building xtask, and all 160 tests then passed against a
+        // lockfile the repository never committed. This test cannot re-run
+        // that experiment cheaply, but it can make the flag's removal fail CI
+        // by name.
+        let config = repository_root().join(".cargo/config.toml");
+        let text = fs::read_to_string(&config).expect("read .cargo/config.toml");
+        let alias = text
+            .lines()
+            .find(|line| line.trim_start().starts_with("xtask ="))
+            .expect("the xtask alias exists");
+        assert!(
+            alias.contains("--locked"),
+            "the xtask alias must carry --locked; without it the gate can repair the \
+             lockfile it claims to enforce: {alias}"
+        );
+    }
+
+    #[test]
+    fn composite_action_metadata_is_scanned_when_present() {
+        let root =
+            std::env::temp_dir().join(format!("partman-xtask-composite-{}", std::process::id()));
+        let workflows = root.join(super::WORKFLOW_DIRECTORY);
+        fs::create_dir_all(&workflows).expect("create workflow directory");
+        fs::write(
+            workflows.join("ci.yml"),
+            format!(
+                "jobs:\n  build:\n    steps:\n      - uses: ./.github/actions/local\n      - uses: actions/checkout@{} # v7.0.1\n",
+                "a".repeat(40)
+            ),
+        )
+        .expect("write workflow");
+
+        // The local action passes as `./...` in the workflow — but its own
+        // metadata carries a remote, mutable reference. Exempting the local
+        // action is safe only because this file is scanned too.
+        let action = root.join(super::LOCAL_ACTIONS_DIRECTORY).join("local");
+        fs::create_dir_all(&action).expect("create action directory");
+        fs::write(
+            action.join("action.yml"),
+            "runs:\n  using: composite\n  steps:\n    - uses: actions/cache@v4\n",
+        )
+        .expect("write action metadata");
+
+        let error = verify_action_pins(&root).expect_err("the mutable tag must be found");
+        assert!(
+            error.to_string().contains("actions/cache@v4"),
+            "the violation must name the reference inside the composite action: {error}"
+        );
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]
@@ -1133,6 +1768,7 @@ jobs:
             line: 1,
             reference: format!("actions/checkout@{sha}"),
             comment: comment.map(str::to_owned),
+            unrecognized: None,
         };
 
         assert_eq!(reference(Some("v6.0.2")).violation(), None);
@@ -1156,6 +1792,7 @@ jobs:
             line: 1,
             reference: "actions/checkout@v6".to_owned(),
             comment: Some("v6".to_owned()),
+            unrecognized: None,
         };
         assert!(
             mutable
@@ -1170,6 +1807,7 @@ jobs:
             line: 1,
             reference: "./.github/actions/local".to_owned(),
             comment: None,
+            unrecognized: None,
         };
         assert_eq!(local.violation(), None);
     }

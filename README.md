@@ -91,7 +91,7 @@ Section 14 of the specification is normative. Current state:
 
 | Package | Scope | Status |
 | --- | --- | --- |
-| WP-000 | Repository, CI, `xtask`, CODEOWNERS, dependency policy | Complete |
+| WP-000 | Repository, CI, `xtask`, CODEOWNERS, dependency policy | In progress — foundation delivered; the 2026-07-29 audit's lock-boundary, action-scanner, and fuzz-graph findings are remediated, but Section 12's definition of done still wants generated traceability and mechanical path-ownership enforcement |
 | ADR-C1 | Canonical encoding and hash strategy | Accepted |
 | ADR-C2 … ADR-C5 | Hashed-artifact body/envelope split, identity strength, provenance shape, aggregation vocabulary | Accepted |
 | WP-010 | Canonical domain model, schema versioning, encoding and hashing | In progress, blocked at increment 3; see `docs/work-packages/WP-010.md` |
