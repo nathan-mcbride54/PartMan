@@ -62,7 +62,152 @@ fn all_three_factors_together_authorize() {
         .authorize(&sandbox.request(vec![target.clone()]))
         .expect("a generated fixture with profile and token must authorize");
     assert_eq!(authorization.targets().len(), 1);
-    assert!(authorization.targets()[0].ends_with("blank-512.img"));
+    assert!(authorization.targets()[0].path().ends_with("blank-512.img"));
+}
+
+#[test]
+fn authorization_holds_the_object_it_verified_not_the_name() {
+    // The replace-after-authorization test the WP-020 preconditions demand,
+    // and the reason `Authorization` carries open files instead of paths. The
+    // attack: authorize a real fixture, then rebind its *name* to something
+    // else before the destructive suite writes. With a `Vec<PathBuf>` the
+    // suite would have written to whatever the name now points at; the audit
+    // called this the most important precondition before any Tier-2 write.
+    let sandbox = Sandbox::new("replace-after-check");
+    let target = sandbox.target("blank-512.img");
+    let authorization = sandbox
+        .authorize(&sandbox.request(vec![target.clone()]))
+        .expect("the untouched fixture must authorize");
+
+    let moved_aside = sandbox.root.join("moved-aside.img");
+
+    #[cfg(windows)]
+    {
+        // The share mode on the held handle refuses every rebinding of the
+        // name while the authorization lives: no rename away, no deletion, no
+        // second write handle. The swap is stopped at step one.
+        assert!(
+            fs::rename(&target, &moved_aside).is_err(),
+            "renaming a file whose verified handle is held must fail on Windows"
+        );
+        assert!(
+            fs::remove_file(&target).is_err(),
+            "deleting a file whose verified handle is held must fail on Windows"
+        );
+        assert!(
+            fs::OpenOptions::new().write(true).open(&target).is_err(),
+            "a second write handle to a verified target must be refused on Windows"
+        );
+        drop(authorization);
+        // And the refusals end with the authorization: the handle is the
+        // enforcement, not some persistent state.
+        fs::rename(&target, &moved_aside).expect("after drop the name is free again");
+    }
+
+    #[cfg(unix)]
+    {
+        // POSIX has no mandatory locking to refuse the rename, so the name
+        // *can* be rebound — and the guarantee is the stronger fact that it
+        // does not matter. The held handle is the verified inode; writes
+        // through it reach the object that was checked, and the impostor now
+        // sitting at the verified path never sees a byte.
+        use std::io::{Seek as _, SeekFrom, Write as _};
+
+        fs::rename(&target, &moved_aside).expect("rename the verified object aside");
+        fs::write(&target, b"impostor").expect("plant an impostor at the verified name");
+
+        let mut targets = authorization.into_targets();
+        let mut file = targets.pop().expect("one verified target").into_file();
+        file.seek(SeekFrom::Start(0)).expect("rewind");
+        file.write_all(b"DESTRUCTIVE-WRITE")
+            .expect("write through the verified handle");
+        file.sync_all().expect("flush");
+        drop(file);
+
+        let impostor = fs::read(&target).expect("read the impostor");
+        assert_eq!(
+            impostor, b"impostor",
+            "the impostor at the verified name must never see a write"
+        );
+        let moved = fs::read(&moved_aside).expect("read the verified object");
+        assert!(
+            moved.starts_with(b"DESTRUCTIVE-WRITE"),
+            "the write must have reached the object that was verified"
+        );
+    }
+}
+
+#[test]
+fn object_verification_survives_the_path_ceasing_to_exist() {
+    // The deterministic proof that `verify_object` is handle-pure. A deletion
+    // sweep on the first version showed that downgrading its `fstat` to a
+    // by-path `stat` kept every test green — the difference only shows during
+    // a race, which a unit test cannot stage reliably. So the seam is tested
+    // the other way around: open the object, make the path *gone*, and then
+    // verify. Any check that touches a path instead of the handle now fails
+    // on a missing file, so this test passing proves every check reads what
+    // is held.
+    let sandbox = Sandbox::new("handle-purity");
+    let target = sandbox.target("blank-512.img");
+    let entry = sandbox
+        .manifest
+        .entry("blank-512.img")
+        .expect("the blank fixture is in the manifest")
+        .clone();
+
+    let mut options = fs::OpenOptions::new();
+    options.read(true).write(true);
+    #[cfg(windows)]
+    {
+        // Permissive sharing (read | write | delete), unlike the interlock's
+        // own restrictive mode: this handle must allow the rename below.
+        use std::os::windows::fs::OpenOptionsExt as _;
+        options.share_mode(7);
+    }
+    let mut file = options.open(&target).expect("open the fixture");
+
+    // Make the name useless. On Unix the file is unlinked outright; Windows
+    // refuses deletion of an open file even with FILE_SHARE_DELETE on some
+    // filesystems, so the name is renamed away instead — equally gone from
+    // where any by-path check would look.
+    #[cfg(unix)]
+    fs::remove_file(&target).expect("unlink the verified name");
+    #[cfg(windows)]
+    fs::rename(&target, sandbox.root.join("elsewhere.img")).expect("rename the name away");
+    assert!(!target.exists(), "the verified path must be gone");
+
+    super::verify_object(&mut file, entry.length, &entry.digest, &target)
+        .expect("verification must succeed through the handle alone");
+}
+
+#[test]
+fn the_verified_handle_is_what_the_consumer_receives() {
+    // `into_targets` consumes the authorization, and each target yields the
+    // open file itself. There is no path-reopening step for a race to hide in:
+    // handing over the handle *is* the handover.
+    let sandbox = Sandbox::new("handle-handover");
+    let target = sandbox.target("blank-512.img");
+    let authorization = sandbox
+        .authorize(&sandbox.request(vec![target]))
+        .expect("the fixture must authorize");
+
+    let expected_length = sandbox
+        .manifest
+        .entry("blank-512.img")
+        .expect("the blank fixture is in the manifest")
+        .length;
+    let targets = authorization.into_targets();
+    assert_eq!(targets.len(), 1);
+    let metadata = targets[0]
+        .file
+        .metadata()
+        .expect("fstat on the verified handle");
+    assert!(metadata.is_file());
+    assert_eq!(
+        metadata.len(),
+        expected_length,
+        "the handle is open on the exact object whose length the manifest records"
+    );
 }
 
 #[test]

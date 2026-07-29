@@ -18,9 +18,27 @@
 //! path, a missing target — every error returns [`Refusal`], never a pass.
 //! SAFE-005 requires failing closed, and an interlock that fails open under an
 //! I/O error protects nothing on exactly the damaged systems where it matters.
+//!
+//! **Authorization holds the object it verified, not the name it found it
+//! under.** Until 2026-07-29 [`Authorization`] carried a `Vec<PathBuf>` — a
+//! list of names — and the 2026-07-29 project audit called that the most
+//! important precondition before any Tier-2 write, because a name can be
+//! rebound between verification and use. Every check that decides
+//! disposability now runs against an **open file handle**: `fstat` through the
+//! handle says regular file, the length and every byte are read through the
+//! handle, and the same handle — the verified object itself — is what the
+//! destructive consumer receives. Renaming or swapping the path afterwards
+//! changes which object the *name* refers to; it cannot change which object
+//! the authorization holds. On Windows the handle is opened with a share mode
+//! that additionally refuses concurrent writes, deletion, and renames — via
+//! any name, including a hard link — for as long as the authorization lives.
+//! The path checks (fixture root, exact expected location, symlink refusal)
+//! are kept as hygiene, but nothing safety-relevant rests on a path once the
+//! handle is open.
 
 use core::fmt;
-use std::io;
+use std::fs::File;
+use std::io::{self, Read as _};
 use std::path::{Path, PathBuf};
 
 use sha2::{Digest as _, Sha256};
@@ -46,21 +64,70 @@ pub struct Request {
     pub targets: Vec<PathBuf>,
 }
 
-/// Proof that a destructive suite may run against [`Authorization::targets`].
+/// One verified target: the open file object, and the name it was found under.
+///
+/// The [`File`] is the verification: every disposability check ran against
+/// this handle, and writes through it reach the object that was checked even
+/// if the path has since been renamed, deleted, or pointed at something else.
+/// The path is carried for reporting only.
+#[derive(Debug)]
+pub struct VerifiedTarget {
+    path: PathBuf,
+    file: File,
+}
+
+impl VerifiedTarget {
+    /// The canonical path the object was verified under, for reporting.
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// The verified object itself. Consuming, like the authorization that
+    /// carried it: the handle is the proof, and handing out copies of a proof
+    /// is how a proof stops meaning anything.
+    #[must_use]
+    pub fn into_file(self) -> File {
+        self.file
+    }
+}
+
+/// Proof that a destructive suite may run against the targets it carries.
 ///
 /// Constructible only by [`authorize`]. A function that requires one of these
 /// cannot be called without the interlock having passed, so "did anyone check?"
 /// is answered by the type rather than by review.
-#[derive(Clone, Debug)]
+///
+/// Deliberately **not** `Clone`, and consumed by [`Authorization::into_targets`]:
+/// one authorization is one destructive run. A copyable proof could be stashed
+/// and replayed against a directory whose contents have long since changed,
+/// and [`File`] not being `Clone` makes this a property of the type system
+/// rather than of discipline:
+///
+/// ```compile_fail
+/// # use partman_fixtures::interlock::Authorization;
+/// fn replay(authorization: &Authorization) -> Authorization {
+///     authorization.clone()
+/// }
+/// ```
+#[derive(Debug)]
 pub struct Authorization {
-    targets: Vec<PathBuf>,
+    targets: Vec<VerifiedTarget>,
 }
 
 impl Authorization {
-    /// The verified targets, canonicalized.
+    /// The verified targets, for inspection and reporting.
     #[must_use]
-    pub fn targets(&self) -> &[PathBuf] {
+    pub fn targets(&self) -> &[VerifiedTarget] {
         &self.targets
+    }
+
+    /// Consume the proof, yielding the verified objects for one destructive
+    /// run. There is intentionally no way to get the handles while keeping
+    /// the authorization.
+    #[must_use]
+    pub fn into_targets(self) -> Vec<VerifiedTarget> {
+        self.targets
     }
 }
 
@@ -205,10 +272,17 @@ pub fn authorize(root: &Path, request: &Request) -> Result<Authorization, Refusa
     Ok(Authorization { targets: verified })
 }
 
-/// Verify one target, returning its canonical path.
-fn verify_target(root: &Path, manifest: &Manifest, target: &Path) -> Result<PathBuf, Refusal> {
+/// Verify one target, returning the open, verified file object.
+fn verify_target(
+    root: &Path,
+    manifest: &Manifest,
+    target: &Path,
+) -> Result<VerifiedTarget, Refusal> {
     // `symlink_metadata` does not follow links, so a symlink aimed at a device
-    // is rejected here rather than silently resolved into one.
+    // is rejected here rather than silently resolved into one. This is a
+    // by-name check and therefore raceable; it exists to give symlinks their
+    // own honest refusal. Safety does not rest on it — whatever object the
+    // open below actually yields is re-verified through the handle.
     let link_metadata =
         std::fs::symlink_metadata(target).map_err(|error| unresolvable(target, &error))?;
     if !link_metadata.is_file() {
@@ -230,32 +304,31 @@ fn verify_target(root: &Path, manifest: &Manifest, target: &Path) -> Result<Path
         });
     }
 
-    let metadata = std::fs::metadata(&resolved).map_err(|error| unresolvable(target, &error))?;
-    if !metadata.is_file() {
-        return Err(Refusal::TargetNotRegularFile {
-            path: target.to_path_buf(),
-        });
-    }
-
-    // A hard link is a regular file, and canonicalizing one still yields a path
-    // under the root, so neither check above sees it. Requiring the content to
-    // equal a generated fixture already means a link can only ever point at
-    // something that *is* a fixture — but a second name for the file is still a
-    // second thing a destructive suite could reach, so refuse it where the
-    // platform will say.
-    #[cfg(unix)]
+    // Open the object, then verify *it*. Everything after this line reads
+    // through the handle: the name has done its job and is never trusted
+    // again. Write access is requested because this handle is what the
+    // destructive consumer will receive — verifying one handle and writing
+    // through another would reopen the gap this function exists to close.
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true).write(true);
+    #[cfg(windows)]
     {
-        use std::os::unix::fs::MetadataExt as _;
-        if metadata.nlink() > 1 {
-            return Err(Refusal::TargetHasOtherNames {
-                path: target.to_path_buf(),
-                links: metadata.nlink(),
-            });
-        }
+        // FILE_SHARE_READ alone: while this handle is open, every other open
+        // for writing or deletion — through any name, including a hard link —
+        // fails with a sharing violation. The rename/replace family needs
+        // DELETE access, so a verified target cannot be swapped out from
+        // under its authorization on this platform. POSIX offers no mandatory
+        // equivalent; there, the guarantee is the weaker but sufficient one
+        // that the held object cannot be *changed which* object it is.
+        use std::os::windows::fs::OpenOptionsExt as _;
+        options.share_mode(1);
     }
+    let mut file = options
+        .open(&resolved)
+        .map_err(|error| unresolvable(target, &error))?;
 
-    // The decisive check, and it is now anchored to the compiled catalogue: this
-    // file must be a fixture *by name*, and its length and bytes must be exactly
+    // The decisive checks are anchored to the compiled catalogue: this file
+    // must be a fixture *by name*, and its length and bytes must be exactly
     // that fixture's. Membership by digest alone was too weak — it let any file
     // pass so long as some entry, anywhere in the manifest, shared its digest.
     let name = resolved
@@ -281,21 +354,79 @@ fn verify_target(root: &Path, manifest: &Manifest, target: &Path) -> Result<Path
         });
     }
 
-    if metadata.len() != entry.length {
+    verify_object(&mut file, entry.length, &entry.digest, target)?;
+
+    Ok(VerifiedTarget {
+        path: resolved,
+        file,
+    })
+}
+
+/// Verify the opened object itself: regular file, single name, exact length,
+/// exact bytes — every read through the handle, none through a path.
+///
+/// This function exists as a seam on purpose. The first version of the handle
+/// binding read metadata through the handle, but a deletion sweep showed that
+/// downgrading it to a by-path `stat` kept every test green: nothing
+/// distinguished "checked what I hold" from "checked what the name points at",
+/// because the two only differ during a race. Extracting the object checks
+/// into a function that takes no usable path lets a test prove handle-purity
+/// deterministically — it deletes or renames the path away and then calls
+/// this, which can only succeed if every check goes through the handle.
+/// `target` is for error reporting only.
+fn verify_object(
+    file: &mut File,
+    expected_length: u64,
+    expected_digest: &str,
+    target: &Path,
+) -> Result<(), Refusal> {
+    // `fstat` on the handle, not `stat` on the path: this answers "what did I
+    // actually open", which no rebinding of the name can retroactively change.
+    let metadata = file
+        .metadata()
+        .map_err(|error| unresolvable(target, &error))?;
+    if !metadata.is_file() {
+        return Err(Refusal::TargetNotRegularFile {
+            path: target.to_path_buf(),
+        });
+    }
+
+    // A hard link is a regular file, and canonicalizing one still yields a path
+    // under the root, so neither name check sees it. Requiring the content to
+    // equal a generated fixture already means a link can only ever point at
+    // something that *is* a fixture — but a second name for the file is still a
+    // second thing a destructive suite could reach, so refuse it where the
+    // platform will say. On Windows the share mode on this handle closes the
+    // same hole for the duration of the authorization instead: a hard link is
+    // another name for the same file object, and opening that object for
+    // writing while this handle lives is refused.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        if metadata.nlink() > 1 {
+            return Err(Refusal::TargetHasOtherNames {
+                path: target.to_path_buf(),
+                links: metadata.nlink(),
+            });
+        }
+    }
+
+    if metadata.len() != expected_length {
         return Err(Refusal::TargetNotGenerated {
             path: target.to_path_buf(),
         });
     }
 
-    let bytes = std::fs::read(&resolved).map_err(|error| unresolvable(target, &error))?;
+    let mut bytes = Vec::with_capacity(usize::try_from(expected_length).unwrap_or(0));
+    file.read_to_end(&mut bytes)
+        .map_err(|error| unresolvable(target, &error))?;
     let digest = hex(&Sha256::digest(&bytes));
-    if !constant_time_eq(digest.as_bytes(), entry.digest.as_bytes()) {
+    if !constant_time_eq(digest.as_bytes(), expected_digest.as_bytes()) {
         return Err(Refusal::TargetNotGenerated {
             path: target.to_path_buf(),
         });
     }
-
-    Ok(resolved)
+    Ok(())
 }
 
 fn unresolvable(path: &Path, error: &io::Error) -> Refusal {
