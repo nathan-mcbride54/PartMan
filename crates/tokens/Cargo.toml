@@ -1,0 +1,18 @@
+[package]
+name = "partman-tokens"
+description = "Design tokens and the WP-030 accessibility harness that computes UI-001, UI-007 and UI-008 from them"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+# Reading `schemas/design-tokens.json`. Both crates already in the lock file as
+# `partman-domain`'s dev-dependencies, so this adds edges rather than new
+# supply-chain surface, and both are `MIT OR Apache-2.0`.
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[lints]
+workspace = true

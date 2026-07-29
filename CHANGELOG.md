@@ -89,6 +89,44 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   checksum routines are arithmetically identical, and the fixture satisfies the
   magic, `major_version` and `super_offset` checks — and it is recorded as
   unestablished rather than guessed at.
+- WP-030 increment 1: `schemas/design-tokens.json` and `crates/tokens`, the
+  design tokens and the accessibility harness that computes UI-001, UI-007 and
+  UI-008 from them. The token file is the single source of truth and lives in
+  `schemas/` for the reason `AGENTS.md` already records for the canonical
+  vectors: when the front end arrives it must read *this* file, because an
+  implementation checked against a table it also owns proves only
+  self-consistency. `cargo xtask tokens` runs the audit and is part of
+  `cargo xtask ci`.
+
+  **The first palette failed its own harness on ten counts.** Chosen by eye and
+  entirely reasonable-looking, it put `severity.reversible` — PLAN-004's "fully
+  undoable" — at delta-E 10.1 from `severity.destructive` — "data is
+  intentionally destroyed" — under deuteranopia, against a floor of 12. In the
+  high-contrast theme, the one a low-vision user is most likely to choose, the
+  same pair measured 4.8. Three further risk pairs collapsed the same way and
+  three borders sat below WCAG's 3:1 floor for interface components. The floor
+  was not lowered: the severity ramp now varies in lightness as well as hue,
+  because lightness survives every colour-vision deficiency and the red-green
+  axis does not, and the light theme's `reversible` is teal-leaning so it keeps
+  a blue component deuteranopia preserves. Closest surviving pair is 21.9.
+
+  Every check is paired with a mutation it must reject, and each was confirmed
+  by deleting the check it targets and watching the table go red — the deletion
+  sweep WP-020 established after finding a gate that was load-bearing on
+  nothing. The colour maths is anchored outside the repository (black on white
+  is WCAG's published 21:1; black against white is delta-E 100 because CIELAB
+  lightness runs 0..=100), and the colour-vision matrices are checked by their
+  defining property — red and green converge under protanopia and deuteranopia
+  but not tritanopia, and greys are untouched by all three — rather than by
+  trusting transcribed digits.
+
+  What it does **not** establish is recorded in `docs/work-packages/WP-030.md`
+  and repeated in the harness output on every run: it renders nothing, so the
+  keyboard, screen-reader, zoom and reduced-motion halves of UI-008 are
+  untouched; only declared pairings are checked, so a combination the front end
+  invents is invisible to it; and the colour-vision check is a model, not a
+  proof — UI-007's redundant channels are the guarantee. M0's "accessibility
+  harness runs" criterion is therefore **partially** met.
 - ADR-C1, accepted, fixing the canonical encoding and hash strategy.
 - ADR-C5, accepted, fixing the aggregation vocabulary: one `Aggregate` node in
   place of three undefined Section 5 names, on-disk signatures as their own

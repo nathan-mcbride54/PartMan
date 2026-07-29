@@ -53,6 +53,7 @@ enum Task {
     Probe,
     SupplyChain,
     Test { tier: u8, profile: Option<String> },
+    Tokens,
     VerifyActions,
     VerifyToolchain,
 }
@@ -78,6 +79,7 @@ fn parse(args: &[OsString]) -> Result<Task, TaskError> {
         "help" | "--help" | "-h" => nullary(Task::Help, command, rest),
         "probe" => nullary(Task::Probe, command, rest),
         "supply-chain" => nullary(Task::SupplyChain, command, rest),
+        "tokens" => nullary(Task::Tokens, command, rest),
         "verify-actions" => nullary(Task::VerifyActions, command, rest),
         "verify-toolchain" => nullary(Task::VerifyToolchain, command, rest),
         "test" => parse_test(rest),
@@ -92,6 +94,7 @@ fn execute(task: &Task) -> Result<(), TaskError> {
         Task::Ci => {
             verify_toolchain()?;
             verify_action_pins(&repository_root())?;
+            audit_tokens()?;
             cargo(&["fmt", "--all", "--", "--check"])?;
             cargo(&[
                 "clippy",
@@ -120,6 +123,7 @@ fn execute(task: &Task) -> Result<(), TaskError> {
         Task::Test { tier, ref profile } => run_tier(tier, profile.as_deref()),
         Task::Fixtures => generate_fixtures(),
         Task::Probe => probe_fixtures(),
+        Task::Tokens => audit_tokens(),
         Task::VerifyActions => verify_action_pins(&repository_root()),
         Task::VerifyToolchain => verify_toolchain(),
     }
@@ -197,6 +201,29 @@ fn parse_tier_args(args: [&OsString; 2]) -> Result<u8, TaskError> {
 /// Where generated fixtures live. Ignored by git; never committed (Section 16).
 fn fixture_root() -> PathBuf {
     repository_root().join("tests").join("generated")
+}
+
+/// Audit `schemas/design-tokens.json` against UI-001, UI-007 and UI-008.
+///
+/// Unprivileged and Tier 1: it reads one JSON file and computes numbers from
+/// it. The caveats are printed on success as well as failure, because a green
+/// accessibility check is exactly the output someone would over-read.
+fn audit_tokens() -> Result<(), TaskError> {
+    let report = partman_tokens::audit_repository_tokens()
+        .map_err(|error| TaskError::Policy(format!("could not read the design tokens: {error}")))?;
+
+    println!("{}", report.summary());
+    if report.is_clean() {
+        println!("\nThis check does not establish:");
+        for caveat in partman_tokens::Report::caveats() {
+            println!("  - {caveat}");
+        }
+        return Ok(());
+    }
+    Err(TaskError::Policy(format!(
+        "the design tokens violate {} accessibility rule(s); see the findings above",
+        report.findings.len()
+    )))
 }
 
 fn generate_fixtures() -> Result<(), TaskError> {
@@ -809,6 +836,7 @@ PartMan repository tasks
                                  No destructive suite exists yet, so this still
                                  refuses rather than reporting an empty pass.
   cargo xtask supply-chain       Run cargo-deny and cargo-audit
+  cargo xtask tokens             Audit the design tokens for UI-001/007/008
   cargo xtask verify-actions     Verify every GitHub Action is pinned by digest
   cargo xtask verify-toolchain   Verify the pinned Rust compiler
 "
@@ -926,6 +954,7 @@ mod tests {
             parse(&args(&["supply-chain"])).expect("supply-chain"),
             Task::SupplyChain
         );
+        assert_eq!(parse(&args(&["tokens"])).expect("tokens"), Task::Tokens);
         assert_eq!(
             parse(&args(&["verify-actions"])).expect("verify-actions"),
             Task::VerifyActions
