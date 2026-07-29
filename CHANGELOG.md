@@ -121,11 +121,53 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   `[workspace.lints]`, and `cargo xtask ci` still fails on any warning in
   workspace code through `cargo clippy -- -D warnings`.
 
-- The project is deliberately unlicensed until it is complete. The `license`
-  key is gone from `Cargo.toml`, and `[licenses.private] ignore = true` in
-  `deny.toml` exempts `publish = false` crates from the license gate, which
-  otherwise fails with `error[unlicensed]`. Third-party dependency licensing is
-  unchanged and still enforced by the allow-list.
+- ~~The project is deliberately unlicensed until it is complete.~~ Superseded
+  below. PartMan is now `MIT OR Apache-2.0`.
+
+- The project is licensed `MIT OR Apache-2.0` at the recipient's choice
+  (ADR-0006), the Rust and Tauri ecosystem standard. `LICENSE-MIT` and
+  `LICENSE-APACHE` carry the texts; every workspace member, the out-of-workspace
+  `fuzz` crate, and `packages/canonical/package.json` declare the expression.
+  Apache-2.0 supplies the explicit patent grant that MIT lacks — worth having
+  for code that drives NTFS, exFAT, and APFS paths — while the MIT arm keeps the
+  result usable by GPL-2.0-only projects, which Apache-2.0 alone would not.
+  Both arms were already on `deny.toml`'s allow-list, so no supply-chain rule
+  was relaxed to accommodate the choice.
+
+  `[licenses.private]` is now `ignore = false`. That exemption existed only to
+  stop `cargo deny` reporting `error[unlicensed]` against the unlicensed
+  workspace; with the cause gone it is removed rather than left dormant, so the
+  project's own crates are checked by the gate that checks every dependency.
+  This closes the WP-000 known gap that recorded SEC-005's license inventory as
+  unsatisfiable. Two manifests remain outside the gate and are recorded as gaps
+  rather than counted: `fuzz/Cargo.toml` is outside cargo-deny's graph, and no
+  license gate reads `packages/canonical/package.json`.
+
+  ADR-0006 also makes the GPL boundary binding, which the unlicensed state had
+  made moot: PartMan invokes GPL storage tools as separate processes under
+  SAFE-004 and reaches UDisks2 over D-Bus, may link LGPL libraries such as
+  `libblkid` and `libblockdev` dynamically, and MUST NOT link a GPL library.
+  `libparted` is named specifically — it is the obvious dependency for a
+  partition editor, and `cargo deny` cannot catch it, because a `-sys` crate
+  declares its own license and not that of the C library it links.
+
+- Contributions are accepted, inbound=outbound under Apache-2.0 §5, with no CLA.
+  `CONTRIBUTING.md` previously barred outside contributions because the rights
+  in one were undefined for both sides; that reason no longer holds.
+
+- `cross-language` and `supply-chain` run on all three operating systems instead
+  of Linux alone. Both were narrowed to save metered private-repository runner
+  minutes, where Windows bills 2x and macOS 10x, and that constraint is gone.
+  The widening is not symmetric bookkeeping: the MODEL-005 parity proof can fail
+  on CRLF translation of the shared vector file or on a platform-specific Node
+  build, and cargo-deny resolves a per-target graph, so once the platform
+  helpers add `windows-sys` or `core-foundation` a Linux-only run would be blind
+  to advisories reachable only from Windows or macOS. `prober-acceptance` and
+  `fuzz-smoke` stay Linux-only for reasons that were never cost — `blkid` and
+  `wipefs` have no Windows or macOS counterpart, and cargo-fuzz has no supported
+  Windows target while the decoder under test is byte-oriented and
+  endian-independent. Both reasons are now comments in the workflow, so neither
+  job gets widened later for the appearance of consistency.
 
 ### Fixed
 

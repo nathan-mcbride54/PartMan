@@ -4,6 +4,7 @@ description = "Deterministic synthetic disk images and the SAFE-007 disposable-t
 edition.workspace = true
 rust-version.workspace = true
 version.workspace = true
+license.workspace = true
 publish = false
 
 [dependencies]
