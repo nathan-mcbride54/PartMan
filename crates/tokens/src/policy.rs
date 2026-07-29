@@ -51,6 +51,20 @@ pub const COLOR_SEPARATION_FLOOR: f64 = 12.0;
 /// The specification version this token vocabulary was derived from.
 pub const REQUIRED_SPEC_VERSION: &str = "4.0.0";
 
+/// The token-set vocabulary version this harness understands.
+///
+/// Held here for the same reason as the floors. The 2026-07-29 follow-up audit
+/// found `tokenSetVersion` was only required to be non-empty — `"not-a-version"`
+/// passed — while WP-030 and the audit response both described parsing as
+/// "versioned". A field nothing compares against is documentation, not
+/// validation.
+///
+/// Exact agreement, deliberately, with no forward-compatibility range: a token
+/// set that says it is a different vocabulary must be re-derived against this
+/// policy rather than assumed compatible, because the roster below is what
+/// "compatible" would have to mean.
+pub const REQUIRED_TOKEN_SET_VERSION: &str = "1.0.0";
+
 /// Threshold names a pairing may declare, and the floor each one means.
 ///
 /// A pairing naming anything else is refused rather than skipped: a skipped

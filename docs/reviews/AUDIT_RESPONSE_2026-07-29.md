@@ -1,5 +1,33 @@
 # Response to the 2026-07-29 project audit
 
+> **Corrections, added after `PROJECT_AUDIT_FOLLOW_UP_2026-07-29.md`.** The
+> history below is preserved, but four dispositions in it claimed more than the
+> evidence supported. Read these first:
+>
+> - **Action scanner: "Fixed" was wrong.** It was *improved, and reopened by a
+>   key-anchor bypass* (`&pin uses: …`). The claim that "everything else
+>   `uses`-shaped outside the enforced subset is a named violation" was false:
+>   node properties attached to the key were neither read nor refused, and the
+>   gate passed counting one fewer reference. Now closed by
+>   syntax-independent discovery, not by extending the subset again.
+> - **`verify-licenses`: the licence half was not closed.** The check matched
+>   trimmed lines, so nesting the JSON property under `metadata` satisfied it
+>   while the document root had no licence. Now parsed as JSON, with Cargo
+>   licences taken from `cargo metadata`.
+> - **The fuzz-graph disposition overstated fail-closed behaviour.** The
+>   preflight lived only in `fuzz()`, and `cargo deny` resolves the manifest to
+>   build its graph — so `supply-chain` silently *repaired* a stale
+>   `fuzz/Cargo.lock` and audited the repaired copy. The preflight is now shared
+>   and runs first in both entry points.
+> - **"Versions validated" was half true.** `specVersion` was compared;
+>   `tokenSetVersion` was only required to be non-empty, so `"not-a-version"`
+>   passed. Both are compared against `policy.rs` now.
+>
+> WP-020 precondition 1 is also **reopened** — see
+> `docs/work-packages/WP-020.md`. Handle binding is real, but it is delivered
+> only *after* an open that can still follow a raced symlink out of the fixture
+> root.
+
 This answers `PROJECT_AUDIT_2026-07-29.md` finding by finding, for the next
 reviewer. Every reproduction the audit described was re-run before being acted
 on, and every fix was re-tested against the audit's own reproduction. Two pull
