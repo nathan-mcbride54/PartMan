@@ -127,6 +127,57 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   invents is invisible to it; and the colour-vision check is a model, not a
   proof — UI-007's redundant channels are the guarantee. M0's "accessibility
   harness runs" criterion is therefore **partially** met.
+- `cargo xtask verify-ownership`, closing the mechanically decidable half of
+  Section 1.10. Every `docs/work-packages/WP-*.md` now carries an `owned-paths`
+  block, which is the same text a reviewer reads, so the prose and the enforced
+  data are one thing rather than two that drift. The check refuses a tracked
+  file no package claims and a claim matching no file — both mutations were run
+  — and reports overlaps rather than forbidding them, because `tools/xtask/**`
+  is genuinely shared by three packages and forbidding that would push the
+  sharing into prose where nothing can see it. All 100 tracked files are
+  claimed. It runs inside `cargo xtask ci`.
+
+  Only exact paths and `directory/**` are understood, and anything else is an
+  error rather than a pattern silently matching nothing — the failure mode the
+  action scanner was audited for twice.
+
+  WP-030's increment-2 assignment is reserved *ahead of the work*, in an
+  `owned-paths-reserved` block the checker reports rather than requires to
+  match. Both audits observed that WP-030's assignment did not authorize
+  creating a Tauri shell and that widening scope in a pull-request description
+  afterwards is the pattern ownership exists to prevent. The reservation also
+  records the audits' design constraint: the front end consumes a generated
+  typed accessor, never a copy of the palette.
+
+  What this does **not** do is decide whether a given change came from the
+  package owning the path — that needs a pull-request-to-package mapping this
+  repository does not carry, and it is the remaining half of issue #39.
+- ADR-0007, accepted, deciding what SAFE-007's disposable-test token proves.
+  WP-020 carried "decide a genuinely independent token factor" as an open
+  precondition since increment 1, and both audits repeated it. The queued
+  answer — add an entropy source — turned out to be wrong in an instructive
+  way: `authorize` trusts nothing inside the directory it verifies, because
+  accepting a caller-supplied manifest was a defect that let a hand-written one
+  authorize an arbitrary target, and a per-generation random token cannot be
+  compiled in. The interlock would have to read it from the fixture root,
+  re-creating that exact trust dependency, so randomness would have added a
+  dependency and a writable-file trust while defeating nobody.
+
+  Read exactly, SAFE-007 requires the three factors to be *present* and forbids
+  one environment variable from standing in for all of them; both hold, and it
+  does not require independence. The token is an operator-intent proof, the
+  documents already said so, and the precondition is closed by decision rather
+  than by code. A real third factor needs state outside both the source tree and
+  the fixture root, which is a T2/T3 lab-architecture question recorded as the
+  ADR's revisit condition.
+- SI-36 filed: SAFE-009 neither permits nor forbids reviewed `unsafe` in a
+  test-fixture crate. WP-020's Windows other-name check needs link count by
+  handle, `MetadataExt::number_of_links` is unstable behind `windows_by_handle`
+  on the pinned 1.96.0 toolchain, and the FFI alternative runs into SAFE-009's
+  two lists naming `crates/fixtures` in neither. An enumeration is not a rule,
+  so per Section 0.2 it is filed rather than guessed. The residual is recorded
+  and narrow: while an authorization is held the Windows share mode refuses
+  writes through any name for the object.
 - ADR-C1, accepted, fixing the canonical encoding and hash strategy.
 - ADR-C5, accepted, fixing the aggregation vocabulary: one `Aggregate` node in
   place of three undefined Section 5 names, on-disk signatures as their own
