@@ -218,6 +218,44 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Fixed
 
+- The action-pin gate no longer depends on recognising the `uses` key. Two
+  audits in a row defeated the key-shaped reader with valid YAML it could not
+  parse — a quoted key, then an anchored one, `&pin uses: actions/checkout@v7` —
+  and each time it reported success having counted one *fewer* reference. A
+  mutable tag was invisible rather than rejected, which is the worst failure
+  mode a gate has: silence that looks like a pass. Discovery is now
+  syntax-independent. An action reference must contain `owner/repo@ref`
+  verbatim, whatever surrounds it, so a sweep for that shape finds every
+  reference and anything the reader could not attribute to a `uses:` key is a
+  violation. Anchors, tags, flow mappings, and every future spelling are
+  covered by the same property, rather than by extending a subset one
+  demonstrated bypass at a time. Verified against four spellings including both
+  the audit's bypass and the tag variant it named as the same class.
+
+- `verify-licenses` is semantic rather than lexical. It matched trimmed lines,
+  so the follow-up audit moved the JSON property under `metadata`: the line
+  still read `"license": "MIT OR Apache-2.0"` while the document's root
+  `license` was `undefined`, and nine artefacts passed. `package.json` is now
+  parsed as JSON with the property required at the root, Cargo licences come
+  from `cargo metadata --locked --no-deps` (which resolves
+  `license.workspace` inheritance the way the toolchain does), and a Cargo
+  manifest that neither workspace includes is a violation because no gate
+  resolves it. The blanket skip for directories named `generated` is gone.
+
+- `supply-chain` no longer repairs the fuzz lock before auditing it. The
+  preflight lived only in `fuzz()`, but `cargo deny` resolves the manifest to
+  build its graph, so `supply-chain` silently restored a deleted
+  `fuzz/Cargo.lock` entry and audited the repaired copy — the policy tool
+  committing the fail-open shape it exists to catch, and leaving a later `fuzz`
+  preflight nothing to refuse. `verify_fuzz_lock` is now shared and runs first
+  in both entry points; the same mutation now refuses and the lock stays stale.
+
+- `tokenSetVersion` is validated instead of merely present. It was only
+  required to be non-empty, so `"not-a-version"` passed while WP-030 and the
+  audit response both described parsing as "versioned" — a field nothing
+  compares against is documentation. It is now compared against
+  `REQUIRED_TOKEN_SET_VERSION` in `policy.rs`, alongside `specVersion`.
+
 - WP-020 increment 2a: authorization holds the object it verified, not the
   name it found it under. The 2026-07-29 audit ranked this the most important
   precondition before any Tier-2 write: `Authorization` carried a

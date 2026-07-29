@@ -349,6 +349,23 @@ fn mutations() -> Vec<Mutation> {
                 set.token_set_version = String::new();
             },
         },
+        Mutation {
+            // The 2026-07-29 follow-up audit's exact reproduction. The old
+            // check only required a non-empty string, so this passed while
+            // WP-030 described parsing as "versioned".
+            name: "tokenSetVersion is a non-empty string that is not a version",
+            requirement: "UI-008",
+            apply: |set| {
+                set.token_set_version = "not-a-version".to_owned();
+            },
+        },
+        Mutation {
+            name: "tokenSetVersion is a plausible but unsupported vocabulary",
+            requirement: "UI-008",
+            apply: |set| {
+                set.token_set_version = "2.0.0".to_owned();
+            },
+        },
     ]
 }
 

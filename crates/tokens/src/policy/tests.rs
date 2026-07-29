@@ -128,6 +128,19 @@ fn surfaces_and_text_do_not_carry_meaning_under_ui_007() {
 }
 
 #[test]
+fn both_versions_are_pinned_outside_the_token_file() {
+    // A version the audited file supplies and nothing compares against is
+    // documentation. Both are compared; neither is empty.
+    use crate::policy::{REQUIRED_SPEC_VERSION, REQUIRED_TOKEN_SET_VERSION};
+    assert!(!REQUIRED_TOKEN_SET_VERSION.is_empty());
+    assert!(!REQUIRED_SPEC_VERSION.is_empty());
+    assert_ne!(
+        REQUIRED_TOKEN_SET_VERSION, REQUIRED_SPEC_VERSION,
+        "these version two different things and should not be conflated"
+    );
+}
+
+#[test]
 fn the_required_themes_include_the_default_and_the_accessible_one() {
     assert!(REQUIRED_THEMES.contains(&DEFAULT_THEME));
     assert!(

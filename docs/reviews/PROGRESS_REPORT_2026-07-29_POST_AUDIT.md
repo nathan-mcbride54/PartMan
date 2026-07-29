@@ -1,5 +1,25 @@
 # Progress report — 2026-07-29, after the audit
 
+> **Corrections, added after `PROJECT_AUDIT_FOLLOW_UP_2026-07-29.md`.** Two
+> claims below were wrong, and both were things this report presented as
+> settled:
+>
+> - **"The action scanner is a subset enforcer" that fails closed** — it was
+>   not. An anchored mapping key (`&pin uses: …`) was silently skipped, so the
+>   gate passed while a mutable tag went unread. Discovery is now
+>   syntax-independent (a sweep for `owner/repo@ref` tokens), which is what
+>   makes the fail-closed claim true.
+> - **"Post-open object verification makes a raced symlink harmless"** — it does
+>   not. Content identity proves fixture *shape*; it proves nothing about root
+>   membership or disposability. A symlink swapped in between canonicalization
+>   and `open` yields a handle on an out-of-root file that passes every
+>   handle-based check. WP-020 precondition 1 is reopened.
+>
+> The "where I would look first" list below was useful but incomplete: it
+> flagged the flow-mapping detector and the lexical licence check as suspect,
+> and both turned out to be genuinely broken — while the pre-open race, the more
+> serious defect, was not on it at all.
+
 Written for the next audit pass. It covers everything merged since
 `PROJECT_AUDIT_2026-07-29.md` was written at `89aa5de`, states what each change
 claims and how that claim was tested, and ends with what I would examine first

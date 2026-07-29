@@ -72,19 +72,40 @@ operating systems and again as a Tier-1 unit test, and it fails closed when the
 workflow directory is missing or empty, so a renamed directory cannot make it
 pass vacuously.
 
-The scanner enforces a **deliberately small YAML subset** and refuses what it
-cannot positively read, rather than parsing all of YAML. A block-style `uses`
-key — bare or quoted, with optional space before the colon — whose value is a
-plain or quoted scalar on the same line is read; flow mappings, block scalars,
-aliases, anchors, escaped quoted keys, explicit-key syntax, and values
-continuing on the next line are each a named violation. The 2026-07-29 audit
-demonstrated why silence is the wrong failure mode: `"uses":` is the same YAML
-key as `uses:`, GitHub executes it, and the previous scanner reported success
-with one *fewer* reference — the mutable tag was invisible rather than
-rejected. Refusing the exotic spelling makes it a build failure to fix instead
-of a reference to miss. Full structural YAML parsing would require adding a
-YAML dependency to the tool that gates dependencies; that trade is available if
-the subset ever pinches, and it is a reviewed decision, not a default.
+**Discovery does not depend on recognising the key.** Two audits in a row
+defeated a key-shaped reader with valid YAML it could not parse — first a
+quoted key (`"uses":`), then an anchored one (`&pin uses:`) — and each time the
+scanner reported success having simply counted one *fewer* reference. That is
+the worst failure mode a gate has: silence that looks like a pass.
+
+So the scanner has two paths, and the second is the guarantee:
+
+1. A **key-shaped reader** over a deliberately small YAML subset — a
+   block-style `uses` key, bare or quoted, with optional space before the
+   colon, whose value is a plain or quoted scalar on the same line. Flow
+   mappings, block scalars, aliases, anchors, escaped keys, explicit-key
+   syntax, and next-line values are each a named violation. This path extracts
+   the reference and its release-tag comment.
+2. A **reference-shaped sweep** for every `owner/repo@ref` token in the file.
+   An action reference must contain that shape verbatim; no anchor, tag,
+   quoting style, or flow mapping changes the reference *text*. Any token the
+   reader could not attribute to a `uses:` key is a violation.
+
+That inverts the property from "the scanner understands YAML", which is not
+achievable without a real parser, to "an action reference cannot hide from a
+text search", which holds for anchors, tags, flow mappings, and every future
+spelling equally. The sweep over-refuses by design: a reference-shaped token
+inside a `run:` script would be reported, and the fix is to rewrite the step in
+plain block style. Comment-only lines and trailing release-tag comments are
+exempt, and the repository's own workflows contain exactly the seven real
+references and nothing else shaped like one.
+
+A structural YAML parser remains the alternative if the sweep's over-refusal
+ever becomes unworkable. It was not adopted here because the sweep achieves the
+correctness property the audits were actually demanding — unbypassable
+discovery — without putting a YAML dependency inside the tool that gates
+dependencies. If that judgement turns out wrong, the reopen path is a small,
+reviewed parser crate, and this paragraph is its context.
 
 A mutable tag such as `@v6` is not a pin: the upstream account can move it onto
 new code that would then execute with this repository's credentials.
@@ -95,12 +116,21 @@ need the network at gate time. Checking the correspondence is a review
 obligation on every action bump, recorded here rather than implied to be
 automated.
 
-`cargo xtask verify-licenses` walks every `Cargo.toml` and `package.json` in
-the repository and fails unless each declares `MIT OR Apache-2.0` (directly or
-via `license.workspace = true`) and both licence texts exist. This closes the
-WP-000 gap where `fuzz/Cargo.toml` (outside cargo-deny's graph) and
-`packages/canonical/package.json` (outside any Cargo tooling) could lose their
-declarations with CI green. It runs inside `cargo xtask ci`.
+`cargo xtask verify-licenses` requires every manifest in the repository to
+declare `MIT OR Apache-2.0`, and both licence texts to exist. It runs inside
+`cargo xtask ci`, and closes the WP-000 gap where `fuzz/Cargo.toml` (outside
+cargo-deny's graph) and `packages/canonical/package.json` (outside any Cargo
+tooling) could lose their declarations with CI green.
+
+**The checks are semantic, not lexical.** Cargo licences come from
+`cargo metadata --locked --no-deps`, which resolves `license.workspace`
+inheritance and is the same view the toolchain has; a Cargo manifest that
+neither the root workspace nor `fuzz/` includes is a violation, because no
+licence gate resolves it. `package.json` is parsed as JSON and the property
+must be a string at the document root. The first version matched trimmed lines
+and the follow-up audit defeated it by nesting the property under `metadata`:
+the line still read `"license": "MIT OR Apache-2.0"` while the document's root
+`license` was `undefined`. A line cannot tell you where in a document it sits.
 
 ## Documented deviation: hosted runner images are not digest-pinned
 

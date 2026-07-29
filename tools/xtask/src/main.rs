@@ -124,6 +124,13 @@ fn execute(task: &Task) -> Result<(), TaskError> {
             Ok(())
         }
         Task::SupplyChain => {
+            // Before anything that resolves. `cargo deny` builds its graph by
+            // resolving the manifest, and the follow-up audit showed it
+            // silently repairing a stale `fuzz/Cargo.lock` while doing so —
+            // the policy tool committing the fail-open shape it exists to
+            // prevent. The preflight is shared with `fuzz()` so neither entry
+            // point can be the one that repairs the lock it audits.
+            verify_fuzz_lock()?;
             cargo(&["deny", "check", "advisories", "bans", "licenses", "sources"])?;
             cargo(&["audit", "--deny", "warnings"])?;
             // The fuzz crate is excluded from the workspace, so the two
@@ -593,38 +600,7 @@ fn fuzz(seconds: u32) -> Result<(), TaskError> {
         )));
     }
 
-    // The fuzz crate is excluded from the workspace, so nothing upstream of
-    // this point has proved its committed lockfile still matches its manifest.
-    // `--locked` refuses rather than repairs; without this, a fresh checkout
-    // resolved the fuzzer dependencies to whatever the registry served that
-    // day and ran their build scripts outside every policy gate — on the job
-    // that exists to execute hostile-byte parser tests (2026-07-29 audit).
-    // The verification deliberately runs before the nightly toolchain is
-    // involved, so a stale lock is reported as a stale lock and not as a
-    // toolchain problem.
-    let output = Command::new("cargo")
-        .args([
-            "metadata",
-            "--locked",
-            "--format-version",
-            "1",
-            "--manifest-path",
-            "fuzz/Cargo.toml",
-        ])
-        .current_dir(repository_root())
-        .output()
-        .map_err(|source| TaskError::Launch {
-            program: "cargo".to_owned(),
-            source,
-        })?;
-    if !output.status.success() {
-        return Err(TaskError::Policy(format!(
-            "fuzz/Cargo.lock does not match fuzz/Cargo.toml; commit an updated lock rather \
-             than letting the fuzz job resolve fresh dependencies outside the supply-chain \
-             gates.\n{}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        )));
-    }
+    verify_fuzz_lock()?;
 
     for target in FUZZ_TARGETS {
         println!("fuzz: {target} for {seconds}s");
@@ -734,13 +710,45 @@ fn verify_action_pins(root: &Path) -> Result<(), TaskError> {
             .file_name()
             .and_then(OsStr::to_str)
             .unwrap_or("<workflow>");
+        let mut attributed: Vec<(usize, String)> = Vec::new();
         for entry in action_references(&text) {
+            attributed.push((entry.line, entry.reference.clone()));
             match entry.violation() {
                 None => pinned += 1,
                 Some(reason) => violations.push(format!(
                     "{name}:{}: {} — {reason}",
                     entry.line, entry.reference
                 )),
+            }
+        }
+        // The key-shaped reader above can only find references it can parse,
+        // and twice now an audit has spelled a `uses` key in valid YAML it
+        // could not: a quoted key, then an anchored one (`&pin uses: …`). Each
+        // time the scanner reported success having simply counted one fewer
+        // reference, which is the worst failure mode a gate has — silence that
+        // looks like a pass.
+        //
+        // So discovery no longer depends on recognising the key. An action
+        // reference must literally contain `owner/repo@ref`, whatever syntax
+        // surrounds it, and this sweep finds every such token independently.
+        // Anything the reader did not attribute to a `uses:` key is a
+        // violation, so a spelling this tool cannot parse is a build failure
+        // to fix rather than a reference to miss. That inverts the property
+        // from "the scanner understands YAML" — unachievable without a real
+        // parser — to "an action reference cannot hide from a text search",
+        // which holds for anchors, tags, flow mappings, and every future
+        // spelling equally.
+        for (line, token) in reference_shaped_tokens(&text) {
+            let already = attributed
+                .iter()
+                .any(|(seen_line, reference)| *seen_line == line && reference.contains(&token));
+            if !already {
+                violations.push(format!(
+                    "{name}:{line}: {token} — an action-reference-shaped token that this scanner \
+                     could not attribute to a `uses:` key. Rewrite the step in plain block style \
+                     (`uses: owner/repo@<sha> # vX.Y.Z`); node properties, anchors, tags and flow \
+                     mappings on the key are not read"
+                ));
             }
         }
     }
@@ -760,6 +768,54 @@ fn verify_action_pins(root: &Path) -> Result<(), TaskError> {
 /// The SPDX expression every manifest in this repository must declare.
 const PROJECT_LICENSE: &str = "MIT OR Apache-2.0";
 
+/// Refuse if `fuzz/Cargo.lock` no longer matches `fuzz/Cargo.toml`.
+///
+/// The fuzz crate is excluded from the workspace, so nothing in the root graph
+/// proves its committed lockfile is current. `--locked` refuses rather than
+/// repairs; without it a fresh checkout resolved the fuzzer dependencies to
+/// whatever the registry served that day and ran their build scripts outside
+/// every policy gate — on the job that exists to execute hostile-byte parser
+/// tests.
+///
+/// **Called first by both `supply-chain` and `fuzz`.** It began life inside
+/// `fuzz()` alone, and the 2026-07-29 follow-up audit showed why that was not
+/// enough: `cargo deny` resolves the manifest to build its graph, so running
+/// it first silently *repaired* a stale lock and then audited the repaired
+/// version — the policy tool committing the very fail-open shape it exists to
+/// catch, and leaving a subsequent `fuzz` preflight nothing left to refuse.
+/// Deliberately runs before the nightly toolchain is involved, so a stale lock
+/// is reported as a stale lock rather than as a toolchain problem.
+fn verify_fuzz_lock() -> Result<(), TaskError> {
+    let root = repository_root();
+    if !root.join("fuzz/Cargo.toml").is_file() {
+        return Ok(());
+    }
+    let output = Command::new("cargo")
+        .args([
+            "metadata",
+            "--locked",
+            "--format-version",
+            "1",
+            "--manifest-path",
+            "fuzz/Cargo.toml",
+        ])
+        .current_dir(&root)
+        .output()
+        .map_err(|source| TaskError::Launch {
+            program: "cargo".to_owned(),
+            source,
+        })?;
+    if !output.status.success() {
+        return Err(TaskError::Policy(format!(
+            "fuzz/Cargo.lock does not match fuzz/Cargo.toml; commit an updated lock rather \
+             than letting a policy or fuzz command resolve fresh dependencies outside the \
+             supply-chain gates.\n{}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    Ok(())
+}
+
 /// Every manifest declares the project licence, and the licence texts exist.
 ///
 /// `cargo deny` gates the workspace crates, but two manifests sit outside its
@@ -767,11 +823,19 @@ const PROJECT_LICENSE: &str = "MIT OR Apache-2.0";
 /// `packages/canonical/package.json` is not Cargo at all. Until this check
 /// existed, either could lose its licence declaration with every gate green —
 /// recorded as a known gap in `docs/traceability/WP-000.md` from the day the
-/// licence was adopted, and closed here rather than carried.
+/// licence was adopted.
 ///
-/// The check walks the tree rather than reading a fixed list, so a future
-/// crate or package is covered the day it is added, not the day someone
-/// remembers to register it.
+/// **The checks are semantic, not lexical.** The first version matched trimmed
+/// lines, and the 2026-07-29 follow-up audit defeated it by moving the JSON
+/// property under a `metadata` object: the line still read
+/// `"license": "MIT OR Apache-2.0"`, while the document's root `license` was
+/// `undefined`. A line cannot tell you where in a document it sits. Cargo
+/// licences now come from `cargo metadata`, which resolves workspace
+/// inheritance and is the same view the toolchain has, and `package.json` is
+/// parsed as JSON with the property required at the root.
+///
+/// The tree walk is kept so a manifest neither Cargo graph knows about is still
+/// found the day it is added, not the day someone remembers to register it.
 fn verify_manifest_licenses(root: &Path) -> Result<(), TaskError> {
     let mut violations = Vec::new();
     let mut checked = 0_usize;
@@ -786,40 +850,86 @@ fn verify_manifest_licenses(root: &Path) -> Result<(), TaskError> {
         }
     }
 
+    // Authoritative for Cargo: `cargo metadata` reports the licence each
+    // package actually resolves to, including through `license.workspace`.
+    let mut cargo_seen: Vec<PathBuf> = Vec::new();
+    for workspace in ["Cargo.toml", "fuzz/Cargo.toml"] {
+        let manifest = root.join(workspace);
+        if !manifest.is_file() {
+            continue;
+        }
+        let (declared, members) = cargo_package_licenses(root, workspace)?;
+        cargo_seen.extend(members);
+        // A virtual workspace manifest carries no `[package]`, so
+        // `cargo metadata --no-deps` never lists it. It is an entry point
+        // rather than a package, and its `[workspace.package] license` is what
+        // the members above were just resolved through.
+        cargo_seen.push(manifest);
+        for (package, license) in declared {
+            checked += 1;
+            if license.as_deref() != Some(PROJECT_LICENSE) {
+                violations.push(format!(
+                    "{workspace}: package `{package}` resolves to licence {} rather than \
+                     `{PROJECT_LICENSE}`",
+                    license.as_deref().unwrap_or("<none>")
+                ));
+            }
+        }
+    }
+
     let mut manifests = Vec::new();
     manifest_files_under(root, &mut manifests)?;
     manifests.sort();
     for manifest in &manifests {
-        checked += 1;
-        let text = fs::read_to_string(manifest).map_err(|source| TaskError::Io {
-            path: manifest.clone(),
-            source,
-        })?;
         let name = manifest
             .strip_prefix(root)
             .unwrap_or(manifest)
             .display()
             .to_string()
             .replace('\\', "/");
-        let is_cargo = manifest
+        if manifest
             .file_name()
-            .is_some_and(|file| file == OsStr::new("Cargo.toml"));
-        let declared = if is_cargo {
-            // Exact lines, not substrings: `license = "GPL-3.0 OR MIT..."`
-            // must not pass by containing the expression somewhere inside.
-            text.lines().map(str::trim).any(|line| {
-                line == format!("license = \"{PROJECT_LICENSE}\"")
-                    || line == "license.workspace = true"
-            })
-        } else {
-            text.lines()
-                .map(str::trim)
-                .any(|line| line.starts_with(&format!("\"license\": \"{PROJECT_LICENSE}\"")))
+            .is_some_and(|file| file == OsStr::new("Cargo.toml"))
+        {
+            // Covered authoritatively above — unless no Cargo graph mentioned
+            // it, which means a manifest exists that neither workspace knows
+            // about. That is a violation, not a file to skip.
+            checked += 1;
+            // Compare canonically: `cargo metadata` reports absolute resolved
+            // paths, while the walk builds them from `root`, and on Windows the
+            // two spellings differ (verbatim prefix, case) for the same file.
+            let same_file = |a: &Path, b: &Path| match (a.canonicalize(), b.canonicalize()) {
+                (Ok(left), Ok(right)) => left == right,
+                _ => a == b,
+            };
+            let covered = cargo_seen.iter().any(|seen| same_file(seen, manifest));
+            if !covered {
+                violations.push(format!(
+                    "{name} is a Cargo manifest that neither the root workspace nor \
+                     `fuzz/` includes, so no licence gate resolves it"
+                ));
+            }
+            continue;
+        }
+
+        checked += 1;
+        let text = fs::read_to_string(manifest).map_err(|source| TaskError::Io {
+            path: manifest.clone(),
+            source,
+        })?;
+        let document: serde_json::Value = match serde_json::from_str(&text) {
+            Ok(value) => value,
+            Err(error) => {
+                violations.push(format!("{name} is not valid JSON: {error}"));
+                continue;
+            }
         };
-        if !declared {
+        // Root-level, and a string. `document["license"]` on a non-object
+        // yields Null, so a JSON array or scalar manifest also fails here.
+        if document.get("license").and_then(serde_json::Value::as_str) != Some(PROJECT_LICENSE) {
             violations.push(format!(
-                "{name} does not declare `{PROJECT_LICENSE}` (directly or via \
-                 `license.workspace = true`)"
+                "{name} has no root-level `\"license\": \"{PROJECT_LICENSE}\"` (a nested \
+                 property does not count)"
             ));
         }
     }
@@ -834,6 +944,73 @@ fn verify_manifest_licenses(root: &Path) -> Result<(), TaskError> {
             violations.join("\n  ")
         )))
     }
+}
+
+/// What one Cargo graph reports: each package's `(name, licence)`, and the
+/// manifest paths those packages were read from.
+type CargoLicences = (Vec<(String, Option<String>)>, Vec<PathBuf>);
+
+/// Licences and manifest paths of the packages in one Cargo graph, from
+/// `cargo metadata`.
+///
+/// `--no-deps` keeps this to first-party packages; third-party licences are
+/// `cargo deny`'s job and are governed by `deny.toml`'s allow-list. `--locked`
+/// so this check cannot be the thing that repairs a stale lockfile.
+fn cargo_package_licenses(root: &Path, manifest: &str) -> Result<CargoLicences, TaskError> {
+    let output = Command::new("cargo")
+        .args([
+            "metadata",
+            "--locked",
+            "--no-deps",
+            "--format-version",
+            "1",
+            "--manifest-path",
+            manifest,
+        ])
+        .current_dir(root)
+        .output()
+        .map_err(|source| TaskError::Launch {
+            program: "cargo".to_owned(),
+            source,
+        })?;
+    if !output.status.success() {
+        return Err(TaskError::Policy(format!(
+            "cannot read package licences from {manifest}: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    let metadata: serde_json::Value = serde_json::from_slice(&output.stdout).map_err(|error| {
+        TaskError::Policy(format!(
+            "cargo metadata for {manifest} was not JSON: {error}"
+        ))
+    })?;
+    let packages = metadata
+        .get("packages")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| {
+            TaskError::Policy(format!("cargo metadata for {manifest} listed no packages"))
+        })?;
+    let mut licenses = Vec::new();
+    let mut paths = Vec::new();
+    for package in packages {
+        let name = package
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("<unnamed>")
+            .to_owned();
+        let license = package
+            .get("license")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned);
+        licenses.push((name, license));
+        if let Some(path) = package
+            .get("manifest_path")
+            .and_then(serde_json::Value::as_str)
+        {
+            paths.push(PathBuf::from(path));
+        }
+    }
+    Ok((licenses, paths))
 }
 
 /// Collect every `Cargo.toml` and `package.json` under `directory`, skipping
@@ -852,18 +1029,17 @@ fn manifest_files_under(directory: &Path, found: &mut Vec<PathBuf>) -> Result<()
             .path();
         let name = path.file_name().and_then(OsStr::to_str).unwrap_or("");
         if path.is_dir() {
-            // Build output, dependency trees, fuzzer data, and generated
-            // fixtures contain third-party manifests this policy does not
-            // govern.
+            // Build output, dependency trees, and fuzzer data contain
+            // third-party manifests this policy does not govern.
+            //
+            // `generated` is deliberately absent from this list. The follow-up
+            // audit pointed out that skipping it by name would hide a future
+            // first-party package that happened to be called that;
+            // `tests/generated/` holds disk images and no manifest, so looking
+            // costs nothing.
             if matches!(
                 name,
-                ".git"
-                    | "target"
-                    | "node_modules"
-                    | "corpus"
-                    | "artifacts"
-                    | "coverage"
-                    | "generated"
+                ".git" | "target" | "node_modules" | "corpus" | "artifacts" | "coverage"
             ) {
                 continue;
             }
@@ -968,6 +1144,47 @@ fn names_a_release(comment: &str) -> bool {
                 .chars()
                 .all(|character| character.is_ascii_digit() || character == '.')
     })
+}
+
+/// Every `owner/repo@ref`-shaped token in a workflow, with its line number.
+///
+/// Syntax-independent discovery, and the reason the scanner no longer fails
+/// open on YAML it cannot parse. A GitHub Action reference must contain this
+/// shape verbatim — no anchor, tag, quoting style, or flow mapping changes the
+/// reference text — so a sweep for the shape cannot be evaded by spelling the
+/// *key* differently.
+///
+/// Comment-only lines are skipped so documentation may name an action; a
+/// reference inside a `run:` script would be reported, which is deliberate
+/// over-refusal. The current workflows contain exactly the seven real
+/// references and nothing else shaped like one, verified before this was
+/// written.
+fn reference_shaped_tokens(text: &str) -> Vec<(usize, String)> {
+    let mut found = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with('#') {
+            continue;
+        }
+        // Strip a trailing comment so a release-tag comment is never mistaken
+        // for a second reference.
+        let code = trimmed
+            .split_once('#')
+            .map_or(trimmed, |(before, _)| before);
+        for token in code.split(|character: char| {
+            !(character.is_ascii_alphanumeric()
+                || matches!(character, '.' | '_' | '-' | '/' | '@' | ':'))
+        }) {
+            // `docker://alpine@sha256:…` and `owner/repo@ref` both qualify; a
+            // bare `owner/repo` without `@` does not, since it cannot be a
+            // pinned-or-unpinned reference on its own.
+            let candidate = token.trim_matches(|c: char| c == ':' || c == '.');
+            if candidate.contains('/') && candidate.contains('@') && !candidate.starts_with("./") {
+                found.push((index + 1, candidate.to_owned()));
+            }
+        }
+    }
+    found
 }
 
 /// What one line of workflow YAML says about `uses`.
@@ -1309,8 +1526,8 @@ impl fmt::Display for TaskError {
 mod tests {
     use super::{
         ActionReference, LineReading, Task, TaskError, action_reference, action_references,
-        is_pinned, parse, parse_test, repository_root, run_tier, verify_action_pins,
-        verify_manifest_licenses,
+        is_pinned, parse, parse_test, reference_shaped_tokens, repository_root, run_tier,
+        verify_action_pins, verify_manifest_licenses,
     };
     use std::ffi::OsString;
     use std::fs;
@@ -1589,6 +1806,72 @@ jobs:
     }
 
     #[test]
+    fn an_action_reference_cannot_hide_behind_key_syntax() {
+        // The 2026-07-29 follow-up audit's bypass, plus the tag variant it
+        // named as the same structural class. Both are valid YAML that GitHub
+        // executes, and the key-shaped reader cannot see either — so discovery
+        // no longer depends on it. Every `owner/repo@ref` token must be
+        // attributable to a `uses:` key the reader parsed; anything else is a
+        // violation, which makes an unparseable spelling a build failure
+        // rather than a reference that vanishes from the count.
+        let sha = "a".repeat(40);
+        for spelling in [
+            "        &pin uses: actions/checkout@v7",
+            "        !!str uses: actions/checkout@v7",
+            "        &a2 uses : actions/checkout@v7",
+            "        &pin uses: actions/checkout@v7 # v7.0.1",
+            // A correctly pinned reference behind an unreadable key is still a
+            // violation: the gate cannot confirm what it cannot attribute.
+            &format!("        &pin uses: actions/checkout@{sha} # v7.0.1"),
+        ] {
+            let workflow = format!("jobs:\n  build:\n    steps:\n{spelling}\n");
+            let tokens = reference_shaped_tokens(&workflow);
+            assert!(
+                !tokens.is_empty(),
+                "{spelling:?}: the reference must be discovered by shape"
+            );
+            let attributed: Vec<String> = action_references(&workflow)
+                .into_iter()
+                .filter(|entry| entry.unrecognized.is_none())
+                .map(|entry| entry.reference)
+                .collect();
+            assert!(
+                !tokens
+                    .iter()
+                    .all(|(_, token)| attributed.iter().any(|r| r.contains(token))),
+                "{spelling:?}: an unattributable reference must not be treated as read"
+            );
+        }
+    }
+
+    #[test]
+    fn the_reference_sweep_does_not_fire_on_prose_or_comments() {
+        // Over-refusal is the safe direction, but not at the cost of being
+        // unusable. Comment-only lines and the release-tag comment must not
+        // register as references.
+        let sha = "a".repeat(40);
+        let workflow = format!(
+            "jobs:\n  build:\n    steps:\n      # uses: actions/stale@v9\n      - uses: actions/checkout@{sha} # v7.0.1\n"
+        );
+        let tokens = reference_shaped_tokens(&workflow);
+        assert_eq!(
+            tokens.len(),
+            1,
+            "only the real reference should register, found {tokens:?}"
+        );
+        assert!(tokens[0].1.ends_with(&sha));
+    }
+
+    #[test]
+    fn the_repository_workflows_have_no_unattributable_references() {
+        // The sweep over-refuses by design, so this asserts the design is
+        // actually livable on the real workflows: every reference-shaped token
+        // in them is attributable to a `uses:` key.
+        verify_action_pins(&repository_root())
+            .expect("the repository's own workflows must satisfy both discovery paths");
+    }
+
+    #[test]
     fn constructs_outside_the_yaml_subset_are_refused_not_skipped() {
         // Each of these is valid YAML that carries (or could carry) a `uses`
         // reference somewhere a line scanner cannot faithfully read. Every one
@@ -1643,6 +1926,89 @@ jobs:
     }
 
     #[test]
+    fn a_nested_json_licence_property_does_not_satisfy_the_gate() {
+        // The 2026-07-29 follow-up audit's reproduction: the old check matched
+        // trimmed lines, so moving the property under `metadata` left the text
+        // `"license": "MIT OR Apache-2.0"` on a line while the document's root
+        // `license` was undefined. A line cannot tell you where in a document
+        // it sits, which is why the check parses JSON now.
+        let root = std::env::temp_dir().join(format!(
+            "partman-xtask-nested-licence-{}",
+            std::process::id()
+        ));
+        let write = |relative: &str, contents: &str| {
+            let path = root.join(relative);
+            fs::create_dir_all(path.parent().expect("parent")).expect("create parent");
+            fs::write(path, contents).expect("write file");
+        };
+        write("LICENSE-MIT", "MIT License\n");
+        write("LICENSE-APACHE", "Apache License\n");
+
+        // Root-level: accepted.
+        write(
+            "packages/web/package.json",
+            "{\n  \"license\": \"MIT OR Apache-2.0\"\n}\n",
+        );
+        verify_manifest_licenses(&root).expect("a root-level licence passes");
+
+        // Nested under another object: refused, even though the *line* matches.
+        write(
+            "packages/web/package.json",
+            "{\n  \"metadata\": {\n    \"license\": \"MIT OR Apache-2.0\"\n  }\n}\n",
+        );
+        let error = verify_manifest_licenses(&root)
+            .expect_err("a nested licence property must not satisfy the gate");
+        assert!(
+            error.to_string().contains("root-level"),
+            "the refusal should say why: {error}"
+        );
+
+        // Not a string, and not an object at all: both refused rather than
+        // coerced.
+        write("packages/web/package.json", "{\n  \"license\": 42\n}\n");
+        assert!(
+            verify_manifest_licenses(&root).is_err(),
+            "non-string licence"
+        );
+        write("packages/web/package.json", "[]\n");
+        assert!(verify_manifest_licenses(&root).is_err(), "array manifest");
+        write("packages/web/package.json", "{ not json\n");
+        assert!(verify_manifest_licenses(&root).is_err(), "invalid JSON");
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn the_fuzz_lock_preflight_is_shared_by_supply_chain_and_fuzz() {
+        // The follow-up audit removed a package entry from `fuzz/Cargo.lock`,
+        // ran `supply-chain`, and watched it pass *and repair the lock* —
+        // `cargo deny` resolves the manifest to build its graph, so whichever
+        // command runs first is the one that can silently fix what it audits.
+        // Both entry points now call this preflight before any resolving
+        // command. Asserting on the source keeps the ordering from silently
+        // regressing, which no runtime assertion in this process could.
+        let source = fs::read_to_string(repository_root().join("tools/xtask/src/main.rs"))
+            .expect("read xtask source");
+        let supply_chain = source
+            .split_once("Task::SupplyChain =>")
+            .expect("the supply-chain arm exists")
+            .1;
+        let arm = &supply_chain[..supply_chain.find("Task::").unwrap_or(supply_chain.len())];
+        let preflight = arm
+            .find("verify_fuzz_lock()")
+            .expect("supply-chain must run the fuzz-lock preflight");
+        let first_deny = arm.find("\"deny\"").unwrap_or(usize::MAX);
+        assert!(
+            preflight < first_deny,
+            "the preflight must run before cargo-deny, which resolves and can repair the lock"
+        );
+        assert!(
+            source.contains("fn verify_fuzz_lock()"),
+            "the preflight is a shared function, not duplicated logic"
+        );
+    }
+
+    #[test]
     fn a_manifest_that_loses_its_licence_key_is_a_violation() {
         // The WP-000 gap this check closes: fuzz/Cargo.toml sits outside
         // cargo-deny's graph and package.json outside any licence gate, so
@@ -1656,29 +2022,17 @@ jobs:
             fs::write(path, contents).expect("write manifest");
         };
 
+        // No Cargo manifests in this tree: Cargo licences are resolved by
+        // `cargo metadata` against a real workspace, which the repository-wide
+        // test above covers. Here the subject is the npm manifest and the
+        // licence texts.
         write("LICENSE-MIT", "MIT License\n");
         write("LICENSE-APACHE", "Apache License\n");
-        write(
-            "Cargo.toml",
-            "[workspace.package]\nlicense = \"MIT OR Apache-2.0\"\n",
-        );
-        write(
-            "crates/member/Cargo.toml",
-            "[package]\nlicense.workspace = true\n",
-        );
         write(
             "packages/web/package.json",
             "{\n  \"license\": \"MIT OR Apache-2.0\"\n}\n",
         );
         verify_manifest_licenses(&root).expect("a fully declared tree passes");
-
-        // A Cargo manifest with no licence key.
-        write("crates/member/Cargo.toml", "[package]\nname = \"member\"\n");
-        assert!(verify_manifest_licenses(&root).is_err(), "missing key");
-        write(
-            "crates/member/Cargo.toml",
-            "[package]\nlicense.workspace = true\n",
-        );
 
         // A different licence is a violation, not a variation.
         write(
@@ -1686,6 +2040,10 @@ jobs:
             "{\n  \"license\": \"GPL-3.0-only\"\n}\n",
         );
         assert!(verify_manifest_licenses(&root).is_err(), "wrong licence");
+
+        // Absent entirely.
+        write("packages/web/package.json", "{\n  \"name\": \"web\"\n}\n");
+        assert!(verify_manifest_licenses(&root).is_err(), "missing licence");
         write(
             "packages/web/package.json",
             "{\n  \"license\": \"MIT OR Apache-2.0\"\n}\n",
@@ -1694,6 +2052,58 @@ jobs:
         // A declaration with no licence text behind it is a violation too.
         fs::remove_file(root.join("LICENSE-APACHE")).expect("remove licence text");
         assert!(verify_manifest_licenses(&root).is_err(), "missing text");
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn a_cargo_manifest_outside_every_workspace_is_a_violation() {
+        // The other half of making Cargo licences semantic: `cargo metadata`
+        // is authoritative for packages it knows about, so a manifest neither
+        // graph includes is not "fine by default" — it is a package no licence
+        // gate resolves, which is exactly the gap `verify-licenses` exists to
+        // close.
+        //
+        // A synthetic workspace, not the real repository: planting an orphan in
+        // the shared tree would race every other test that reads it, which the
+        // first version of this test did.
+        let root =
+            std::env::temp_dir().join(format!("partman-xtask-orphan-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let write = |relative: &str, contents: &str| {
+            let path = root.join(relative);
+            fs::create_dir_all(path.parent().expect("parent")).expect("create parent");
+            fs::write(path, contents).expect("write file");
+        };
+        write("LICENSE-MIT", "MIT License\n");
+        write("LICENSE-APACHE", "Apache License\n");
+        write(
+            "Cargo.toml",
+            "[workspace]\nmembers = [\"member\"]\nresolver = \"3\"\n\n\
+             [workspace.package]\nversion = \"0.0.0\"\nedition = \"2024\"\n\
+             license = \"MIT OR Apache-2.0\"\n",
+        );
+        write(
+            "member/Cargo.toml",
+            "[package]\nname = \"member\"\nversion.workspace = true\n\
+             edition.workspace = true\nlicense.workspace = true\n",
+        );
+        write("member/src/lib.rs", "");
+        verify_manifest_licenses(&root).expect("a real workspace with inherited licence passes");
+
+        // Now an orphan: a Cargo manifest no workspace includes, so no licence
+        // gate resolves it — a violation even though its own key is correct.
+        write(
+            "orphan/Cargo.toml",
+            "[package]\nname = \"orphan\"\nversion = \"0.0.0\"\nedition = \"2024\"\n\
+             license = \"MIT OR Apache-2.0\"\n",
+        );
+        let error = verify_manifest_licenses(&root)
+            .expect_err("a Cargo manifest outside every workspace must be refused");
+        assert!(
+            error.to_string().contains("orphan"),
+            "the refusal must name the orphan manifest: {error}"
+        );
 
         fs::remove_dir_all(&root).ok();
     }

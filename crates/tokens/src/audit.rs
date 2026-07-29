@@ -121,12 +121,16 @@ pub fn audit(set: &TokenSet) -> Report {
 /// with them exactly. A disagreement is a finding, not a new setting.
 fn check_declared_policy_agrees(set: &TokenSet, report: &mut Report) {
     report.checks += 1;
-    if set.token_set_version.trim().is_empty() {
+    if set.token_set_version != policy::REQUIRED_TOKEN_SET_VERSION {
         report.findings.push(Finding {
             requirement: "UI-008",
-            detail: "token set declares no tokenSetVersion, so a front end cannot tell which \
-                     vocabulary it holds"
-                .to_owned(),
+            detail: format!(
+                "token set declares tokenSetVersion {:?}, but this harness understands the \
+                 vocabulary of {:?}. A non-empty string is not a version: re-derive the roster \
+                 against crates/tokens/src/policy.rs before changing it.",
+                set.token_set_version,
+                policy::REQUIRED_TOKEN_SET_VERSION
+            ),
         });
     }
 
