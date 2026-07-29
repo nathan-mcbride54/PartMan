@@ -637,38 +637,99 @@ fn verify_action_pins(root: &Path) -> Result<(), TaskError> {
             .file_name()
             .and_then(OsStr::to_str)
             .unwrap_or("<workflow>");
-        for (line, reference) in action_references(&text) {
-            if is_pinned(&reference) {
-                pinned += 1;
-            } else {
-                violations.push(format!("{name}:{line}: {reference}"));
+        for entry in action_references(&text) {
+            match entry.violation() {
+                None => pinned += 1,
+                Some(reason) => violations.push(format!(
+                    "{name}:{}: {} — {reason}",
+                    entry.line, entry.reference
+                )),
             }
         }
     }
 
     if violations.is_empty() {
-        println!("verify-actions: {pinned} action reference(s) pinned by digest");
+        println!("verify-actions: {pinned} action reference(s) pinned by digest and tagged");
         Ok(())
     } else {
         Err(TaskError::Policy(format!(
             "SEC-010 requires every GitHub Action to be pinned to a full commit SHA, with the \
-             release tag kept in a trailing comment. Unpinned references:\n  {}",
+             release tag kept in a trailing comment. Offending references:\n  {}",
             violations.join("\n  ")
         )))
     }
 }
 
-/// Extract `(line number, reference)` for every `uses:` entry in a workflow.
-fn action_references(text: &str) -> Vec<(usize, String)> {
+/// One `uses:` entry, with the trailing comment the policy requires.
+///
+/// The comment is carried rather than discarded. It used to be stripped before
+/// the check, so the tag half of the rule this tool reports was enforced by
+/// nothing: a bare 40-character SHA passed while the error message said a
+/// release tag was required. A gate that states a rule it does not apply is
+/// worse than one that states nothing, because it is read as evidence.
+#[derive(Debug, PartialEq, Eq)]
+struct ActionReference {
+    line: usize,
+    reference: String,
+    /// Text after `#` on the same line, trimmed. `None` when absent.
+    comment: Option<String>,
+}
+
+impl ActionReference {
+    /// Why this reference fails SEC-010, or `None` if it satisfies it.
+    fn violation(&self) -> Option<String> {
+        // An action committed to this repository carries no independent supply
+        // chain, so it needs neither a digest nor a release tag.
+        if self.reference.starts_with("./") {
+            return None;
+        }
+        if !is_pinned(&self.reference) {
+            return Some("not pinned to a full commit SHA".to_owned());
+        }
+        match self.comment.as_deref() {
+            None => Some("pinned, but the release tag comment is missing".to_owned()),
+            Some(comment) if !names_a_release(comment) => Some(format!(
+                "pinned, but {comment:?} does not name a release tag"
+            )),
+            Some(_) => None,
+        }
+    }
+}
+
+/// Does this comment name a release, rather than merely say something?
+///
+/// A tag is what makes a digest auditable: without it nobody can tell which
+/// release a SHA corresponds to, and reviewing a bump means resolving 40 hex
+/// characters by hand. The rule is deliberately loose about form — `v7.0.1`,
+/// `7.0.1` and `v4` are all real GitHub Action tags — and strict about
+/// substance: some token must look like a version.
+fn names_a_release(comment: &str) -> bool {
+    comment.split_whitespace().any(|token| {
+        let token = token.trim_start_matches('v');
+        !token.is_empty()
+            && token.starts_with(|character: char| character.is_ascii_digit())
+            && token
+                .chars()
+                .all(|character| character.is_ascii_digit() || character == '.')
+    })
+}
+
+/// Extract every `uses:` entry in a workflow, with its trailing comment.
+fn action_references(text: &str) -> Vec<ActionReference> {
     text.lines()
         .enumerate()
         .filter_map(|(index, line)| {
-            action_reference(line).map(|reference| (index + 1, reference.to_owned()))
+            action_reference(line).map(|(reference, comment)| ActionReference {
+                line: index + 1,
+                reference: reference.to_owned(),
+                comment: comment.map(str::to_owned),
+            })
         })
         .collect()
 }
 
-fn action_reference(line: &str) -> Option<&str> {
+/// Split one `uses:` line into its reference and its trailing comment.
+fn action_reference(line: &str) -> Option<(&str, Option<&str>)> {
     let mut trimmed = line.trim_start();
     if trimmed.starts_with('#') {
         return None;
@@ -677,9 +738,15 @@ fn action_reference(line: &str) -> Option<&str> {
         trimmed = item.trim_start();
     }
     let value = trimmed.strip_prefix("uses:")?.trim();
-    let value = value.split_once('#').map_or(value, |(before, _)| before);
+    // The comment is returned rather than dropped. Discarding it here is what
+    // made the tag half of SEC-010 unenforceable further up.
+    let (value, comment) = match value.split_once('#') {
+        Some((before, after)) => (before, Some(after.trim())),
+        None => (value, None),
+    };
     let value = value.trim().trim_matches(['"', '\'']);
-    (!value.is_empty()).then_some(value)
+    let comment = comment.filter(|text| !text.is_empty());
+    (!value.is_empty()).then_some((value, comment))
 }
 
 fn is_pinned(reference: &str) -> bool {
@@ -789,8 +856,8 @@ impl fmt::Display for TaskError {
 #[cfg(test)]
 mod tests {
     use super::{
-        Task, TaskError, action_reference, action_references, is_pinned, parse, parse_test,
-        repository_root, run_tier, verify_action_pins,
+        ActionReference, Task, TaskError, action_reference, action_references, is_pinned, parse,
+        parse_test, repository_root, run_tier, verify_action_pins,
     };
     use std::ffi::OsString;
 
@@ -1005,21 +1072,77 @@ jobs:
 ";
         let found = action_references(workflow);
         assert_eq!(found.len(), 2, "found {found:?}");
+        assert_eq!(found[0].line, 4);
         assert_eq!(
-            found[0],
-            (
-                4,
-                "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd".to_owned()
-            )
+            found[0].reference,
+            "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"
         );
         assert_eq!(
-            found[1],
-            (
-                6,
-                "actions/setup-node@0000000000000000000000000000000000000000".to_owned()
-            )
+            found[0].comment.as_deref(),
+            Some("v6.0.2"),
+            "the trailing comment must be carried, not discarded"
         );
+        assert_eq!(found[1].line, 6);
+        assert_eq!(
+            found[1].reference,
+            "actions/setup-node@0000000000000000000000000000000000000000"
+        );
+        assert_eq!(found[1].comment, None);
         assert_eq!(action_reference("        uses:"), None);
+    }
+
+    #[test]
+    fn a_digest_without_its_release_tag_is_a_violation() {
+        // The rule this tool *reports* — "with the release tag kept in a
+        // trailing comment" — was enforced by nothing. The comment was stripped
+        // before the check, so a bare 40-character SHA passed while the error
+        // message claimed a tag was required. A gate that states a rule it does
+        // not apply is worse than one that states nothing, because it is read
+        // as evidence that the rule holds.
+        let sha = "de0fac2e4500dabe0009e67214ff5f5447ce83dd";
+        let reference = |comment: Option<&str>| ActionReference {
+            line: 1,
+            reference: format!("actions/checkout@{sha}"),
+            comment: comment.map(str::to_owned),
+        };
+
+        assert_eq!(reference(Some("v6.0.2")).violation(), None);
+        assert_eq!(reference(Some("v4")).violation(), None);
+        assert_eq!(reference(Some("7.0.1")).violation(), None);
+        assert_eq!(
+            reference(Some("pinned to v6.0.2 by policy")).violation(),
+            None
+        );
+
+        for absent in [None, Some(""), Some("pinned"), Some("do not touch")] {
+            let comment = absent.filter(|text| !text.is_empty());
+            assert!(
+                reference(comment).violation().is_some(),
+                "a digest with {absent:?} for a tag must be refused"
+            );
+        }
+
+        // An unpinned reference still fails first, and says so specifically.
+        let mutable = ActionReference {
+            line: 1,
+            reference: "actions/checkout@v6".to_owned(),
+            comment: Some("v6".to_owned()),
+        };
+        assert!(
+            mutable
+                .violation()
+                .is_some_and(|reason| reason.contains("full commit SHA")),
+            "an unpinned reference must fail for being unpinned"
+        );
+
+        // A local action has no release to name, so it is exempt from both
+        // halves rather than from one.
+        let local = ActionReference {
+            line: 1,
+            reference: "./.github/actions/local".to_owned(),
+            comment: None,
+        };
+        assert_eq!(local.violation(), None);
     }
 
     #[test]
