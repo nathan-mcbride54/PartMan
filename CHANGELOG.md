@@ -127,6 +127,32 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   invents is invisible to it; and the colour-vision check is a model, not a
   proof — UI-007's redundant channels are the guarantee. M0's "accessibility
   harness runs" criterion is therefore **partially** met.
+- ADR-0007, accepted, deciding what SAFE-007's disposable-test token proves.
+  WP-020 carried "decide a genuinely independent token factor" as an open
+  precondition since increment 1, and both audits repeated it. The queued
+  answer — add an entropy source — turned out to be wrong in an instructive
+  way: `authorize` trusts nothing inside the directory it verifies, because
+  accepting a caller-supplied manifest was a defect that let a hand-written one
+  authorize an arbitrary target, and a per-generation random token cannot be
+  compiled in. The interlock would have to read it from the fixture root,
+  re-creating that exact trust dependency, so randomness would have added a
+  dependency and a writable-file trust while defeating nobody.
+
+  Read exactly, SAFE-007 requires the three factors to be *present* and forbids
+  one environment variable from standing in for all of them; both hold, and it
+  does not require independence. The token is an operator-intent proof, the
+  documents already said so, and the precondition is closed by decision rather
+  than by code. A real third factor needs state outside both the source tree and
+  the fixture root, which is a T2/T3 lab-architecture question recorded as the
+  ADR's revisit condition.
+- SI-36 filed: SAFE-009 neither permits nor forbids reviewed `unsafe` in a
+  test-fixture crate. WP-020's Windows other-name check needs link count by
+  handle, `MetadataExt::number_of_links` is unstable behind `windows_by_handle`
+  on the pinned 1.96.0 toolchain, and the FFI alternative runs into SAFE-009's
+  two lists naming `crates/fixtures` in neither. An enumeration is not a rule,
+  so per Section 0.2 it is filed rather than guessed. The residual is recorded
+  and narrow: while an authorization is held the Windows share mode refuses
+  writes through any name for the object.
 - ADR-C1, accepted, fixing the canonical encoding and hash strategy.
 - ADR-C5, accepted, fixing the aggregation vocabulary: one `Aggregate` node in
   place of three undefined Section 5 names, on-disk signatures as their own

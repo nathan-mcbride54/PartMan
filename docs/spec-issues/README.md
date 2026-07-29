@@ -75,6 +75,7 @@ matter, because three of the seven are *not* simply "undecided":
 | SI-33 | no | Open. The route by which SI-28's floor may later be relaxed |
 | SI-34 | yes | Open. Reopens whether the protection verdict belongs in the hashed body at all |
 | SI-35 | yes | Open. ADR-C3's three table states are not all observable through the interface a client reads |
+| SI-36 | no | Open. SAFE-009 neither permits nor forbids reviewed `unsafe` in a test-fixture crate, and SAFE-007's Windows other-name check cannot be written without it; blocks WP-020 precondition 3 |
 
 **SI-31 is the one most easily misread, and was.** Its *answer* survived
 adversarial review — plain bytewise over each element's fully canonical encoded
@@ -1663,3 +1664,65 @@ Nothing is implemented — `crates/domain/src` holds only the `pce/1` codec and
 `packages/canonical/src` its mirror, no identity type exists in either language,
 and ADR-C3 is unimplemented. The correction is still free, which is exactly why
 freezing a wrong rule now is the expensive option and deferring is not.
+
+## SI-36 May a test-fixture crate contain reviewed `unsafe`?
+
+**Requirements:** SAFE-009, SAFE-007, SAFE-001 · **Blocks WP-020 precondition 3**
+
+Filed 2026-07-29 from an attempt to close WP-020's third increment-2
+precondition, not from a reading. The precondition asks for the Windows
+equivalent of the interlock's Unix `nlink` guard: a destructive target must be
+reachable under exactly one name, because a second name is a second thing a
+destructive suite could reach.
+
+**Why it cannot be written.** Link count on Windows is available through
+`GetFileInformationByHandle`. Rust's standard library wraps it as
+`std::os::windows::fs::MetadataExt::number_of_links`, which is **unstable**
+behind the `windows_by_handle` feature (rust-lang/rust#63010, still open),
+verified against the pinned 1.96.0 toolchain:
+
+```text
+error[E0658]: use of unstable library feature `windows_by_handle`
+```
+
+`rust-toolchain.toml` pins a stable release and `docs/quality/fuzzing.md`
+records nightly as a bounded exception for `fuzz/` alone, so the feature is out
+of reach. The remaining route is FFI — `windows-sys` and an `unsafe` call.
+
+**The conflict.** SAFE-009 lists where `unsafe` is forbidden ("the domain,
+planner, validator, journal, and rpc crates") and where it is permitted ("adapter,
+FFI, and helper crates inside reviewed, documented modules"). `crates/fixtures`
+is in **neither** list. It is not a domain or planner crate, so the prohibition
+does not name it; it is not an adapter, FFI, or helper crate either, so the
+permission does not name it. The workspace lint `unsafe_code = "deny"` currently
+resolves the ambiguity in the strict direction, which is the right default but
+is a lint setting, not a decision.
+
+This cannot be settled by reading harder, because SAFE-009's two lists are
+enumerations rather than a rule. Reading it strictly ("permitted only where
+named") forbids the check. Reading it purposively ("forbidden where hostile
+input is parsed, permitted where platform truth must be obtained") allows it,
+since the interlock parses no on-disk metadata — it hashes bytes and asks the OS
+questions.
+
+**Options, and what each costs.**
+
+1. **Amend SAFE-009 to state the rule rather than the lists**, naming the
+   property that matters (no `unsafe` in parsers of externally supplied bytes;
+   `unsafe` permitted in reviewed platform-query modules anywhere). Closes this
+   and every future instance. Cost: a normative change, and SAFE-009 is a safety
+   requirement, so the amendment needs its own adversarial review.
+2. **Add the check in a separate platform-query crate** that SAFE-009's
+   "adapter" category plainly covers, and depend on it from `crates/fixtures`.
+   Cost: a crate whose only purpose is to be in a category the specification
+   already names — honest about the letter, and arguably a way of routing around
+   the spirit of the question rather than answering it.
+3. **Leave the Windows other-name check unimplemented** and record the residual.
+   Cost: what is already recorded in `docs/work-packages/WP-020.md` — while an
+   authorization is held the share mode refuses writes through any name, so the
+   exposure is the window between generation and authorization, during which a
+   hard-linked impostor must still carry the fixture's exact bytes. Narrow, and
+   not nothing.
+
+Option 3 is in force now because it is what the code does, **not** because it
+was chosen. Nothing here proposes an answer.
