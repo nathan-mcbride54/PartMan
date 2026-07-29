@@ -84,6 +84,7 @@ dependencies = [
 name = "partman-fixtures"
 version = "0.0.0"
 dependencies = [
+ "libc",
  "sha2",
 ]
 

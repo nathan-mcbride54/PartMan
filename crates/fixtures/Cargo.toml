@@ -10,5 +10,15 @@ publish = false
 [dependencies]
 sha2 = { version = "0.11.0", default-features = false }
 
+# `O_NOFOLLOW` for the SAFE-007 target open. Constants only — no `unsafe` is
+# written here, and `unsafe_code = "deny"` still applies to this crate.
+#
+# The value differs per platform (Linux, macOS and the BSDs disagree), so
+# hardcoding it is the kind of transcription error this repository has already
+# been bitten by. Already in the lock file via `sha2` -> `cpufeatures`, so this
+# adds an edge rather than supply-chain surface, and it is `MIT OR Apache-2.0`.
+[target.'cfg(unix)'.dependencies]
+libc = { version = "0.2", default-features = false }
+
 [lints]
 workspace = true
