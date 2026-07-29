@@ -281,9 +281,15 @@ fn probe_fixtures() -> Result<(), TaskError> {
         // expected answer for the blank fixture.
         let raw_udev = probe_output("blkid", &["-p", "-o", "udev"], &path, &[0, 2])?;
         let raw_wipefs = probe_output("wipefs", &["-n", "--output", "OFFSET,TYPE"], &path, &[0])?;
+        let unreadable = |error: prober::Unreadable| {
+            TaskError::Usage(format!(
+                "{}: {error}",
+                path.file_name().unwrap_or_default().to_string_lossy()
+            ))
+        };
         let observed = prober::Observation {
-            udev: prober::parse_udev(&raw_udev),
-            signatures: prober::parse_wipefs(&raw_wipefs),
+            udev: prober::parse_udev(&raw_udev).map_err(unreadable)?,
+            signatures: prober::parse_wipefs(&raw_wipefs).map_err(unreadable)?,
         };
 
         let disagreements = prober::compare(&expectation, &observed, version);
@@ -373,7 +379,16 @@ fn probe_output(
             String::from_utf8_lossy(&output.stderr).trim()
         )));
     }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    // Not `from_utf8_lossy`. Replacing an undecodable byte with U+FFFD would
+    // hand the parser a line that is not what the tool emitted, and the parsers
+    // below refuse what they cannot read precisely so that a changed output
+    // shape cannot pass as an empty observation.
+    String::from_utf8(output.stdout).map_err(|error| {
+        TaskError::Usage(format!(
+            "`{tool}` produced output that is not UTF-8 for {}: {error}",
+            path.display()
+        ))
+    })
 }
 
 /// The version string a tool reports, for the run's record.

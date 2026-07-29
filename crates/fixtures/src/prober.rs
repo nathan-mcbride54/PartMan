@@ -372,33 +372,128 @@ pub fn parse_util_linux_version(banner: &str) -> Option<(u32, u32)> {
     Some((major, minor))
 }
 
+/// A line of prober output this module could not read.
+///
+/// Its existence is the point. Both parsers previously discarded what they did
+/// not understand — `filter_map` on a malformed row, and a silent drop of any
+/// line without `=`. A row a parser cannot read is **not** an unexpected
+/// signature that [`compare`] would report; it is *no observation at all*, so a
+/// fixture whose output shape changed entirely could parse as empty and match a
+/// blank expectation. That contradicted this module's own claim to compare the
+/// full signature set in both directions.
+#[derive(Debug)]
+pub struct Unreadable {
+    /// Which tool's output it came from.
+    pub tool: &'static str,
+    /// The offending line, verbatim.
+    pub line: String,
+    /// Why it could not be read.
+    pub reason: String,
+}
+
+impl core::fmt::Display for Unreadable {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            formatter,
+            "could not read `{}` output {:?}: {}. A line this parser cannot read is not an \
+             observation, so it must refuse rather than drop it",
+            self.tool, self.line, self.reason
+        )
+    }
+}
+
+impl std::error::Error for Unreadable {}
+
 /// Parse `blkid -p -o udev` output.
-#[must_use]
-pub fn parse_udev(output: &str) -> BTreeMap<String, String> {
-    output
-        .lines()
-        .filter_map(|line| line.split_once('='))
-        .map(|(key, value)| (key.trim().to_owned(), value.trim().to_owned()))
-        .collect()
+///
+/// # Errors
+///
+/// Returns [`Unreadable`] for a line with no `=`, an empty key, or a key that
+/// appears twice. A duplicate would otherwise silently overwrite the earlier
+/// value and the observation would depend on line order.
+pub fn parse_udev(output: &str) -> Result<BTreeMap<String, String>, Unreadable> {
+    let mut parsed = BTreeMap::new();
+    for line in output.lines() {
+        let line = line.trim_end_matches(['\r', '\n']);
+        if line.trim().is_empty() {
+            continue;
+        }
+        let (key, value) = line.split_once('=').ok_or_else(|| Unreadable {
+            tool: "blkid -p -o udev",
+            line: line.to_owned(),
+            reason: "expected KEY=VALUE".to_owned(),
+        })?;
+        let key = key.trim();
+        if key.is_empty() {
+            return Err(Unreadable {
+                tool: "blkid -p -o udev",
+                line: line.to_owned(),
+                reason: "the key is empty".to_owned(),
+            });
+        }
+        if parsed
+            .insert(key.to_owned(), value.trim().to_owned())
+            .is_some()
+        {
+            return Err(Unreadable {
+                tool: "blkid -p -o udev",
+                line: line.to_owned(),
+                reason: format!("{key} appears twice, so the observation depends on line order"),
+            });
+        }
+    }
+    Ok(parsed)
 }
 
 /// Parse `wipefs -n --output OFFSET,TYPE` output.
 ///
-/// Skips the header row if the tool emitted one, which it does when there is at
-/// least one signature and omits when there is none.
-#[must_use]
-pub fn parse_wipefs(output: &str) -> BTreeSet<(u64, String)> {
-    output
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty() && !line.starts_with("OFFSET"))
-        .filter_map(|line| {
-            let (offset, kind) = line.split_once(char::is_whitespace)?;
-            let digits = offset.strip_prefix("0x")?;
-            let offset = u64::from_str_radix(digits, 16).ok()?;
-            Some((offset, kind.trim().to_owned()))
-        })
-        .collect()
+/// # Errors
+///
+/// Returns [`Unreadable`] for a row that is not `0x<hex> <type>`, a header
+/// anywhere but the first line, or a repeated row. Only genuinely empty output
+/// yields an empty set.
+pub fn parse_wipefs(output: &str) -> Result<BTreeSet<(u64, String)>, Unreadable> {
+    let mut parsed = BTreeSet::new();
+    for (index, line) in output.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        // The tool emits a header when it has anything to say and omits it
+        // entirely when it does not. Accepting one anywhere else would let a
+        // changed output shape pass as a run of headers.
+        if line.starts_with("OFFSET") {
+            if index == 0 {
+                continue;
+            }
+            return Err(Unreadable {
+                tool: "wipefs -n",
+                line: line.to_owned(),
+                reason: "a header row after the first line".to_owned(),
+            });
+        }
+        let unreadable = |reason: &str| Unreadable {
+            tool: "wipefs -n",
+            line: line.to_owned(),
+            reason: reason.to_owned(),
+        };
+        let (offset, kind) = line
+            .split_once(char::is_whitespace)
+            .ok_or_else(|| unreadable("expected `0x<hex> <type>`"))?;
+        let digits = offset
+            .strip_prefix("0x")
+            .ok_or_else(|| unreadable("the offset is not hexadecimal with an 0x prefix"))?;
+        let offset =
+            u64::from_str_radix(digits, 16).map_err(|error| unreadable(&error.to_string()))?;
+        let kind = kind.trim();
+        if kind.is_empty() {
+            return Err(unreadable("the row names no signature type"));
+        }
+        if !parsed.insert((offset, kind.to_owned())) {
+            return Err(unreadable("this row appears twice"));
+        }
+    }
+    Ok(parsed)
 }
 
 #[cfg(test)]

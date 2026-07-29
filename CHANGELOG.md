@@ -147,6 +147,27 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   4 MiB device, having reused a sector count as a block count. Each correction is
   confirmed against `libblkid` rather than against the struct definition.
 
+- Two fail-open edges and a flaky test harness, found by a progress review. The
+  sharpest is one the prober increment introduced in the module the evidence
+  increment wrote about: both prober parsers **discarded what they could not
+  read**, so an unreadable row was not an "unexpected signature" the comparison
+  would report — it was no observation at all, and on the fixture whose
+  expectation is *nothing*, an entirely changed output shape parsed as empty and
+  passed. The module documentation claimed the signature set was compared in both
+  directions. Both parsers now return `Result` and refuse a missing `=`, an empty
+  or repeated key, a bad offset, a typeless row, a misplaced header, and a
+  repeated row; `probe_output` no longer uses `from_utf8_lossy`.
+- Fixture-directory pruning inferred ownership from a filename:
+  `root.join(MANIFEST_FILE).is_file()` establishes nothing about who wrote the
+  file and follows a symlink besides, so any directory holding an unrelated file
+  or link named `MANIFEST` was treated as ours and could lose its other regular
+  files. Ownership is now computed — a regular file reached without following a
+  link, parsing as one of our manifests, with the token recomputed from its own
+  entries. Every failure is a refusal to prune.
+- Test sandboxes used fixed paths and deleted them at setup and drop, so two
+  concurrent `cargo test` runs of the fixtures crate erased each other's trees —
+  in the suite that gates destructive execution. Names now carry the process id
+  and a per-process counter.
 - Two documented claims that had outrun their code, corrected in opposite
   directions. `corrupt_primary_header_crc` still described itself as producing
   ADR-C3's `Indeterminate` state, contradicting `write_conflicting_backup` in the

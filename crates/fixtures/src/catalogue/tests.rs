@@ -9,7 +9,15 @@ struct Sandbox(std::path::PathBuf);
 
 impl Sandbox {
     fn new(tag: &str) -> Self {
-        let root = std::env::temp_dir().join(format!("partman-catalogue-{tag}"));
+        // The path carries the process id and a per-process counter. A fixed
+        // name collided: two concurrent `cargo test` runs of this crate each
+        // deleted the other's directory at setup and at drop, so a safety-gate
+        // suite was flaky by construction.
+        let root = std::env::temp_dir().join(format!(
+            "partman-catalogue-{tag}-{}-{}",
+            std::process::id(),
+            crate::test_support::next_sandbox_id()
+        ));
         let _ = fs::remove_dir_all(&root);
         Self(root)
     }
@@ -302,6 +310,62 @@ fn generation_refuses_a_fixture_that_no_longer_supports_its_rationale() {
         "a refused fixture must not reach disk"
     );
     assert!(!sandbox.0.join(MANIFEST_FILE).exists());
+}
+
+#[test]
+fn a_foreign_file_named_manifest_does_not_authorize_deletion() {
+    // The guard used to be `root.join(MANIFEST_FILE).is_file()`, which
+    // establishes nothing about who wrote it. Any directory holding an
+    // unrelated regular file named `MANIFEST` was treated as ours and lost its
+    // other regular files. Ownership is now computed: the file must parse as
+    // one of our manifests, and `Manifest::parse` recomputes the token from the
+    // entries, so a hand-written one cannot claim ownership either.
+    for (what, contents) in [
+        ("unrelated text", "shipping manifest for order 4417\n"),
+        (
+            "our header but nothing else",
+            crate::manifest::MANIFEST_HEADER,
+        ),
+        (
+            "a forged token over real-looking entries",
+            "# partman-fixtures manifest v1\ntoken aaaa\nimage 00 1 x.img\n",
+        ),
+    ] {
+        let sandbox = Sandbox::new("foreign-manifest");
+        fs::create_dir_all(&sandbox.0).expect("directory must be creatable");
+        fs::write(sandbox.0.join(MANIFEST_FILE), contents).expect("writing must succeed");
+        let bystander = sandbox.0.join("important.txt");
+        fs::write(&bystander, b"not a fixture").expect("writing must succeed");
+
+        generate(&sandbox.0).expect("generation must succeed");
+        assert!(
+            bystander.is_file(),
+            "a directory whose MANIFEST is {what} must not be pruned"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_manifest_symlink_does_not_authorize_deletion() {
+    // `is_file()` follows a symlink, so a link named `MANIFEST` pointing at a
+    // real manifest elsewhere used to authorize deleting this directory's
+    // contents. Ownership is now established with `symlink_metadata`.
+    let real = Sandbox::new("symlink-target");
+    generate(&real.0).expect("generating a real manifest must succeed");
+
+    let sandbox = Sandbox::new("manifest-symlink");
+    fs::create_dir_all(&sandbox.0).expect("directory must be creatable");
+    std::os::unix::fs::symlink(real.0.join(MANIFEST_FILE), sandbox.0.join(MANIFEST_FILE))
+        .expect("creating the symlink must succeed");
+    let bystander = sandbox.0.join("important.txt");
+    fs::write(&bystander, b"not a fixture").expect("writing must succeed");
+
+    generate(&sandbox.0).expect("generation must succeed");
+    assert!(
+        bystander.is_file(),
+        "a symlinked MANIFEST must not authorize pruning the directory it sits in"
+    );
 }
 
 #[test]

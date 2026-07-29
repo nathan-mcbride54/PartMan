@@ -112,7 +112,8 @@ fn the_parsers_read_the_shapes_the_tools_actually_emit() {
          ID_FS_VERSION=LVM2\\x20001\n\
          ID_FS_TYPE=LVM2_member\n\
          ID_FS_USAGE=raid\n",
-    );
+    )
+    .expect("real 2.41 output must be readable");
     assert_eq!(
         udev.get("ID_FS_TYPE").map(String::as_str),
         Some("LVM2_member")
@@ -123,7 +124,8 @@ fn the_parsers_read_the_shapes_the_tools_actually_emit() {
         "OFFSET   TYPE\n\
          0x3f0000 linux_raid_member\n\
          0x438    ext4\n",
-    );
+    )
+    .expect("real 2.41 output must be readable");
     assert_eq!(
         wipefs,
         [
@@ -135,9 +137,80 @@ fn the_parsers_read_the_shapes_the_tools_actually_emit() {
     );
 
     // Nothing detected: blkid prints nothing and exits 2, wipefs prints nothing
-    // at all — not even a header. Both must parse to empty rather than panic.
-    assert!(parse_udev("").is_empty());
-    assert!(parse_wipefs("").is_empty());
+    // at all — not even a header. Both must parse to empty rather than panic,
+    // and this is the ONLY route to an empty observation.
+    assert!(parse_udev("").expect("empty output is readable").is_empty());
+    assert!(
+        parse_wipefs("")
+            .expect("empty output is readable")
+            .is_empty()
+    );
+}
+
+#[test]
+fn a_line_the_parser_cannot_read_is_refused_rather_than_dropped() {
+    // The defect this replaced: both parsers discarded what they did not
+    // understand, so a row a parser could not read was not an "unexpected
+    // signature" that `compare` would report — it was no observation at all.
+    // A fixture whose output shape changed entirely parsed as empty and matched
+    // a blank expectation, while this module claimed to compare the full
+    // signature set in both directions.
+    let refused_udev = [
+        ("a line with no equals sign", "ID_FS_TYPE ext4"),
+        ("an empty key", "=value"),
+        (
+            "a key that appears twice",
+            "ID_FS_TYPE=ext4\nID_FS_TYPE=xfs",
+        ),
+    ];
+    for (what, output) in refused_udev {
+        assert!(
+            parse_udev(output).is_err(),
+            "blkid output with {what} must be refused, not silently dropped: {output:?}"
+        );
+    }
+
+    let refused_wipefs = [
+        ("a decimal offset", "1000 ext4"),
+        ("an offset with no 0x prefix", "3f0000 ext4"),
+        ("a non-hexadecimal offset", "0xzz ext4"),
+        ("no signature type", "0x438"),
+        ("a header after the first line", "0x438 ext4\nOFFSET TYPE"),
+        ("a repeated row", "0x438 ext4\n0x438 ext4"),
+        ("an entirely foreign shape", "wipefs: error: probing failed"),
+    ];
+    for (what, output) in refused_wipefs {
+        assert!(
+            parse_wipefs(output).is_err(),
+            "wipefs output with {what} must be refused, not silently dropped: {output:?}"
+        );
+    }
+}
+
+#[test]
+fn a_changed_output_shape_cannot_pass_as_a_blank_fixture() {
+    // The concrete consequence the review named. `blank-512.img` expects no
+    // udev keys and no signatures, so anything parsing to empty matches it.
+    // Refusing unreadable lines is what stops a wholly different output —
+    // an error message, a new column layout — from being read as "nothing
+    // detected" on the one fixture whose expectation is nothing.
+    let all = expectations();
+    let blank = all
+        .iter()
+        .find(|e| e.fixture == "blank-512.img")
+        .expect("recorded");
+    assert!(blank.signatures.is_empty() && blank.fs_type.is_none());
+
+    for output in [
+        "wipefs: error: /dev/x: probing initialization failed",
+        "OFFSET,TYPE\n0x438,ext4",
+        "  1000  ext4  ",
+    ] {
+        assert!(
+            parse_wipefs(output).is_err(),
+            "{output:?} must not parse as the empty observation that matches a blank fixture"
+        );
+    }
 }
 
 #[test]
@@ -304,8 +377,8 @@ fn captured() -> std::collections::BTreeMap<String, Observation> {
             all.insert(
                 std::mem::take(name),
                 Observation {
-                    udev: parse_udev(udev),
-                    signatures: parse_wipefs(wipefs),
+                    udev: parse_udev(udev).expect("the capture is readable"),
+                    signatures: parse_wipefs(wipefs).expect("the capture is readable"),
                 },
             );
         }
