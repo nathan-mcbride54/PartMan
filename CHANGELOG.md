@@ -198,6 +198,37 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   4 MiB device, having reused a sector count as a block count. Each correction is
   confirmed against `libblkid` rather than against the struct definition.
 
+- The TypeScript encoder authenticated a forged boolean as the **opposite**
+  logical value. The `bool` arm used JavaScript truthiness, so a runtime-forged
+  `{ kind: 'bool', value: 'false' }` encoded as `f5` — canonical `true` — and
+  `hash` published a digest over the other value, on the MODEL-005 and SEC-001
+  authorization boundary. TypeScript types do not protect an object that arrived
+  as JSON, over RPC, from a plugin, or as `unknown`, which is why `text` and
+  `bytes` already validated at runtime; the reasoning had simply not been carried
+  to the rest. Every variant now validates, including map keys — where
+  `requireWellFormed` iterated `.length`, `undefined` on a number, so its loop
+  never ran and `utf8` then coerced `1` to `"1"`, silently turning a map keyed by
+  a forged number into one keyed by text. Rust was unaffected: its `match` is
+  exhaustive over a real enum.
+
+  An adversarial pass on that fix found the guards checked fields while a payload
+  can lie *between two reads*: `kind` was read twice, containers declared a count
+  and then wrote a body from a second read, `bytes` trusted a `Symbol.iterator`
+  that `Uint8Array.from` truncated modulo 256, and `instanceof` let a
+  prototype-only fake through to a native `TypeError`. Each field is now read
+  exactly once and containers are snapshotted before being measured. The tests
+  were vacuous the same way — the `array` case used a string, which has a
+  `.length`, so the guard never ran and deleting it left the suite green. Every
+  case now names the phrase its refusal must contain.
+- Raw-byte hashing is no longer a way around strict decode. Both languages
+  exported a function that hashed whatever it was handed, documented as "use this
+  only for bytes produced by `encode` or accepted by `decode`" — an instruction,
+  not a guarantee. `hash_canonical_bytes` and `hashCanonicalBytes` are replaced by
+  `hash_encoded` / `hashEncoded`, which decode first, so canonicality is proven
+  rather than asserted. The TypeScript version validated a *prefix* and hashed a
+  *buffer* until the same pass caught it: `decode` walks the array through its
+  `length` property while `crypto.subtle.digest` reads the underlying buffer. No
+  digest changed; both languages still reproduce every recorded `sha256`.
 - Two fail-open edges and a flaky test harness, found by a progress review. The
   sharpest is one the prober increment introduced in the module the evidence
   increment wrote about: both prober parsers **discarded what they could not

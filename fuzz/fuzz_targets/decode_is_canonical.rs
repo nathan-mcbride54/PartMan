@@ -15,7 +15,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use partman_domain::canonical::{decode, encode, hash, hash_canonical_bytes};
+use partman_domain::canonical::{decode, encode, hash, hash_encoded};
 
 fuzz_target!(|data: &[u8]| {
     let Ok(value) = decode(data) else {
@@ -34,7 +34,7 @@ fuzz_target!(|data: &[u8]| {
     let by_value = hash(&value).expect("a decoded value must be hashable");
     assert_eq!(
         by_value,
-        hash_canonical_bytes(data),
+        hash_encoded(data).expect("bytes decode accepted must hash"),
         "hash disagreed with its own canonical bytes"
     );
 

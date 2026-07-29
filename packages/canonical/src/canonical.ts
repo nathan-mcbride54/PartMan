@@ -90,70 +90,180 @@ function utf8(value: string): Uint8Array {
 export function encode(value: Value): Uint8Array<ArrayBuffer> {
   const out: number[] = []
   writeValue(out, value, 0)
-  return Uint8Array.from(out)
+  const encoded = Uint8Array.from(out)
+
+  // Section 6.1 says everything this encoder emits, the decoder accepts. That
+  // was previously a claim about the code; here it is computed. An adversarial
+  // pass showed why the difference matters: a payload can lie about itself in
+  // ways no per-field check anticipates — a getter returning one thing to a
+  // guard and another to the writer, an `Array` subclass whose `length`
+  // disagrees with what its iterator yields, a `Symbol.iterator` producing
+  // values outside 0..=255 that `Uint8Array.from` then truncates modulo 256.
+  // Each of those produces a declared head that does not match the bytes that
+  // follow, and each was reachable while every field check passed.
+  //
+  // `decode` accepts only the unique canonical encoding, so it catches all of
+  // them at once and any not yet imagined. The cost is one decode per encode,
+  // which is the right trade on an authorization boundary: HLP-001 applies
+  // plans by hash and SEC-001 authorizes exact hashes, so bytes nobody can
+  // revalidate are worse than slow ones.
+  //
+  // **No test currently requires this check, and it is not counted as
+  // evidence.** Each of the four attacks above is caught by a field guard
+  // earlier in `writeValue`, and deleting this block leaves the whole suite
+  // green — checked, not assumed. It is kept as defence in depth against the
+  // variant nobody has thought of yet, which is precisely the case that cannot
+  // be written as a test. If a future change makes it load-bearing, that will
+  // show up as a failure here rather than as a silent bad digest.
+  try {
+    decode(encoded)
+  } catch (cause) {
+    throw new CanonicalError(
+      `the encoder produced bytes its own decoder rejects (${
+        cause instanceof Error ? cause.message : String(cause)
+      }); the value misreported its own contents`,
+    )
+  }
+  return encoded
 }
 
 function writeValue(out: number[], value: Value, depth: number): void {
   if (depth > MAX_DEPTH) throw new CanonicalError(`nesting deeper than ${MAX_DEPTH}`)
-  switch (value.kind) {
+  // Both fields are read exactly once, here, and everything below works from
+  // the captured copies.
+  //
+  // Reading twice is not a style question on this path. An adversarial pass
+  // built a value whose `kind` getter returned `'bool'` to the shape check and
+  // `'null'` to the dispatch, so the arm that validated was not the arm that
+  // ran. Nothing downstream can restore the guarantee once the two reads can
+  // disagree, and no per-arm check can notice.
+  // Typed as the union of kinds so the `default` arm below still narrows to
+  // `never`, which is what makes adding a variant to `Value` without a case
+  // here a compile error. The assertion is about types only: at runtime the
+  // string can be anything, and that is exactly what `default` handles.
+  const kind = requireValueShape(value) as Value['kind']
+  const payload: unknown = (value as { value?: unknown }).value
+
+  switch (kind) {
     case 'uint': {
-      requireRange(value.value, 0n, U64_MAX, 'uint')
-      writeHead(out, 0, value.value)
+      requireRange(payload as bigint, 0n, U64_MAX, 'uint')
+      writeHead(out, 0, payload as bigint)
       return
     }
     case 'neg': {
-      requireRange(value.value, I64_MIN, -1n, 'neg')
-      writeHead(out, 1, -1n - value.value)
+      requireRange(payload as bigint, I64_MIN, -1n, 'neg')
+      writeHead(out, 1, -1n - (payload as bigint))
       return
     }
     case 'bytes': {
       // `number[]` is narrowed by `Uint8Array.from` on the way out, which
       // truncates modulo 256 rather than failing, so a value that is not
       // actually a byte array must be refused before it reaches the buffer.
-      if (!(value.value instanceof Uint8Array)) {
-        throw new CanonicalError('bytes must be a Uint8Array')
+      if (!(payload instanceof Uint8Array)) {
+        throw new CanonicalError(`bytes must be a Uint8Array, not ${describe(payload)}`)
       }
-      writeHead(out, 2, BigInt(value.value.length))
-      for (const byte of value.value) out.push(byte)
+      // Copy through `Uint8Array.prototype.slice`, which reads the typed
+      // array's own internal length rather than a `length` property a subclass
+      // may shadow, and does not consult `Symbol.iterator`. Iterating the
+      // source let a lying iterator yield values outside 0..=255 that
+      // `Uint8Array.from` then truncated modulo 256 — bytes the head did not
+      // describe.
+      const raw = brandedCopy(
+        () => Uint8Array.prototype.slice.call(payload) as Uint8Array,
+        'bytes',
+      )
+      writeHead(out, 2, BigInt(raw.length))
+      for (const byte of raw) out.push(byte)
       return
     }
     case 'text': {
       // `TextEncoder.encode` coerces a non-string instead of failing, and
       // `requireWellFormed` iterates `.length`, which is `undefined` on a
       // number — so the loop body never runs and nothing catches it.
-      const payload: unknown = value.value
       if (typeof payload !== 'string') {
         throw new CanonicalError(`text must be a string, not ${typeof payload}`)
       }
-      requireWellFormed(value.value, 'text string')
-      const raw = utf8(value.value)
+      requireWellFormed(payload, 'text string')
+      const raw = utf8(payload)
       writeHead(out, 3, BigInt(raw.length))
       for (const byte of raw) out.push(byte)
       return
     }
     case 'array': {
-      writeHead(out, 4, BigInt(value.value.length))
-      for (const item of value.value) writeValue(out, item, depth + 1)
+      // Without this, `.length` on a non-array is `undefined`, `BigInt(undefined)`
+      // throws a native `TypeError`, and the module's contract that everything
+      // it refuses is a `CanonicalError` quietly stops holding.
+      if (!Array.isArray(payload)) {
+        throw new CanonicalError(`array must be an Array, not ${describe(payload)}`)
+      }
+      // Snapshot before measuring. The head declares a count and the body then
+      // writes the items, so reading the source twice lets a subclass with a
+      // `length` getter, or an array mutated during iteration, declare one
+      // number and emit another.
+      const items: unknown[] = Array.prototype.slice.call(payload)
+      writeHead(out, 4, BigInt(items.length))
+      for (const item of items) writeValue(out, item as Value, depth + 1)
       return
     }
     case 'map': {
-      writeHead(out, 5, BigInt(value.value.size))
+      const source = payload
+      if (!(source instanceof Map)) {
+        throw new CanonicalError(`map must be a Map, not ${describe(source)}`)
+      }
+      // Snapshot through `Map.prototype`, so a subclass overriding `entries`,
+      // `keys`, `get` or `size` cannot make the declared size disagree with the
+      // pairs written, or answer `get` differently the second time.
+      const pairs = brandedCopy(
+        () => [...Map.prototype.entries.call(source)] as [unknown, unknown][],
+        'map',
+      )
+      const value_ = new Map<unknown, unknown>(pairs)
+      writeHead(out, 5, BigInt(value_.size))
       // A JavaScript Map iterates in insertion order, which is not encoding
-      // order, so the keys are sorted here. Well-formedness is checked before
-      // the sort, so the refusal does not depend on insertion order.
-      const keys = [...value.value.keys()]
-      for (const key of keys) requireWellFormed(key, 'map key')
-      keys.sort(compareKeys)
+      // order, so the keys are sorted here. Every key is checked before the
+      // sort, so a refusal does not depend on insertion order.
+      const keys = [...value_.keys()]
       for (const key of keys) {
+        // A non-string key is the quietest failure in this module.
+        // `requireWellFormed` iterates `.length`, which is `undefined` on a
+        // number, so its loop never runs and the key passes — and `utf8` then
+        // coerces `1` to `"1"`. A map keyed by a forged number encoded as one
+        // keyed by text, silently.
+        if (typeof key !== 'string') {
+          throw new CanonicalError(`map keys must be strings, found ${describe(key)}`)
+        }
+        requireWellFormed(key, 'map key')
+      }
+      const sorted = keys as string[]
+      sorted.sort(compareKeys)
+      for (const key of sorted) {
         const raw = utf8(key)
         writeHead(out, 3, BigInt(raw.length))
         for (const byte of raw) out.push(byte)
-        writeValue(out, value.value.get(key) as Value, depth + 1)
+        const item = value_.get(key)
+        if (item === undefined) {
+          throw new CanonicalError(`map key ${JSON.stringify(key)} has no value`)
+        }
+        writeValue(out, item as Value, depth + 1)
       }
       return
     }
     case 'bool': {
-      out.push(value.value ? 0xf5 : 0xf4)
+      // The defect a progress review reproduced. This arm used JavaScript
+      // truthiness — `value.value ? 0xf5 : 0xf4` — so a runtime-forged
+      // `{ kind: 'bool', value: 'false' }` encoded as `f5`, canonical **true**,
+      // and `hash` authenticated the opposite logical value. TypeScript types do
+      // not protect an object deserialized from JSON, RPC, a plugin, or
+      // `unknown`, which is why every other arm here already validates.
+      // Captured as `unknown` first: the declared type is `boolean`, so
+      // narrowing on it leaves `never` and the compiler stops helping exactly
+      // where the runtime check is needed. The declared type is what is in
+      // doubt.
+      const flag = payload
+      if (typeof flag !== 'boolean') {
+        throw new CanonicalError(`bool must be a boolean, not ${describe(flag)}`)
+      }
+      out.push(flag ? 0xf5 : 0xf4)
       return
     }
     case 'null': {
@@ -168,12 +278,71 @@ function writeValue(out: number[], value: Value, depth: number): void {
       // the empty string as a well-formed digest over an artifact that has no
       // encoding — a producer authorising bytes nobody can revalidate, which is
       // exactly what section 6.1 forbids.
-      const unknown: never = value
+      const unhandled: never = kind
       throw new CanonicalError(
-        `value kind ${JSON.stringify((unknown as { kind?: unknown }).kind)} is not in the profile`,
+        `value kind ${JSON.stringify(unhandled as unknown)} is not in the profile`,
       )
     }
   }
+}
+
+/**
+ * Name a runtime value for a refusal message, without trusting its `toString`.
+ *
+ * A forged payload is exactly the kind of object whose `toString` might throw or
+ * lie, and this runs on the path that is refusing it.
+ */
+/**
+ * Copy a payload through a built-in that reads internal slots, turning the
+ * native failure into a `CanonicalError`.
+ *
+ * `instanceof` only inspects the prototype chain, so
+ * `Object.create(Uint8Array.prototype)` passes it while having no typed-array
+ * internals at all — and `Uint8Array.prototype.slice.call` on that throws a
+ * native `TypeError`. That is the right *decision* reached the wrong *way*: an
+ * adversarial pass found native errors escaping `encode`, and a caller cannot
+ * tell "invalid input" from "the encoder is broken" if both arrive as
+ * `TypeError`.
+ */
+function brandedCopy<T>(copy: () => T, kind: string): T {
+  try {
+    return copy()
+  } catch {
+    throw new CanonicalError(
+      `${kind} has the right prototype but not the internals of a real ${kind === 'bytes' ? 'Uint8Array' : 'Map'}`,
+    )
+  }
+}
+
+function describe(value: unknown): string {
+  if (value === null) return 'null'
+  if (Array.isArray(value)) return 'an Array'
+  const kind = typeof value
+  return kind === 'object' ? (value?.constructor?.name ?? 'an object') : kind
+}
+
+/**
+ * Reject anything that is not shaped like a {@link Value} before its payload is
+ * read.
+ *
+ * The `default` arm below catches an unrecognized `kind`. It cannot catch a
+ * `value` that is not an object at all, or one with no `kind`: reading
+ * `value.kind` on `undefined` throws a native `TypeError`, and this module's
+ * contract is that everything it refuses is a `CanonicalError`. A caller
+ * distinguishing "invalid input" from "the encoder is broken" needs that
+ * distinction to hold.
+ */
+function requireValueShape(value: Value): string {
+  if (typeof value !== 'object' || value === null) {
+    throw new CanonicalError(`a value must be an object, not ${describe(value)}`)
+  }
+  const kind: unknown = (value as { kind?: unknown }).kind
+  if (typeof kind !== 'string') {
+    throw new CanonicalError(`a value must carry a string \`kind\`, not ${describe(kind)}`)
+  }
+  // Returned rather than re-read by the caller, so the kind that was validated
+  // is necessarily the kind that is dispatched on.
+  return kind
 }
 
 function requireRange(value: bigint, low: bigint, high: bigint, kind: string): void {
@@ -456,11 +625,19 @@ class Reader {
  * the value, as the `schema` and `schema_version` fields.
  */
 export async function hash(value: Value): Promise<Uint8Array> {
-  return hashCanonicalBytes(encode(value))
+  return digestOf(encode(value))
 }
 
 /**
- * Hash bytes already known to be canonical.
+ * Hash bytes, after proving they are the canonical encoding of some value.
+ *
+ * The proof is {@link decode} itself, which accepts only the unique canonical
+ * encoding — so bytes that survive it are canonical by construction rather than
+ * by the caller's say-so. This replaced an exported `hashCanonicalBytes` whose
+ * documentation said the input was "already known to be canonical", which is an
+ * instruction rather than a guarantee. The plan hash is an authorization
+ * boundary under SEC-001, and an exported function that hashes whatever it is
+ * handed is a way around strict decoding for anyone who forgets.
  *
  * The parameter is `Uint8Array<ArrayBuffer>`, not a bare `Uint8Array`. Since
  * TypeScript 5.7 the array is generic over its backing buffer, and Web Crypto's
@@ -468,8 +645,30 @@ export async function hash(value: Value): Promise<Uint8Array> {
  * be mutated by another thread while the digest is being computed, so hashing
  * one has no well-defined result. Stating the requirement in the signature makes
  * that a caller's compile error rather than this function's silent assumption.
+ *
+ * @throws CanonicalError if the bytes are not the unique canonical encoding.
  */
-export async function hashCanonicalBytes(input: Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
+export async function hashEncoded(input: Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
+  // Validate and hash **the same bytes**. `decode` walks the array through its
+  // `length` property while `crypto.subtle.digest` reads the underlying buffer,
+  // so a view whose `length` is shadowed — a `Uint8Array` subclass, say — got
+  // its prefix validated and its whole buffer hashed. The digest would then
+  // cover bytes nothing proved canonical, which is the one thing this function
+  // exists to prevent. Copying through `Uint8Array.prototype.slice` reads the
+  // internal length, so the snapshot is what both steps see.
+  const snapshot: Uint8Array<ArrayBuffer> = Uint8Array.prototype.slice.call(input)
+  decode(snapshot)
+  return digestOf(snapshot)
+}
+
+/**
+ * SHA-256 over bytes this module has just produced or just validated.
+ *
+ * Deliberately not exported. Every caller is in this file and holds bytes that
+ * {@link encode} returned or {@link decode} accepted a line earlier, so the
+ * precondition is visible at the call site rather than asserted in a comment.
+ */
+async function digestOf(input: Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
   const digest = await crypto.subtle.digest('SHA-256', input)
   return new Uint8Array(digest)
 }

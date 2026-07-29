@@ -92,7 +92,8 @@ fn check(input: &[u8]) {
     // Hashing an accepted value must not panic, and must agree with hashing the
     // bytes it came from.
     let by_value = hash(&value).expect("a decoded value must be hashable");
-    let by_bytes = partman_domain::canonical::hash_canonical_bytes(input);
+    let by_bytes =
+        partman_domain::canonical::hash_encoded(input).expect("bytes decode accepted must hash");
     assert_eq!(
         by_value, by_bytes,
         "hash disagreed with its own canonical bytes"

@@ -15,12 +15,15 @@ import {
   type Value,
   array,
   bool,
+  bytes,
   compareKeys,
   decode,
   encode,
   fromHex,
   hash,
+  hashEncoded,
   map,
+  neg,
   nullValue,
   text,
   toHex,
@@ -227,13 +230,259 @@ test('an unknown value kind is refused rather than encoding to nothing', () => {
   assert.throws(() => encode(forged), CanonicalError)
 })
 
-test('a value whose payload has the wrong runtime type is refused', () => {
-  // `TextEncoder.encode` coerces a non-string and `Uint8Array.from` truncates a
-  // non-byte-array, so both would encode something rather than fail.
-  const badText = { kind: 'text', value: 42 } as unknown as Value
-  const badBytes = { kind: 'bytes', value: [300, -1] } as unknown as Value
-  assert.throws(() => encode(badText), CanonicalError)
-  assert.throws(() => encode(badBytes), CanonicalError)
+test('every variant refuses a forged runtime payload', () => {
+  // This test used to cover `text` and `bytes` only, and a progress review
+  // found what the gap cost: the `bool` arm used JavaScript truthiness, so
+  // `{ kind: 'bool', value: 'false' }` encoded as `f5` — canonical **true** —
+  // and `hash` authenticated the opposite logical value on the MODEL-005
+  // authorization boundary. TypeScript types do not protect an object that
+  // arrived as JSON, over RPC, from a plugin, or as `unknown`, which is the
+  // whole reason this module validates at runtime.
+  //
+  // One forged payload per variant, so a new variant added without validation
+  // has to be added here too.
+  // Each case names the phrase its refusal must contain. Asserting only the
+  // error *class* is not enough, and an adversarial pass proved it here: the
+  // original `array` case used the string `'not an array'`, which has a
+  // `.length`, so the encoder walked it as a sequence and refused one of its
+  // characters. The array guard never ran — deleting it left all 24 tests
+  // green. A refusal for the wrong reason is evidence of nothing.
+  const forged: ReadonlyArray<readonly [string, unknown, string]> = [
+    ['uint', { kind: 'uint', value: 42 }, 'uint must be a bigint'],
+    ['neg', { kind: 'neg', value: -42 }, 'neg must be a bigint'],
+    ['bytes', { kind: 'bytes', value: [300, -1] }, 'bytes must be a Uint8Array'],
+    ['text', { kind: 'text', value: 42 }, 'text must be a string'],
+    ['array', { kind: 'array', value: 42 }, 'array must be an Array'],
+    ['map', { kind: 'map', value: { a: 1 } }, 'map must be a Map'],
+    ['map key', { kind: 'map', value: new Map([[1, { kind: 'null' }]]) }, 'map keys must be strings'],
+    ['map value', { kind: 'map', value: new Map([['a', undefined]]) }, 'has no value'],
+    ['bool', { kind: 'bool', value: 'false' }, 'bool must be a boolean'],
+    ['bool zero', { kind: 'bool', value: 0 }, 'bool must be a boolean'],
+    ['shape', 'not a value at all', 'must be an object'],
+    ['shape null', null, 'must be an object'],
+    ['shape kind', { value: 1n }, 'must carry a string `kind`'],
+    ['unknown kind', { kind: 'tag', value: 1n }, 'not in the profile'],
+  ]
+
+  for (const [what, payload, reason] of forged) {
+    assert.throws(
+      () => encode(payload as Value),
+      (error: unknown) => {
+        assert.ok(
+          error instanceof CanonicalError,
+          `a forged ${what} payload must be refused with a CanonicalError, not a native throw: ${String(error)}`,
+        )
+        assert.ok(
+          error.message.includes(reason),
+          `a forged ${what} payload was refused for the wrong reason. Expected a message containing ${JSON.stringify(reason)}, got ${JSON.stringify(error.message)}`,
+        )
+        return true
+      },
+    )
+  }
+})
+
+test('every kind the encoder accepts has a forged case above', () => {
+  // Makes the table exhaustive by construction rather than by inspection. A new
+  // variant added to `Value` without validation, and without a row above, fails
+  // here — an adversarial pass showed the previous hand-written list did not
+  // force that, so the exact bug just fixed would pass 24/24 under a new name.
+  const accepted = [
+    uint(0n),
+    neg(-1n),
+    bytes(new Uint8Array()),
+    text(''),
+    array([]),
+    map(new Map()),
+    bool(true),
+    nullValue,
+  ]
+  const kinds = new Set(accepted.map((value) => value.kind))
+  assert.equal(kinds.size, 8, 'every variant of Value must be represented here')
+
+  // `null` carries no payload to forge, so it is the one exemption and is named
+  // rather than silently absent.
+  const covered = new Set(['uint', 'neg', 'bytes', 'text', 'array', 'map', 'bool'])
+  for (const kind of kinds) {
+    assert.ok(
+      covered.has(kind) || kind === 'null',
+      `variant ${kind} has no forged payload case; add one before it can carry a hash`,
+    )
+  }
+})
+
+test('a forged boolean is refused rather than encoded as the other value', () => {
+  // Stated on its own because it is the one that silently changed *meaning*
+  // rather than throwing something. Both directions: a truthy non-boolean must
+  // not become `true`, and a falsy one must not become `false`.
+  for (const truthy of ['false', 'true', 1, [], {}]) {
+    assert.throws(() => encode({ kind: 'bool', value: truthy } as unknown as Value), CanonicalError)
+  }
+  for (const falsy of [0, '', null, undefined, Number.NaN]) {
+    assert.throws(() => encode({ kind: 'bool', value: falsy } as unknown as Value), CanonicalError)
+  }
+  // And the real booleans still encode to the two bytes the profile fixes.
+  assert.equal(toHex(encode(bool(true))), 'f5')
+  assert.equal(toHex(encode(bool(false))), 'f4')
+})
+
+test('a payload that misreports its own contents cannot be encoded', () => {
+  // Field checks alone cannot close this: each of these passes every guard and
+  // then tells the writer something different from what it told the guard. What
+  // catches them is `encode` decoding its own output, which turns section 6.1
+  // from a claim about the code into a computation.
+  //
+  // All four were found by an adversarial pass, and each produced bytes whose
+  // declared head did not match the body that followed — bytes `hash` would
+  // have signed.
+  const misreporting: ReadonlyArray<readonly [string, unknown]> = [
+    [
+      // A real array's `length` is non-configurable, so the lie has to come
+      // through a Proxy — which `Array.isArray` still reports as an array.
+      'an array whose reported length disagrees with its contents',
+      {
+        kind: 'array',
+        value: new Proxy([nullValue, nullValue], {
+          get: (target, property, receiver) =>
+            property === 'length' ? 5 : Reflect.get(target, property, receiver),
+        }),
+      },
+    ],
+    [
+      'a bytes payload whose iterator yields values outside a byte',
+      {
+        kind: 'bytes',
+        // `Uint8Array.prototype` defines `length` as a getter, so this has to
+        // be an own property rather than an assignment.
+        value: Object.defineProperties(Object.create(Uint8Array.prototype), {
+          length: { value: 2 },
+          [Symbol.iterator]: {
+            value: function* () {
+              yield 300
+              yield -1
+            },
+          },
+        }),
+      },
+    ],
+    [
+      'a map whose size disagrees with its entries',
+      {
+        kind: 'map',
+        value: Object.defineProperties(Object.create(Map.prototype), {
+          size: { value: 9 },
+          entries: { value: () => [['a', nullValue]][Symbol.iterator]() },
+        }),
+      },
+    ],
+  ]
+
+  for (const [what, payload] of misreporting) {
+    assert.throws(
+      () => encode(payload as Value),
+      CanonicalError,
+      `${what} must be refused, not encoded into bytes whose head lies about its body`,
+    )
+  }
+})
+
+test('a value is read once, so it cannot be validated as one kind and written as another', () => {
+  // An adversarial pass built a value whose `kind` getter answered 'bool' to
+  // the shape check and 'null' to the dispatch, so the arm that validated was
+  // not the arm that ran. Both arms happened to be safe, which is exactly why
+  // this is worth pinning: the guarantee held by luck rather than by design,
+  // and no per-arm check could have noticed.
+  //
+  // The fix is that `kind` and the payload are each read exactly once. The
+  // encoder therefore commits to the first reading and produces its canonical
+  // encoding — a defined answer rather than a mismatch between head and body.
+  let kindReads = 0
+  let payloadReads = 0
+  const shifty = {
+    get kind() {
+      return kindReads++ === 0 ? 'bool' : 'null'
+    },
+    get value() {
+      payloadReads++
+      return true
+    },
+  }
+
+  // Encoded once: this object answers differently on every read, so a second
+  // call would be measuring the test's own bookkeeping rather than the encoder.
+  const encoded = encode(shifty as unknown as Value)
+  assert.equal(toHex(encoded), 'f5')
+  assert.equal(kindReads, 1, 'the kind must be read exactly once')
+  assert.equal(payloadReads, 1, 'the payload must be read exactly once')
+
+  // And the result is a real encoding of a real value, not a lie about one.
+  assert.deepEqual(decode(encoded), bool(true))
+})
+
+test('hashEncoded validates the same bytes it hashes', () => {
+  // `decode` walks the array through its `length` property while
+  // `crypto.subtle.digest` reads the underlying buffer. A view whose `length`
+  // is shadowed therefore had its prefix validated and its whole buffer
+  // hashed — a digest over bytes nothing proved canonical, which is the one
+  // thing this function exists to prevent.
+  const real = encode(nullValue) // f6, one byte
+  const wider = new Uint8Array(4)
+  wider.set(real)
+  wider[1] = 0xf6 // trailing bytes: decode must reject the whole thing
+  const lying = Object.defineProperty(wider, 'length', { get: () => 1 })
+
+  return assert.rejects(
+    async () => hashEncoded(lying as Uint8Array<ArrayBuffer>),
+    CanonicalError,
+    'a view that under-reports its length must not get its prefix validated and its buffer hashed',
+  )
+})
+
+test('everything the encoder accepts decodes back to the same value', () => {
+  // The property the review asked for, over the shared vectors. Refusing
+  // forged payloads is only half of section 6.1; the other half is that
+  // whatever survives encoding round-trips, so a producer never publishes a
+  // hash over bytes that mean something else when read back.
+  for (const vector of loadVectors()) {
+    const encoded = encode(vector.value)
+    assert.deepEqual(
+      decode(encoded),
+      vector.value,
+      `${vector.name} did not round-trip through encode/decode`,
+    )
+  }
+})
+
+test('hashEncoded refuses bytes that are not canonical', async () => {
+  // The raw-byte hash constructor was exported and hashed whatever it was
+  // given, with a comment asking callers to pass canonical bytes. That is an
+  // instruction, not a guarantee, and SEC-001 authorizes by exact hash.
+  await Promise.all([
+    // A non-shortest integer argument: decodes to 0, but is not the canonical
+    // encoding of 0, so hashing it would authorize a second digest for one value.
+    assert.rejects(async () => hashEncoded(Uint8Array.from([0x18, 0x00])), CanonicalError),
+    // Trailing bytes after a complete item.
+    assert.rejects(async () => hashEncoded(Uint8Array.from([0xf6, 0xf6])), CanonicalError),
+    // A float, which the profile excludes entirely.
+    assert.rejects(
+      async () => hashEncoded(Uint8Array.from([0xfa, 0x00, 0x00, 0x00, 0x00])),
+      CanonicalError,
+    ),
+  ])
+})
+
+test('hashEncoded agrees with hashing the value it came from', async () => {
+  // Narrowing the API must not have changed any digest.
+  await Promise.all(
+    loadVectors().map(async (vector) => {
+      const encoded = encode(vector.value)
+      assert.equal(
+        toHex(await hashEncoded(encoded)),
+        toHex(await hash(vector.value)),
+        vector.name,
+      )
+    }),
+  )
 })
 
 test('fromHex refuses input that is not hexadecimal', () => {
