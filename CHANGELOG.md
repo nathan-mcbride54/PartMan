@@ -75,6 +75,20 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   table would look exactly like a passing test. The comparison is proved capable
   of failing in all four directions: a format no longer detected, a changed
   answer, a lost signature, and an added one.
+
+  **Its first run falsified a claim increment 1 had recorded.** On util-linux
+  2.39.3, which stock `ubuntu-24.04` ships, `blkid -p` reports nothing at all for
+  `mdraid-1.2-member-512.img`, while `wipefs` still lists the superblock and both
+  tools agree about every other fixture — including the 0.90 superblock in the
+  stale-pair image. Increment 1 checked the signature writers by hand against
+  2.41 on one machine and recorded the result as unconditional, so FS-004 Linux
+  RAID and LIN-005 are **not** established on that platform. The expectation is
+  now version-keyed rather than relaxed: below 2.41 the recorded answer is
+  silence, so a prober that starts naming the fixture fails just as one that
+  stops does. Which condition 2.39.3 rejects is unestablished — both versions'
+  checksum routines are arithmetically identical, and the fixture satisfies the
+  magic, `major_version` and `super_offset` checks — and it is recorded as
+  unestablished rather than guessed at.
 - ADR-C1, accepted, fixing the canonical encoding and hash strategy.
 - ADR-C5, accepted, fixing the aggregation vocabulary: one `Aggregate` node in
   place of three undefined Section 5 names, on-disk signatures as their own

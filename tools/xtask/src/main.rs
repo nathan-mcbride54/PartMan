@@ -257,10 +257,21 @@ fn probe_fixtures() -> Result<(), TaskError> {
     })?;
 
     // Record what produced these answers. A disagreement is far cheaper to
-    // diagnose when the version that disagreed is in the same output, and the
-    // expectations were measured against libblkid 2.41.
-    println!("{}", tool_version("blkid")?);
+    // diagnose when the version that disagreed is in the same output, and one
+    // expectation is genuinely version-dependent.
+    let banner = tool_version("blkid")?;
+    println!("{banner}");
     println!("{}", tool_version("wipefs")?);
+    let version = prober::parse_util_linux_version(&banner).ok_or_else(|| {
+        TaskError::Usage(format!(
+            "could not read a util-linux version from {banner:?}. One expectation depends on it, \
+             so guessing would silently relax the check."
+        ))
+    })?;
+    println!(
+        "reading expectations for util-linux {}.{}",
+        version.0, version.1
+    );
     println!();
 
     let mut failures = Vec::new();
@@ -275,7 +286,7 @@ fn probe_fixtures() -> Result<(), TaskError> {
             signatures: prober::parse_wipefs(&raw_wipefs),
         };
 
-        let disagreements = prober::compare(&expectation, &observed);
+        let disagreements = prober::compare(&expectation, &observed, version);
         if disagreements.is_empty() {
             println!("  ok    {}", expectation.fixture);
         } else {

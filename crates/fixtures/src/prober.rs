@@ -50,6 +50,17 @@ pub struct ProberExpectation {
     pub part_table_type: Option<&'static str>,
     /// Every `(offset, type)` row `wipefs -n` lists, in offset order.
     pub signatures: &'static [(u64, &'static str)],
+    /// The util-linux version at which `blkid` began naming this fixture.
+    ///
+    /// `None` means every measured version names it. `Some((major, minor))`
+    /// records a fixture that older probers **enumerate but do not validate**:
+    /// `wipefs` lists the signature and `blkid` reports nothing at all.
+    ///
+    /// This is not a tolerance. Below the named version the expectation is
+    /// *silence*, and a prober that suddenly names the fixture fails just as a
+    /// newer one falling silent does. What the field records is that two
+    /// probers genuinely disagree, which a single expectation cannot say.
+    pub blkid_names_it_from: Option<(u32, u32)>,
     /// Why this is what it is — written for the entries where the answer is not
     /// the one a reader would predict from the fixture's name.
     pub note: &'static str,
@@ -94,6 +105,7 @@ fn gpt_expectations() -> Vec<ProberExpectation> {
             fs_label: None,
             part_table_type: Some("gpt"),
             signatures: &[(0x1fe, "PMBR"), (0x200, "gpt"), (0x3f_fe00, "gpt")],
+            blkid_names_it_from: None,
             note: "The baseline. Both GPT copies and the protective MBR are enumerated.",
         },
         ProberExpectation {
@@ -103,6 +115,7 @@ fn gpt_expectations() -> Vec<ProberExpectation> {
             fs_label: None,
             part_table_type: Some("PMBR"),
             signatures: &[(0x1fe, "PMBR")],
+            blkid_names_it_from: None,
             note: "PMBR, not gpt — and that is correct, not a defect. Probing a regular file, \
                    libblkid assumes 512-byte logical sectors, looks for EFI PART at 0x200, finds \
                    the zero padding of the 4096-byte protective-MBR sector, and falls back to \
@@ -118,6 +131,7 @@ fn gpt_expectations() -> Vec<ProberExpectation> {
             fs_label: None,
             part_table_type: Some("gpt"),
             signatures: &[(0x1fe, "PMBR"), (0x3f_fe00, "gpt")],
+            blkid_names_it_from: None,
             note: "blkid reports an ordinary `gpt`: it recovers silently from the backup and \
                    says nothing about the damage. Only the wipefs offset list shows the primary \
                    copy is missing. A client reading udev cannot tell a healthy disk from one \
@@ -130,6 +144,7 @@ fn gpt_expectations() -> Vec<ProberExpectation> {
             fs_label: None,
             part_table_type: Some("gpt"),
             signatures: &[(0x1fe, "PMBR"), (0x200, "gpt"), (0x3f_fe00, "gpt")],
+            blkid_names_it_from: None,
             note: "IDENTICAL to gpt-basic-512 from both tools, and that is the finding, not an \
                    oversight. Two independently valid tables describing different partitions is \
                    ADR-C3's definition of a table that parses ambiguously, and neither interface \
@@ -146,6 +161,7 @@ fn gpt_expectations() -> Vec<ProberExpectation> {
             fs_label: None,
             part_table_type: Some("gpt"),
             signatures: &[(0x1fe, "PMBR"), (0x200, "gpt")],
+            blkid_names_it_from: None,
             note: "One gpt row, not two: the backup copy is genuinely gone. This row is what \
                    would have caught the fixture's earlier defect, where only the backup header \
                    sector was erased and 16 KiB of entry array survived.",
@@ -157,6 +173,7 @@ fn gpt_expectations() -> Vec<ProberExpectation> {
             fs_label: None,
             part_table_type: Some("gpt"),
             signatures: &[(0x1fe, "PMBR"), (0x200, "gpt"), (0x3f_fe00, "gpt")],
+            blkid_names_it_from: None,
             note: "Plain `gpt`, with the MBR reported as merely protective. The fixture carries \
                    an ordinary 0x0c entry aliasing the ESP's exact extent, and libblkid sees the \
                    0xEE entry first and never mentions the conflict. INV-003's hybrid-table \
@@ -176,6 +193,7 @@ fn other_table_expectations() -> Vec<ProberExpectation> {
             fs_label: None,
             part_table_type: None,
             signatures: &[],
+            blkid_names_it_from: None,
             note: "Nothing, from both tools. ADR-C3's positively-observed-absent state is the \
                    one table state a client can distinguish from the others.",
         },
@@ -186,6 +204,7 @@ fn other_table_expectations() -> Vec<ProberExpectation> {
             fs_label: None,
             part_table_type: Some("dos"),
             signatures: &[(0x1fe, "dos")],
+            blkid_names_it_from: None,
             note: "`dos` rather than `PMBR`, which is the distinction the fixture's claim also \
                    enforces structurally: no entry may be type 0xEE.",
         },
@@ -196,6 +215,7 @@ fn other_table_expectations() -> Vec<ProberExpectation> {
             fs_label: None,
             part_table_type: Some("mac"),
             signatures: &[(0x0, "mac")],
+            blkid_names_it_from: None,
             note: "Named `mac`, at offset 0 rather than 0x1fe — the driver descriptor is the \
                    first block, where the other schemes put a boot signature at the end of it. \
                    A reader that assumes little-endian passes every other fixture and fails \
@@ -214,6 +234,7 @@ fn signature_expectations() -> Vec<ProberExpectation> {
             fs_label: None,
             part_table_type: None,
             signatures: &[(0x0, "crypto_LUKS")],
+            blkid_names_it_from: None,
             note: "FS-004 LUKS and LIN-003. The UUID is the field an earlier writer put inside \
                    the 48-byte label, leaving the fixture with none; blkid reported nothing for \
                    it then and reports it now.",
@@ -225,6 +246,7 @@ fn signature_expectations() -> Vec<ProberExpectation> {
             fs_label: None,
             part_table_type: None,
             signatures: &[(0x218, "LVM2_member")],
+            blkid_names_it_from: None,
             note: "Detected only because the label's own CRC is reproduced — a nibble-wise \
                    variant, not CRC-32. libblkid verifies it before reporting LVM2_member, so a \
                    label carrying LABELONE and a zero checksum is detected as nothing at all. \
@@ -237,9 +259,18 @@ fn signature_expectations() -> Vec<ProberExpectation> {
             fs_label: Some("pm:0"),
             part_table_type: None,
             signatures: &[(0x1000, "linux_raid_member")],
-            note: "FS-004 Linux RAID and LIN-005. Without the folded-sum checksum wipefs still \
-                   lists the superblock, because it enumerates magic matches, while `blkid -p` \
-                   reports nothing, because it validates. This row anchors that algorithm.",
+            blkid_names_it_from: Some((2, 41)),
+            note: "FS-004 Linux RAID and LIN-005 — and the one fixture where two probers \
+                   disagree, found by this check's first run. util-linux 2.41 names it; 2.39.3, \
+                   which stock ubuntu-24.04 ships, reports NOTHING from `blkid -p` while \
+                   `wipefs` still lists the superblock at 0x1000. The 0.90 superblock in the \
+                   stale-pair fixture is accepted by both, so this is specific to the 1.x \
+                   superblock. WHICH field 2.39.3 rejects is UNESTABLISHED: its checksum \
+                   routine is arithmetically identical to 2.41's (one zeroes the sb_csum field, \
+                   the other subtracts it), and magic, major_version and super_offset are all \
+                   as that version requires. Do not guess at a cause here — measure it. Until \
+                   then, FS-004 Linux RAID 1.2 detection is NOT established on 2.39.3, and \
+                   increment 1's manual check recorded it as though it were.",
         },
         ProberExpectation {
             fixture: "ext4-with-stale-mdraid-090-512.img",
@@ -248,6 +279,7 @@ fn signature_expectations() -> Vec<ProberExpectation> {
             fs_label: None,
             part_table_type: None,
             signatures: &[(0x438, "ext4"), (0x3f_0000, "linux_raid_member")],
+            blkid_names_it_from: None,
             note: "The asymmetry the protection model turns on, and the reason this table is \
                    worth automating. wipefs reports BOTH signatures; `blkid -p -o udev` — the \
                    form udev's builtin uses, and so what an unprivileged client reads from the \
@@ -265,13 +297,25 @@ fn signature_expectations() -> Vec<ProberExpectation> {
 /// Returns every disagreement rather than the first, so one run says everything
 /// that changed instead of one thing at a time.
 #[must_use]
-pub fn compare(expected: &ProberExpectation, observed: &Observation) -> Vec<String> {
+pub fn compare(
+    expected: &ProberExpectation,
+    observed: &Observation,
+    version: (u32, u32),
+) -> Vec<String> {
     let mut disagreements = Vec::new();
 
+    // A prober older than the one that first named this fixture is expected to
+    // say *nothing* — not "anything". Silence is as much an expectation as a
+    // name, so a version that starts naming it fails here too and the record
+    // gets revisited deliberately.
+    let names_it = expected
+        .blkid_names_it_from
+        .is_none_or(|first| version >= first);
+
     for (key, wanted) in [
-        ("ID_FS_TYPE", expected.fs_type),
-        ("ID_FS_UUID", expected.fs_uuid),
-        ("ID_FS_LABEL", expected.fs_label),
+        ("ID_FS_TYPE", expected.fs_type.filter(|_| names_it)),
+        ("ID_FS_UUID", expected.fs_uuid.filter(|_| names_it)),
+        ("ID_FS_LABEL", expected.fs_label.filter(|_| names_it)),
         ("ID_PART_TABLE_TYPE", expected.part_table_type),
     ] {
         let actual = observed.udev.get(key).map(String::as_str);
@@ -311,6 +355,21 @@ pub fn compare(expected: &ProberExpectation, observed: &Observation) -> Vec<Stri
     }
 
     disagreements
+}
+
+/// Extract `(major, minor)` from a util-linux version banner.
+///
+/// The banner reads `blkid from util-linux 2.41  (libblkid 2.41.0, …)`. Only the
+/// first two components are taken: the disagreement recorded above is between
+/// 2.39 and 2.41, and a patch release has never changed one of these answers.
+#[must_use]
+pub fn parse_util_linux_version(banner: &str) -> Option<(u32, u32)> {
+    let after = banner.split("util-linux").nth(1)?;
+    let token = after.split_whitespace().next()?;
+    let mut parts = token.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    Some((major, minor))
 }
 
 /// Parse `blkid -p -o udev` output.

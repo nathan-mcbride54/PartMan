@@ -12,6 +12,11 @@ use std::collections::BTreeSet;
 use super::{Observation, compare, expectations, parse_udev, parse_wipefs};
 use crate::catalogue::catalogue;
 
+/// The util-linux the capture below was taken with.
+const MEASURED: (u32, u32) = (2, 41);
+/// The util-linux `ubuntu-24.04` ships, which disagrees about one fixture.
+const OLDER: (u32, u32) = (2, 39);
+
 #[test]
 fn every_fixture_has_a_recorded_prober_expectation() {
     // Exhaustive in both directions, for the same reason the claims are: a
@@ -142,7 +147,7 @@ fn a_matching_observation_produces_no_disagreements() {
         .iter()
         .find(|e| e.fixture == "luks2-whole-disk-512.img")
         .expect("recorded");
-    assert!(compare(expected, &observation_of(expected)).is_empty());
+    assert!(compare(expected, &observation_of(expected), MEASURED).is_empty());
 }
 
 #[test]
@@ -160,7 +165,7 @@ fn the_comparison_is_capable_of_failing_in_every_direction() {
     let mut lost = observation_of(expected);
     lost.udev.remove("ID_FS_TYPE");
     assert!(
-        compare(expected, &lost)
+        compare(expected, &lost, MEASURED)
             .iter()
             .any(|reason| reason.contains("reported nothing")),
         "a fixture becoming undetectable must be a disagreement"
@@ -173,7 +178,7 @@ fn the_comparison_is_capable_of_failing_in_every_direction() {
         .udev
         .insert("ID_FS_TYPE".to_owned(), "ext4".to_owned());
     assert!(
-        compare(expected, &reversed)
+        compare(expected, &reversed, MEASURED)
             .iter()
             .any(|reason| reason.contains("prober said \"ext4\"")),
         "a changed answer must be a disagreement"
@@ -185,7 +190,7 @@ fn the_comparison_is_capable_of_failing_in_every_direction() {
         .signatures
         .retain(|(_, kind)| kind != "linux_raid_member");
     assert!(
-        compare(expected, &missing)
+        compare(expected, &missing, MEASURED)
             .iter()
             .any(|reason| reason.contains("is not there")),
         "a lost signature must be a disagreement"
@@ -196,7 +201,7 @@ fn the_comparison_is_capable_of_failing_in_every_direction() {
     let mut extra = observation_of(expected);
     extra.signatures.insert((0x1000, "swap".to_owned()));
     assert!(
-        compare(expected, &extra)
+        compare(expected, &extra, MEASURED)
             .iter()
             .any(|reason| reason.contains("unexpected swap")),
         "an added signature must be a disagreement"
@@ -335,7 +340,7 @@ fn the_recorded_table_matches_a_real_probe_run() {
         let observation = observed
             .get(expectation.fixture)
             .unwrap_or_else(|| panic!("{} is missing from the capture", expectation.fixture));
-        let disagreements = compare(&expectation, observation);
+        let disagreements = compare(&expectation, observation, MEASURED);
         assert!(
             disagreements.is_empty(),
             "{} does not match the captured libblkid 2.41 output: {disagreements:?}",
@@ -366,6 +371,75 @@ fn the_capture_shows_both_signatures_where_only_one_is_reported() {
         "the client is not even told the device is ambiguous"
     );
     assert_eq!(stale.signatures.len(), 2, "wipefs enumerates both");
+}
+
+#[test]
+fn the_version_dependent_row_expects_silence_below_its_version_and_a_name_at_it() {
+    // The first real disagreement this check found, held as a test. util-linux
+    // 2.41 names the mdraid 1.2 member; 2.39.3 reports nothing while `wipefs`
+    // still lists the superblock. Both are recorded, and neither is a
+    // tolerance: the wrong answer on either version is a disagreement.
+    let all = expectations();
+    let member = all
+        .iter()
+        .find(|e| e.fixture == "mdraid-1.2-member-512.img")
+        .expect("recorded");
+    assert_eq!(member.blkid_names_it_from, Some((2, 41)));
+
+    // On 2.41 the full answer is required...
+    let named = observation_of(member);
+    assert!(compare(member, &named, MEASURED).is_empty());
+    // ...and on 2.39 that same answer is a disagreement, because a prober that
+    // starts naming it has changed and the record must be revisited.
+    assert!(
+        compare(member, &named, OLDER)
+            .iter()
+            .any(|reason| reason.contains("expected nothing")),
+        "a newly-naming older prober must not pass silently"
+    );
+
+    // Silence is what 2.39 must give, and it is still an expectation: the
+    // signature must remain in the wipefs enumeration either way.
+    let mut silent = observation_of(member);
+    silent.udev.clear();
+    assert!(compare(member, &silent, OLDER).is_empty());
+    assert!(
+        compare(member, &silent, MEASURED)
+            .iter()
+            .any(|reason| reason.contains("reported nothing")),
+        "silence on 2.41 must still be a regression"
+    );
+
+    let mut silent_and_unenumerated = silent;
+    silent_and_unenumerated.signatures.clear();
+    assert!(
+        !compare(member, &silent_and_unenumerated, OLDER).is_empty(),
+        "even where blkid is silent, wipefs must still enumerate the superblock"
+    );
+}
+
+#[test]
+fn a_util_linux_banner_yields_the_version_the_expectations_are_keyed_on() {
+    // Both banners captured verbatim from the runs that produced this table.
+    assert_eq!(
+        super::parse_util_linux_version(
+            "blkid from util-linux 2.41  (libblkid 2.41.0, 18-Mar-2025)"
+        ),
+        Some((2, 41))
+    );
+    assert_eq!(
+        super::parse_util_linux_version(
+            "blkid from util-linux 2.39.3  (libblkid 2.39.3, 04-Dec-2023)"
+        ),
+        Some((2, 39))
+    );
+    // An unreadable banner must be `None` rather than a guess: one expectation
+    // depends on the version, so defaulting would silently relax the check.
+    assert_eq!(
+        super::parse_util_linux_version("blkid from somewhere"),
+        None
+    );
+    assert_eq!(super::parse_util_linux_version(""), None);
 }
 
 /// Build the observation an expectation describes, so the comparison can be

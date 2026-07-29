@@ -288,6 +288,39 @@ Three consequences, stated as narrowly as the measurement supports:
   primary copy is missing. A client reading udev cannot tell a healthy disk from
   one running on its backup header.
 
+### Two libblkid versions disagree about the mdraid 1.2 fixture
+
+Measured 2026-07-29 by the first run of `cargo xtask probe` in CI, which is the
+whole reason that check was automated. Increment 1 verified the signature
+fixtures by hand on one machine and recorded the result as though it held
+generally. It does not.
+
+| Fixture | util-linux 2.41.0 (Debian, WSL2) | util-linux 2.39.3 (`ubuntu-24.04`) |
+| --- | --- | --- |
+| `mdraid-1.2-member-512.img` | `blkid -p` names it: `linux_raid_member`, UUID `62fc041a-…`, label `pm:0` | **`blkid -p` reports nothing at all** |
+| — same fixture, `wipefs -n` | `linux_raid_member` at `0x1000` | `linux_raid_member` at `0x1000` — **unchanged** |
+| `ext4-with-stale-mdraid-090-512.img` (0.90 superblock) | named | named — **unchanged** |
+
+So the disagreement is specific to the **1.x** superblock, and it is the
+validating interface that differs while the enumerating one agrees. Every other
+fixture in the catalogue produces identical answers on both versions.
+
+**What this means for the requirement.** FS-004 Linux RAID and LIN-005 are
+**not** established on util-linux 2.39.3, which is what a stock Ubuntu 24.04
+ships. A client on that platform reading udev's cache sees nothing where this
+project's record said it would see an array member.
+
+**The cause is unestablished, and should not be guessed at.** Ruled out by
+reading both versions' sources: the checksum routines are arithmetically
+identical — 2.39 zeroes the `sb_csum` field before summing, 2.41 subtracts its
+value, which is the same sum — and the fixture satisfies the magic,
+`major_version`, and `super_offset` checks 2.39 documents. Establishing which
+condition it fails needs a 2.39 environment to bisect against, which this project
+does not currently have; the development machine has 2.41 only.
+
+That is the same posture as the ZFS writer above: the negative result is recorded
+so it is not rediscovered, and no mechanism is asserted without measuring it.
+
 ### 4Kn is not observable from a file at all
 
 `gpt-basic-4kn.img` reports `ID_PART_TABLE_TYPE=PMBR` — not `gpt`. libblkid
