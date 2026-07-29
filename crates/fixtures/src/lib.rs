@@ -31,4 +31,5 @@ pub mod evidence;
 pub mod interlock;
 pub mod layout;
 pub mod manifest;
+pub mod prober;
 pub mod signature;
