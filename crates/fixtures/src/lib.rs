@@ -28,6 +28,23 @@
 
 pub mod catalogue;
 pub mod evidence;
+
+/// Helpers shared between this crate's test modules.
+#[cfg(test)]
+mod test_support {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    /// A number unique within this process.
+    ///
+    /// Combined with the process id it gives every sandbox directory a name no
+    /// concurrent run can also choose. The previous fixed names meant two
+    /// `cargo test` invocations of this crate deleted each other's fixture
+    /// trees, in the suite that gates destructive execution.
+    pub fn next_sandbox_id() -> u64 {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    }
+}
 pub mod interlock;
 pub mod layout;
 pub mod manifest;

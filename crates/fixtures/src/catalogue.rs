@@ -343,7 +343,7 @@ pub fn generate(root: &Path) -> io::Result<Manifest> {
 /// no test can reach is the defect `evidence` exists to end, and it was sitting
 /// inside the fix for it.
 pub(crate) fn generate_from(root: &Path, fixtures: &[Fixture]) -> io::Result<Manifest> {
-    let existing = root.join(MANIFEST_FILE).is_file();
+    let existing = directory_is_ours(root);
     fs::create_dir_all(root)?;
 
     // Remove anything this build does not produce, so a fixture withdrawn from
@@ -351,9 +351,11 @@ pub(crate) fn generate_from(root: &Path, fixtures: &[Fixture]) -> io::Result<Man
     // enumerates the directory instead of the manifest. Withdrawing the ZFS
     // fixture left exactly such a file behind.
     //
-    // Only ever prune a directory that already holds one of our manifests, or
-    // one we just created. Otherwise a mistyped root would delete a user's
-    // files, and this function is not worth that risk.
+    // Only ever prune a directory this project can *prove* it owns. The proof
+    // used to be `root.join(MANIFEST_FILE).is_file()`, which establishes
+    // nothing: any directory holding an unrelated file — or a symlink, since
+    // `is_file` follows one — named `MANIFEST` was treated as ours and lost its
+    // other regular files. See [`directory_is_ours`].
     if existing {
         let expected_names: Vec<&str> = fixtures.iter().map(|fixture| fixture.name).collect();
         for entry in fs::read_dir(root)? {
@@ -392,6 +394,35 @@ pub(crate) fn generate_from(root: &Path, fixtures: &[Fixture]) -> io::Result<Man
     let manifest = Manifest::build(&images);
     fs::write(root.join(MANIFEST_FILE), manifest.render())?;
     Ok(manifest)
+}
+
+/// Can this project prove it owns `root`, and may therefore delete from it?
+///
+/// Ownership is *computed*, not inferred from a filename — the same rule the
+/// interlock applies to a destructive target. The directory must hold a regular
+/// file named `MANIFEST`, reached without following a symlink, whose contents
+/// parse as one of our manifests. `Manifest::parse` recomputes the token from
+/// the parsed entries and rejects a mismatch, so a hand-written file cannot
+/// claim ownership either.
+///
+/// Every failure is a refusal to prune. A directory this function cannot prove
+/// is ours keeps its files; generation still writes, because writing named files
+/// into a root the caller chose is what it was asked to do, but nothing is
+/// removed. Deleting on an unproven claim is the failure worth avoiding.
+fn directory_is_ours(root: &Path) -> bool {
+    let path = root.join(MANIFEST_FILE);
+    // `symlink_metadata` does not follow links, so a symlink named `MANIFEST`
+    // pointing at some real file elsewhere cannot authorize deletion here.
+    let Ok(metadata) = fs::symlink_metadata(&path) else {
+        return false;
+    };
+    if !metadata.is_file() {
+        return false;
+    }
+    let Ok(text) = fs::read_to_string(&path) else {
+        return false;
+    };
+    Manifest::parse(&text).is_ok()
 }
 
 /// Read a manifest previously written by [`generate`].

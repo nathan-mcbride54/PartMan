@@ -16,8 +16,16 @@ struct Sandbox {
 
 impl Sandbox {
     fn new(tag: &str) -> Self {
-        let root = std::env::temp_dir().join(format!("partman-interlock-{tag}"));
-        // Tests run in parallel and may re-run after a failure, so start clean.
+        // Process id and a per-process counter, so two concurrent runs of this
+        // crate's tests cannot delete each other's fixture trees. A fixed name
+        // made the suite that gates destructive execution flaky by
+        // construction.
+        let root = std::env::temp_dir().join(format!(
+            "partman-interlock-{tag}-{}-{}",
+            std::process::id(),
+            crate::test_support::next_sandbox_id()
+        ));
+        // Tests may re-run after a failure, so start clean.
         let _ = fs::remove_dir_all(&root);
         let manifest = catalogue::generate(&root).expect("generating fixtures must succeed");
         Self { root, manifest }
