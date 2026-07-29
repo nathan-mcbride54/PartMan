@@ -125,14 +125,37 @@ impl fmt::Display for Hash {
 ///
 /// Returns the same errors as [`encode`].
 pub fn hash(value: &Value) -> Result<Hash, Error> {
-    Ok(hash_canonical_bytes(&encode(value)?))
+    Ok(digest_of(&encode(value)?))
 }
 
-/// Hash bytes that are already known to be canonical.
+/// Hash bytes, after proving they are the canonical encoding of some value.
 ///
-/// Use this only for bytes produced by [`encode`] or accepted by [`decode`].
-#[must_use]
-pub fn hash_canonical_bytes(bytes: &[u8]) -> Hash {
+/// The proof is [`decode`] itself: it accepts only the unique canonical
+/// encoding, so bytes that survive it are canonical by construction rather than
+/// by the caller's say-so.
+///
+/// This replaced a `hash_canonical_bytes(&[u8]) -> Hash` whose documentation
+/// said "use this only for bytes produced by `encode` or accepted by `decode`".
+/// That is an instruction, not a guarantee — the plan hash is an authorization
+/// boundary under HLP-001, HLP-003 and SEC-001, and a public function that
+/// hashes whatever it is given is a way around strict decoding for anyone who
+/// forgets. Nothing about the digest changed; only who is allowed to ask for one.
+///
+/// # Errors
+///
+/// Returns the [`decode`] error if `bytes` is not the unique canonical encoding
+/// of a value — including a non-canonical encoding of a value that does exist.
+pub fn hash_encoded(bytes: &[u8]) -> Result<Hash, Error> {
+    decode(bytes)?;
+    Ok(digest_of(bytes))
+}
+
+/// SHA-256 over bytes this module has just produced or just validated.
+///
+/// Deliberately private. Every caller is inside this module and holds bytes that
+/// [`encode`] returned or [`decode`] accepted a line earlier, so the precondition
+/// is visible at the call site rather than asserted in a doc comment.
+fn digest_of(bytes: &[u8]) -> Hash {
     use sha2::Digest as _;
     let mut hasher = sha2::Sha256::new();
     hasher.update(bytes);

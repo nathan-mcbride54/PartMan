@@ -443,3 +443,55 @@ fn errors_describe_the_rule_they_enforce() {
             .contains(&MAX_DEPTH.to_string())
     );
 }
+
+#[test]
+fn hashing_bytes_requires_proving_they_are_canonical() {
+    // The public surface used to include `hash_canonical_bytes(&[u8]) -> Hash`,
+    // whose documentation asked callers to pass only canonical bytes. The plan
+    // hash is an authorization boundary under HLP-001, HLP-003 and SEC-001, and
+    // an instruction in a doc comment is not a guarantee — so the proof is now
+    // `decode` itself, which accepts only the unique canonical encoding.
+    for (what, bytes) in [
+        // Decodes to 0, but is not the canonical encoding of 0. Hashing it
+        // would put a second digest on one logical value, which is exactly the
+        // malleability ADR-C1 exists to remove.
+        ("a non-shortest argument", vec![0x18, 0x00]),
+        ("trailing bytes", vec![0xf6, 0xf6]),
+        ("a float", vec![0xfa, 0x00, 0x00, 0x00, 0x00]),
+        ("a tag", vec![0xc0, 0x01]),
+        ("an indefinite-length array", vec![0x9f, 0x01, 0xff]),
+        (
+            "a duplicate map key",
+            vec![0xa2, 0x61, 0x61, 0x01, 0x61, 0x61, 0x02],
+        ),
+        ("empty input", Vec::new()),
+    ] {
+        assert!(
+            super::hash_encoded(&bytes).is_err(),
+            "{what} must not be hashable: {bytes:02x?}"
+        );
+    }
+}
+
+#[test]
+fn hashing_canonical_bytes_agrees_with_hashing_the_value() {
+    // Narrowing the API must not have changed any digest. Both routes to a hash
+    // have to agree, or one of them is authorizing different bytes.
+    for value in [
+        Value::Null,
+        Value::Bool(true),
+        Value::Unsigned(0),
+        Value::Unsigned(u64::MAX),
+        Value::Negative(i64::MIN),
+        Value::Text("é".to_owned()),
+        Value::Bytes(vec![0, 1, 2]),
+        Value::Array(vec![Value::Null, Value::Bool(false)]),
+    ] {
+        let encoded = encode(&value).expect("encodable");
+        assert_eq!(
+            super::hash_encoded(&encoded).expect("its own bytes must be canonical"),
+            hash(&value).expect("hashable"),
+            "{value:?}"
+        );
+    }
+}
