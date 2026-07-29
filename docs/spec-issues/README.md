@@ -42,21 +42,54 @@ no cheap exit.
 
 # Part 1 — Blocking WP-010 increment 3
 
-**Eleven resolved, five remain.** SI-03, SI-05, and SI-06 were one question —
-what the hash authenticates — answered by ADR-C2 in spec 3.0.0. SI-01, SI-02, and
-SI-04 are answered by ADR-C3 and ADR-C4 in spec 3.1.0. SI-07 through SI-10 are
-answered by ADR-C5 in spec 4.0.0, which also corrects SI-32.
+## Status of every issue
 
-Still blocking increment 3: **SI-11**, **SI-27**, **SI-28**, **SI-31**,
-**SI-33**, **SI-34**, which reopens whether the protection verdict belongs
-in the hashed body at all, and **SI-35**, which shows ADR-C3's three table states
-are not all observable through the interface a client can read. SI-12 blocks
-SI-27 and therefore blocks the increment too; SI-29 and
-SI-30 are inputs to SI-11. Round one is recorded in Part 4, round two in Part 5,
-round three in Part 6, and SI-28's fourth round in Part 7.
+**This table is the only authoritative status.** Nothing else in this repository
+should restate a count or a blocker list. A progress review on 2026-07-28 found
+the previous hand-written summary saying "five remain" directly above seven
+names, and this document disagreeing with `docs/work-packages/WP-010.md` about
+SI-31 — which made the register unusable as the dependency gate Section 1.11
+requires it to be. Counts drift; a table that must be edited to add a row does
+not.
 
-SI-31's answer survived review and its *reasoning* did not; the corrections are
-recorded in the issue and change where the rule lives.
+Every issue appears exactly once. **Ten items gate increment 3**: seven direct,
+one transitive, and two inputs.
+
+| Class | Meaning | Issues |
+| --- | --- | --- |
+| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-32 |
+| **Direct blocker** | Must be decided before increment 3 writes a type | SI-11, SI-27, SI-28, SI-31, SI-33, SI-34, SI-35 |
+| **Transitive blocker** | Blocks a direct blocker, so it blocks the increment | SI-12 (blocks SI-27) |
+| **Input** | Feeds a direct blocker; not itself a decision | SI-29, SI-30 (both to SI-11) |
+| **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-15, SI-16, SI-17, SI-18, SI-19, SI-20, SI-21, SI-22, SI-23, SI-24, SI-25, SI-26 |
+
+The direct blockers, with the state each is actually in — the distinctions
+matter, because three of the seven are *not* simply "undecided":
+
+| Issue | Hash-visible | State |
+| --- | --- | --- |
+| SI-11 | no | Open. Three design rounds, three rejections; Parts 4–6 |
+| SI-27 | yes | Open, and blocked by SI-12 |
+| SI-28 | yes | **Mitigated-open.** An interim conservative floor is in force and does not resolve it; Part 7 |
+| SI-31 | yes | **Answer settled, decision not landed.** The rule belongs to the per-schema validation layer rather than to `pce/1`, and it carries an unfixed encoder prerequisite — see below |
+| SI-33 | no | Open. The route by which SI-28's floor may later be relaxed |
+| SI-34 | yes | Open. Reopens whether the protection verdict belongs in the hashed body at all |
+| SI-35 | yes | Open. ADR-C3's three table states are not all observable through the interface a client reads |
+
+**SI-31 is the one most easily misread, and was.** Its *answer* survived
+adversarial review — plain bytewise over each element's fully canonical encoded
+bytes, sets only — while the reasoning first offered for it did not, and the
+scope, the owning document and the proposed evidence were all corrected. None of
+that is the same as landed: no ADR or spec change carries it, every set-valued
+field in Section 5 depends on it, and it is hash-visible. It also records an
+**unfixed encoder defect** — encoding an element resets the depth budget, so a
+100-deep element encodes standalone in both languages while the spliced 200-deep
+result is rejected by both decoders. That becomes reachable exactly when
+set-valued fields exist, and whatever lands SI-31 must state how per-element
+encoding accounts for depth.
+
+Round one is recorded in Part 4, round two in Part 5, round three in Part 6, and
+SI-28's fourth round in Part 7.
 
 **SI-28's interim posture is decided, and it is a mitigation rather than a
 resolution.** The decision owner chose the conservative floor: destructive
