@@ -38,7 +38,7 @@
 
 use core::fmt;
 use std::fs::File;
-use std::io::{self, Read as _};
+use std::io::{self, Read as _, Seek as _, SeekFrom};
 use std::path::{Path, PathBuf};
 
 use sha2::{Digest as _, Sha256};
@@ -47,6 +47,26 @@ use crate::manifest::{Manifest, hex};
 
 /// The profile word a caller must pass to request destructive execution.
 pub const DESTRUCTIVE_PROFILE: &str = "destructive";
+
+/// `FILE_SHARE_READ`: readers permitted, writers and deleters refused.
+///
+/// Written out because Rust's standard library exposes `share_mode` without
+/// exposing the constants, and pulling in `windows-sys` for two integers would
+/// be a larger change than it saves. Both values are fixed Win32 API contract
+/// and have not moved since NT.
+#[cfg(windows)]
+const FILE_SHARE_READ: u32 = 0x0000_0001;
+
+/// `FILE_FLAG_OPEN_REPARSE_POINT`: open a reparse point rather than follow it.
+///
+/// The Windows analogue of `O_NOFOLLOW`. Verified behaviourally on Unix by
+/// [`tests::a_symlink_swapped_in_before_open_is_refused`]; on Windows creating
+/// a symlink needs `SeCreateSymbolicLinkPrivilege`, which a CI runner cannot be
+/// relied on to hold, so that platform's refusal rests on this flag plus the
+/// standard library reporting a reparse point as a symlink — recorded as such
+/// rather than claimed as tested.
+#[cfg(windows)]
+const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
 
 /// Environment variable carrying the disposable-test token.
 pub const TOKEN_VARIABLE: &str = "PARTMAN_DISPOSABLE_TOKEN";
@@ -83,9 +103,12 @@ impl VerifiedTarget {
         &self.path
     }
 
-    /// The verified object itself. Consuming, like the authorization that
-    /// carried it: the handle is the proof, and handing out copies of a proof
-    /// is how a proof stops meaning anything.
+    /// The verified object itself, positioned at offset zero.
+    ///
+    /// Consuming, like the authorization that carried it: the handle is the
+    /// proof, and handing out copies of a proof is how a proof stops meaning
+    /// anything. The cursor is rewound before the handle leaves
+    /// [`authorize`], so a consumer may treat this as a freshly opened file.
     #[must_use]
     pub fn into_file(self) -> File {
         self.file
@@ -304,24 +327,55 @@ fn verify_target(
         });
     }
 
+    // A test seam, and the only way the race below can be scheduled rather
+    // than sampled. Compiled out of release builds entirely.
+    #[cfg(test)]
+    tests::run_before_open_hook(&resolved);
+
     // Open the object, then verify *it*. Everything after this line reads
     // through the handle: the name has done its job and is never trusted
     // again. Write access is requested because this handle is what the
     // destructive consumer will receive — verifying one handle and writing
     // through another would reopen the gap this function exists to close.
+    //
+    // **The open must not follow a link.** The checks above ran against the
+    // path; this open resolves the path a second time, and the 2026-07-29
+    // follow-up audit showed what lives in that gap: replace `root/name` with
+    // a symlink to an out-of-root file holding the same bytes, and the handle
+    // is on a file outside the fixture tree that passes every handle-based
+    // check. `object_verification_alone_cannot_prove_root_membership` records
+    // that directly — the object checks are correct and say nothing about
+    // *where* the object lives, because a user's ordinary file may hold a
+    // fixture's bytes. Containment therefore has to be established by the open
+    // itself refusing to leave the directory.
     let mut options = std::fs::OpenOptions::new();
     options.read(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        // `O_NOFOLLOW` fails with ELOOP if the final component is a symlink,
+        // so a link swapped in after canonicalization is refused instead of
+        // followed. Taken from `libc` rather than written out, because the
+        // value is not the same on Linux, macOS and the BSDs.
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
     #[cfg(windows)]
     {
+        use std::os::windows::fs::OpenOptionsExt as _;
         // FILE_SHARE_READ alone: while this handle is open, every other open
         // for writing or deletion — through any name, including a hard link —
         // fails with a sharing violation. The rename/replace family needs
         // DELETE access, so a verified target cannot be swapped out from
-        // under its authorization on this platform. POSIX offers no mandatory
-        // equivalent; there, the guarantee is the weaker but sufficient one
-        // that the held object cannot be *changed which* object it is.
-        use std::os::windows::fs::OpenOptionsExt as _;
-        options.share_mode(1);
+        // under its authorization. POSIX offers no mandatory equivalent;
+        // there, the guarantee is that the held object cannot be *changed
+        // which* object it is.
+        options.share_mode(FILE_SHARE_READ);
+        // FILE_FLAG_OPEN_REPARSE_POINT is the `O_NOFOLLOW` analogue: the
+        // reparse point is opened rather than traversed, so a symlink or
+        // junction swapped in at the target's name yields a handle whose
+        // metadata reports a symlink, and `verify_object`'s `is_file()` check
+        // refuses it.
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
     }
     let mut file = options
         .open(&resolved)
@@ -355,6 +409,16 @@ fn verify_target(
     }
 
     verify_object(&mut file, entry.length, &entry.digest, target)?;
+
+    // `verify_object` read to the end to hash the contents, so the cursor is at
+    // EOF. Rewind before the handle leaves this function: a destructive
+    // consumer handed a "fresh" file will reasonably assume offset zero, and
+    // the follow-up audit noted that the alternative — documenting the
+    // contract — makes the unsafe default the easy one. The existing
+    // replace-after-authorization test had to seek explicitly, which was the
+    // smell.
+    file.seek(SeekFrom::Start(0))
+        .map_err(|error| unresolvable(target, &error))?;
 
     Ok(VerifiedTarget {
         path: resolved,

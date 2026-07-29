@@ -8,6 +8,38 @@ use super::{Authorization, DESTRUCTIVE_PROFILE, Refusal, Request, authorize};
 use crate::catalogue;
 use crate::manifest::Manifest;
 
+/// An action to run at the pre-open seam.
+type PreOpenAction = Box<dyn Fn(&Path)>;
+
+std::thread_local! {
+    /// Test hook invoked immediately before a target is opened.
+    ///
+    /// The seam the 2026-07-29 follow-up audit asked for. The pre-open race is
+    /// a race, and a test that merely runs two operations quickly samples it
+    /// rather than proving anything; this makes the interleaving exact.
+    /// Thread-local because the test harness gives each test its own thread,
+    /// so one test's hook can never fire inside another's.
+    static BEFORE_OPEN: std::cell::RefCell<Option<PreOpenAction>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Invoked by `verify_target` between canonicalization and `open`.
+pub(super) fn run_before_open_hook(resolved: &Path) {
+    BEFORE_OPEN.with(|hook| {
+        if let Some(action) = hook.borrow().as_ref() {
+            action(resolved);
+        }
+    });
+}
+
+/// Install a pre-open action for the duration of `body`.
+fn with_before_open<R>(action: impl Fn(&Path) + 'static, body: impl FnOnce() -> R) -> R {
+    BEFORE_OPEN.with(|hook| *hook.borrow_mut() = Some(Box::new(action)));
+    let result = body();
+    BEFORE_OPEN.with(|hook| *hook.borrow_mut() = None);
+    result
+}
+
 /// A generated fixture tree in a unique temporary directory.
 struct Sandbox {
     root: PathBuf,
@@ -135,6 +167,162 @@ fn authorization_holds_the_object_it_verified_not_the_name() {
             "the write must have reached the object that was verified"
         );
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlink_swapped_in_before_open_is_refused() {
+    // The 2026-07-29 follow-up audit's finding 2, scheduled rather than
+    // sampled. Every path check has already passed when the hook fires; the
+    // name is then rebound to a symlink aimed at an out-of-root file holding
+    // *the fixture's exact bytes*, so every handle-based check — regular file,
+    // link count, length, digest — would accept the object if the open
+    // followed the link.
+    //
+    // Before `O_NOFOLLOW` this authorized a handle outside the fixture tree.
+    let sandbox = Sandbox::new("pre-open-symlink");
+    let target = sandbox.target("blank-512.img");
+    let bytes = fs::read(&target).expect("read the fixture");
+
+    let outside = std::env::temp_dir().join(format!(
+        "partman-preopen-{}-{}.img",
+        std::process::id(),
+        crate::test_support::next_sandbox_id()
+    ));
+    fs::write(&outside, &bytes).expect("an identical file outside the root");
+
+    let decoy = outside.clone();
+    let refusal = with_before_open(
+        move |resolved| {
+            // Runs after canonicalization, before open. Replace the verified
+            // name with a link to the out-of-root twin.
+            let _ = fs::remove_file(resolved);
+            let _ = std::os::unix::fs::symlink(&decoy, resolved);
+        },
+        || sandbox.authorize(&sandbox.request(vec![target.clone()])),
+    );
+
+    let _ = fs::remove_file(&outside);
+    let refusal = refusal.expect_err(
+        "a symlink swapped in before the open must be refused; following it would authorize \
+         an object outside the fixture root",
+    );
+    // `O_NOFOLLOW` surfaces as ELOOP on the open, so this is an unresolvable
+    // target rather than a symlink classified by name.
+    assert!(
+        matches!(refusal, Refusal::TargetUnresolvable { .. }),
+        "expected the open itself to refuse, got {refusal:?}"
+    );
+}
+
+#[test]
+fn an_object_swapped_in_before_open_is_refused_on_every_platform() {
+    // The symlink test above is Unix-only, because creating a symlink on
+    // Windows needs a privilege CI cannot be relied on to hold. This one runs
+    // everywhere and establishes the two things that are portable: the pre-open
+    // seam really does fire inside `verify_target`, and an object substituted
+    // at the verified name after every path check has passed is still refused
+    // by the handle-based checks.
+    let sandbox = Sandbox::new("pre-open-swap");
+    let target = sandbox.target("blank-512.img");
+
+    let refusal = with_before_open(
+        |resolved| {
+            // A directory at the verified name: the path checks are already
+            // done, so only a check against the opened object can catch this.
+            let _ = fs::remove_file(resolved);
+            let _ = fs::create_dir(resolved);
+        },
+        || sandbox.authorize(&sandbox.request(vec![target.clone()])),
+    );
+
+    let refusal = refusal.expect_err("an object substituted before the open must be refused");
+    assert!(
+        matches!(
+            refusal,
+            Refusal::TargetNotRegularFile { .. } | Refusal::TargetUnresolvable { .. }
+        ),
+        "expected a refusal about the opened object, got {refusal:?}"
+    );
+}
+
+#[test]
+fn the_handle_handed_over_starts_at_offset_zero() {
+    // `verify_object` hashes the contents, so the cursor sat at EOF and the
+    // replace-after-authorization test had to seek explicitly — the smell the
+    // follow-up audit named. A consumer handed a freshly authorized file will
+    // reasonably assume offset zero, so the safe default is structural rather
+    // than documented.
+    use std::io::{Seek as _, SeekFrom};
+
+    let sandbox = Sandbox::new("cursor-at-zero");
+    let target = sandbox.target("blank-512.img");
+    let authorization = sandbox
+        .authorize(&sandbox.request(vec![target]))
+        .expect("the fixture must authorize");
+    let mut targets = authorization.into_targets();
+    let mut file = targets.pop().expect("one verified target").into_file();
+    let position = file
+        .stream_position()
+        .expect("read the cursor without moving it");
+    assert_eq!(
+        position, 0,
+        "a consumer must receive the handle rewound, not positioned at EOF"
+    );
+    // And it is genuinely readable from the start.
+    let mut first = [0_u8; 4];
+    std::io::Read::read_exact(&mut file, &mut first).expect("read from offset zero");
+    assert_eq!(
+        file.stream_position().expect("cursor"),
+        4,
+        "reading advanced from zero, so the handle was not merely reporting zero"
+    );
+    let _ = file.seek(SeekFrom::Start(0));
+}
+
+#[test]
+fn object_verification_alone_cannot_prove_root_membership() {
+    // The 2026-07-29 follow-up audit's finding 2, established directly rather
+    // than by argument. `verify_object` checks regular-file, link count,
+    // length, and digest — all through the handle, all correct, and none of
+    // them about *where* the object lives. A user's ordinary file may hold the
+    // same bytes as a fixture, so content identity proves fixture shape and
+    // says nothing about disposability or containment.
+    //
+    // This is why the pre-open path checks are load-bearing, and therefore why
+    // the open itself must not be able to follow a symlink out of the root.
+    // The regression test for that is
+    // `a_symlink_swapped_in_before_open_is_refused`.
+    let sandbox = Sandbox::new("outside-root-bytes");
+    let entry = sandbox
+        .manifest
+        .entry("blank-512.img")
+        .expect("the blank fixture is in the manifest")
+        .clone();
+
+    // An identical copy, deliberately outside the fixture root.
+    let outside = std::env::temp_dir().join(format!(
+        "partman-outside-{}-{}.img",
+        std::process::id(),
+        crate::test_support::next_sandbox_id()
+    ));
+    let bytes = fs::read(sandbox.target("blank-512.img")).expect("read the fixture");
+    fs::write(&outside, &bytes).expect("write an identical file outside the root");
+
+    let mut file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&outside)
+        .expect("open the outside file");
+    let verdict = super::verify_object(&mut file, entry.length, &entry.digest, &outside);
+    drop(file);
+    let _ = fs::remove_file(&outside);
+
+    assert!(
+        verdict.is_ok(),
+        "recorded honestly: the object checks accept an out-of-root file with fixture bytes, \
+         so containment cannot rest on them"
+    );
 }
 
 #[test]

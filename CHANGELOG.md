@@ -218,6 +218,36 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Fixed
 
+- WP-020 increment 2b: the object binding now starts at the open. Increment 2a
+  bound every check to the handle but opened the target by path a second time,
+  and the 2026-07-29 follow-up audit showed what lives in that gap: replace
+  `root/name` with a symlink to an out-of-root file holding the fixture's exact
+  bytes, and the handle is outside the fixture tree while every handle-based
+  check — regular file, link count, length, digest — accepts it. Increment 2a
+  had claimed a raced symlink was harmless *because* the object is verified
+  after opening; `object_verification_alone_cannot_prove_root_membership` now
+  records why that was wrong, by demonstrating the object checks accepting an
+  out-of-root file. They establish fixture shape; containment is not a property
+  of content, and a user's ordinary file may hold those bytes.
+
+  The open refuses to leave the directory: `O_NOFOLLOW` on Unix, taken from
+  `libc` because the value differs across Linux, macOS and the BSDs, and
+  `FILE_FLAG_OPEN_REPARSE_POINT` on Windows. A test seam fires between
+  canonicalization and open, so the race is scheduled rather than sampled —
+  `a_symlink_swapped_in_before_open_is_refused` performs the audit's exact
+  substitution, and a portable companion covers the seam on Windows, where
+  creating a symlink needs a privilege CI cannot be relied on to hold. Removing
+  the seam fails both by name.
+
+  Still not claimed closed: the Windows hard-link vector. A hard link is not a
+  reparse point, and stable Rust exposes link counts on Windows only behind an
+  unstable feature — that is WP-020 precondition 3, and the reason precondition
+  1 is narrowed rather than finished.
+
+- The verified handle is handed over rewound. Hashing the contents left the
+  cursor at EOF, so a consumer assuming a fresh file would have appended;
+  the replace-after-authorization test having to seek explicitly was the smell.
+
 - The action-pin gate no longer depends on recognising the `uses` key. Two
   audits in a row defeated the key-shaped reader with valid YAML it could not
   parse — a quoted key, then an anchored one, `&pin uses: actions/checkout@v7` —
