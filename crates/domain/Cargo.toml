@@ -4,6 +4,7 @@ description = "Canonical domain model and canonical encoding for PartMan"
 edition.workspace = true
 rust-version.workspace = true
 version.workspace = true
+license.workspace = true
 publish = false
 
 [dependencies]

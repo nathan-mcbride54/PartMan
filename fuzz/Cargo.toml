@@ -3,6 +3,10 @@ name = "partman-fuzz"
 description = "Fuzz targets for PartMan parsers (Section 11.4)"
 version = "0.0.0"
 edition = "2024"
+# Spelled out rather than inherited: this crate is excluded from the workspace
+# (below), so `license.workspace = true` has no workspace to read. It must be
+# updated by hand if the project ever relicenses.
+license = "MIT OR Apache-2.0"
 publish = false
 
 # Excluded from the workspace on purpose. These targets need a nightly

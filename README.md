@@ -98,9 +98,24 @@ the first package gated on WP-010.
 
 ## License
 
-None yet. This project is deliberately unlicensed while it is incomplete, so
-default copyright applies and no rights to use, copy, modify, or distribute it
-are granted. A license will be chosen before the first release.
+Licensed under either of
 
-Until then, do not submit outside contributions: without license terms, the
-rights in a contribution are undefined for both sides.
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+- MIT license ([LICENSE-MIT](LICENSE-MIT))
+
+at your option. `MIT OR Apache-2.0` is the Rust and Tauri ecosystem's standard
+dual license; the reasoning, the rejected alternatives, and the rule that
+PartMan invokes GPL storage tools as separate processes and never links GPL
+libraries are recorded in
+[ADR-0006](docs/adr/0006-project-license-and-gpl-tool-boundary.md).
+
+PartMan is free software and every capability it gains is free, including ones
+comparable tools sell. It requires no account and no network: SEC-007 mandates
+that core functionality work fully offline, and Section 2.1 lists accounts and
+cloud services as explicit non-goals.
+
+Contributions are welcome, and are inbound=outbound: unless you state otherwise,
+work you submit is offered under the same dual terms, per Apache-2.0 §5. No CLA.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) first — the safety constraints in
+`AGENT_BUILD_SPEC.md` override everything else, and no pull request may run a
+destructive operation against a real disk.
