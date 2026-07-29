@@ -7,7 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
-use partman_fixtures::{catalogue, interlock};
+use partman_fixtures::{catalogue, interlock, prober};
 
 const PINNED_RUST_VERSION: &str = "1.96.0";
 const WORKFLOW_DIRECTORY: &str = ".github/workflows";
@@ -50,6 +50,7 @@ enum Task {
     Fmt,
     FmtCheck,
     Help,
+    Probe,
     SupplyChain,
     Test { tier: u8, profile: Option<String> },
     VerifyActions,
@@ -75,6 +76,7 @@ fn parse(args: &[OsString]) -> Result<Task, TaskError> {
         "fmt" => nullary(Task::Fmt, command, rest),
         "fmt-check" => nullary(Task::FmtCheck, command, rest),
         "help" | "--help" | "-h" => nullary(Task::Help, command, rest),
+        "probe" => nullary(Task::Probe, command, rest),
         "supply-chain" => nullary(Task::SupplyChain, command, rest),
         "verify-actions" => nullary(Task::VerifyActions, command, rest),
         "verify-toolchain" => nullary(Task::VerifyToolchain, command, rest),
@@ -117,6 +119,7 @@ fn execute(task: &Task) -> Result<(), TaskError> {
         }
         Task::Test { tier, ref profile } => run_tier(tier, profile.as_deref()),
         Task::Fixtures => generate_fixtures(),
+        Task::Probe => probe_fixtures(),
         Task::VerifyActions => verify_action_pins(&repository_root()),
         Task::VerifyToolchain => verify_toolchain(),
     }
@@ -223,6 +226,148 @@ fn generate_fixtures() -> Result<(), TaskError> {
         interlock::TOKEN_VARIABLE
     );
     Ok(())
+}
+
+/// Re-run the real probers and compare against the recorded expectations.
+///
+/// This is the check that was manual until now: someone ran `blkid`, read the
+/// output, and wrote a table into a document. A fixture a real prober does not
+/// recognize proves nothing, and two of the signature writers here were
+/// undetectable until their checksums were reproduced — neither the format
+/// documentation nor this crate's own tests could have said so.
+///
+/// It needs Linux, so it is not part of `cargo xtask ci`; CI runs it as its own
+/// job. Both tools are read-only and are given regular files, never a device.
+fn probe_fixtures() -> Result<(), TaskError> {
+    if !cfg!(target_os = "linux") {
+        return Err(TaskError::Usage(
+            "`cargo xtask probe` needs `blkid` and `wipefs`, which are Linux tools. The recorded \
+             expectations are in `crates/fixtures/src/prober.rs`, and CI runs this on \
+             ubuntu-24.04."
+                .to_owned(),
+        ));
+    }
+
+    let root = fixture_root();
+    catalogue::generate(&root).map_err(|error| {
+        TaskError::Usage(format!(
+            "could not generate fixtures in {}: {error}",
+            root.display()
+        ))
+    })?;
+
+    // Record what produced these answers. A disagreement is far cheaper to
+    // diagnose when the version that disagreed is in the same output, and the
+    // expectations were measured against libblkid 2.41.
+    println!("{}", tool_version("blkid")?);
+    println!("{}", tool_version("wipefs")?);
+    println!();
+
+    let mut failures = Vec::new();
+    for expectation in prober::expectations() {
+        let path = root.join(expectation.fixture);
+        let observed = prober::Observation {
+            udev: prober::parse_udev(&probe_output(
+                "blkid",
+                &["-p", "-o", "udev"],
+                &path,
+                // `blkid` exits 2 when it detects nothing, which is the correct
+                // and expected answer for the blank fixture.
+                &[0, 2],
+            )?),
+            signatures: prober::parse_wipefs(&probe_output(
+                "wipefs",
+                &["-n", "--output", "OFFSET,TYPE"],
+                &path,
+                &[0],
+            )?),
+        };
+
+        let disagreements = prober::compare(&expectation, &observed);
+        if disagreements.is_empty() {
+            println!("  ok    {}", expectation.fixture);
+        } else {
+            println!("  FAIL  {}", expectation.fixture);
+            for reason in &disagreements {
+                println!("          {reason}");
+            }
+            println!("        recorded because: {}", expectation.note);
+            failures.push(expectation.fixture);
+        }
+    }
+
+    println!();
+    if failures.is_empty() {
+        println!(
+            "{} fixtures still report what `crates/fixtures/src/prober.rs` records.",
+            prober::expectations().len()
+        );
+        return Ok(());
+    }
+    Err(TaskError::Usage(format!(
+        "{} fixture(s) no longer match the recorded prober output: {}. Either a fixture \
+         regressed, or the prober changed and the record needs updating with the new \
+         measurement — decide which, and say so in the commit rather than editing the table to \
+         match.",
+        failures.len(),
+        failures.join(", ")
+    )))
+}
+
+/// Run one prober and return its stdout.
+///
+/// The argument list is structured rather than a shell string, so nothing in a
+/// path is ever interpreted.
+fn probe_output(
+    tool: &str,
+    flags: &[&str],
+    path: &Path,
+    accepted: &[i32],
+) -> Result<String, TaskError> {
+    let output = Command::new(tool)
+        .args(flags)
+        .arg(path)
+        .output()
+        .or_else(|_| {
+            // `wipefs` and `blkid` ship in `/usr/sbin`, which is on `PATH` for
+            // root and often not for an ordinary user. Falling back by absolute
+            // path is what keeps this a Tier-1, unprivileged check rather than
+            // one that quietly requires a root shell.
+            Command::new(format!("/usr/sbin/{tool}"))
+                .args(flags)
+                .arg(path)
+                .output()
+        })
+        .map_err(|error| {
+            TaskError::Usage(format!(
+                "could not run `{tool}`, and not `/usr/sbin/{tool}` either: {error}. Both ship \
+                 with util-linux."
+            ))
+        })?;
+
+    let code = output.status.code().unwrap_or(-1);
+    if !accepted.contains(&code) {
+        return Err(TaskError::Usage(format!(
+            "`{tool}` exited {code} for {}: {}",
+            path.display(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// The version string a tool reports, for the run's record.
+fn tool_version(tool: &str) -> Result<String, TaskError> {
+    let output = Command::new(tool)
+        .arg("--version")
+        .output()
+        .or_else(|_| {
+            Command::new(format!("/usr/sbin/{tool}"))
+                .arg("--version")
+                .output()
+        })
+        .map_err(|error| TaskError::Usage(format!("could not run `{tool} --version`: {error}")))?;
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
 fn run_tier(tier: u8, profile: Option<&str>) -> Result<(), TaskError> {
@@ -554,6 +699,7 @@ PartMan repository tasks
   cargo xtask fmt                Format the Rust workspace
   cargo xtask fmt-check          Verify Rust formatting
   cargo xtask fixtures           Generate the synthetic disk fixtures (SAFE-001)
+  cargo xtask probe              Re-check every fixture against libblkid (Linux)
   cargo xtask test --tier 1      Run safe, unprivileged tests
   cargo xtask test --tier 2|3 --profile destructive
                                  Evaluate the SAFE-007 interlock. Also needs
@@ -673,6 +819,7 @@ mod tests {
             parse(&args(&["fmt-check"])).expect("fmt-check"),
             Task::FmtCheck
         );
+        assert_eq!(parse(&args(&["probe"])).expect("probe"), Task::Probe);
         assert_eq!(
             parse(&args(&["supply-chain"])).expect("supply-chain"),
             Task::SupplyChain
@@ -701,6 +848,21 @@ mod tests {
             parse(&args(&["fixtures"])).expect("fixtures"),
             Task::Fixtures
         );
+    }
+
+    #[test]
+    fn the_prober_check_refuses_where_its_tools_do_not_exist() {
+        // `blkid` and `wipefs` are Linux tools, and the refusal has to say so
+        // and say where the expectations live. A task that failed with "could
+        // not run blkid" on Windows would read as a broken repository rather
+        // than as a check that belongs elsewhere.
+        if cfg!(target_os = "linux") {
+            return;
+        }
+        let error = super::probe_fixtures().expect_err("must refuse off Linux");
+        let message = error.to_string();
+        assert!(message.contains("Linux"), "{message}");
+        assert!(message.contains("prober.rs"), "{message}");
     }
 
     #[test]

@@ -55,6 +55,25 @@ jobs:
       - name: Prove Rust and TypeScript produce identical hashes
         run: cargo xtask cross-language
 
+  prober-acceptance:
+    name: Real-prober acceptance (FS-004)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # A fixture a real prober does not recognize proves nothing, and two of
+      # the signature writers here were undetectable until their checksums were
+      # reproduced. This was manual until now -- someone ran `blkid`, read the
+      # output, and wrote a table into a document. Both tools are read-only and
+      # are given regular files, never a device, so this stays unprivileged.
+      - name: Record the prober versions this run measured
+        run: blkid --version; wipefs --version
+      - name: Re-probe every fixture and compare against the recorded output
+        run: cargo xtask probe
+
   fuzz-smoke:
     name: Fuzz smoke (Section 11.4)
     runs-on: ubuntu-24.04

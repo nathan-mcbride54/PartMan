@@ -61,6 +61,20 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   character of a partition *name* satisfies while both copies describe identical
   extents. All are closed, and the details are in
   `docs/work-packages/WP-020.md`.
+- WP-020 increment 1e: `cargo xtask probe`, which re-runs `blkid` and `wipefs`
+  over every generated fixture and compares against the expectations recorded in
+  `crates/fixtures/src/prober.rs`. This closes the project review's open finding
+  that real-prober acceptance was "manual, not regression-protected" — the last
+  place in the package where an important property rested on someone having
+  looked once. It needs Linux, so CI runs it as its own job; both tools are
+  read-only and are handed regular files, never a device.
+
+  A verbatim capture of `libblkid` 2.41's output is embedded in the tests and the
+  recorded table is compared against it, so the table is checked on machines with
+  no prober too — otherwise a transcription slip between the measurement and the
+  table would look exactly like a passing test. The comparison is proved capable
+  of failing in all four directions: a format no longer detected, a changed
+  answer, a lost signature, and an added one.
 - ADR-C1, accepted, fixing the canonical encoding and hash strategy.
 - ADR-C5, accepted, fixing the aggregation vocabulary: one `Aggregate` node in
   place of three undefined Section 5 names, on-disk signatures as their own

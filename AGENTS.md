@@ -14,6 +14,11 @@ and product requirements are normative.
 - Use `cargo xtask cross-language` for the MODEL-005 Rust/TypeScript hash-parity
   proof. It needs Node and is therefore not part of `cargo xtask ci`; CI runs it
   as its own required job.
+- Use `cargo xtask probe` to re-check every fixture against `libblkid` and
+  `wipefs`. It needs Linux, so it is not part of `cargo xtask ci`; CI runs it as
+  its own job. Expectations live in `crates/fixtures/src/prober.rs`. If it
+  disagrees, decide whether a fixture regressed or the prober changed, and say
+  which in the commit — do not edit the table until the output matches.
 - Both implementations read `schemas/canonical-encoding-vectors.json`. Never
   give either language its own copy of the vectors: an implementation checked
   against a table it also owns proves only self-consistency.
