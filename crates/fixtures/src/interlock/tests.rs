@@ -272,7 +272,14 @@ fn every_generated_fixture_authorizes() {
         .names()
         .map(|n| sandbox.target(n))
         .collect();
-    assert!(targets.len() >= 8, "the catalogue must not shrink silently");
+    // Equality, not `>= 8`. A floor lets entries be deleted silently while the
+    // test still reads as coverage, which is the same shape of defect as a
+    // fixture whose rationale nothing checks.
+    assert_eq!(
+        targets.len(),
+        catalogue::catalogue().len(),
+        "every catalogue fixture must be generated and verifiable"
+    );
     let authorization = sandbox
         .authorize(&sandbox.request(targets.clone()))
         .expect("every generated fixture must be verifiable");

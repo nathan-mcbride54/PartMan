@@ -48,8 +48,10 @@ SI-04 are answered by ADR-C3 and ADR-C4 in spec 3.1.0. SI-07 through SI-10 are
 answered by ADR-C5 in spec 4.0.0, which also corrects SI-32.
 
 Still blocking increment 3: **SI-11**, **SI-27**, **SI-28**, **SI-31**,
-**SI-33**, and **SI-34**, which reopens whether the protection verdict belongs
-in the hashed body at all. SI-12 blocks SI-27 and therefore blocks the increment too; SI-29 and
+**SI-33**, **SI-34**, which reopens whether the protection verdict belongs
+in the hashed body at all, and **SI-35**, which shows ADR-C3's three table states
+are not all observable through the interface a client can read. SI-12 blocks
+SI-27 and therefore blocks the increment too; SI-29 and
 SI-30 are inputs to SI-11. Round one is recorded in Part 4, round two in Part 5,
 round three in Part 6, and SI-28's fourth round in Part 7.
 
@@ -88,6 +90,15 @@ nor "the fixture changes the verdict" is a correct reading.
 
 What remains is therefore mechanism **and** one reopened decision, filed as
 SI-34.
+
+**A second instance has since been measured, in a different layer.** SI-35
+records that `libblkid` produces byte-identical output for a healthy GPT and for
+one whose two valid tables disagree — so ADR-C3's `Indeterminate` state is not
+observable through the interface an unprivileged client reads, in the
+*partition-table* layer rather than the signature layer. Two independent
+instances retire the reading that client/helper asymmetry is a peculiarity of
+signature probing, and any answer proposed for SI-34 should be tested against
+SI-35's case before it is accepted.
 
 **Read SI-28 first.** It is the only defect found so far that destroys data
 without requiring a bug in anything being designed, and it lands on an
@@ -555,6 +566,88 @@ reject before the first write with a structured divergence; a helper-only fact
 that changes nothing must proceed and be journaled; a client claiming
 `permitted` must lose to the helper's `refused`; and Windows, real partitioned
 Linux hardware, and macOS observability must all be established first.
+
+## SI-35 ADR-C3's three table states are not all observable
+
+**Requirements:** ADR-C3, MODEL-005, PLAN-006, INV-003, SAFE-005, HLP-002 · **Blocks 3, hash-visible**
+
+Filed 2026-07-28 from a measurement, not from a reading. Part 6's precondition 1
+already requires an ADR-C3 amendment fixing **what `Present { checksum }` is
+computed over**, and treats that as a free choice between raw sectors and the
+kernel's logical view. It is less free than that.
+
+**What was measured.** `libblkid` 2.41 was run over the whole WP-020 catalogue,
+which is the first time it had been asked about anything but the multi-signature
+fixture. `gpt-basic-512.img` and `gpt-conflicting-tables-512.img` produce
+**byte-identical output from both `blkid -p -o udev` and `wipefs -n`.** The
+first has two agreeing tables. The second has two independently valid tables
+describing different partitions — which is the definition ADR-C3 gives for a
+table that parses ambiguously. `ID_FS_AMBIVALENT` does not fire. The full table
+is in `docs/quality/observability.md`.
+
+The same run shows a damaged primary reported as an ordinary `gpt` (recovered
+silently from the backup) and a hybrid MBR/GPT reported as plain `gpt`.
+
+**The conflict.** ADR-C3 requires three distinguishable partition-table states,
+and INV-003 requires detecting inconsistent and hybrid tables. The interface an
+unprivileged client can actually read — the udev database, per the Linux section
+of the observability record — collapses `Present` and `Indeterminate` onto one
+value. Distinguishing them requires reading both tables and comparing them, which
+is a raw sector read, which **both** measured platforms deny unprivileged.
+
+So ADR-C3's state is not a free choice of projection:
+
+- Computed over **raw sectors**, an unprivileged client cannot compute it at all,
+  and every unprivileged record becomes `Indeterminate`. Part 6 already records
+  where that leads: Weak identity everywhere, UI-009 typed confirmation
+  universal, unattended apply refused universally.
+- Computed over the **kernel/udev projection**, `Indeterminate` has no encoding,
+  so the state ADR-C3 exists to distinguish cannot be represented. A conflicting
+  table would be recorded as `Present` with a checksum — a positive claim about a
+  table that cannot be positively determined, which is the SAFE-005 fail-closed
+  violation ADR-C3 was written to prevent.
+
+**Neither option is acceptable as stated, and that is the issue.** This is not a
+request to pick one.
+
+**Options, none decided:**
+
+(a) **Privilege-tagged state.** `Present`/`Absent`/`Indeterminate` gains a
+recorded observation basis, so "indeterminate *from here*" is distinct from
+"indeterminate". Costs: the basis is body content and hash-visible, and two
+observers at different privilege still produce different bodies — the PLAN-006
+problem ADR-C2 exists to prevent, and the same problem SI-34 is open on.
+
+(b) **Clamp to the weaker view.** Both sides compute over the projection a
+non-elevated client can reproduce, and `Indeterminate` is reachable only through
+facts that projection can carry. Requires establishing that some client-readable
+fact separates a conflicting table from a healthy one; **this measurement is
+evidence that none does**, at least for files under libblkid 2.41.
+
+(c) **`Indeterminate` becomes helper-only.** The client never claims the state;
+the helper, which can read sectors, computes it and may only tighten. This is
+SI-34's option (c) applied to a second field, and it inherits SI-34's unproven
+monotonicity obligation.
+
+**Bearing on SI-34.** SI-34 was filed on a signature-layer asymmetry. This is a
+second, independent instance in the *partition-table* layer, which ADR-C3 already
+accepted and froze. Two independent instances make "asymmetry is a special case
+of the signature layer" untenable, and any option chosen for SI-34 should be
+checked against this case before it is accepted.
+
+**What this does not establish.** The probe was of regular files, which is all
+SAFE-001 permits at Tier 1. A loop device may populate `ID_PART_ENTRY_*` and
+separate the two images; that is a Tier-2 measurement and it is **open**. If it
+does separate them, option (b) becomes viable and this issue narrows sharply. The
+result is also specific to libblkid 2.41's priority resolution, which is
+implementation behaviour rather than a specified interface.
+
+**Evidence required before any option is accepted:** the loop-device measurement
+above, so the file-probing limitation is not mistaken for a kernel limitation;
+the same measurement on Windows, whose partition-list interface exposes per-
+partition detail that Linux's whole-disk probe does not, and may therefore
+separate the states where Linux cannot; and a demonstration that whichever option
+is chosen still refuses rather than proceeds on `gpt-conflicting-tables-512.img`.
 
 ## SI-33 A continuity witness for media that cannot be told apart
 

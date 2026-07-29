@@ -196,12 +196,27 @@ fn gpt_conflicting_tables() -> Image {
     image
 }
 
-/// A valid primary GPT with its backup header erased.
+/// A valid primary GPT with the whole backup copy erased.
+///
+/// The backup *entry array* is erased along with the header. An earlier version
+/// zeroed only the last sector, so 16 KiB of byte-identical entry array survived
+/// at LBAs 8159 to 8190 and any recovery tool that scans rather than seeking to
+/// the last LBA would have found a backup on a fixture named for having none.
+/// An adversarial pass found it; the fixture is now what its name says.
 fn gpt_missing_backup() -> Image {
     let mut image = gpt_basic(SectorSize::B512, SECTORS_4MIB_512);
     let last = image.sectors() - 1;
-    image.zero_sector(last);
+    for lba in backup_region(&image)..=last {
+        image.zero_sector(lba);
+    }
     image
+}
+
+/// First LBA of the backup GPT copy: the entry array, then the header.
+fn backup_region(image: &Image) -> u64 {
+    let entry_bytes = 128 * 128;
+    let array_sectors = entry_bytes / image.sector().bytes();
+    image.sectors() - 1 - array_sectors
 }
 
 /// A GPT disk whose MBR describes the same extents a second time.
@@ -265,8 +280,18 @@ pub fn expected() -> Manifest {
 }
 
 /// Build the standard two-partition GPT used as the baseline.
+///
+/// The label differs by sector size, and that is not cosmetic: it is what gives
+/// the two images distinct disk GUIDs. Both used `"gpt-basic"` until the
+/// catalogue-wide identity check found it, so a 512-byte disk and a 4Kn disk —
+/// different media, different partitions — carried one identity. The fixtures
+/// *derived* from the 512-byte baseline keep its GUID deliberately, because
+/// they are the same disk in different states.
 fn gpt_basic(sector: SectorSize, sectors: u64) -> Image {
-    let label = "gpt-basic";
+    let label = match sector {
+        SectorSize::B512 => "gpt-basic",
+        SectorSize::B4096 => "gpt-basic-4kn",
+    };
     let (esp_first, esp_last, data_first, data_last) = match sector {
         SectorSize::B512 => (2048, 4095, 4096, sectors - 34),
         SectorSize::B4096 => (256, 511, 512, sectors - 34),
@@ -306,6 +331,18 @@ fn gpt_basic(sector: SectorSize, sectors: u64) -> Image {
 ///
 /// Returns any I/O error from creating the directory or writing a file.
 pub fn generate(root: &Path) -> io::Result<Manifest> {
+    generate_from(root, &catalogue())
+}
+
+/// Generate a caller-supplied fixture set.
+///
+/// Split out from [`generate`] for one reason: the evidence gate below could not
+/// be tested otherwise. An adversarial pass deleted the gate and all 74 tests
+/// stayed green, because every test fed `generate` the real catalogue — which
+/// satisfies its claims — so nothing ever exercised the refusal. A safety check
+/// no test can reach is the defect `evidence` exists to end, and it was sitting
+/// inside the fix for it.
+pub(crate) fn generate_from(root: &Path, fixtures: &[Fixture]) -> io::Result<Manifest> {
     let existing = root.join(MANIFEST_FILE).is_file();
     fs::create_dir_all(root)?;
 
@@ -318,7 +355,7 @@ pub fn generate(root: &Path) -> io::Result<Manifest> {
     // one we just created. Otherwise a mistyped root would delete a user's
     // files, and this function is not worth that risk.
     if existing {
-        let expected_names: Vec<&str> = catalogue().iter().map(|fixture| fixture.name).collect();
+        let expected_names: Vec<&str> = fixtures.iter().map(|fixture| fixture.name).collect();
         for entry in fs::read_dir(root)? {
             let entry = entry?;
             if !entry.file_type()?.is_file() {
@@ -332,11 +369,24 @@ pub fn generate(root: &Path) -> io::Result<Manifest> {
         }
     }
 
+    // Verify every image *before* writing any of them. Verifying inside the
+    // write loop left a half-written directory behind on a refusal, which is a
+    // worse state than either outcome: a caller that ignored the error would
+    // find a fixture set that looks partial rather than absent.
     let mut images = Vec::new();
-    for fixture in catalogue() {
+    for fixture in fixtures {
         let bytes = (fixture.build)().into_bytes();
-        fs::write(root.join(fixture.name), &bytes)?;
+        // Refuse an image that no longer supports its own rationale. The
+        // rationale beside each entry is a claim, and a claim nothing computes
+        // is what let the LUKS2 fixture become 4 MiB of zeros while the
+        // traceability record still cited it for FS-004.
+        crate::evidence::verify(fixture.name, &bytes)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
         images.push((fixture.name.to_owned(), bytes));
+    }
+
+    for (name, bytes) in &images {
+        fs::write(root.join(name), bytes)?;
     }
 
     let manifest = Manifest::build(&images);

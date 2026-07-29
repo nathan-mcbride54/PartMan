@@ -1,7 +1,8 @@
 use std::collections::BTreeSet;
 use std::fs;
 
-use super::{catalogue, generate, load_manifest};
+use super::{Fixture, catalogue, generate, generate_from, load_manifest};
+use crate::layout::{Image, SectorSize};
 use crate::manifest::MANIFEST_FILE;
 
 struct Sandbox(std::path::PathBuf);
@@ -266,6 +267,41 @@ fn regeneration_removes_a_withdrawn_fixture() {
     let mut expected: BTreeSet<String> = catalogue().iter().map(|f| f.name.to_owned()).collect();
     expected.insert(MANIFEST_FILE.to_owned());
     assert_eq!(present, expected);
+}
+
+#[test]
+fn generation_refuses_a_fixture_that_no_longer_supports_its_rationale() {
+    // Until this existed, the evidence gate inside `generate` was load-bearing
+    // on nothing: an adversarial pass deleted it and all 74 tests stayed green,
+    // because every test fed `generate` the real catalogue, which satisfies its
+    // claims. A safety check no test can reach is the defect `evidence` was
+    // written to end, sitting inside the fix for it.
+    //
+    // So this hands `generate` a fixture that keeps a catalogue name and loses
+    // what the name promises — the LUKS2 image reduced to zeros, which is the
+    // mutation that was actually applied to the catalogue on this branch.
+    let sandbox = Sandbox::new("refuse");
+    let hollow = vec![Fixture {
+        name: "luks2-whole-disk-512.img",
+        rationale: "the real entry's rationale, now unsupported by the bytes",
+        build: || Image::blank(SectorSize::B512, 8192),
+    }];
+
+    let error = generate_from(&sandbox.0, &hollow).expect_err("generation must refuse");
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    let message = error.to_string();
+    assert!(
+        message.contains("no LUKS magic"),
+        "the refusal must name what was lost: {message}"
+    );
+
+    // And nothing was written. Verifying every image before writing any is what
+    // keeps a refusal from leaving a half-generated directory behind.
+    assert!(
+        !sandbox.0.join("luks2-whole-disk-512.img").exists(),
+        "a refused fixture must not reach disk"
+    );
+    assert!(!sandbox.0.join(MANIFEST_FILE).exists());
 }
 
 #[test]

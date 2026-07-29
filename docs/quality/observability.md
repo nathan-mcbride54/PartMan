@@ -236,6 +236,73 @@ difference ever produces two different bodies for one unchanged device is exactl
 what remains unestablished, so Part 5's conclusion needs re-checking against it
 rather than either discarding or assuming.
 
+### ADR-C3's `Present` and `Indeterminate` are not distinguishable through either interface
+
+Measured 2026-07-28, same environment, by probing **every** fixture in the
+WP-020 catalogue rather than only the multi-signature one. This is the result
+that should change a design round, and it was found by asking the cheap question
+— "what does a real prober say about all thirteen?" — rather than about the one
+fixture a question had already been asked of.
+
+Six of the fixtures carry a GPT in a different state. Through the two interfaces
+an unprivileged client and a `blkid`-using helper actually read:
+
+| Fixture | ADR-C3 state | `blkid -p -o udev` | `wipefs -n` |
+| --- | --- | --- | --- |
+| `blank-512` | Absent | *nothing* | *nothing* |
+| `gpt-basic-512` | Present | `ID_PART_TABLE_TYPE=gpt` | gpt `0x200`, gpt `0x3ffe00`, PMBR `0x1fe` |
+| `gpt-conflicting-tables-512` | **Indeterminate** | `ID_PART_TABLE_TYPE=gpt` | gpt `0x200`, gpt `0x3ffe00`, PMBR `0x1fe` |
+| `gpt-invalid-primary-valid-backup-512` | Present, recovered | `ID_PART_TABLE_TYPE=gpt` | gpt `0x3ffe00`, PMBR `0x1fe` |
+| `gpt-missing-backup-512` | Present, inconsistent | `ID_PART_TABLE_TYPE=gpt` | gpt `0x200`, PMBR `0x1fe` |
+| `hybrid-mbr-gpt-512` | Present, hybrid | `ID_PART_TABLE_TYPE=gpt` | gpt `0x200`, gpt `0x3ffe00`, PMBR `0x1fe` |
+
+**`gpt-basic-512` and `gpt-conflicting-tables-512` produce byte-identical output
+from both tools.** They are different images: one has two agreeing tables, the
+other has two independently valid tables describing *different* partitions, which
+is precisely what ADR-C3 means by a table that parses ambiguously. Neither
+interface says so. `ID_PART_ENTRY_*` is absent for whole-disk probes and
+`ID_FS_AMBIVALENT` does not fire here either.
+
+(The shared `ID_PART_TABLE_UUID` between them is by construction — the
+conflicting fixture deliberately keeps one disk GUID, because it is one disk
+described twice. The finding is the state collapse, not the UUID.)
+
+Three consequences, stated as narrowly as the measurement supports:
+
+- **`Indeterminate` cannot be computed from the udev projection.** Part 6's
+  precondition already requires an ADR-C3 amendment fixing what
+  `Present { checksum }` is computed over. This adds a constraint the amendment
+  must satisfy rather than choose: whatever that projection is, it cannot be
+  the `blkid`/udev view, because that view has no representation for the state
+  at all. Distinguishing the two images requires reading *both* tables and
+  comparing them — raw sector access, which §Linux above measures as **denied**
+  unprivileged and which Windows also denies.
+- **The hybrid case is invisible too.** `hybrid-mbr-gpt-512` carries an ordinary
+  `0x0c` MBR entry aliasing the ESP's exact extent. libblkid sees the `0xEE`
+  entry first, calls the MBR protective, and reports plain `gpt`. So INV-003's
+  hybrid-table detection cannot be delegated to libblkid; SI-27 files this as a
+  node-naming collision family, and the collision is not observable through the
+  interface the client reads.
+- **A damaged primary is silently recovered.** `blkid` reports `gpt` for
+  `gpt-invalid-primary-valid-backup-512`. Only `wipefs`'s offset list shows the
+  primary copy is missing. A client reading udev cannot tell a healthy disk from
+  one running on its backup header.
+
+### 4Kn is not observable from a file at all
+
+`gpt-basic-4kn.img` reports `ID_PART_TABLE_TYPE=PMBR` — not `gpt`. libblkid
+probing a regular file assumes 512-byte logical sectors, looks for `EFI PART` at
+`0x200`, finds the zero padding of the 4096-byte protective-MBR sector, and falls
+back to the protective MBR it did find. The 4Kn table at `0x1000` is never read.
+
+The fixture is not wrong; its bytes are a valid 4Kn GPT, and
+`crates/fixtures/src/evidence.rs` proves that structurally. What this establishes
+is that **IMG-011 evidence cannot come from file-based probing**, because a file
+carries no logical sector size to communicate. A prober-based check for 4Kn needs
+a loop device configured with an explicit sector size, which is privileged and
+therefore Tier 2. Recorded so the fixture is not "fixed" into a 512-byte table by
+someone who reads `PMBR` as a defect.
+
 ### Scope limits — what this run does NOT establish
 
 - **The disks were WSL2 virtual SCSI disks.** Real NVMe, SATA, USB, and SD/MMC
@@ -252,6 +319,14 @@ rather than either discarding or assuming.
   records for a genuinely ambivalent device is still unmeasured.
 - One distribution, one kernel, one user. Debian's default group set is the
   claim being generalized; Ubuntu, Fedora, and Arch were not measured.
+- **The table-state rows above were probed as regular files, not devices.**
+  SAFE-001 permits only that at Tier 1. Probing a loop device may differ —
+  partition scanning would populate `ID_PART_ENTRY_*` — and that is a Tier-2
+  measurement this project cannot yet make. The narrow claim, that libblkid
+  produces identical output for the healthy and the conflicting image, is
+  established for files; whether a loop device separates them is **open**.
+- One libblkid version, 2.41.0. The priority resolution and the PMBR fallback
+  are implementation behaviour, not specified interfaces, and may change.
 
 ### The per-user problem, now concrete
 

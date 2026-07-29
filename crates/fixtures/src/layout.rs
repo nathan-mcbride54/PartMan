@@ -500,10 +500,13 @@ pub fn write_conflicting_backup(image: &mut Image, label: &str, partitions: &[Gp
 
 /// Corrupt a GPT primary header's CRC without disturbing its signature.
 ///
-/// This is the fixture ADR-C3's `Indeterminate` partition-table state exists
-/// for: a device that plainly claims to have a table, whose table cannot be
-/// trusted. It is distinct from a blank device, and conflating the two is what
-/// ADR-C3 forbids.
+/// The result is **damaged but recoverable**, not ADR-C3 `Indeterminate`: the
+/// backup header is untouched and still authoritative, so the table remains
+/// positively determinable. This doc comment claimed the opposite until an
+/// audit noticed it contradicted [`write_conflicting_backup`] three functions
+/// below, which had already been corrected. The signature surviving while the
+/// checksum does not is what keeps this distinct from a blank device — that
+/// much was always true, and it is the part ADR-C3 forbids conflating.
 pub fn corrupt_primary_header_crc(image: &mut Image) {
     let mut crc = [0_u8; 4];
     crc.copy_from_slice(image.read(1, 16, 4));

@@ -80,8 +80,11 @@ fn the_gpt_header_crc_validates() {
 
 #[test]
 fn the_corrupt_fixture_keeps_its_signature_but_fails_its_crc() {
-    // ADR-C3's Indeterminate case has to be distinguishable from blank media, so
-    // the signature must survive while the checksum does not.
+    // A damaged table has to stay distinguishable from blank media, so the
+    // signature must survive while the checksum does not. This is the
+    // *recoverable* case, not ADR-C3's `Indeterminate` one — the comment here
+    // said Indeterminate until an audit caught it, which is the same mislabel
+    // the catalogue was corrected for.
     let mut image = gpt(SectorSize::B512, 8192, "corrupt", &sample_partitions());
     assert!(header_crc_is_valid(image.bytes()));
 
