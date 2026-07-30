@@ -104,14 +104,22 @@ fixtures out of the repository, and a fuzzing corpus is exactly that. A crash
 leaves a reproducer in `fuzz/artifacts/`, which the CI job uploads on failure so
 it can be attached to a report rather than committed.
 
+The `Maintenance` workflow runs every Monday at 06:00 UTC and is also manually
+triggerable. It restores the newest earlier `fuzz/corpus/` cache, gives each
+current target 900 seconds, and saves the expanded corpus under an immutable
+per-run key. A scheduled run therefore explores for 30 minutes across the two
+current targets and starts from discoveries made by earlier successful runs;
+the pull-request job remains a fresh 60-second-per-target smoke pass.
+
+The corpus cache is an optimization, not evidence of correctness and not a
+release artifact. GitHub may evict it. Stable deterministic canonicality tests
+remain the floor, and crash reproducers are uploaded separately on failure.
+
 ## Not yet done
 
 Section 11.4 requires more than exists today, and the gaps are recorded rather
 than implied:
 
-- **Scheduled long runs accumulating corpora** are not configured. Only the
-  per-pull-request smoke run exists, which starts from an empty corpus every
-  time and therefore explores far less than a seeded run would.
 - **Parsers that do not exist yet** have no targets: GPT, MBR, and APM headers,
   file-system probes, and LVM, LUKS, and mdraid metadata. Each arrives with its
   own work package and must bring its own target.
