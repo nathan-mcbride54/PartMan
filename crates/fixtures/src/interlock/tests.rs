@@ -46,13 +46,37 @@ struct Sandbox {
     manifest: Manifest,
 }
 
+/// Where sandboxes are built.
+///
+/// Defaults to the system temporary directory, and `PARTMAN_TEST_ROOT`
+/// overrides it. The override is not a convenience: on Windows the containment
+/// guarantee is a property of *the filesystem serving the root*, and a
+/// developer's temporary directory need not be the same filesystem as the
+/// clone the fixtures are really generated into. On the machine this increment
+/// was written on they differ — `%TEMP%` is on an NTFS volume and the working
+/// copy is on a `ReFS` one — so a green suite is evidence about `%TEMP%` unless
+/// someone points it elsewhere.
+///
+/// It was pointed elsewhere: the whole suite was run with the root on that
+/// `ReFS` volume and passed, which is how the separator defect below was found.
+fn sandbox_base() -> PathBuf {
+    let base = std::env::var_os("PARTMAN_TEST_ROOT").map_or_else(std::env::temp_dir, PathBuf::from);
+    // Re-collecting through `components` normalises the separators. Windows
+    // accepts `/` in a path, but `mklink` is parsed by `cmd`, which reads a
+    // leading `/` as the start of a switch — so `PARTMAN_TEST_ROOT=D:/x/y`
+    // made junction creation fail and the root-swap test blame the *platform*
+    // for it. Found by pointing the suite at this repository's own ReFS volume,
+    // which is exactly what the override exists for.
+    base.components().collect()
+}
+
 impl Sandbox {
     fn new(tag: &str) -> Self {
         // Process id and a per-process counter, so two concurrent runs of this
         // crate's tests cannot delete each other's fixture trees. A fixed name
         // made the suite that gates destructive execution flaky by
         // construction.
-        let root = std::env::temp_dir().join(format!(
+        let root = sandbox_base().join(format!(
             "partman-interlock-{tag}-{}-{}",
             std::process::id(),
             crate::test_support::next_sandbox_id()
@@ -82,8 +106,49 @@ impl Sandbox {
 
 impl Drop for Sandbox {
     fn drop(&mut self) {
+        // Discarded deliberately, and since increment 2d this can genuinely
+        // fail rather than merely being tidy: on Windows a live `Authorization`
+        // holds the root directory open with a share mode that refuses
+        // deletion, so this returns `ERROR_SHARING_VIOLATION` and the tree
+        // leaks into the temporary directory.
+        //
+        // Nothing leaks today only because Rust drops locals in reverse
+        // declaration order and every test here declares its sandbox first.
+        // That is an ordering coincidence, not a design — a test that binds an
+        // authorization before its sandbox would leak silently. Tests that hold
+        // an authorization past the point of interest drop it explicitly.
         let _ = fs::remove_dir_all(&self.root);
     }
+}
+
+/// Create a directory junction, which needs no privilege on Windows — unlike a
+/// symlink, which needs `SeCreateSymbolicLinkPrivilege` and is therefore not
+/// something a CI runner can be relied on to allow.
+#[cfg(windows)]
+fn junction(link: &Path, target: &Path) -> bool {
+    std::process::Command::new("cmd")
+        .args(["/c", "mklink", "/J"])
+        .arg(link)
+        .arg(target)
+        .output()
+        .is_ok_and(|output| output.status.success())
+}
+
+/// The object identity of a path, opened without following a reparse point.
+///
+/// Windows' analogue of `ino()`: a decoy holding a fixture's exact bytes is
+/// indistinguishable by content, so every containment assertion here is about
+/// *which object* was authorized.
+#[cfg(windows)]
+fn identity_of(path: &Path) -> std::io::Result<(u64, u64)> {
+    use std::os::windows::fs::OpenOptionsExt as _;
+
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(7)
+        .custom_flags(0x0020_0000)
+        .open(path)?;
+    super::object_identity(&file)
 }
 
 #[test]
@@ -386,6 +451,390 @@ fn swapping_the_fixture_root_directory_before_open_cannot_redirect_the_write() {
              the decoy the root's name now points at"
         ),
     }
+}
+
+#[cfg(windows)]
+#[test]
+fn swapping_the_fixture_root_directory_before_open_cannot_redirect_the_write() {
+    // The Windows half of F-02, and the counterpart to the Unix test above.
+    //
+    // The mechanisms differ and the test has to respect that. Unix *resolves*
+    // the child from a held descriptor, so the swap succeeds and is harmless.
+    // Windows opens by pathname, and what makes that sound is that the held
+    // root handle's share mode makes the swap itself impossible. So here the
+    // attack fails at step one — and a test that merely asserted "the rename
+    // failed" would be worthless, because a rename of the root is *already*
+    // refused once any target handle is open, which was true before this
+    // increment. That test passes with the fix removed. Measured.
+    //
+    // So the assertion is the same one Unix makes: which object did we
+    // authorize. Content cannot answer it — the decoy holds identical bytes —
+    // and identity can.
+    let sandbox = Sandbox::new("root-swap");
+    let target = sandbox.target("blank-512.img");
+    let bytes = fs::read(&target).expect("read the fixture");
+    let real_identity = identity_of(&target).expect("identity of the real fixture");
+
+    let decoy_root = sandbox_base().join(format!(
+        "partman-decoy-root-{}-{}",
+        std::process::id(),
+        crate::test_support::next_sandbox_id()
+    ));
+    fs::create_dir_all(&decoy_root).expect("create the decoy directory");
+    let decoy_target = decoy_root.join("blank-512.img");
+    fs::write(&decoy_target, &bytes).expect("an identical file inside the decoy");
+    let decoy_identity = identity_of(&decoy_target).expect("identity of the decoy");
+    assert_ne!(
+        real_identity, decoy_identity,
+        "sanity: byte-identical files must still be distinguishable objects, or this test \
+         cannot detect anything"
+    );
+
+    // Positive control, run first and in its own tree with nothing held: the
+    // attack must genuinely work when it is not being defended against.
+    // Without this the test would pass vacuously anywhere `mklink /J` fails.
+    {
+        let control_root = sandbox_base().join(format!(
+            "partman-control-root-{}-{}",
+            std::process::id(),
+            crate::test_support::next_sandbox_id()
+        ));
+        fs::create_dir_all(&control_root).expect("create the control root");
+        fs::write(control_root.join("blank-512.img"), &bytes).expect("control fixture");
+        let control_identity =
+            identity_of(&control_root.join("blank-512.img")).expect("control identity");
+        let moved = control_root.with_extension("moved-aside");
+        fs::rename(&control_root, &moved).expect("with nothing held, the root renames freely");
+        assert!(
+            junction(&control_root, &decoy_root),
+            "could not create a junction at {}. The control has to succeed or the defended \
+             case below proves nothing, so this is a failure rather than a skip. Check the \
+             separators first — `mklink` is parsed by `cmd`, which reads a leading `/` as a \
+             switch — then whether the volume supports reparse points. NTFS and ReFS both do",
+            control_root.display()
+        );
+        let redirected =
+            identity_of(&control_root.join("blank-512.img")).expect("open through the junction");
+        assert_eq!(
+            redirected, decoy_identity,
+            "the control attack must reach the decoy, or the defended case is not being tested"
+        );
+        assert_ne!(redirected, control_identity);
+        let _ = fs::remove_dir(&control_root);
+        let _ = fs::remove_dir_all(&moved);
+    }
+
+    // Now the defended case, staged through the same seam the Unix test uses:
+    // every path check has passed, no target is open yet, and the root handle
+    // is the only thing standing between the attacker and a redirected open.
+    let real_root = sandbox.root.clone();
+    let moved_root = sandbox.root.with_extension("moved-aside");
+    let decoy = decoy_root.clone();
+    let swap_succeeded = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let observed = std::sync::Arc::clone(&swap_succeeded);
+    let authorization = with_before_open(
+        move |_resolved| {
+            if fs::rename(&real_root, &moved_root).is_ok() {
+                observed.store(true, std::sync::atomic::Ordering::SeqCst);
+                junction(&real_root, &decoy);
+            }
+        },
+        || sandbox.authorize(&sandbox.request(vec![target.clone()])),
+    );
+
+    let authorization = authorization.expect(
+        "the fixture is untouched and the swap cannot land, so this must authorize rather than \
+         refuse; a refusal here would hide whether containment held",
+    );
+    let mut targets = authorization.into_targets();
+    let file = targets.pop().expect("one verified target").into_file();
+    let authorized_identity = super::object_identity(&file).expect("identity of the handle");
+    drop(file);
+
+    assert_eq!(
+        authorized_identity, real_identity,
+        "the authorized handle must be the object inside the real fixture directory, never the \
+         decoy the root's name was aimed at"
+    );
+    // Recorded, not asserted as the property: *how* it was stopped. With the
+    // root handle removed this flips to true and the assertion above fails,
+    // which is the mutation this test exists to catch.
+    assert!(
+        !swap_succeeded.load(std::sync::atomic::Ordering::SeqCst),
+        "the root rename should have been refused while the root handle was held"
+    );
+
+    let _ = fs::remove_dir_all(&decoy_root);
+}
+
+#[cfg(windows)]
+#[test]
+fn the_root_handle_alone_refuses_renaming_the_root() {
+    // Isolates the new mechanism from everything that already existed. No
+    // target is open, so the refusal below can only come from the root handle's
+    // share mode — unlike a rename attempted while an `Authorization` is alive,
+    // which the target handle already refused before this increment.
+    //
+    // Fails if the root handle is removed, and fails if `FILE_SHARE_DELETE` is
+    // ever added to it: measured, `share = READ` and `READ|WRITE` both refuse,
+    // `READ|WRITE|DELETE` permits.
+    let sandbox = Sandbox::new("root-handle-alone");
+    let moved = sandbox.root.with_extension("moved-aside");
+
+    let held = super::RootDirectory::open(&sandbox.root).expect("the fixture root must open");
+    assert!(
+        fs::rename(&sandbox.root, &moved).is_err(),
+        "a held root directory handle must make the root un-renamable"
+    );
+    drop(held);
+
+    // Control: the refusal is the handle, not something ambient about the path.
+    fs::rename(&sandbox.root, &moved).expect("once the handle is dropped the root renames freely");
+    fs::rename(&moved, &sandbox.root).expect("put it back so the sandbox can clean up");
+}
+
+#[cfg(windows)]
+#[test]
+fn an_entry_replaced_by_a_junction_is_refused() {
+    // The root handle protects the directory *object*, not the entries in it:
+    // an entry can still be deleted and something else put at its name. That is
+    // fine, and this pins why.
+    //
+    // It also guards a specific footgun this increment introduced. The root
+    // open now needs `FILE_FLAG_BACKUP_SEMANTICS`, and copying that flag down
+    // into `open_child` would make this junction *open* instead of being
+    // refused — and report `is_file()`, so the regular-file check would not
+    // catch it either. Measured, junction at the child name: no flags → os 5;
+    // `OPEN_REPARSE_POINT` → os 5; `OPEN_REPARSE_POINT | BACKUP_SEMANTICS` →
+    // opened.
+    //
+    // Deliberately **not** labelled as coverage of `FILE_FLAG_OPEN_REPARSE_POINT`:
+    // the junction is refused with or without that flag, because opening a
+    // directory without backup semantics fails either way.
+    let sandbox = Sandbox::new("entry-junction");
+    let target = sandbox.target("blank-512.img");
+    let bytes = fs::read(&target).expect("read the fixture");
+
+    let outside = sandbox_base().join(format!(
+        "partman-junction-target-{}-{}",
+        std::process::id(),
+        crate::test_support::next_sandbox_id()
+    ));
+    fs::create_dir_all(&outside).expect("create the junction's target");
+    fs::write(outside.join("blank-512.img"), &bytes).expect("identical bytes beyond the junction");
+
+    let elsewhere = outside.clone();
+    let refusal = with_before_open(
+        move |resolved| {
+            let _ = fs::remove_file(resolved);
+            junction(resolved, &elsewhere);
+        },
+        || sandbox.authorize(&sandbox.request(vec![target.clone()])),
+    );
+
+    let refusal = refusal.expect_err("a junction at the fixture's name must be refused");
+    assert!(
+        matches!(refusal, Refusal::TargetUnresolvable { .. }),
+        "{refusal:?}"
+    );
+    let _ = fs::remove_dir_all(&outside);
+}
+
+#[cfg(windows)]
+#[test]
+fn a_file_symlink_swapped_in_before_open_is_refused_as_an_irregular_object() {
+    // The Windows counterpart to `a_symlink_swapped_in_before_open_is_refused`,
+    // and the one piece of coverage here that the environment can take away:
+    // creating a file symlink needs `SeCreateSymbolicLinkPrivilege` or
+    // Developer Mode, and a CI runner cannot be relied on to have either.
+    //
+    // It says so out loud when it cannot run. A test that skips in silence
+    // stops being coverage without anyone noticing, and this repository has
+    // already had to delete traceability rows that named evidence which no
+    // longer existed.
+    //
+    // What it pins: the refusal comes from `is_file()` **through the handle**,
+    // not from the length check and not from the by-path `symlink_metadata`
+    // hygiene check that the interlock itself documents as raceable. Measured
+    // for both a file symlink and a junction, with and without backup
+    // semantics: `is_file()` is false in every case.
+    let sandbox = Sandbox::new("pre-open-symlink");
+    let target = sandbox.target("blank-512.img");
+    let bytes = fs::read(&target).expect("read the fixture");
+
+    let outside = sandbox_base().join(format!(
+        "partman-symlink-decoy-{}-{}.img",
+        std::process::id(),
+        crate::test_support::next_sandbox_id()
+    ));
+    fs::write(&outside, &bytes).expect("an identical file outside the root");
+
+    // Probe the privilege before staging anything, so the skip is clean.
+    let probe = sandbox.root.join("privilege-probe.img");
+    let permitted = std::os::windows::fs::symlink_file(&outside, &probe).is_ok();
+    let _ = fs::remove_file(&probe);
+    if !permitted {
+        println!(
+            "SKIPPED a_file_symlink_swapped_in_before_open_is_refused_as_an_irregular_object: \
+             this host cannot create a file symlink (no SeCreateSymbolicLinkPrivilege and no \
+             Developer Mode). The reparse-point path is therefore UNTESTED here."
+        );
+        let _ = fs::remove_file(&outside);
+        return;
+    }
+
+    let decoy = outside.clone();
+    let refusal = with_before_open(
+        move |resolved| {
+            let _ = fs::remove_file(resolved);
+            let _ = std::os::windows::fs::symlink_file(&decoy, resolved);
+        },
+        || sandbox.authorize(&sandbox.request(vec![target.clone()])),
+    );
+
+    let refusal = refusal.expect_err(
+        "a symlink swapped in before the open must be refused; following it would authorize an \
+         object outside the fixture root",
+    );
+    assert!(
+        matches!(refusal, Refusal::TargetNotRegularFile { .. }),
+        "expected the opened object to be refused as irregular, got {refusal:?}"
+    );
+    let _ = fs::remove_file(&outside);
+}
+
+#[cfg(windows)]
+#[test]
+fn a_root_that_is_not_locally_served_is_refused_rather_than_trusted() {
+    // Containment on Windows is the *filesystem* refusing to rename a directory
+    // that is held open. A redirector need not implement that, and one
+    // measurably does not: with the root handle held on a `\\wsl.localhost\`
+    // path, a swap staged from the Linux side succeeded and the child open
+    // returned the decoy's identity.
+    //
+    // The wiring first, and this half is the one that matters. An earlier
+    // version of this test exercised only the classifier below, and deleting
+    // the call site in `RootDirectory::hold` left the entire suite green —
+    // found by running the mutation rather than by reading. `hold` takes an
+    // already-canonical path, so a literal UNC string reaches the precondition
+    // without a network filesystem needing to exist on this machine.
+    let refusal =
+        super::RootDirectory::hold(PathBuf::from(r"\\?\UNC\wsl.localhost\Debian\tmp\generated"))
+            .expect_err("a root that is not locally served must be refused");
+    assert!(
+        matches!(refusal, Refusal::RootNotLocallyServed { .. }),
+        "expected the namespace precondition to refuse before the handle was taken, got \
+         {refusal:?}"
+    );
+
+    // And the classifier itself, over paths in both directions.
+    for local in [
+        r"\\?\C:\Users\someone\PartMan\tests\generated",
+        r"\\?\D:\PartMan\tests\generated",
+    ] {
+        assert!(
+            super::root_namespace_is_local(Path::new(local)),
+            "{local} is a local volume and must be permitted"
+        );
+    }
+    for remote in [
+        r"\\?\UNC\wsl.localhost\Debian\tmp\generated",
+        r"\\?\UNC\server\share\generated",
+        r"\\server\share\generated",
+    ] {
+        assert!(
+            !super::root_namespace_is_local(Path::new(remote)),
+            "{remote} is not locally served and must be refused"
+        );
+    }
+    // A path `canonicalize` could not have produced has no prefix to classify,
+    // and is refused rather than reasoned about.
+    assert!(!super::root_namespace_is_local(Path::new(
+        "tests/generated"
+    )));
+}
+
+#[test]
+fn a_new_hard_link_after_authorization_is_not_prevented() {
+    // A boundary, recorded as a test so it cannot be quietly upgraded into a
+    // guarantee by prose. This catches no mutation and is labelled as such.
+    //
+    // The link count is a snapshot taken at authorization. Nothing stops a new
+    // name being added afterwards, on either platform. The reason that is
+    // tolerable is an *argument*, not a measurement of impossibility: the
+    // object bound at open cannot be renamed or deleted under its own name
+    // while the handle lives, and its contents were verified, so any alias
+    // created inside the window necessarily names bytes that were already
+    // established as disposable fixture content. If either of those pins ever
+    // weakens, this stops being harmless.
+    let sandbox = Sandbox::new("post-auth-link");
+    let target = sandbox.target("blank-512.img");
+    let authorization = sandbox
+        .authorize(&sandbox.request(vec![target.clone()]))
+        .expect("the untouched fixture must authorize");
+
+    let alias = sandbox_base().join(format!(
+        "partman-late-alias-{}-{}.img",
+        std::process::id(),
+        crate::test_support::next_sandbox_id()
+    ));
+    let linked = fs::hard_link(&target, &alias);
+    assert!(
+        linked.is_ok(),
+        "recorded honestly: an alias created after authorization is not prevented"
+    );
+
+    drop(authorization);
+    let _ = fs::remove_file(&alias);
+}
+
+#[test]
+fn the_windows_handle_wrapper_is_confined_to_one_call_site() {
+    // `winapi_util::HandleRef` has no lifetime parameter and is constructible
+    // from safe code, so a second call site could obtain an authoritative
+    // answer for a closed handle — inside a crate whose manifest says
+    // `unsafe_code = "deny"` and with no `unsafe` token anywhere. That was
+    // demonstrated during review, which is why the wrapper is reached through
+    // exactly one function.
+    //
+    // A textual gate, and this repository knows what those are worth: the
+    // action-pin scanner was defeated three times as a text scanner before it
+    // became a structural parse. It is used here because the property is about
+    // *how many places name a symbol*, which is a textual property, and because
+    // the alternative — trusting review — is what it replaces.
+    // Assembled rather than written out, so this test's own source does not
+    // contain the string it searches for. Comment lines are skipped for the
+    // same reason: the prose above, and the doc comment on the function being
+    // protected, both have to be free to *name* the thing they explain.
+    let needle = concat!("winapi", "_util::");
+
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut mentions = Vec::new();
+    let mut pending = vec![source];
+    while let Some(directory) = pending.pop() {
+        for entry in fs::read_dir(&directory).expect("the crate's own source must be readable") {
+            let path = entry.expect("readable directory entry").path();
+            if path.is_dir() {
+                pending.push(path);
+                continue;
+            }
+            if path.extension().is_none_or(|extension| extension != "rs") {
+                continue;
+            }
+            let text = fs::read_to_string(&path).expect("source must be readable");
+            for (number, line) in text.lines().enumerate() {
+                if !line.trim_start().starts_with("//") && line.contains(needle) {
+                    mentions.push(format!("{}:{}", path.display(), number + 1));
+                }
+            }
+        }
+    }
+    assert_eq!(
+        mentions.len(),
+        1,
+        "the Windows handle wrapper must be reached from exactly one place in this crate, \
+         found: {mentions:?}"
+    );
 }
 
 #[test]
@@ -880,14 +1329,68 @@ fn a_fixture_whose_bytes_belong_to_a_different_fixture_is_refused() {
     );
 }
 
-#[cfg(unix)]
 #[test]
-fn a_hard_link_into_the_fixture_root_is_refused() {
-    // A hard link is a regular file and canonicalizes inside the root, so
-    // neither of those checks sees it. Requiring content to equal a generated
-    // fixture already means a link can only point at something that is one, but
-    // a second name is still a second thing a destructive suite could reach.
-    let sandbox = Sandbox::new("hard-link");
+fn a_hard_link_to_a_file_outside_the_root_is_refused() {
+    // F-03, and the reason this test is not `#[cfg(unix)]` any more: until
+    // increment 2d the link count was read only on Unix, and on Windows this
+    // exact arrangement **authorized**. Reproduced end to end during review —
+    // a stand-in user file was destroyed through the authorized handle while
+    // the link count read 2 the whole time.
+    //
+    // The arrangement matters. A victim outside the fixture root holds the
+    // fixture's exact bytes — an ordinary thing for a user to have, since the
+    // images are a deterministic function of public source — and a hard link
+    // to it occupies the fixture's own name. Name, location, regular-file
+    // status, length and digest therefore *all* pass. The link count is the
+    // only check that can refuse, which is what makes this test discriminating
+    // rather than merely red.
+    let sandbox = Sandbox::new("hard-link-outside");
+    let target = sandbox.target("blank-512.img");
+    let bytes = fs::read(&target).expect("read the fixture");
+
+    let victim = sandbox_base().join(format!(
+        "partman-victim-{}-{}.dat",
+        std::process::id(),
+        crate::test_support::next_sandbox_id()
+    ));
+    fs::write(&victim, &bytes).expect("a user file that happens to hold fixture bytes");
+
+    fs::remove_file(&target).expect("free the fixture's name");
+    fs::hard_link(&victim, &target).expect("link the victim in at the fixture's name");
+
+    let refusal = sandbox
+        .authorize(&sandbox.request(vec![target.clone()]))
+        .expect_err("a target that is also reachable outside the root must be refused");
+
+    // Exact, with the count. The disjunction this test used to carry
+    // (`TargetHasOtherNames | TargetNotGenerated`) accepted the digest refusal
+    // that fires when the check is deleted, so it survived removal of the only
+    // thing it existed to protect.
+    match refusal {
+        Refusal::TargetHasOtherNames { links, .. } => assert_eq!(
+            links, 2,
+            "the refusal must report the count it actually observed"
+        ),
+        other => panic!("expected TargetHasOtherNames, got {other:?}"),
+    }
+
+    // Control: the same object, same bytes, same name — with the outside name
+    // gone. If this did not authorize, the test above would be passing for some
+    // reason other than the link count.
+    fs::remove_file(&victim).expect("drop the outside name");
+    let authorization = sandbox
+        .authorize(&sandbox.request(vec![target]))
+        .expect("with one name left, the very same object must authorize");
+    drop(authorization);
+}
+
+#[test]
+fn a_hard_link_between_two_fixture_names_is_refused() {
+    // The narrower in-root case the previous version of this test covered.
+    // Kept because it is the shape a careless `cp -l` produces, and separated
+    // from the one above because here the digest *also* disagrees, so it cannot
+    // discriminate the link check on its own.
+    let sandbox = Sandbox::new("hard-link-inside");
     let real = sandbox.target("blank-512.img");
     let link = sandbox.target("gpt-basic-512.img");
     fs::remove_file(&link).expect("clearing the target name must succeed");
