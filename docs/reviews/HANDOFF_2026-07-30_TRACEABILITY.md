@@ -19,12 +19,13 @@ already made and landed, or a decision still open with the reason it is open.
 It does what it says: `docs/traceability/WP-000.md` is generated, hand edits fail
 CI, and seven mutations are each refused by name.
 
-**It also converts a 33-row hand-written table into a 13-row generated one.** The
-20-row difference contains evidence the generator cannot express, not drift being
-removed — so the file is currently *less complete* than the one it replaces.
-The final generated table need not contain exactly 33 rows: generation may
-legitimately consolidate or relocate evidence. The acceptance criterion is zero
-unexplained evidence loss, not row-count equality.
+**It also converts 31 hand-written evidence rows into 13 generated evidence
+rows.** The 18-row difference contains evidence the generator cannot express,
+not drift being removed — so the file is currently *less complete* than the one
+it replaces. (The earlier “33-row” count included the Markdown header and
+separator.) The final generated table need not contain exactly 31 evidence rows:
+generation may legitimately consolidate or relocate evidence. The acceptance
+criterion is zero unexplained evidence loss, not row-count equality.
 
 **Decided 2026-07-30 by the decision owner: hold #65 and close the two gaps
 below first.** Green CI is not the merge condition here; a conversion that loses
@@ -43,7 +44,7 @@ Close both on the #65 branch. They also block increment 3, the rollout to
 WP-010, WP-020 and WP-030, which would otherwise multiply the gap by four.
 
 **Definition of done for #65:** regenerating `docs/traceability/WP-000.md` yields
-a table that carries the evidence the 33-row hand-written version carried. A
+a table that carries the evidence the 31-row hand-written version carried. A
 row-by-row migration ledger classifies every old relationship as a generated
 equivalent, an intentional consolidation, evidence moved to a named narrative or
 ADR record, a superseded/invalid relationship with rationale, or a still-

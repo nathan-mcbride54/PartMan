@@ -178,11 +178,11 @@ drive-letter residual. Do not close it as general local-volume containment.
 
 ### F-04 — Medium — PR #65 is correctly held, but the handoff's metric is wrong
 
-PR #65 turns WP-000's 33-row hand-written traceability table into a 13-row
-generated table. The current handoff calls this “18 missing rows”; the literal
-difference is 20. More importantly, requiring the final generated table to have
-33 rows is also incorrect. Generation may legitimately consolidate or relocate
-evidence.
+PR #65 turns WP-000's 31 hand-written evidence rows into 13 generated evidence
+rows. The earlier “33-row” count included the Markdown header and separator;
+the evidence-row difference is therefore 18. More importantly, requiring the
+final generated table to have 31 rows is also incorrect. Generation may
+legitimately consolidate or relocate evidence.
 
 Before merging the handoff, replace the arithmetic and row-count criterion with
 a row-by-row migration ledger. Every previous relationship needs one explicit
@@ -232,7 +232,7 @@ work-package front matter and status section short enough to audit quickly.
 
 ### P0 — Finish the current governance work without losing evidence
 
-1. Correct PR #66's 33-to-13 arithmetic and acceptance criterion.
+1. Correct PR #66's evidence-row count and acceptance criterion.
 2. Build the traceability migration ledger.
 3. Extend the structured source model for non-test evidence and stable section
    references.
