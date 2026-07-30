@@ -102,6 +102,7 @@ fn execute(task: &Task) -> Result<(), TaskError> {
             verify_toolchain()?;
             verify_action_pins(&repository_root())?;
             verify_manifest_licenses(&repository_root())?;
+            verify_workspace_lints(&repository_root())?;
             verify_path_ownership(&repository_root())?;
             audit_tokens()?;
             cargo(&["fmt", "--all", "--", "--check"])?;
@@ -1111,48 +1112,185 @@ fn names_a_dockerfile(image: &str) -> bool {
     trimmed == "Dockerfile" || trimmed.ends_with("/Dockerfile")
 }
 
-/// Every `FROM` base image in a Dockerfile that is not pinned by digest.
+/// Every image a Dockerfile pulls that is not pinned by digest.
 ///
 /// A Docker action with `image: Dockerfile` builds from source in the action
-/// directory, so the base images in that Dockerfile are the executable
-/// dependency. `FROM x AS builder` and `FROM --platform=… x` are both accepted
-/// spellings; a stage name defined earlier in the same file is an internal
-/// reference and not a pull.
+/// directory, so every image that build pulls is an executable dependency under
+/// SEC-010 — and "every image" is wider than "every `FROM`".
+///
+/// Structural YAML parsing closed the workflow half of this gate. It did not
+/// make *this* parser structural, and an audit plus an adversarial pass found
+/// nine ways a mutable image passed unseen. Four needed no unusual syntax at
+/// all:
+///
+/// - **A tab after `FROM`.** The old matcher was `strip_prefix("FROM ")`, one
+///   literal space. `BuildKit` splits on `[\t\v\f\r ]+`, so every other member of
+///   that class was invisible. This was the cheapest bypass in the file.
+/// - **A UTF-8 BOM** on the first line, which `BuildKit` strips and `str::trim`
+///   does not — the failure mode a Windows contributor produces by accident.
+/// - **`COPY --from=<image>`** and **`RUN --mount=…,from=<image>`**, which pull
+///   images that never appear in any `FROM`.
+/// - **`FROM alpine AS alpine`**, where the stage was registered from the same
+///   line before the base was tested against it, so the image shadowed itself.
+///
+/// The rest were the reviewer's three — a `$`-prefixed base skipped outright,
+/// case-sensitive instruction matching, and the `# syntax=` parser directive
+/// naming a `BuildKit` frontend image that was skipped as a comment — plus a
+/// continuation whose `\` was stored as a stage name.
+///
+/// Two things it deliberately does *not* do, both checked rather than assumed:
+/// `FROM scratch` is not a pull and is not a violation, and `# check=` and
+/// `# escape=` name no image, so only `syntax=` is treated as a dependency.
 fn unpinned_dockerfile_bases(text: &str) -> Vec<String> {
     let mut unpinned = Vec::new();
     let mut stages: BTreeSet<String> = BTreeSet::new();
-    for line in text.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with('#') {
+    let body = text.strip_prefix('\u{feff}').unwrap_or(text);
+
+    for reference in parser_directive_images(body) {
+        if image_violation(&reference).is_some() {
+            unpinned.push(reference);
+        }
+    }
+
+    for logical in logical_lines(body) {
+        let trimmed = logical.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
-        let Some(rest) = trimmed
-            .strip_prefix("FROM ")
-            .or_else(|| trimmed.strip_prefix("from "))
-        else {
+        let Some((instruction, rest)) = split_instruction(trimmed) else {
             continue;
         };
+
+        // `COPY --from=` and `RUN --mount=…,from=` pull an image that no `FROM`
+        // ever names.
+        if instruction.eq_ignore_ascii_case("COPY")
+            || instruction.eq_ignore_ascii_case("ADD")
+            || instruction.eq_ignore_ascii_case("RUN")
+        {
+            for reference in mounted_images(rest) {
+                if !is_stage(&stages, &reference) && image_violation(&reference).is_some() {
+                    unpinned.push(reference);
+                }
+            }
+            continue;
+        }
+
+        if !instruction.eq_ignore_ascii_case("FROM") {
+            continue;
+        }
+
         let mut tokens = rest
-            .split_whitespace()
-            .filter(|token| !token.starts_with("--"));
+            .split(DOCKERFILE_SPACE)
+            .filter(|token| !token.is_empty() && !token.starts_with("--"));
         let Some(base) = tokens.next() else { continue };
-        // `FROM base AS name` defines a stage that later FROMs may reference.
+
+        // Test the base against the stages defined *before* this line, then
+        // register this line's own stage. Registering first let
+        // `FROM alpine AS alpine` shadow itself.
+        let internal = is_stage(&stages, base);
         let mut remaining = tokens;
         if remaining
             .next()
             .is_some_and(|word| word.eq_ignore_ascii_case("as"))
             && let Some(name) = remaining.next()
+            && name != "\\"
         {
-            stages.insert(name.to_owned());
+            stages.insert(name.to_ascii_lowercase());
         }
-        if stages.contains(base) || base.starts_with('$') {
+        if internal || base.eq_ignore_ascii_case("scratch") {
             continue;
         }
-        if image_violation(base).is_some() {
+        // A variable base is refused rather than skipped. Resolving `ARG`
+        // would have to prove no `--build-arg` can override it, so the first
+        // policy is simply that a base image is written out.
+        if base.contains('$') || image_violation(base).is_some() {
             unpinned.push(base.to_owned());
         }
     }
     unpinned
+}
+
+/// The whitespace `BuildKit` accepts between a Dockerfile instruction and its
+/// arguments.
+const DOCKERFILE_SPACE: [char; 5] = [' ', '\t', '\u{b}', '\u{c}', '\r'];
+
+/// Join continuation lines, so a `FROM` split across two lines is one line.
+fn logical_lines(text: &str) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    for raw in text.lines() {
+        let line = raw.trim_end_matches('\r');
+        if let Some(head) = line.trim_end().strip_suffix('\\') {
+            current.push_str(head);
+            current.push(' ');
+        } else {
+            current.push_str(line);
+            lines.push(std::mem::take(&mut current));
+        }
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    lines
+}
+
+/// An instruction keyword and the rest of its line.
+fn split_instruction(line: &str) -> Option<(&str, &str)> {
+    let end = line.find(DOCKERFILE_SPACE)?;
+    let (instruction, rest) = line.split_at(end);
+    Some((instruction, rest.trim_start_matches(DOCKERFILE_SPACE)))
+}
+
+/// Images named by `--from=` on `COPY`/`ADD`, or by a `from=` key inside a
+/// `RUN --mount=`.
+fn mounted_images(rest: &str) -> Vec<String> {
+    let mut images = Vec::new();
+    for token in rest.split(DOCKERFILE_SPACE) {
+        if let Some(value) = token.strip_prefix("--from=") {
+            images.push(value.to_owned());
+        } else if let Some(mount) = token.strip_prefix("--mount=") {
+            for field in mount.split(',') {
+                if let Some(value) = field.strip_prefix("from=") {
+                    images.push(value.to_owned());
+                }
+            }
+        }
+    }
+    images
+}
+
+/// A `--from=` value naming an earlier stage is internal, not a pull. Stage
+/// names are case-insensitive to `BuildKit`, and a numeric index names a stage
+/// by position.
+fn is_stage(stages: &BTreeSet<String>, reference: &str) -> bool {
+    stages.contains(&reference.to_ascii_lowercase()) || reference.parse::<usize>().is_ok()
+}
+
+/// Images named by a parser directive.
+///
+/// `# syntax=<ref>` tells `BuildKit` to fetch a frontend image and run it as the
+/// builder — an executable dependency by any reading of SEC-010, and one the
+/// old scanner discarded as a comment. Directives are only legal before the
+/// first instruction, and `escape=` and `check=` name no image.
+fn parser_directive_images(text: &str) -> Vec<String> {
+    let mut images = Vec::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let Some(directive) = trimmed.strip_prefix('#') else {
+            break;
+        };
+        let directive = directive.trim();
+        let Some((key, value)) = directive.split_once('=') else {
+            continue;
+        };
+        if key.trim().eq_ignore_ascii_case("syntax") {
+            images.push(value.trim().to_owned());
+        }
+    }
+    images
 }
 
 /// Whether **every** plain occurrence of `reference` in the source carries a
@@ -2001,6 +2139,80 @@ fn derivation_is_plausible(changed: &[String], resolves: &BTreeSet<String>) -> b
     changed.iter().any(|path| resolves.contains(path))
 }
 
+/// Every workspace member inherits the workspace lint policy.
+///
+/// `[workspace.lints]` denies `unsafe_code` and warns on `missing_docs`, and CI
+/// turns warnings into errors — but **only for a crate that opts in** with
+/// `[lints] workspace = true`. A member that omits the stanza inherits nothing,
+/// and this was measured rather than reasoned about: a new member with an
+/// `unsafe fn` in it produced **zero** diagnostics and `cargo xtask ci` stayed
+/// green.
+///
+/// That is the shape this repository rejects everywhere else — a safety property
+/// resting on a declaration somebody has to remember rather than on something
+/// computed. The membership list comes from `cargo metadata`, so a crate cannot
+/// escape by not being mentioned here.
+///
+/// The manifest **text** is read rather than `cargo metadata`, because metadata
+/// resolves the inheritance away: by the time cargo reports a package, a manifest
+/// that opted in and one that did not look the same.
+fn verify_workspace_lints(root: &Path) -> Result<(), TaskError> {
+    let mut violations = Vec::new();
+    let members = workspace_manifests(root, "Cargo.lock")?;
+    let mut checked = 0_usize;
+
+    for relative in &members {
+        if relative == "Cargo.toml" {
+            continue; // The virtual root declares the policy; it inherits nothing.
+        }
+        let path = root.join(relative);
+        let text = fs::read_to_string(&path).map_err(|source| TaskError::Io {
+            path: path.clone(),
+            source,
+        })?;
+        checked += 1;
+        if !inherits_workspace_lints(&text) {
+            violations.push(format!(
+                "{relative} does not declare `[lints]\\nworkspace = true`, so it inherits none of \
+                 `[workspace.lints]` — `unsafe_code = \"deny\"` included"
+            ));
+        }
+    }
+
+    if violations.is_empty() {
+        println!("verify-lints: {checked} workspace member(s) inherit the workspace lint policy");
+        return Ok(());
+    }
+    Err(TaskError::Policy(format!(
+        "SAFE-009 rests on `unsafe_code = \"deny\"` reaching every crate, and a member that omits \
+         the opt-in silently escapes it:\n  {}",
+        violations.join("\n  ")
+    )))
+}
+
+/// Whether a manifest opts into `[workspace.lints]`.
+///
+/// Comments are stripped first: `# [lints]` above `# workspace = true` is not an
+/// opt-in, and a check that read it as one would report coverage that does not
+/// exist.
+fn inherits_workspace_lints(manifest: &str) -> bool {
+    let mut inside = false;
+    for line in manifest.lines() {
+        let code = line
+            .split_once('#')
+            .map_or(line, |(before, _)| before)
+            .trim();
+        if code.starts_with('[') {
+            inside = code == "[lints]";
+            continue;
+        }
+        if inside && code.replace(' ', "") == "workspace=true" {
+            return true;
+        }
+    }
+    false
+}
+
 /// Every manifest belonging to the workspace that `lockfile` locks.
 ///
 /// The workspace root manifest is included explicitly, because this repository's
@@ -2455,10 +2667,11 @@ impl fmt::Display for TaskError {
 #[cfg(test)]
 mod tests {
     use super::{
-        Task, TaskError, claim_matches, derivation_is_plausible, is_pinned, parse, parse_test,
-        repository_root, run_tier, validate_claim_pattern, validate_derived_pattern,
-        verify_action_pins, verify_change_ownership, verify_manifest_licenses,
-        verify_path_ownership, workspace_manifests,
+        Task, TaskError, claim_matches, derivation_is_plausible, inherits_workspace_lints,
+        is_pinned, parse, parse_test, repository_root, run_tier, validate_claim_pattern,
+        validate_derived_pattern, verify_action_pins, verify_change_ownership,
+        verify_manifest_licenses, verify_path_ownership, verify_workspace_lints,
+        workspace_manifests,
     };
     use std::ffi::OsString;
     use std::fs;
@@ -2984,6 +3197,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one regression per confirmed bypass; splitting them hides the roster"
+    )]
     fn a_dockerfile_action_is_followed_to_its_base_images() {
         // `image: Dockerfile` builds from source, so the executable dependency
         // is that file's `FROM` lines rather than a pullable reference.
@@ -3023,7 +3240,135 @@ mod tests {
         verify_action_pins(&root)
             .expect("a digest-pinned base and an internal stage reference are both fine");
 
+        // Nine ways a mutable image used to pass this gate unseen. Each is a
+        // permanent regression, and each was confirmed against the scanner
+        // before the rewrite -- the gate exited successfully on all of them.
+        let digest = format!("alpine@sha256:{}", "c".repeat(64));
+        for (name, dockerfile, expected) in [
+            // The reviewer's three.
+            (
+                "an ARG-supplied base",
+                "ARG BASE=alpine:3.20\nFROM ${BASE}\n".to_owned(),
+                "${BASE}",
+            ),
+            (
+                "a mixed-case instruction",
+                "From alpine:3.20\n".to_owned(),
+                "alpine:3.20",
+            ),
+            (
+                "a BuildKit frontend, which is pulled and executed as the builder",
+                format!("# syntax=docker/dockerfile:1\nFROM {digest}\n"),
+                "docker/dockerfile:1",
+            ),
+            // Four that need no unusual syntax at all.
+            (
+                "a tab instead of a space",
+                "FROM\talpine:3.20\n".to_owned(),
+                "alpine:3.20",
+            ),
+            (
+                "a UTF-8 BOM on the first line",
+                "\u{feff}FROM alpine:3.20\n".to_owned(),
+                "alpine:3.20",
+            ),
+            (
+                "COPY --from, which pulls an image no FROM names",
+                format!("FROM {digest}\nCOPY --from=busybox:1.36 /bin/busybox /bin/\n"),
+                "busybox:1.36",
+            ),
+            (
+                "RUN --mount=from, same",
+                format!("FROM {digest}\nRUN --mount=type=bind,from=golang:1.24,target=/go true\n"),
+                "golang:1.24",
+            ),
+            // And two spellings of a stage shadowing an image.
+            (
+                "a stage that names itself after the image it pulls",
+                "FROM alpine AS alpine\nFROM alpine\n".to_owned(),
+                "alpine",
+            ),
+            (
+                "a continuation whose backslash was stored as a stage name",
+                "FROM alpine:3.20 AS \\\n  builder\n".to_owned(),
+                "alpine:3.20",
+            ),
+        ] {
+            fs::write(action.join("Dockerfile"), &dockerfile).expect("write Dockerfile");
+            let error = verify_action_pins(&root).expect_err("must be refused");
+            assert!(
+                error.to_string().contains(expected),
+                "{name}: the refusal must name {expected}: {error}"
+            );
+        }
+
+        // Two things that must NOT be violations, checked rather than assumed:
+        // `scratch` is not a pull, and `check=`/`escape=` name no image.
+        for (name, dockerfile) in [
+            ("FROM scratch", "FROM scratch\n".to_owned()),
+            (
+                "a check directive",
+                format!("# check=error=true\nFROM {digest}\n"),
+            ),
+            (
+                "an escape directive",
+                format!("# escape=`\nFROM {digest}\n"),
+            ),
+            (
+                "COPY --from naming an earlier stage",
+                format!("FROM {digest} AS build\nFROM {digest}\nCOPY --from=build /x /x\n"),
+            ),
+            (
+                "COPY --from naming a stage by index",
+                format!("FROM {digest}\nFROM {digest}\nCOPY --from=0 /x /x\n"),
+            ),
+        ] {
+            fs::write(action.join("Dockerfile"), &dockerfile).expect("write Dockerfile");
+            verify_action_pins(&root)
+                .unwrap_or_else(|error| panic!("{name} is not a pull and must pass: {error}"));
+        }
+
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn every_workspace_member_inherits_the_lint_policy() {
+        verify_workspace_lints(&repository_root())
+            .expect("every member of this workspace opts into `[workspace.lints]`");
+
+        // The hole this closes, measured: a member that omits the stanza gets
+        // none of `[workspace.lints]`, so an `unsafe fn` compiles clean and
+        // `cargo xtask ci` stays green. `unsafe_code = "deny"` was opt-in.
+        assert!(inherits_workspace_lints(
+            "[package]\nname = \"x\"\n\n[lints]\nworkspace = true\n"
+        ));
+        assert!(inherits_workspace_lints("[lints]\nworkspace=true\n"));
+        assert!(!inherits_workspace_lints("[package]\nname = \"x\"\n"));
+        assert!(
+            !inherits_workspace_lints("[package]\nname = \"x\"\n\n[lints]\nworkspace = false\n"),
+            "opting out is not opting in"
+        );
+        // A commented-out stanza inherits nothing. (This one holds because a
+        // `#` line is not a table header, not because comments are stripped --
+        // a deletion sweep showed the assertion passing either way, so it is
+        // labelled honestly rather than left looking like evidence.)
+        assert!(
+            !inherits_workspace_lints("[package]\nname = \"x\"\n# [lints]\n# workspace = true\n"),
+            "a commented stanza inherits nothing"
+        );
+        // Comment stripping earns its place in the other direction: a trailing
+        // comment must not make a real opt-in invisible. Refusing a manifest
+        // that did opt in would send an author looking for a fault that is not
+        // there.
+        assert!(
+            inherits_workspace_lints("[lints] # policy\nworkspace = true # everything\n"),
+            "a trailing comment must not hide a real opt-in"
+        );
+        // And the stanza must be in `[lints]`, not merely somewhere in the file.
+        assert!(
+            !inherits_workspace_lints("[lints]\nrust = {}\n\n[dependencies]\nworkspace = true\n"),
+            "`workspace = true` under another table is a different setting"
+        );
     }
 
     #[test]

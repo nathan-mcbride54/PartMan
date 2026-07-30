@@ -296,6 +296,44 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   name, and adding one without updating branch protection in the same change
   leaves every pull request waiting forever on a check that never reports.
 
+- **The Dockerfile half of `verify-actions` fails closed.** Structural YAML
+  parsing closed the workflow half and left this separate line scanner alone; a
+  project audit found three fail-open paths in it and an adversarial pass found
+  six more. All nine are permanent regressions, and each was confirmed against
+  the old scanner first — the gate exited successfully on every one of them.
+
+  Four needed no unusual syntax at all. **A tab after `FROM`** hid the
+  instruction completely, because the matcher was `strip_prefix("FROM ")` and
+  BuildKit splits on `[\t\v\f\r ]+` — the cheapest bypass in the file. **A UTF-8
+  BOM** on the first line hid it too, which is what a Windows editor produces by
+  accident. **`COPY --from=<image>`** and **`RUN --mount=…,from=<image>`** pull
+  images that never appear in any `FROM` and were never looked at. And
+  **`FROM alpine AS alpine`** shadowed itself, because the stage was registered
+  from the same line before the base was tested against it.
+
+  The audit's three: a `$`-prefixed base was skipped outright, so
+  `ARG BASE=alpine:3.20` + `FROM ${BASE}` passed while pulling a mutable tag —
+  it is refused now rather than resolved, because resolving would have to prove
+  no `--build-arg` overrides it; `FROM` matched case-sensitively though
+  Dockerfile instructions are not; and `# syntax=docker/dockerfile:1`, which
+  makes BuildKit fetch a frontend image and **run it as the builder**, was
+  discarded as a comment.
+
+  Two things are deliberately not violations, and are tested so they stay that
+  way: `FROM scratch` is not a pull, and `# check=`/`# escape=` name no image,
+  so only `syntax=` is treated as a dependency.
+
+- **`unsafe_code = "deny"` was opt-in.** `[workspace.lints]` reaches a crate only
+  if that crate's manifest says `[lints] workspace = true`, and nothing checked
+  that it did. Measured: a workspace member without the stanza, containing an
+  `unsafe fn`, produced **zero** diagnostics and `cargo xtask ci` stayed green.
+  A safety property resting on a line somebody has to remember is the shape this
+  repository rejects everywhere else. `cargo xtask ci` now asks `cargo metadata`
+  for the member list and reads each manifest's text — metadata resolves the
+  inheritance away, so by the time it reports a package, a crate that opted in
+  and one that did not look identical. Deleting `[lints]` from `crates/tokens`
+  now fails the gate by name.
+
 - `verify-change-ownership` enforces the rule it claimed to. A project audit and
   an adversarial pass over the gate found five ways a change could travel without
   belonging to anything, and all five are closed with regressions and a deletion

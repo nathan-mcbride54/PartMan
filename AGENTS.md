@@ -61,9 +61,17 @@ and product requirements are normative.
   in `docs/quality/dependency-policy.md`.
 - Pin every GitHub Action to a full commit SHA with the release tag in a
   trailing comment. `cargo xtask verify-actions` enforces this and runs inside
-  `cargo xtask ci`.
+  `cargo xtask ci`. It follows a Docker action into its Dockerfile, where
+  **every image the build pulls** must be digest-pinned — `FROM` bases, a
+  `# syntax=` BuildKit frontend, `COPY --from=`, and `RUN --mount=…,from=`. A
+  base built from a variable is refused rather than resolved.
 - Do not add `[build] rustflags` to `.cargo/config.toml`; it escapes the
   workspace. Lint levels belong in `[workspace.lints]`.
+- **Every new workspace member needs `[lints] workspace = true` in its
+  manifest.** Without it the crate inherits none of `[workspace.lints]`,
+  `unsafe_code = "deny"` included, and it compiles clean. `cargo xtask ci`
+  refuses a member that omits it. New crates also need a `//!` doc comment: CI
+  runs clippy with `-D warnings`, so `missing_docs` is an error there.
 - Never commit generated binary disk images, secrets, signing material, or raw
   diagnostic output.
 - Every behavior change needs automated evidence and requirement-ID
