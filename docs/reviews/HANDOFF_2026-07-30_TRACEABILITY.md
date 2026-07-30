@@ -20,8 +20,11 @@ It does what it says: `docs/traceability/WP-000.md` is generated, hand edits fai
 CI, and seven mutations are each refused by name.
 
 **It also converts a 33-row hand-written table into a 13-row generated one.** The
-18 missing rows are evidence the generator cannot express, not drift being
+20-row difference contains evidence the generator cannot express, not drift being
 removed — so the file is currently *less complete* than the one it replaces.
+The final generated table need not contain exactly 33 rows: generation may
+legitimately consolidate or relocate evidence. The acceptance criterion is zero
+unexplained evidence loss, not row-count equality.
 
 **Decided 2026-07-30 by the decision owner: hold #65 and close the two gaps
 below first.** Green CI is not the merge condition here; a conversion that loses
@@ -30,8 +33,9 @@ merge it as a clean conversion — it is not one until the gaps close, and the P
 carries a comment saying so.
 
 The work therefore lands on the #65 branch rather than after it: extend the
-generator, regenerate, confirm the row count no longer drops, then merge one PR
-that is a genuine conversion.
+generator, record a disposition for every hand-written row, regenerate, and
+confirm no evidence relationship was lost without explanation. Then merge one
+PR that is a genuine conversion.
 
 ## The two gaps — now blocking the merge of #65, not just increment 3
 
@@ -39,8 +43,11 @@ Close both on the #65 branch. They also block increment 3, the rollout to
 WP-010, WP-020 and WP-030, which would otherwise multiply the gap by four.
 
 **Definition of done for #65:** regenerating `docs/traceability/WP-000.md` yields
-a table that carries the evidence the 33-row hand-written version carried. If the
-count is still short, say which rows are missing and why rather than rounding up.
+a table that carries the evidence the 33-row hand-written version carried. A
+row-by-row migration ledger classifies every old relationship as a generated
+equivalent, an intentional consolidation, evidence moved to a named narrative or
+ADR record, a superseded/invalid relationship with rationale, or a still-
+unsupported relationship that blocks the merge.
 
 1. **Section references have no requirement ID.** The vocabulary is built from
    IDs the specification *defines* (208 of them, from `### ID:` headings and
@@ -68,8 +75,12 @@ with a share mode excluding `FILE_SHARE_DELETE` makes NTFS, `ReFS` and the
 Windows SMB server refuse to rename or delete it. The **WSL 9p redirector does
 not** — a swap staged from the Linux side succeeded with the handle held and the
 child open returned the decoy. Hence UNC roots are refused outright. Containment
-on Windows is enforcement by the filesystem, not resolution from a handle, and is
-unproven for any root not on a local volume.
+on Windows is enforcement by the filesystem, not resolution from a handle.
+`root_namespace_is_local` only distinguishes UNC prefixes; it cannot identify
+WinFsp, Dokan, sshfs-win, or a mapped drive that canonicalizes to a drive letter.
+The executable claim is therefore UNC refusal with a known third-party
+drive-letter residual, not proof that every accepted root is on a locally served
+Microsoft filesystem.
 
 **Neither half of #51 needed FFI.** `std` opens a directory given
 `FILE_FLAG_BACKUP_SEMANTICS`; `winapi-util` exposes `GetFileInformationByHandle`
