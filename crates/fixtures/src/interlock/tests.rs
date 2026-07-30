@@ -283,6 +283,12 @@ fn the_handle_handed_over_starts_at_offset_zero() {
 #[cfg(unix)]
 #[test]
 fn swapping_the_fixture_root_directory_before_open_cannot_redirect_the_write() {
+    // At the top, before any statement: `clippy::items_after_statements` is
+    // denied workspace-wide, and this Unix-only body is not compiled on the
+    // machine most of this work was done on, so CI caught it rather than the
+    // local gate.
+    use std::os::unix::fs::MetadataExt as _;
+
     // The 2026-07-29 second follow-up audit's F-02, scheduled through the same
     // seam as the basename swap. `O_NOFOLLOW` constrains only the *final* path
     // component — `open(2)` says intermediate components are still resolved
@@ -333,7 +339,6 @@ fn swapping_the_fixture_root_directory_before_open_cannot_redirect_the_write() {
     // attack, and why a "did it refuse?" assertion would prove nothing. Object
     // identity can. The authorized handle must be the inode inside the *real*
     // fixture directory, never the decoy's.
-    use std::os::unix::fs::MetadataExt as _;
     let decoy_ino = fs::metadata(decoy_root.join("blank-512.img"))
         .expect("stat the decoy")
         .ino();
