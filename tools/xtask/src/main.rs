@@ -2235,11 +2235,47 @@ fn workspace_manifests(root: &Path, lockfile: &str) -> Result<BTreeSet<String>, 
     let mut manifests = BTreeSet::new();
     manifests.insert(manifest);
     for path in paths {
-        if let Ok(relative) = path.strip_prefix(root) {
-            manifests.insert(relative.to_string_lossy().replace('\\', "/"));
-        }
+        manifests.insert(relative_to_root(root, &path)?);
     }
     Ok(manifests)
+}
+
+/// A manifest path from `cargo metadata`, as a repository-relative git path.
+///
+/// **Both spellings of the root are tried, and failing to relativize is an
+/// error.** The first version silently dropped a path it could not strip, and
+/// macOS caught it within minutes of the change reaching CI: `std::env::temp_dir`
+/// is `/var/folders/…`, `/var` is a symlink to `/private/var`, and `cargo
+/// metadata` answers with the resolved `/private/var/…`. Every member manifest
+/// failed to strip, the set silently shrank to the workspace root alone, and a
+/// legitimate change was refused with a message listing manifests that did not
+/// include the one the author had just edited.
+///
+/// Canonicalizing the root alone would trade one platform for another: on
+/// Windows `fs::canonicalize` yields a `\\?\` prefix that `cargo metadata`'s
+/// plain `D:\…` never matches. So both are tried, and a path that matches
+/// neither is a refusal rather than a quiet omission — a check that forgets part
+/// of its own input is the failure mode this repository keeps finding.
+fn relative_to_root(root: &Path, path: &Path) -> Result<String, TaskError> {
+    let canonical = fs::canonicalize(root).ok();
+    let relative = path
+        .strip_prefix(root)
+        .ok()
+        .or_else(|| {
+            canonical
+                .as_deref()
+                .and_then(|base| path.strip_prefix(base).ok())
+        })
+        .ok_or_else(|| {
+            TaskError::Policy(format!(
+                "`cargo metadata` reported the manifest {} , which is not inside {}. Refusing to \
+                 drop it: a workspace-membership answer with a member missing would refuse a \
+                 change that is entitled to carry the lockfile",
+                path.display(),
+                root.display()
+            ))
+        })?;
+    Ok(relative.to_string_lossy().replace('\\', "/"))
 }
 
 fn is_named(path: &str, file: &str) -> bool {
@@ -2668,14 +2704,14 @@ impl fmt::Display for TaskError {
 mod tests {
     use super::{
         Task, TaskError, claim_matches, derivation_is_plausible, inherits_workspace_lints,
-        is_pinned, parse, parse_test, repository_root, run_tier, validate_claim_pattern,
-        validate_derived_pattern, verify_action_pins, verify_change_ownership,
-        verify_manifest_licenses, verify_path_ownership, verify_workspace_lints,
-        workspace_manifests,
+        is_pinned, parse, parse_test, relative_to_root, repository_root, run_tier,
+        validate_claim_pattern, validate_derived_pattern, verify_action_pins,
+        verify_change_ownership, verify_manifest_licenses, verify_path_ownership,
+        verify_workspace_lints, workspace_manifests,
     };
     use std::ffi::OsString;
     use std::fs;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::process::Command;
 
     fn args(values: &[&str]) -> Vec<OsString> {
@@ -3329,6 +3365,38 @@ mod tests {
         }
 
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_manifest_outside_the_root_is_refused_rather_than_dropped() {
+        // macOS caught this within minutes of the change reaching CI. The first
+        // version wrote `if let Ok(relative) = path.strip_prefix(root)`, which
+        // silently discarded anything that did not strip -- and on macOS nothing
+        // did, because `std::env::temp_dir()` is `/var/folders/…` while `/var` is
+        // a symlink to `/private/var` and `cargo metadata` answers with the
+        // resolved path. The membership set shrank to the workspace root alone
+        // and a legitimate change was refused, listing manifests that did not
+        // include the one the author had just edited.
+        let root = repository_root();
+        assert_eq!(
+            relative_to_root(
+                &root,
+                &root.join("crates").join("tokens").join("Cargo.toml")
+            )
+            .expect("a path under the root relativizes"),
+            "crates/tokens/Cargo.toml"
+        );
+
+        // The property that matters: a path that cannot be placed inside the
+        // root is an error, never a quiet omission. A membership answer with a
+        // member missing refuses a change that was entitled to carry the
+        // lockfile, and says nothing about why.
+        let error = relative_to_root(&root, Path::new("/elsewhere/Cargo.toml"))
+            .expect_err("an outside manifest must be refused, not dropped");
+        assert!(
+            error.to_string().contains("Refusing to drop it"),
+            "the refusal must say why silence would be wrong: {error}"
+        );
     }
 
     #[test]

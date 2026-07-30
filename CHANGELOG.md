@@ -427,6 +427,17 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   the most legitimate reason of all for the lockfile to move. Both earlier holes
   are permanent regressions.
 
+  **The three-OS gate earned its keep on the first run.** The membership lookup
+  relativized `cargo metadata`'s absolute manifest paths with
+  `if let Ok(relative) = path.strip_prefix(root)`, silently discarding anything
+  that did not strip. On macOS nothing did: `std::env::temp_dir()` is
+  `/var/folders/…`, `/var` is a symlink to `/private/var`, and cargo answers with
+  the resolved path. The set shrank to the workspace root alone and a legitimate
+  change was refused — with a message helpfully listing the manifests that would
+  have worked, none of which was the one the author had just edited. Linux and
+  Windows were green. Both spellings of the root are tried now, and a path that
+  matches neither is a refusal rather than a quiet omission.
+
   A document may also only declare a path generated if it **owns** that path.
   Generatedness is a property of the file rather than a privilege of one
   assignment, and that argument stands — but a document asserting it about a file
