@@ -86,6 +86,17 @@ Runs each target for 60 seconds. `--seconds <n>` overrides that for a longer
 local run. The command is deliberately not part of `cargo xtask ci`, because it
 needs a toolchain the rest of the repository does not.
 
+Every invocation also passes an explicit resource contract to libFuzzer:
+
+- inputs are limited to 4,096 bytes;
+- one input has 25 seconds before it is reported as a timeout;
+- one allocation of 256 MiB is reported as a failure; and
+- the in-process fuzzer has a 4 GiB aggregate RSS ceiling.
+
+The single-allocation and aggregate limits are intentionally separate. Raising
+the aggregate ceiling must not permit a hostile input to request an
+unreasonably large allocation in one call.
+
 Prerequisites:
 
 ```text
@@ -110,6 +121,20 @@ current target 900 seconds, and saves the expanded corpus under an immutable
 per-run key. A scheduled run therefore explores for 30 minutes across the two
 current targets and starts from discoveries made by earlier successful runs;
 the pull-request job remains a fresh 60-second-per-target smoke pass.
+
+The [first full maintenance
+run](https://github.com/nathan-mcbride54/PartMan/actions/runs/30582127980/job/91004698510)
+proved the duration was materially different from the smoke pass: after the
+decoder target completed 15 minutes, `roundtrip_value` stopped after 1.9 million
+cases at libFuzzer's default 2 GiB RSS ceiling. Its diagnostic reported about
+26 MiB of live heap and a largest live allocation of about 21 MiB, so this was
+the long-lived AddressSanitizer process's high-water mark rather than evidence
+that the uploaded final input alone requested 2 GiB. The explicit 4 GiB RSS
+ceiling accommodates that measured instrumentation overhead on GitHub's
+[16 GiB public Ubuntu
+runner](https://docs.github.com/en/actions/reference/runners/github-hosted-runners#standard-github-hosted-runners-for-public-repositories).
+The independent 256 MiB single-allocation limit ensures the repair does not
+classify an input-specific allocation explosion as acceptable.
 
 The corpus cache is an optimization, not evidence of correctness and not a
 release artifact. GitHub may evict it. Stable deterministic canonicality tests

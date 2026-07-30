@@ -13,7 +13,12 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   carry a GitHub-hosted corpus forward from earlier successful runs. The
   pull-request workflow and all eleven branch-protection check names remain
   intact; a structural test holds the schedule, corpus key, duration, OS
-  matrix, and existing gate roster to those claims.
+  matrix, and existing gate roster to those claims. Its first full run exposed
+  libFuzzer's 2 GiB aggregate RSS default as too low for 15 minutes of the
+  allocation-heavy structured-value target despite only about 26 MiB of live
+  heap. Fuzzing now pins a 4 GiB process ceiling while retaining a separate
+  256 MiB single-allocation ceiling, a 4,096-byte input limit, and the existing
+  25-second per-input timeout.
 - WP-010 increment 1: the `pce/1` canonical encoding. `schemas/canonical-encoding.md`
   specifies it normatively, and `crates/domain` implements the encoder, a strict
   validating decoder, and SHA-256 hashing over canonical bytes (MODEL-005).
