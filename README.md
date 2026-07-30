@@ -69,7 +69,7 @@ reports status only and never redefines either.
 | CI green on Windows, macOS, and Linux | Met |
 | `xtask` single entry point works locally and in CI | Met |
 | Schemas versioned, with cross-language hash golden tests (MODEL-005) | Partial — the golden tests exist and gate CI; MODEL-003 schema versioning is not implemented |
-| CODEOWNERS enforces ownership | Partial — CODEOWNERS requires owner review, but does not reject a diff touching paths outside a work package's assignment |
+| CODEOWNERS enforces ownership | Partial — `cargo xtask verify-change-ownership` now rejects a diff touching paths outside the assignment its commits declare, judged against the base revision. CODEOWNERS itself still only requires an owner's review, and sub-file grants ("this package's own status rows") stay a review obligation no path checker can express |
 | T1 fixture generator produces images | Met — `cargo xtask fixtures` produces 13 images deterministically (WP-020 increment 1) |
 | Accessibility harness runs | Partial — `cargo xtask tokens` computes UI-001/007/008 from `schemas/design-tokens.json` and gates CI (WP-030 increment 1). It renders nothing, so the keyboard, screen-reader, zoom and reduced-motion halves of UI-008 are untouched |
 
@@ -91,7 +91,7 @@ Section 14 of the specification is normative. Current state:
 
 | Package | Scope | Status |
 | --- | --- | --- |
-| WP-000 | Repository, CI, `xtask`, CODEOWNERS, dependency policy | In progress. Lock boundary, licence, fuzz-graph and ownership-inventory gates delivered; action discovery is now a structural YAML parse after three text-based attempts were each defeated. Still open: generated traceability, and enforcing ownership against a change rather than inventorying the tree |
+| WP-000 | Repository, CI, `xtask`, CODEOWNERS, dependency policy | In progress. Lock boundary, licence, fuzz-graph and ownership-inventory gates delivered; action discovery is now a structural YAML parse after three text-based attempts were each defeated. Ownership is enforced against a change, not only inventoried, and a generated lockfile may travel with the manifest it follows. Still open: generated traceability |
 | ADR-C1 | Canonical encoding and hash strategy | Accepted |
 | ADR-C2 … ADR-C5 | Hashed-artifact body/envelope split, identity strength, provenance shape, aggregation vocabulary | Accepted |
 | WP-010 | Canonical domain model, schema versioning, encoding and hashing | In progress, blocked at increment 3; see `docs/work-packages/WP-010.md` |
