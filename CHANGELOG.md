@@ -296,6 +296,56 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   name, and adding one without updating branch protection in the same change
   leaves every pull request waiting forever on a check that never reports.
 
+- `verify-change-ownership` understands a **generated** file, which it had to
+  before any package could add a crate. The gate as first landed made the next
+  scheduled piece of work impossible, and not only that piece: `Cargo.lock` is
+  claimed by WP-000 alone, and every package that adds a crate or a dependency
+  rewrites it.
+
+  Measured against `02ec952` rather than reasoned about. A minimal
+  `apps/desktop/src-tauri` plus its workspace member line, committed as
+  `Work-Package: WP-030`, was refused for `Cargo.lock` and `Cargo.toml`; the
+  identical tree committed as `Work-Package: WP-000` was refused for the crate it
+  would have had to create, because `apps/desktop/**` is WP-030's reservation.
+  Neither package could take the first step. Landing the member line *before* the
+  crate is not a way out either — Cargo fails to load a workspace whose member
+  has no manifest, and a glob does not help: `apps/*/src-tauri` matching nothing
+  falls back to the literal path and fails the same way, so `cargo xtask ci`
+  would have been red for everyone in between.
+
+  A `derived-paths` block declares a path generated rather than authored. Any
+  package may then carry it — **but only alongside a manifest that lockfile
+  actually resolves.** A lockfile moving on its own is refused with its own
+  explanation, because nothing in such a change asks the resolver for a different
+  answer, and a transitive dependency quietly re-pinned to a different version
+  with a valid checksum satisfies `--locked` perfectly well.
+
+  The first version of the rule accepted any `Cargo.toml` anywhere, and attacking
+  it found the hole at once: `fuzz/` is excluded from the workspace and carries
+  its own lockfile, so editing `fuzz/Cargo.toml` cannot change the root
+  `Cargo.lock` — yet it would have unlocked it. A manifest is now matched to the
+  nearest lockfile above it, and the candidates are the lockfiles that *exist*,
+  not the ones someone declared. Both the hole and its regression are in the
+  tests.
+
+  Declaring a path generated is not claiming it: the inventory check still
+  requires an `owned-paths` claim, or "this is generated" would be a way to make
+  a file belong to nobody while the inventory read as complete. And a derived
+  path whose derivation this tool cannot check is refused rather than exempted —
+  an exemption nobody can verify is a hole with a comment beside it.
+
+  Four deletion sweeps confirm every part is load-bearing: dropping the manifest
+  requirement, accepting any manifest anywhere, accepting any derived pattern,
+  and letting a derived declaration count as inventory coverage each fail a
+  named test.
+
+  **What it does not establish:** a re-pin travelling alongside a genuine
+  manifest change passes. Telling the two apart needs the resolver's answer at
+  both revisions — the base tree and a full resolution on every pull request.
+  That residual risk is the one the repository has always carried; this does not
+  widen it, and it is recorded in `docs/quality/dependency-policy.md` rather than
+  implied to be covered.
+
 - WP-020 increment 2c: containment now starts from a held directory object, on
   Unix. Increment 2b bound every check to the target's handle and still opened
   that handle by absolute pathname, and `O_NOFOLLOW` constrains only the final

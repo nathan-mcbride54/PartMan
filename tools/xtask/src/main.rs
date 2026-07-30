@@ -1256,7 +1256,7 @@ fn verify_path_ownership(root: &Path) -> Result<(), TaskError> {
                 .filter(|file| claim_matches(&claim.pattern, file))
                 .collect();
             if matched.is_empty() {
-                if claim.reserved {
+                if claim.reserved() {
                     reservations.push(format!("{package}: {}", claim.pattern));
                 } else {
                     violations.push(format!(
@@ -1266,7 +1266,10 @@ fn verify_path_ownership(root: &Path) -> Result<(), TaskError> {
                     ));
                 }
             }
-            if !claim.reserved {
+            // A derived declaration says how a path comes to be, not who owns
+            // it. Counting it as coverage would let a package be declared
+            // generated and then be claimed by nobody.
+            if claim.kind == ClaimKind::Owned {
                 for file in matched {
                     overlaps
                         .entry(file.clone())
@@ -1316,8 +1319,29 @@ fn verify_path_ownership(root: &Path) -> Result<(), TaskError> {
 /// One declared claim.
 struct OwnershipClaim {
     pattern: String,
-    /// From an `owned-paths-reserved` block: matching nothing is expected.
-    reserved: bool,
+    kind: ClaimKind,
+}
+
+/// Which block a claim came from.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ClaimKind {
+    /// `owned-paths`: this package authors the path.
+    Owned,
+    /// `owned-paths-reserved`: matching nothing yet is the point.
+    Reserved,
+    /// `derived-paths`: the path is generated from other files, so a change
+    /// that regenerates it is not authoring it. See [`derivation_is_plausible`].
+    Derived,
+}
+
+impl OwnershipClaim {
+    fn reserved(&self) -> bool {
+        self.kind == ClaimKind::Reserved
+    }
+
+    fn derived(&self) -> bool {
+        self.kind == ClaimKind::Derived
+    }
 }
 
 /// Files git tracks, as forward-slash relative paths.
@@ -1421,22 +1445,24 @@ fn ownership_claims_at(
     Ok(packages)
 }
 
-/// Parse the `owned-paths` and `owned-paths-reserved` blocks out of one
-/// work-package document.
+/// Parse the `owned-paths`, `owned-paths-reserved` and `derived-paths` blocks
+/// out of one work-package document.
 fn parse_owned_paths(name: &str, text: &str) -> Result<Vec<OwnershipClaim>, TaskError> {
     let mut claims = Vec::new();
-    let mut inside: Option<bool> = None;
+    let mut inside: Option<ClaimKind> = None;
     for line in text.lines() {
         let trimmed = line.trim();
         match inside {
             None => {
                 if trimmed == "```owned-paths" {
-                    inside = Some(false);
+                    inside = Some(ClaimKind::Owned);
                 } else if trimmed == "```owned-paths-reserved" {
-                    inside = Some(true);
+                    inside = Some(ClaimKind::Reserved);
+                } else if trimmed == "```derived-paths" {
+                    inside = Some(ClaimKind::Derived);
                 }
             }
-            Some(reserved) => {
+            Some(kind) => {
                 if trimmed == "```" {
                     inside = None;
                     continue;
@@ -1448,9 +1474,12 @@ fn parse_owned_paths(name: &str, text: &str) -> Result<Vec<OwnershipClaim>, Task
                     continue;
                 }
                 validate_claim_pattern(name, pattern)?;
+                if kind == ClaimKind::Derived {
+                    validate_derived_pattern(name, pattern)?;
+                }
                 claims.push(OwnershipClaim {
                     pattern: pattern.to_owned(),
-                    reserved,
+                    kind,
                 });
             }
         }
@@ -1460,7 +1489,7 @@ fn parse_owned_paths(name: &str, text: &str) -> Result<Vec<OwnershipClaim>, Task
             "{name}: an `owned-paths` block is not closed"
         )));
     }
-    if claims.is_empty() {
+    if !claims.iter().any(|claim| claim.kind == ClaimKind::Owned) {
         return Err(TaskError::Policy(format!(
             "{name} declares no owned paths; every work package must state its assignment in an \
              `owned-paths` block"
@@ -1561,36 +1590,96 @@ fn verify_change_ownership(root: &Path, base: &str) -> Result<(), TaskError> {
         ))
     })?;
 
+    // Declared by *any* package, because "this file is generated" is a property
+    // of the file, not a privilege of one assignment.
+    let derived: Vec<&str> = catalogue
+        .values()
+        .flatten()
+        .filter(|claim| claim.derived())
+        .map(|claim| claim.pattern.as_str())
+        .collect();
+
+    // Every lockfile that exists, so a manifest is matched to the one that
+    // actually resolves it rather than to the outermost declaration.
+    let at_base = git(root, &["ls-tree", "-r", "--name-only", base])?;
+    let lockfiles: Vec<&str> = at_base
+        .lines()
+        .map(str::trim)
+        .chain(changed.iter().map(String::as_str))
+        .filter(|path| is_named(path, "Cargo.lock"))
+        .collect();
+
+    let (strays, regenerated) = classify(&changed, claims, &derived, &lockfiles);
+
+    if !strays.is_empty() {
+        return Err(stray_paths(&package, base, &strays, &derived));
+    }
+    println!(
+        "verify-change-ownership: {} path(s) all belong to {package} as assigned at {base}",
+        changed.len()
+    );
+    for path in &regenerated {
+        println!("  regenerated, not authored: {path}");
+    }
+    Ok(())
+}
+
+/// Split the changed paths into the ones this assignment cannot account for and
+/// the ones it regenerated rather than authored.
+fn classify<'a>(
+    changed: &'a [String],
+    claims: &[OwnershipClaim],
+    derived: &[&str],
+    lockfiles: &[&str],
+) -> (Vec<String>, Vec<&'a str>) {
     let mut strays = Vec::new();
-    for path in &changed {
-        let owned = claims
+    let mut regenerated = Vec::new();
+    for path in changed {
+        let assigned = claims
             .iter()
-            .any(|claim| !claim.reserved && claim_matches(&claim.pattern, path));
-        let reserved = claims
-            .iter()
-            .any(|claim| claim.reserved && claim_matches(&claim.pattern, path));
-        if !owned && !reserved {
+            .any(|claim| !claim.derived() && claim_matches(&claim.pattern, path));
+        if assigned {
+            continue;
+        }
+        if derived.iter().any(|pattern| {
+            claim_matches(pattern, path) && derivation_is_plausible(path, changed, lockfiles)
+        }) {
+            regenerated.push(path.as_str());
+        } else {
             strays.push(path.clone());
         }
     }
+    (strays, regenerated)
+}
 
-    if strays.is_empty() {
-        println!(
-            "verify-change-ownership: {} path(s) all belong to {package} as assigned at {base}",
-            changed.len()
-        );
-        Ok(())
+/// The refusal, naming every stray and why a generated one was still refused.
+fn stray_paths(package: &str, base: &str, strays: &[String], derived: &[&str]) -> TaskError {
+    let alone: Vec<&str> = strays
+        .iter()
+        .map(String::as_str)
+        .filter(|path| derived.iter().any(|pattern| claim_matches(pattern, path)))
+        .collect();
+    let note = if alone.is_empty() {
+        String::new()
     } else {
-        Err(TaskError::Policy(format!(
-            "this change declares `{package}`, but {} path(s) are outside that assignment as it \
-             stood at {base}. Widening the assignment in this same change does not help — the \
-             catalogue is read from the base for exactly that reason. Either land the assignment \
-             change as a separate `Governance:` pull request, or move these edits to the package \
-             that owns them:\n  {}",
-            strays.len(),
-            strays.join("\n  ")
-        )))
-    }
+        format!(
+            "\n\n{} of these are generated files, and a generated file moving on its own is not \
+             regeneration — nothing in this change asks the generator for a different answer. \
+             Change the manifest the lockfile resolves, or let the package that owns the lockfile \
+             make the pin:\n  {}",
+            alone.len(),
+            alone.join("\n  ")
+        )
+    };
+    TaskError::Policy(format!(
+        "this change declares `{package}`, but {} path(s) are outside that assignment as it stood \
+         at {base}. Widening the assignment in this same change does not help — the catalogue is \
+         read from the base for exactly that reason. Either land the assignment change as a \
+         separate `Governance:` pull request, or move these edits to the package that owns \
+         them:\n  {}{note}",
+        strays.len(),
+        strays.join("\n  ")
+    ))
 }
 
 /// A `Governance:` change may edit the assignments themselves, and nothing else.
@@ -1684,6 +1773,85 @@ fn validate_claim_pattern(package: &str, pattern: &str) -> Result<(), TaskError>
         )));
     }
     Ok(())
+}
+
+/// A derived path is only understood if this tool knows how it is derived.
+///
+/// `Cargo.lock` is the one derivation defined today. Anything else is refused
+/// rather than exempted, because a `derived-paths` block is an *exemption* from
+/// the ownership check and an exemption nobody can verify is a hole with a
+/// comment beside it. Adding a second kind means writing its rule first.
+fn validate_derived_pattern(package: &str, pattern: &str) -> Result<(), TaskError> {
+    if Path::new(pattern).file_name().and_then(OsStr::to_str) == Some("Cargo.lock") {
+        return Ok(());
+    }
+    Err(TaskError::Policy(format!(
+        "{package}: `{pattern}` is declared derived, but no derivation is defined for it. A \
+         derived path is exempt from change ownership, so the exemption may only cover a path \
+         whose regeneration this tool can check. Today that is a Cargo lockfile"
+    )))
+}
+
+/// Whether a change plausibly *regenerated* a derived path rather than edited it.
+///
+/// A Cargo lockfile is a function of the manifests it resolves. Cargo already
+/// proves the two agree — `--locked` sits in the `xtask` alias, so a lock that
+/// does not match its manifests refuses before any gate runs. What that cannot
+/// see is a lockfile changed **on its own**: re-pinning a transitive dependency
+/// to a different version with a valid checksum still satisfies every manifest.
+///
+/// So the exemption is conditional. A change may carry a lockfile it does not
+/// own when it also changes a manifest, because then the lockfile churn is a
+/// consequence of work the change is entitled to do. A lockfile moving by
+/// itself is not regeneration, and belongs to the package that owns it.
+///
+/// The manifest must also be one this lockfile actually resolves. The first
+/// version of this rule accepted any `Cargo.toml` anywhere, and attacking it
+/// found the hole immediately: `fuzz/` is *excluded* from the root workspace and
+/// carries its own lockfile, so editing `fuzz/Cargo.toml` cannot change the root
+/// `Cargo.lock` — yet it would have unlocked it. A manifest is therefore matched
+/// to the nearest declared lockfile above it, longest directory prefix winning.
+///
+/// **What this does not establish:** a re-pin travelling *alongside* a genuine
+/// manifest change passes. Distinguishing the two needs the resolver's answer at
+/// both revisions, which means base's whole tree and a full resolution on every
+/// pull request. The residual risk is the same one the repository has always
+/// carried — nothing here makes it worse — and `cargo deny`, `cargo audit` and
+/// owner review are what stand against it. Recorded in
+/// `docs/quality/dependency-policy.md` rather than implied to be covered.
+fn derivation_is_plausible(derived: &str, changed: &[String], lockfiles: &[&str]) -> bool {
+    if !is_named(derived, "Cargo.lock") {
+        return false;
+    }
+    changed
+        .iter()
+        .filter(|path| is_named(path, "Cargo.toml"))
+        .any(|manifest| governing_lockfile(manifest, lockfiles) == Some(derived))
+}
+
+/// The lockfile nearest above `manifest`, longest prefix winning.
+///
+/// The candidates are the lockfiles that **exist**, not the ones declared
+/// derived. Reading them from the tree is what makes the nesting real: if
+/// `fuzz/Cargo.lock` were merely undeclared, matching `fuzz/Cargo.toml` against
+/// the root lock would reopen the hole this rule was tightened to close. An
+/// undeclared nested lockfile means a manifest under it can carry nothing.
+fn governing_lockfile<'a>(manifest: &str, lockfiles: &[&'a str]) -> Option<&'a str> {
+    lockfiles
+        .iter()
+        .filter(|lockfile| is_named(lockfile, "Cargo.lock"))
+        .filter(|lockfile| {
+            let directory = lockfile
+                .rsplit_once('/')
+                .map_or(String::new(), |(parent, _)| format!("{parent}/"));
+            manifest.starts_with(&directory)
+        })
+        .max_by_key(|lockfile| lockfile.len())
+        .copied()
+}
+
+fn is_named(path: &str, file: &str) -> bool {
+    Path::new(path).file_name().and_then(OsStr::to_str) == Some(file)
 }
 
 fn claim_matches(pattern: &str, file: &str) -> bool {
@@ -2107,8 +2275,9 @@ impl fmt::Display for TaskError {
 #[cfg(test)]
 mod tests {
     use super::{
-        Task, TaskError, claim_matches, is_pinned, parse, parse_test, repository_root, run_tier,
-        validate_claim_pattern, verify_action_pins, verify_change_ownership,
+        Task, TaskError, claim_matches, derivation_is_plausible, governing_lockfile, is_pinned,
+        parse, parse_test, repository_root, run_tier, validate_claim_pattern,
+        validate_derived_pattern, verify_action_pins, verify_change_ownership,
         verify_manifest_licenses, verify_path_ownership,
     };
     use std::ffi::OsString;
@@ -2877,9 +3046,10 @@ mod tests {
         // Assignments alone: accepted.
         repo.write(
             "docs/work-packages/WP-020.md",
-            "# WP-020\n\n```owned-paths\ndocs/work-packages/WP-020.md\ncrates/fixtures/**\n```\n",
+            "# WP-020\n\n```owned-paths\ndocs/work-packages/WP-020.md\ncrates/fixtures/**\n\
+             crates/tokens/**\n```\n",
         );
-        repo.commit("reassign a path\n\nGovernance: crates/fixtures moves to WP-020");
+        repo.commit("reassign a path\n\nGovernance: crates/tokens moves to WP-020");
         repo.check()
             .expect("a governance change may edit assignments");
 
@@ -2893,6 +3063,136 @@ mod tests {
         assert!(error.to_string().contains("tools/xtask/src/main.rs"));
     }
 
+    #[test]
+    fn a_generated_lockfile_is_regenerated_by_whoever_changes_a_manifest() {
+        // The deadlock this closes, measured against `02ec952`: a WP-030 change
+        // creating `apps/desktop/src-tauri` was refused for `Cargo.lock` and
+        // `Cargo.toml`; the same tree declaring WP-000 was refused for the crate
+        // it had to create. Neither package could take the first step, and the
+        // wall is not WP-030's -- every package that adds a dependency rewrites
+        // the lockfile, which only WP-000 claims.
+        let repo = GitFixture::new("derived");
+
+        // A manifest this package owns, and the lockfile that follows from it:
+        // accepted, because the lockfile is generated rather than authored.
+        repo.write("crates/fixtures/Cargo.toml", "# a dependency was added\n");
+        repo.write("Cargo.lock", "# regenerated\n");
+        repo.commit("add a dependency\n\nWork-Package: WP-020");
+        repo.check()
+            .expect("a lockfile that follows a manifest this package owns is regeneration");
+
+        // The lockfile alone: refused. Nothing in the change asks the resolver
+        // for a different answer, so this is a hand edit wearing regeneration's
+        // clothes -- a transitive dependency re-pinned to a different version
+        // still satisfies every manifest, so `--locked` would accept it.
+        let repo = GitFixture::new("derived-alone");
+        repo.write("Cargo.lock", "# re-pinned by hand\n");
+        repo.commit("quietly move a pin\n\nWork-Package: WP-020");
+        let error = repo
+            .check()
+            .expect_err("a lockfile moving on its own is not regeneration");
+        assert!(
+            error.to_string().contains("not regeneration"),
+            "the refusal must explain why a generated file was still refused: {error}"
+        );
+
+        // A manifest in a nested workspace does not unlock the root lockfile,
+        // because it cannot change it. The first version of this rule accepted
+        // any `Cargo.toml` anywhere and would have passed this.
+        let repo = GitFixture::new("derived-nested");
+        repo.write("nested/Cargo.toml", "# a fuzz dependency was added\n");
+        repo.write("Cargo.lock", "# and the root lock moved too\n");
+        repo.commit("edit the nested workspace\n\nWork-Package: WP-020");
+        let error = repo
+            .check()
+            .expect_err("a nested manifest cannot vouch for the root lockfile");
+        assert!(error.to_string().contains("Cargo.lock"));
+
+        // And the exemption is load-bearing: without the `derived-paths`
+        // declaration the accepted case above goes back to being refused. This
+        // is the deletion sweep -- a check that cannot fail is not a check.
+        let repo = GitFixture::new_without_derived_declaration("underived");
+        repo.write("crates/fixtures/Cargo.toml", "# a dependency was added\n");
+        repo.write("Cargo.lock", "# regenerated\n");
+        repo.commit("add a dependency\n\nWork-Package: WP-020");
+        let error = repo
+            .check()
+            .expect_err("undeclared, the lockfile is WP-000's alone");
+        assert!(error.to_string().contains("Cargo.lock"));
+    }
+
+    #[test]
+    fn declaring_a_path_generated_is_not_claiming_it() {
+        // `derived-paths` says how a file comes to be, not who answers for it.
+        // If it counted as coverage, "this is generated" would be a way to make
+        // a file belong to nobody while the inventory still read as complete.
+        let repo = GitFixture::new("inventory");
+        verify_path_ownership(&repo.root).expect("the base catalogue covers every tracked file");
+
+        repo.write(
+            "docs/work-packages/WP-000.md",
+            "# WP-000\n\n```owned-paths\ntools/xtask/**\nCargo.toml\n\
+             docs/work-packages/WP-000.md\n```\n\n```derived-paths\nCargo.lock\n```\n",
+        );
+        let error = verify_path_ownership(&repo.root)
+            .expect_err("a path only declared generated is claimed by nobody");
+        assert!(
+            error.to_string().contains("Cargo.lock"),
+            "the unclaimed path must be named: {error}"
+        );
+    }
+
+    #[test]
+    fn a_derived_path_needs_a_derivation_this_tool_can_check() {
+        // `derived-paths` is an exemption from the ownership check. An exemption
+        // covering a path whose regeneration nothing can verify is a hole with a
+        // comment beside it, so an unknown derivation is refused rather than
+        // trusted.
+        validate_derived_pattern("WP-test", "Cargo.lock").expect("the one defined derivation");
+        validate_derived_pattern("WP-test", "fuzz/Cargo.lock").expect("nested lockfiles too");
+        for unknown in [
+            "Cargo.toml",
+            "docs/traceability/WP-000.md",
+            "package-lock.json",
+        ] {
+            assert!(
+                validate_derived_pattern("WP-test", unknown).is_err(),
+                "{unknown:?} has no defined derivation and must be refused, not exempted"
+            );
+        }
+
+        // The plausibility rule itself: a manifest in the change, or nothing.
+        let lockfiles = ["Cargo.lock", "fuzz/Cargo.lock"];
+        let manifest = vec!["crates/fixtures/Cargo.toml".to_owned()];
+        assert!(derivation_is_plausible("Cargo.lock", &manifest, &lockfiles));
+        assert!(!derivation_is_plausible("Cargo.lock", &[], &lockfiles));
+        // A path merely *ending* in the right word is not a manifest.
+        let decoy = vec!["docs/quality/Cargo.toml.md".to_owned()];
+        assert!(!derivation_is_plausible("Cargo.lock", &decoy, &lockfiles));
+
+        // The hole found by attacking the first version of this rule: `fuzz/` is
+        // excluded from the root workspace and has its own lockfile, so editing
+        // its manifest cannot change the root lock and must not unlock it.
+        let fuzz = vec!["fuzz/Cargo.toml".to_owned()];
+        assert!(
+            !derivation_is_plausible("Cargo.lock", &fuzz, &lockfiles),
+            "a manifest in a nested workspace must not vouch for the root lockfile"
+        );
+        assert!(derivation_is_plausible(
+            "fuzz/Cargo.lock",
+            &fuzz,
+            &lockfiles
+        ));
+        assert_eq!(
+            governing_lockfile("fuzz/Cargo.toml", &lockfiles),
+            Some("fuzz/Cargo.lock"),
+            "the nearest lockfile above a manifest governs it, not the outermost"
+        );
+        // The candidates are the lockfiles that exist. A manifest with no
+        // lockfile above it at all vouches for nothing.
+        assert!(!derivation_is_plausible("Cargo.lock", &manifest, &[]));
+    }
+
     /// A throwaway git repository with a minimal ownership catalogue.
     ///
     /// Built rather than reusing this repository, so the tests neither depend on
@@ -2903,6 +3203,16 @@ mod tests {
 
     impl GitFixture {
         fn new(tag: &str) -> Self {
+            Self::build(tag, true)
+        }
+
+        /// The same catalogue with WP-000's `derived-paths` block removed, so a
+        /// test can watch the exemption stop working.
+        fn new_without_derived_declaration(tag: &str) -> Self {
+            Self::build(tag, false)
+        }
+
+        fn build(tag: &str, derived: bool) -> Self {
             use std::sync::atomic::{AtomicU64, Ordering};
             static NEXT: AtomicU64 = AtomicU64::new(0);
             let root = std::env::temp_dir().join(format!(
@@ -2920,16 +3230,34 @@ mod tests {
             ] {
                 super::git(&fixture.root, &args).expect("initialise the fixture repository");
             }
-            // The base revision's catalogue: WP-000 owns xtask and its own
-            // document, WP-020 owns its own.
+            // The base revision's catalogue: WP-000 owns xtask, the workspace
+            // files and its own document; WP-020 owns its own and the fixture
+            // crate. WP-000 also declares the lockfile generated, which is what
+            // lets another package's manifest change carry it.
+            let derived_block = if derived {
+                "\n```derived-paths\nCargo.lock\n```\n"
+            } else {
+                ""
+            };
             fixture.write(
                 "docs/work-packages/WP-000.md",
-                "# WP-000\n\n```owned-paths\ntools/xtask/**\ndocs/work-packages/WP-000.md\n```\n",
+                &format!(
+                    "# WP-000\n\n```owned-paths\ntools/xtask/**\nCargo.toml\nCargo.lock\n\
+                     docs/work-packages/WP-000.md\n```\n{derived_block}"
+                ),
             );
             fixture.write(
                 "docs/work-packages/WP-020.md",
-                "# WP-020\n\n```owned-paths\ndocs/work-packages/WP-020.md\n```\n",
+                "# WP-020\n\n```owned-paths\ndocs/work-packages/WP-020.md\ncrates/fixtures/**\n\
+                 nested/**\n```\n",
             );
+            fixture.write("Cargo.toml", "# base\n");
+            fixture.write("Cargo.lock", "# base\n");
+            fixture.write("crates/fixtures/Cargo.toml", "# base\n");
+            // A workspace excluded from the root one, with its own lockfile --
+            // `fuzz/` in the real repository.
+            fixture.write("nested/Cargo.toml", "# base\n");
+            fixture.write("nested/Cargo.lock", "# base\n");
             fixture.write("tools/xtask/src/main.rs", "// base\n");
             fixture.commit("base");
             super::git(&fixture.root, &["tag", "base"]).expect("tag the base revision");

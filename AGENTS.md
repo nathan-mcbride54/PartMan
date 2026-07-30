@@ -17,6 +17,13 @@ and product requirements are normative.
 - A change to the assignments themselves uses `Governance: <reason>` instead, and
   may then edit **only** `docs/work-packages/WP-*.md`. Land it as its own pull
   request before the work that needs the new paths.
+- **A lockfile is generated, so any package may carry it — alongside a manifest
+  it resolves.** `Cargo.lock` is declared in a `derived-paths` block; a change
+  that edits `crates/foo/Cargo.toml` may carry the lockfile churn that follows.
+  A lockfile moving *by itself* is refused for every package but its owner,
+  because nothing in such a change asks the resolver for a different answer. The
+  manifest is matched to the nearest lockfile above it, so `fuzz/Cargo.toml`
+  cannot vouch for the root lock.
 - Keep edits inside the owned paths listed in the work-package assignment. The
   path checker is file-granular, so a sub-file grant — "this package's own status
   rows in `README.md`" — is still a review obligation, not something the tool
