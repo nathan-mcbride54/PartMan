@@ -8,15 +8,29 @@ and product requirements are normative.
 - Work on one dependency-ready work package at a time.
 - Create a branch and pull request for each work package. Never push directly to
   the default branch.
-- **Put a `Work-Package: WP-0NN` trailer on every commit**, naming the
+- **Put a `Work-Package: WP-0NN` trailer on every commit you write**, naming the
   assignment the change belongs to. `cargo xtask verify-change-ownership --base
   origin/main` refuses a change whose paths fall outside that assignment, and CI
   runs it on every pull request. The assignment is read from the **base**
   revision, so widening your own `owned-paths` block in the same change does not
   help — that was the hole an audit found in the inventory-only check.
+- It must be a **real git trailer** — a `Key: value` line in the message's last
+  paragraph, which is what `git interpret-trailers --parse` recognises. Git's
+  parser is the one that answers, so a quoted example in the body does not
+  count and a lowercase key does. **Every non-merge commit needs its own**; one
+  trailered commit used to cover an untrailered one beside it. Merge commits are
+  exempt because neither `gh pr update-branch` nor GitHub's generated
+  `refs/pull/N/merge` can carry a trailer, and CI judges the latter.
 - A change to the assignments themselves uses `Governance: <reason>` instead, and
   may then edit **only** `docs/work-packages/WP-*.md`. Land it as its own pull
   request before the work that needs the new paths.
+- **A lockfile is generated, so any package may carry it — alongside a manifest
+  it resolves.** `Cargo.lock` is declared in a `derived-paths` block; a change
+  that edits `crates/foo/Cargo.toml` may carry the lockfile churn that follows.
+  A lockfile moving *by itself* is refused for every package but its owner,
+  because nothing in such a change asks the resolver for a different answer. The
+  manifest is matched to the nearest lockfile above it, so `fuzz/Cargo.toml`
+  cannot vouch for the root lock.
 - Keep edits inside the owned paths listed in the work-package assignment. The
   path checker is file-granular, so a sub-file grant — "this package's own status
   rows in `README.md`" — is still a review obligation, not something the tool
@@ -47,9 +61,17 @@ and product requirements are normative.
   in `docs/quality/dependency-policy.md`.
 - Pin every GitHub Action to a full commit SHA with the release tag in a
   trailing comment. `cargo xtask verify-actions` enforces this and runs inside
-  `cargo xtask ci`.
+  `cargo xtask ci`. It follows a Docker action into its Dockerfile, where
+  **every image the build pulls** must be digest-pinned — `FROM` bases, a
+  `# syntax=` BuildKit frontend, `COPY --from=`, and `RUN --mount=…,from=`. A
+  base built from a variable is refused rather than resolved.
 - Do not add `[build] rustflags` to `.cargo/config.toml`; it escapes the
   workspace. Lint levels belong in `[workspace.lints]`.
+- **Every new workspace member needs `[lints] workspace = true` in its
+  manifest.** Without it the crate inherits none of `[workspace.lints]`,
+  `unsafe_code = "deny"` included, and it compiles clean. `cargo xtask ci`
+  refuses a member that omits it. New crates also need a `//!` doc comment: CI
+  runs clippy with `-D warnings`, so `missing_docs` is an error there.
 - Never commit generated binary disk images, secrets, signing material, or raw
   diagnostic output.
 - Every behavior change needs automated evidence and requirement-ID

@@ -296,6 +296,172 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   name, and adding one without updating branch protection in the same change
   leaves every pull request waiting forever on a check that never reports.
 
+- **The Dockerfile half of `verify-actions` fails closed.** Structural YAML
+  parsing closed the workflow half and left this separate line scanner alone; a
+  project audit found three fail-open paths in it and an adversarial pass found
+  six more. All nine are permanent regressions, and each was confirmed against
+  the old scanner first — the gate exited successfully on every one of them.
+
+  Four needed no unusual syntax at all. **A tab after `FROM`** hid the
+  instruction completely, because the matcher was `strip_prefix("FROM ")` and
+  BuildKit splits on `[\t\v\f\r ]+` — the cheapest bypass in the file. **A UTF-8
+  BOM** on the first line hid it too, which is what a Windows editor produces by
+  accident. **`COPY --from=<image>`** and **`RUN --mount=…,from=<image>`** pull
+  images that never appear in any `FROM` and were never looked at. And
+  **`FROM alpine AS alpine`** shadowed itself, because the stage was registered
+  from the same line before the base was tested against it.
+
+  The audit's three: a `$`-prefixed base was skipped outright, so
+  `ARG BASE=alpine:3.20` + `FROM ${BASE}` passed while pulling a mutable tag —
+  it is refused now rather than resolved, because resolving would have to prove
+  no `--build-arg` overrides it; `FROM` matched case-sensitively though
+  Dockerfile instructions are not; and `# syntax=docker/dockerfile:1`, which
+  makes BuildKit fetch a frontend image and **run it as the builder**, was
+  discarded as a comment.
+
+  Two things are deliberately not violations, and are tested so they stay that
+  way: `FROM scratch` is not a pull, and `# check=`/`# escape=` name no image,
+  so only `syntax=` is treated as a dependency.
+
+- **`unsafe_code = "deny"` was opt-in.** `[workspace.lints]` reaches a crate only
+  if that crate's manifest says `[lints] workspace = true`, and nothing checked
+  that it did. Measured: a workspace member without the stanza, containing an
+  `unsafe fn`, produced **zero** diagnostics and `cargo xtask ci` stayed green.
+  A safety property resting on a line somebody has to remember is the shape this
+  repository rejects everywhere else. `cargo xtask ci` now asks `cargo metadata`
+  for the member list and reads each manifest's text — metadata resolves the
+  inheritance away, so by the time it reports a package, a crate that opted in
+  and one that did not look identical. Deleting `[lints]` from `crates/tokens`
+  now fails the gate by name.
+
+- `verify-change-ownership` enforces the rule it claimed to. A project audit and
+  an adversarial pass over the gate found five ways a change could travel without
+  belonging to anything, and all five are closed with regressions and a deletion
+  sweep each:
+
+  - **One trailered commit laundered every untrailered commit beside it.** The
+    trailers of a whole range were folded into one set, and the set had to hold
+    exactly one package — so a two-commit pull request passed with a trailer only
+    on the second. Each non-merge commit is now asked for its own.
+  - **The parse was a line scan, not a trailer parse.** Any line beginning with
+    the key after trimming counted, including a fenced example inside a commit
+    body, while a genuine lowercase `work-package:` trailer — which git accepts —
+    was refused. Git's own parser answers now, through `%(trailers:…)` in the
+    same `git log` call: no house dialect to keep in step with git's.
+  - **Merge commits are exempt deliberately, and that is now written down.** The
+    documents said "every commit", which could never have been enforced: `strict:
+    true` branch protection makes `gh pr update-branch` write untrailered merges,
+    CI judges GitHub's generated `refs/pull/N/merge`, and `main` carries 51 merge
+    commits of which none has a trailer. A literal rule would have failed every
+    pull request the day it landed. The prose was corrected rather than the code
+    tightened to match a sentence nobody could satisfy.
+  - **An empty `Governance:` reason was accepted** and printed as an empty
+    parenthesis — an audit record of nothing. And a commit declaring both modes
+    was silently judged as governance, so the work package beside it was never
+    checked against anything. Both are refusals.
+  - **A rename was judged only at its destination.** Detection is on by default
+    and `--name-only` prints only where a file landed, so `git mv` carried a file
+    out of another package's territory unseen — and a `Governance:` change could
+    delete *any* file in the repository by renaming it to a
+    `docs/work-packages/WP-*.md` name, because every path the check could see was
+    then an assignment document. `--no-renames` makes the source a deletion.
+
+  Two more defects lived in that same expression. `-z`, because `--name-only`
+  C-quotes a non-ASCII path, so `crates/tokens/src/café.rs` inside owned
+  territory was refused as a stray — a gate rejecting work it should permit costs
+  trust as fast as a bypass does. And no `trim`, because git does not quote a
+  leading space, so ` crates/tokens/src/lib.rs` was silently normalised onto the
+  owned path. A path is a byte string.
+
+- The inventory and the change gate **agree about a reservation**, which they did
+  not, and the disagreement deadlocked WP-030. A package may write inside its own
+  `owned-paths-reserved` block — `verify-change-ownership` always allowed it — but
+  `verify-ownership` did not count a matching reservation as coverage, so the
+  first commit to create those files passed the change gate and then failed
+  `cargo xtask ci` with "claimed by no work package" about a path the package had
+  claimed in advance, in the document, precisely so this could not happen. The
+  promotion that would have resolved it has no route that is both green and
+  permitted: a governance change moving the paths early leaves `main` red on a
+  stale claim, and moving them alongside the files is an assignment edit under a
+  `Work-Package:` trailer, which `AGENTS.md` forbids. A reservation counts once
+  it matches something; one that matches nothing is still reported, not counted.
+
+- `verify-change-ownership` understands a **generated** file, which it had to
+  before any package could add a crate. The gate as first landed made the next
+  scheduled piece of work impossible, and not only that piece: `Cargo.lock` is
+  claimed by WP-000 alone, and every package that adds a crate or a dependency
+  rewrites it.
+
+  Measured against `02ec952` rather than reasoned about. A minimal
+  `apps/desktop/src-tauri` plus its workspace member line, committed as
+  `Work-Package: WP-030`, was refused for `Cargo.lock` and `Cargo.toml`; the
+  identical tree committed as `Work-Package: WP-000` was refused for the crate it
+  would have had to create, because `apps/desktop/**` is WP-030's reservation.
+  Neither package could take the first step. Landing the member line *before* the
+  crate is not a way out either — Cargo fails to load a workspace whose member
+  has no manifest, and a glob does not help: `apps/*/src-tauri` matching nothing
+  falls back to the literal path and fails the same way, so `cargo xtask ci`
+  would have been red for everyone in between.
+
+  A `derived-paths` block declares a path generated rather than authored. Any
+  package may then carry it — **but only alongside a manifest that lockfile
+  actually resolves.** A lockfile moving on its own is refused with its own
+  explanation, because nothing in such a change asks the resolver for a different
+  answer, and a transitive dependency quietly re-pinned to a different version
+  with a valid checksum satisfies `--locked` perfectly well.
+
+  **The predicate took three attempts, and the first two were lexical.** The
+  first accepted any `Cargo.toml` anywhere: `fuzz/` is excluded from the
+  workspace, so editing `fuzz/Cargo.toml` cannot change the root `Cargo.lock` —
+  yet it unlocked it. The second matched a manifest to the nearest lockfile above
+  it, which an adversarial pass broke twice over: a file merely *named*
+  `Cargo.toml` — a note, a fixture, a symlink — anywhere a package already owned
+  was accepted as a manifest, and deleting `fuzz/Cargo.lock` in one pull request
+  let `fuzz/Cargo.toml` vouch for the root lock in the next while `fuzz` stayed
+  excluded.
+
+  A fourth lexical predicate standing in for a semantic fact was not worth
+  writing. `cargo metadata` is asked which manifests belong to the workspace that
+  lockfile locks, so membership is answered by the tool that defines it, and the
+  virtual root manifest is included explicitly because adding a member to it is
+  the most legitimate reason of all for the lockfile to move. Both earlier holes
+  are permanent regressions.
+
+  **The three-OS gate earned its keep on the first run.** The membership lookup
+  relativized `cargo metadata`'s absolute manifest paths with
+  `if let Ok(relative) = path.strip_prefix(root)`, silently discarding anything
+  that did not strip. On macOS nothing did: `std::env::temp_dir()` is
+  `/var/folders/…`, `/var` is a symlink to `/private/var`, and cargo answers with
+  the resolved path. The set shrank to the workspace root alone and a legitimate
+  change was refused — with a message helpfully listing the manifests that would
+  have worked, none of which was the one the author had just edited. Linux and
+  Windows were green. Both spellings of the root are tried now, and a path that
+  matches neither is a refusal rather than a quiet omission.
+
+  A document may also only declare a path generated if it **owns** that path.
+  Generatedness is a property of the file rather than a privilege of one
+  assignment, and that argument stands — but a document asserting it about a file
+  it does not answer for was a unilateral grant to every package, made in a
+  change that edits nothing but assignment documents.
+
+  Declaring a path generated is not claiming it: the inventory check still
+  requires an `owned-paths` claim, or "this is generated" would be a way to make
+  a file belong to nobody while the inventory read as complete. And a derived
+  path whose derivation this tool cannot check is refused rather than exempted —
+  an exemption nobody can verify is a hole with a comment beside it.
+
+  Four deletion sweeps confirm every part is load-bearing: dropping the manifest
+  requirement, accepting any manifest anywhere, accepting any derived pattern,
+  and letting a derived declaration count as inventory coverage each fail a
+  named test.
+
+  **What it does not establish:** a re-pin travelling alongside a genuine
+  manifest change passes. Telling the two apart needs the resolver's answer at
+  both revisions — the base tree and a full resolution on every pull request.
+  That residual risk is the one the repository has always carried; this does not
+  widen it, and it is recorded in `docs/quality/dependency-policy.md` rather than
+  implied to be covered.
+
 - WP-020 increment 2c: containment now starts from a held directory object, on
   Unix. Increment 2b bound every check to the target's handle and still opened
   that handle by absolute pathname, and `O_NOFOLLOW` constrains only the final
@@ -307,8 +473,19 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
   `Authorization` holds the fixture directory open and targets are opened
   relative to that handle by catalogue basename, via `rustix::fs::openat` with
-  `NOFOLLOW`. There are no intermediate components left to redirect, and the
-  directory handle outlives the target handles because one value owns both.
+  `NOFOLLOW`. There are no intermediate components left to redirect.
+
+  *Corrected 2026-07-30: this entry also said the directory handle "outlives the
+  target handles because one value owns both". It does not —
+  `Authorization::into_targets(self)` moves the targets out and drops the root
+  field before the caller uses them. The implementation is unaffected, because
+  containment is established at `openat` time and is a property of the returned
+  descriptor rather than something the directory handle maintains afterwards; the
+  root is worth holding for a different reason, that it denies a consumer a root
+  path to reopen by name. The false rationale is corrected here; the same
+  sentence in `docs/work-packages/WP-020.md` and the comment in
+  `crates/fixtures/src/interlock.rs` are WP-020's to correct, and are recorded in
+  the progress notes rather than edited from this package.*
   `rustix` is a safe wrapper, so no `unsafe` appears in this crate and SAFE-009
   needs no exception — the adapter crate F-03 contemplated is not required for
   the Unix half. The regression stages the audit's exact attack through the
@@ -353,7 +530,9 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   reopened precondition — the most dangerous kind of documentation drift this
   project can have. The table now carries increment 2c (not started, precondition
   1 reopened) and states that Tier 2 stays unavailable per platform until it
-  lands. The token's "proves the operator ran the generator" wording is corrected
+  lands. *Superseded 2026-07-30: 2c has since landed and closed precondition 1 on
+  Unix; Windows is still open.* The token's "proves the operator ran the
+  generator" wording is corrected
   in all three places it survived, and precondition 3 no longer cites SI-36 as a
   live blocker.
 
@@ -396,7 +575,12 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   git SHA on a Docker image. The test now asserts the container-specific
   guidance the branch exists to produce.
 
-- **WP-020 precondition 1 is reopened.** `O_NOFOLLOW` constrains only the final
+- **WP-020 precondition 1 is reopened.** *Superseded 2026-07-30 by increment 2c,
+  which closed this form of the attack on Unix by opening a direct child relative
+  to a held root-directory object. The Windows residual stands, and Tier 2 stays
+  unavailable on every platform because no destructive suite exists. The entry is
+  kept rather than deleted: the reasoning below is why 2c had to exist.*
+  `O_NOFOLLOW` constrains only the final
   path component, which `open(2)` documents plainly and increment 2b overlooked.
   Renaming the fixture root aside and putting a symlink in its place redirects
   the open to an out-of-root file, and matching length, digest, type and link

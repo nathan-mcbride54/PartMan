@@ -69,7 +69,7 @@ reports status only and never redefines either.
 | CI green on Windows, macOS, and Linux | Met |
 | `xtask` single entry point works locally and in CI | Met |
 | Schemas versioned, with cross-language hash golden tests (MODEL-005) | Partial — the golden tests exist and gate CI; MODEL-003 schema versioning is not implemented |
-| CODEOWNERS enforces ownership | Partial — CODEOWNERS requires owner review, but does not reject a diff touching paths outside a work package's assignment |
+| CODEOWNERS enforces ownership | Partial — `cargo xtask verify-change-ownership` now rejects a diff touching paths outside the assignment its commits declare, judged against the base revision. CODEOWNERS itself still only requires an owner's review, and sub-file grants ("this package's own status rows") stay a review obligation no path checker can express |
 | T1 fixture generator produces images | Met — `cargo xtask fixtures` produces 13 images deterministically (WP-020 increment 1) |
 | Accessibility harness runs | Partial — `cargo xtask tokens` computes UI-001/007/008 from `schemas/design-tokens.json` and gates CI (WP-030 increment 1). It renders nothing, so the keyboard, screen-reader, zoom and reduced-motion halves of UI-008 are untouched |
 
@@ -91,11 +91,11 @@ Section 14 of the specification is normative. Current state:
 
 | Package | Scope | Status |
 | --- | --- | --- |
-| WP-000 | Repository, CI, `xtask`, CODEOWNERS, dependency policy | In progress. Lock boundary, licence, fuzz-graph and ownership-inventory gates delivered; action discovery is now a structural YAML parse after three text-based attempts were each defeated. Still open: generated traceability, and enforcing ownership against a change rather than inventorying the tree |
+| WP-000 | Repository, CI, `xtask`, CODEOWNERS, dependency policy | In progress. Lock boundary, licence, fuzz-graph and ownership-inventory gates delivered; action discovery is now a structural YAML parse after three text-based attempts were each defeated, and the Dockerfile scanner behind it fails closed after nine further bypasses were found and made regressions. Ownership is enforced against a change, not only inventoried, and a generated lockfile may travel with the manifest it follows. `unsafe_code = "deny"` is no longer opt-in per crate. Still open: generated traceability |
 | ADR-C1 | Canonical encoding and hash strategy | Accepted |
 | ADR-C2 … ADR-C5 | Hashed-artifact body/envelope split, identity strength, provenance shape, aggregation vocabulary | Accepted |
 | WP-010 | Canonical domain model, schema versioning, encoding and hashing | In progress, blocked at increment 3; see `docs/work-packages/WP-010.md` |
-| WP-020 | Disk-image fixture generator and destructive-test interlocks | In progress — increments 1–1f, 2a and 2b delivered. **Precondition 1 is reopened**: no-follow binds only the final path component, so a swapped fixture-root directory can still redirect the open. Tier 2 must stay unavailable; see `docs/work-packages/WP-020.md` |
+| WP-020 | Disk-image fixture generator and destructive-test interlocks | In progress — increments 1–1f and 2a–2c delivered. Precondition 1 is closed **on Unix only**: 2c opens a direct child relative to a held root directory object, so the intermediate-component swap is refused there. **Windows remains open** — it still opens a saved pathname and has no other-name refusal (issue #51). Tier 2 stays unavailable on every platform regardless, because no destructive suite exists; see `docs/work-packages/WP-020.md` |
 | WP-030 | Design tokens, dark UI shell, accessibility harness | In progress — increments 1, 1a and 1b delivered (tokens and the static accessibility harness). No shell exists, so UI-002 is unimplemented and the rendered half of UI-008 is untested; increment 2 needs an integration assignment first |
 
 WP-020 and WP-030 depend only on WP-000 and could begin in parallel. WP-040 is
