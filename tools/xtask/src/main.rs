@@ -26,6 +26,25 @@ const FUZZ_TOOLCHAIN: &str = "nightly-2026-07-01";
 /// Section 11.4 requires short smoke runs to gate every pull request touching a
 /// parser; long runs are scheduled separately.
 const FUZZ_SMOKE_SECONDS: u32 = 60;
+/// Maximum input size handed to a fuzz target.
+///
+/// libFuzzer currently guesses this value when no corpus exists. Pinning the
+/// answer keeps a toolchain update or restored corpus from silently changing
+/// the resource contract.
+const FUZZ_MAX_INPUT_BYTES: u32 = 4_096;
+/// Maximum allocation permitted in one call from a fuzz input.
+///
+/// This remains deliberately far below the process ceiling. Raising the RSS
+/// allowance for `AddressSanitizer`'s long-running high-water mark must not turn
+/// an input-specific allocation explosion into an accepted result.
+const FUZZ_MALLOC_LIMIT_MB: u32 = 256;
+/// Maximum aggregate resident set for the in-process fuzzer.
+///
+/// The first 15-minute `roundtrip_value` maintenance run reached libFuzzer's
+/// 2 GiB default after 1.9 million cases despite only about 26 MiB of live heap.
+/// Four GiB leaves headroom for sanitizer bookkeeping while remaining far below
+/// the hosted runner's capacity and preserving a finite failure boundary.
+const FUZZ_RSS_LIMIT_MB: u32 = 4_096;
 
 fn main() -> ExitCode {
     let args = env::args_os().skip(1).collect::<Vec<_>>();
@@ -689,6 +708,17 @@ fn npm(directory: &Path, args: &[&str]) -> Result<(), TaskError> {
 /// Every fuzz target in `fuzz/fuzz_targets`, in the order they are run.
 const FUZZ_TARGETS: [&str; 2] = ["decode_is_canonical", "roundtrip_value"];
 
+/// `LibFuzzer`'s bounded execution contract, shared by smoke and long runs.
+fn fuzz_engine_args(seconds: u32) -> [String; 5] {
+    [
+        format!("-max_total_time={seconds}"),
+        "-timeout=25".to_owned(),
+        format!("-max_len={FUZZ_MAX_INPUT_BYTES}"),
+        format!("-malloc_limit_mb={FUZZ_MALLOC_LIMIT_MB}"),
+        format!("-rss_limit_mb={FUZZ_RSS_LIMIT_MB}"),
+    ]
+}
+
 /// Run a bounded smoke fuzz over every target (Section 11.4).
 ///
 /// This needs the pinned nightly toolchain, so it is not part of
@@ -710,19 +740,9 @@ fn fuzz(seconds: u32) -> Result<(), TaskError> {
     for target in FUZZ_TARGETS {
         println!("fuzz: {target} for {seconds}s");
         let toolchain = format!("+{FUZZ_TOOLCHAIN}");
-        let max_time = format!("-max_total_time={seconds}");
         let status = Command::new("cargo")
-            .args([
-                &toolchain,
-                "fuzz",
-                "run",
-                target,
-                "--",
-                &max_time,
-                // Bound a single input so a pathological case is a reported
-                // timeout rather than a hung job.
-                "-timeout=25",
-            ])
+            .args([&toolchain, "fuzz", "run", target, "--"])
+            .args(fuzz_engine_args(seconds))
             .current_dir(repository_root())
             .status()
             .map_err(|source| TaskError::Launch {
@@ -4675,6 +4695,25 @@ Mention Section 1.99 in prose.
             let error = run_tier(tier, None).expect_err("a destructive tier must never run here");
             assert!(matches!(error, TaskError::Safety(_)));
         }
+    }
+
+    // Requirements: Section 11.4
+    //   Every fuzz run has explicit input, time, single-allocation, and aggregate-memory bounds; accommodating sanitizer high-water memory cannot silently weaken the per-input allocation guard
+    // Work-Package: WP-000
+    // Evidence: fuzz_resource_limits_preserve_a_stricter_per_input_guard
+    #[test]
+    fn fuzz_resource_limits_preserve_a_stricter_per_input_guard() {
+        assert_eq!(
+            super::fuzz_engine_args(900),
+            [
+                "-max_total_time=900",
+                "-timeout=25",
+                "-max_len=4096",
+                "-malloc_limit_mb=256",
+                "-rss_limit_mb=4096",
+            ]
+            .map(str::to_owned)
+        );
     }
 
     #[test]
