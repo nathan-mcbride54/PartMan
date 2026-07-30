@@ -280,6 +280,109 @@ fn the_handle_handed_over_starts_at_offset_zero() {
     let _ = file.seek(SeekFrom::Start(0));
 }
 
+#[cfg(unix)]
+#[test]
+fn swapping_the_fixture_root_directory_before_open_cannot_redirect_the_write() {
+    // The 2026-07-29 second follow-up audit's F-02, scheduled through the same
+    // seam as the basename swap. `O_NOFOLLOW` constrains only the *final* path
+    // component — `open(2)` says intermediate components are still resolved
+    // through symlinks — so increment 2b closed one form of this race and left
+    // the more general one open.
+    //
+    // The attack: let every path check pass, then rename the fixture root aside
+    // and leave a symlink at its name pointing to an outside directory holding
+    // a file with the fixture's exact bytes. Under 2b the open followed that
+    // intermediate link and authorized a handle outside the tree, because
+    // length, digest, type and link count all matched.
+    //
+    // Under 2c the open resolves from a directory *handle* taken before the
+    // swap, so the rename cannot reach it: the held object is still the real
+    // fixture directory whatever its name now points at.
+    let sandbox = Sandbox::new("root-swap");
+    let target = sandbox.target("blank-512.img");
+    let bytes = fs::read(&target).expect("read the fixture");
+
+    let decoy_root = std::env::temp_dir().join(format!(
+        "partman-decoy-root-{}-{}",
+        std::process::id(),
+        crate::test_support::next_sandbox_id()
+    ));
+    fs::create_dir_all(&decoy_root).expect("create the decoy directory");
+    fs::write(decoy_root.join("blank-512.img"), &bytes)
+        .expect("an identical file inside the decoy");
+
+    let sandbox_root = sandbox.root.clone();
+    let sandbox_root_moved = sandbox.root.with_extension("moved-aside");
+    let real_root = sandbox_root.clone();
+    let moved_root = sandbox_root_moved.clone();
+    let decoy = decoy_root.clone();
+    let authorization = with_before_open(
+        move |_resolved| {
+            // Runs after canonicalization and the containment checks, before
+            // the child is opened — exactly the window `open(2)` leaves for an
+            // intermediate component.
+            if real_root.is_dir() {
+                let _ = fs::rename(&real_root, &moved_root);
+                let _ = std::os::unix::fs::symlink(&decoy, &real_root);
+            }
+        },
+        || sandbox.authorize(&sandbox.request(vec![target.clone()])),
+    );
+
+    // Content cannot distinguish the two files — that is the whole point of the
+    // attack, and why a "did it refuse?" assertion would prove nothing. Object
+    // identity can. The authorized handle must be the inode inside the *real*
+    // fixture directory, never the decoy's.
+    use std::os::unix::fs::MetadataExt as _;
+    let decoy_ino = fs::metadata(decoy_root.join("blank-512.img"))
+        .expect("stat the decoy")
+        .ino();
+    let real_ino = fs::metadata(sandbox_root_moved.join("blank-512.img"))
+        .expect("stat the real fixture at its moved-aside name")
+        .ino();
+    assert_ne!(
+        decoy_ino, real_ino,
+        "sanity: the decoy and the real fixture must be different objects"
+    );
+
+    // Prove the race was actually staged: the fixture root's *name* now leads
+    // to the decoy. If this fails the test is not exercising anything.
+    let via_name = fs::canonicalize(sandbox_root.join("blank-512.img"))
+        .expect("the swapped name must still resolve");
+    assert_eq!(
+        fs::metadata(&via_name)
+            .expect("stat via the swapped name")
+            .ino(),
+        decoy_ino,
+        "the fixture root's name must now lead to the decoy, or the swap did not happen"
+    );
+
+    let authorized_ino = authorization.map(|authorization| {
+        let mut targets = authorization.into_targets();
+        let file = targets.pop().expect("one verified target").into_file();
+        file.metadata().expect("fstat the authorized handle").ino()
+    });
+
+    // The sandbox's own cleanup cannot reach the tree any more: its recorded
+    // root is now a symlink and the real directory lives under another name.
+    let _ = fs::remove_file(&sandbox_root);
+    let _ = fs::remove_dir_all(&sandbox_root_moved);
+    let _ = fs::remove_dir_all(&decoy_root);
+
+    match authorized_ino {
+        // Refusing outright is safe.
+        Err(_) => {}
+        // Succeeding is safe only if the handle is the real fixture. Under the
+        // increment-2b code this assertion is what fails: the open followed the
+        // intermediate symlink and the handle was the decoy's inode.
+        Ok(ino) => assert_eq!(
+            ino, real_ino,
+            "the authorized handle must be the object inside the real fixture directory, not \
+             the decoy the root's name now points at"
+        ),
+    }
+}
+
 #[test]
 fn object_verification_alone_cannot_prove_root_membership() {
     // The 2026-07-29 follow-up audit's finding 2, established directly rather
