@@ -1,0 +1,75 @@
+name: Maintenance
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: maintenance-${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  long-fuzz:
+    name: Long fuzz (Section 11.4)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Each cache key is immutable. The prefix restores the newest earlier
+      # corpus, and this run writes a new key after expanding it.
+      - name: Restore the accumulated fuzz corpus
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: fuzz/corpus/
+          key: fuzz-corpus-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            fuzz-corpus-${{ runner.os }}-
+      # Must match FUZZ_TOOLCHAIN in tools/xtask.
+      - name: Install the pinned fuzzing toolchain
+        run: rustup toolchain install nightly-2026-07-01 --profile minimal
+      - name: Install pinned cargo-fuzz
+        run: cargo install cargo-fuzz --version 0.13.2 --locked
+      # `xtask fuzz` applies the limit to each target. Two targets therefore
+      # receive 30 minutes in total, rather than the two-minute PR smoke pass.
+      - name: Fuzz every current parser target
+        run: cargo xtask fuzz --seconds 900
+      - name: Upload crash reproducers
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: scheduled-fuzz-artifacts
+          path: fuzz/artifacts/
+          if-no-files-found: ignore
+
+  supply-chain:
+    name: Scheduled supply-chain policy / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - windows-2025
+          - macos-15
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned policy tools
+        run: |
+          cargo install cargo-deny --version 0.19.4 --locked
+          cargo install cargo-audit --version 0.22.2 --locked
+      - name: Enforce advisory, license, and source policy
+        run: cargo xtask supply-chain

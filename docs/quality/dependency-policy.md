@@ -69,6 +69,11 @@ by digest. Runner image provenance is recorded by GitHub in each job.
   comment for auditability.
 - Dependency updates arrive through pull requests and run the full Tier-1 and
   supply-chain gates.
+- The `Maintenance` workflow re-runs `cargo xtask supply-chain` every Monday at
+  06:00 UTC on Windows, Linux, and macOS. This catches a newly published
+  advisory or upstream yank even when neither lockfile changed. The scheduled
+  workflow is separate from `CI`; all existing per-pull-request jobs and their
+  branch-protection names remain unchanged.
 - A future release pipeline must publish an SBOM and dependency/license
   inventory under SEC-005.
 - Never link a GPL library. ADR-0006 makes this binding: `libparted`

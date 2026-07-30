@@ -4075,10 +4075,12 @@ mod tests {
         verify_change_ownership, verify_manifest_licenses, verify_path_ownership,
         verify_workspace_lints, workspace_manifests,
     };
+    use std::collections::BTreeSet;
     use std::ffi::{OsStr, OsString};
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::process::Command;
+    use yaml_rust2::{Yaml, YamlLoader};
 
     fn args(values: &[&str]) -> Vec<OsString> {
         values.iter().map(OsString::from).collect()
@@ -5129,6 +5131,210 @@ Mention Section 1.99 in prose.
             Some((".github/loop/action.yml", metadata)),
         )
         .expect("a self-referential local action is not a violation, only a cycle to survive");
+    }
+
+    fn yaml_field<'a>(node: &'a Yaml, key: &str) -> &'a Yaml {
+        node.as_hash()
+            .and_then(|map| map.get(&Yaml::String(key.to_owned())))
+            .unwrap_or_else(|| panic!("workflow field {key:?} must exist"))
+    }
+
+    fn workflow_document(name: &str) -> Yaml {
+        let workflow_path = repository_root().join(".github/workflows").join(name);
+        let text = fs::read_to_string(&workflow_path).expect("read workflow");
+        let mut documents = YamlLoader::load_from_str(&text).expect("workflow is YAML");
+        assert_eq!(
+            documents.len(),
+            1,
+            "{name} must contain exactly one YAML document"
+        );
+        documents.remove(0)
+    }
+
+    fn workflow_os_matrix<'a>(job: &'a Yaml, description: &str) -> BTreeSet<&'a str> {
+        yaml_field(yaml_field(yaml_field(job, "strategy"), "matrix"), "os")
+            .as_vec()
+            .unwrap_or_else(|| panic!("{description} OS matrix must be a sequence"))
+            .iter()
+            .map(|os| os.as_str().expect("runner labels must be strings"))
+            .collect()
+    }
+
+    fn assert_pull_request_gates_remain_complete() {
+        let workflow = workflow_document("ci.yml");
+        let triggers = yaml_field(&workflow, "on")
+            .as_hash()
+            .expect("CI `on` must be a mapping");
+        assert!(
+            triggers.contains_key(&Yaml::String("pull_request".to_owned())),
+            "CI must continue to gate pull requests"
+        );
+
+        let jobs = yaml_field(&workflow, "jobs");
+        let job_map = jobs.as_hash().expect("CI jobs must be a mapping");
+        let job_ids: BTreeSet<&str> = job_map
+            .keys()
+            .map(|key| key.as_str().expect("CI job IDs must be strings"))
+            .collect();
+        assert_eq!(
+            job_ids,
+            [
+                "cross-language",
+                "fuzz-smoke",
+                "prober-acceptance",
+                "supply-chain",
+                "tier-1",
+            ]
+            .into_iter()
+            .collect(),
+            "scheduled maintenance must not replace or remove a pull-request gate"
+        );
+
+        let every_os: BTreeSet<&str> = ["macos-15", "ubuntu-24.04", "windows-2025"]
+            .into_iter()
+            .collect();
+        for (job_id, display_name) in [
+            ("tier-1", "Tier 1 / ${{ matrix.os }}"),
+            (
+                "cross-language",
+                "Cross-language hash parity / ${{ matrix.os }}",
+            ),
+            ("supply-chain", "Supply-chain policy / ${{ matrix.os }}"),
+        ] {
+            let job = yaml_field(jobs, job_id);
+            assert_eq!(
+                yaml_field(job, "name").as_str(),
+                Some(display_name),
+                "branch protection depends on the {job_id} display name"
+            );
+            assert_eq!(
+                workflow_os_matrix(job, job_id),
+                every_os,
+                "{job_id} must continue to cover all three operating systems"
+            );
+        }
+        for (job_id, display_name) in [
+            ("prober-acceptance", "Real-prober acceptance (FS-004)"),
+            ("fuzz-smoke", "Fuzz smoke (Section 11.4)"),
+        ] {
+            let job = yaml_field(jobs, job_id);
+            assert_eq!(yaml_field(job, "name").as_str(), Some(display_name));
+            assert_eq!(yaml_field(job, "runs-on").as_str(), Some("ubuntu-24.04"));
+        }
+    }
+
+    fn assert_maintenance_triggers(workflow: &Yaml) {
+        let triggers = yaml_field(workflow, "on");
+        let trigger_map = triggers.as_hash().expect("`on` must be a mapping");
+        assert!(
+            trigger_map.contains_key(&Yaml::String("workflow_dispatch".to_owned())),
+            "maintenance must remain manually runnable"
+        );
+        let crons: Vec<&str> = yaml_field(triggers, "schedule")
+            .as_vec()
+            .expect("`on.schedule` must be a sequence")
+            .iter()
+            .map(|entry| {
+                yaml_field(entry, "cron")
+                    .as_str()
+                    .expect("each schedule needs a cron string")
+            })
+            .collect();
+        assert_eq!(
+            crons,
+            ["0 6 * * 1"],
+            "maintenance must run every Monday at 06:00 UTC"
+        );
+    }
+
+    fn assert_long_fuzz_job(job: &Yaml) {
+        assert_eq!(
+            yaml_field(job, "runs-on").as_str(),
+            Some("ubuntu-24.04"),
+            "cargo-fuzz's supported CI platform is Linux"
+        );
+        assert!(
+            yaml_field(job, "timeout-minutes")
+                .as_i64()
+                .is_some_and(|minutes| minutes >= 45),
+            "the timeout must cover two 15-minute targets plus setup"
+        );
+
+        let steps = yaml_field(job, "steps")
+            .as_vec()
+            .expect("long-fuzz steps must be a sequence");
+        let cache_step = steps
+            .iter()
+            .find(|step| {
+                step.as_hash()
+                    .and_then(|map| map.get(&Yaml::String("uses".to_owned())))
+                    .and_then(Yaml::as_str)
+                    .is_some_and(|uses| uses.starts_with("actions/cache@"))
+            })
+            .expect("the long run must restore and save its corpus");
+        let cache_inputs = yaml_field(cache_step, "with");
+        assert_eq!(
+            yaml_field(cache_inputs, "path").as_str(),
+            Some("fuzz/corpus/"),
+            "the cache must contain cargo-fuzz's per-target corpora"
+        );
+        assert!(
+            yaml_field(cache_inputs, "key")
+                .as_str()
+                .is_some_and(|key| key.contains("${{ github.run_id }}")),
+            "each successful run needs a new immutable cache key"
+        );
+        assert_eq!(
+            yaml_field(cache_inputs, "restore-keys").as_str(),
+            Some("fuzz-corpus-${{ runner.os }}-\n"),
+            "a run must restore the latest earlier corpus"
+        );
+        assert!(
+            steps.iter().any(|step| {
+                step.as_hash()
+                    .and_then(|map| map.get(&Yaml::String("run".to_owned())))
+                    .and_then(Yaml::as_str)
+                    == Some("cargo xtask fuzz --seconds 900")
+            }),
+            "the scheduled run must give each target 15 minutes"
+        );
+    }
+
+    fn assert_scheduled_supply_chain_job(job: &Yaml) {
+        assert_eq!(
+            workflow_os_matrix(job, "scheduled supply-chain"),
+            ["macos-15", "ubuntu-24.04", "windows-2025"]
+                .into_iter()
+                .collect(),
+            "scheduled advisory checks must cover every supported operating system"
+        );
+        assert!(
+            yaml_field(job, "steps")
+                .as_vec()
+                .expect("supply-chain steps must be a sequence")
+                .iter()
+                .any(|step| {
+                    step.as_hash()
+                        .and_then(|map| map.get(&Yaml::String("run".to_owned())))
+                        .and_then(Yaml::as_str)
+                        == Some("cargo xtask supply-chain")
+                }),
+            "the scheduled matrix must run the real repository policy command"
+        );
+    }
+
+    // Requirements: Section 11.4, SEC-010
+    //   weekly and manually triggered maintenance retains a growing fuzz corpus, gives every parser target substantially longer than the pull-request smoke pass, and rechecks both dependency graphs on every supported operating system without changing pull-request jobs
+    // Work-Package: WP-000
+    // Evidence: scheduled_maintenance_retains_long_fuzz_corpora_and_audits_every_os
+    #[test]
+    fn scheduled_maintenance_retains_long_fuzz_corpora_and_audits_every_os() {
+        assert_pull_request_gates_remain_complete();
+        let workflow = workflow_document("maintenance.yml");
+        assert_maintenance_triggers(&workflow);
+        let jobs = yaml_field(&workflow, "jobs");
+        assert_long_fuzz_job(yaml_field(jobs, "long-fuzz"));
+        assert_scheduled_supply_chain_job(yaml_field(jobs, "supply-chain"));
     }
 
     // Requirements: SEC-010

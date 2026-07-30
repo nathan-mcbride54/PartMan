@@ -7,6 +7,13 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- WP-000 scheduled maintenance: every Monday and on manual request, dependency
+  policy is re-evaluated on Windows, Linux, and macOS even when the repository
+  has not changed, while both current fuzz targets receive 15 minutes each and
+  carry a GitHub-hosted corpus forward from earlier successful runs. The
+  pull-request workflow and all eleven branch-protection check names remain
+  intact; a structural test holds the schedule, corpus key, duration, OS
+  matrix, and existing gate roster to those claims.
 - WP-010 increment 1: the `pce/1` canonical encoding. `schemas/canonical-encoding.md`
   specifies it normatively, and `crates/domain` implements the encoder, a strict
   validating decoder, and SHA-256 hashing over canonical bytes (MODEL-005).
