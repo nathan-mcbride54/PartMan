@@ -13,6 +13,14 @@ allow = [
   "BSD-3-Clause",
   "CC0-1.0",
   "ISC",
+  # Also the arm by which `Unlicense OR MIT` is admitted. `winapi-util`, the
+  # safe `GetFileInformationByHandle` wrapper the SAFE-007 interlock reads its
+  # link count through, carries that expression; cargo-deny satisfies it via
+  # MIT and **Unlicense is deliberately not on this list**. Recorded because
+  # the election is silent — the tool prints `licenses ok` either way — and
+  # SEC-005's per-release inventory has no other source for which arm was
+  # taken. Adding "Unlicense" here would be a permanent loosening bought for
+  # nothing, since nothing is blocked.
   "MIT",
   "MPL-2.0",
   # University of Illinois/NCSA: permissive, BSD-3-Clause-shaped, OSI-approved.
