@@ -1,6 +1,6 @@
 //! Safe, unprivileged repository task runner.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::ffi::{OsStr, OsString};
 use std::fmt;
@@ -15,10 +15,6 @@ const WORKFLOW_DIRECTORY: &str = ".github/workflows";
 /// Composite actions committed to this repository. Optional, unlike the
 /// workflow directory — but scanned whenever present, because a local action's
 /// own `uses:` references are remote supply chain like any other.
-const LOCAL_ACTIONS_DIRECTORY: &str = ".github/actions";
-
-/// Toolchain used only for fuzzing.
-///
 /// `cargo-fuzz` needs nightly for libFuzzer, which the pinned stable toolchain
 /// cannot provide. It is pinned by exact date for the same reason
 /// `rust-toolchain.toml` pins a version: an unpinned `nightly` changes under CI
@@ -652,10 +648,44 @@ fn repository_root() -> PathBuf {
         .to_path_buf()
 }
 
-/// Enforce the SEC-010 rule that every GitHub Action is pinned by digest.
+/// Enforce the SEC-010 rule that every executable workflow dependency is
+/// pinned by an immutable identifier.
 ///
 /// Mutable tags such as `@v6` are rejected: they let an upstream account move a
 /// release tag onto new code that would then run with repository credentials.
+///
+/// **Discovery is a structural YAML parse, after three failed attempts at doing
+/// it by reading source text.** The history is worth keeping, because it is the
+/// argument for the dependency:
+///
+/// 1. A line reader keyed on `uses:` — defeated by `"uses":`, a quoted key.
+/// 2. The same reader plus refusals for shapes it could not parse — defeated by
+///    `&pin uses:`, an anchored key, which it neither read nor refused.
+/// 3. A syntax-independent sweep for `owner/repo@ref` tokens — defeated three
+///    ways at once: `"actions/checkout@v7"` hides the `@` behind a YAML
+///    escape the sweep never decodes, `docker://alpine:3.20` is a mutable
+///    reference containing no `@` at all, and a local action outside
+///    `.github/actions/` was never recursed into.
+///
+/// Each attempt reported *success with one fewer reference* — silence shaped
+/// like a pass, which is the worst failure mode a gate has. The lesson is that
+/// deciding what a YAML document *says* requires reading it as YAML. A parser
+/// is pinned and audited like every other dependency; interpreting
+/// security-relevant YAML incorrectly a fourth time is the larger risk.
+///
+/// Two layers, and they answer different questions:
+///
+/// - **Discovery and pinning** come from the parsed document. Every `uses`
+///   mapping key anywhere in the tree is a reference, whatever surrounds it,
+///   with its value decoded by the parser. Local references are resolved and
+///   recursed into with a visited set.
+/// - **Auditability** stays textual. A remote reference must also appear
+///   plainly in the source with its release tag in a trailing comment, so a
+///   reviewer can tell which release a digest is. A reference spelled so
+///   obscurely that the text layer cannot find it fails this check — which is
+///   deliberate, and is why writing one that way is a build failure rather than
+///   a way to disappear.
+///
 /// The check fails closed when no workflow can be read, so a moved, renamed, or
 /// unreadable workflow directory can never pass vacuously.
 fn verify_action_pins(root: &Path) -> Result<(), TaskError> {
@@ -665,7 +695,7 @@ fn verify_action_pins(root: &Path) -> Result<(), TaskError> {
         source,
     })?;
 
-    let mut workflows = Vec::new();
+    let mut queue = Vec::new();
     for entry in entries {
         let path = entry
             .map_err(|source| TaskError::Io {
@@ -673,101 +703,251 @@ fn verify_action_pins(root: &Path) -> Result<(), TaskError> {
                 source,
             })?
             .path();
-        let is_workflow = path
-            .extension()
-            .and_then(OsStr::to_str)
-            .is_some_and(|extension| {
-                extension.eq_ignore_ascii_case("yml") || extension.eq_ignore_ascii_case("yaml")
-            });
-        if is_workflow {
-            workflows.push(path);
+        if is_yaml(&path) {
+            queue.push(path);
         }
     }
-    workflows.sort();
+    queue.sort();
 
-    if workflows.is_empty() {
+    if queue.is_empty() {
         return Err(TaskError::Policy(format!(
             "no workflow files found in {}; SEC-010 action pinning cannot be verified",
             directory.display()
         )));
     }
 
-    // Composite actions committed to this repository run `uses:` references of
-    // their own. Exempting a local action from digest checks is safe only if
-    // its remote references are inspected; scanning nothing under
-    // `.github/actions/` would make `./.github/actions/foo` a place to keep a
-    // mutable tag. The directory is optional — workflows are not — so its
-    // absence is fine, but when present every YAML file under it is read.
-    let actions_directory = root.join(LOCAL_ACTIONS_DIRECTORY);
-    if actions_directory.is_dir() {
-        yaml_files_under(&actions_directory, &mut workflows)?;
-        workflows.sort();
-    }
-
     let mut violations = Vec::new();
     let mut pinned = 0_usize;
-    for workflow in &workflows {
-        let text = fs::read_to_string(workflow).map_err(|source| TaskError::Io {
-            path: workflow.clone(),
+    let mut visited: BTreeSet<PathBuf> = BTreeSet::new();
+
+    while let Some(file) = queue.pop() {
+        let canonical = file.canonicalize().unwrap_or_else(|_| file.clone());
+        if !visited.insert(canonical) {
+            continue;
+        }
+        // Recursed files arrive canonicalized, which on Windows carries a
+        // verbatim `\\?\` prefix that `strip_prefix(root)` cannot match. Strip
+        // the canonical root too, so a violation names a path a reader can find.
+        let display = root
+            .canonicalize()
+            .ok()
+            .and_then(|canonical| file.strip_prefix(canonical).ok())
+            .or_else(|| file.strip_prefix(root).ok())
+            .unwrap_or(&file)
+            .display()
+            .to_string()
+            .replace('\\', "/");
+        let text = fs::read_to_string(&file).map_err(|source| TaskError::Io {
+            path: file.clone(),
             source,
         })?;
-        let name = workflow
-            .file_name()
-            .and_then(OsStr::to_str)
-            .unwrap_or("<workflow>");
-        let mut attributed: Vec<(usize, String)> = Vec::new();
-        for entry in action_references(&text) {
-            attributed.push((entry.line, entry.reference.clone()));
-            match entry.violation() {
-                None => pinned += 1,
-                Some(reason) => violations.push(format!(
-                    "{name}:{}: {} — {reason}",
-                    entry.line, entry.reference
-                )),
-            }
+
+        let documents = yaml_rust2::YamlLoader::load_from_str(&text).map_err(|error| {
+            // A workflow this tool cannot parse is a violation, not a file to
+            // skip: GitHub might still run it.
+            TaskError::Policy(format!("{display} is not valid YAML: {error}"))
+        })?;
+
+        let mut found = Vec::new();
+        for document in &documents {
+            collect_uses(document, &mut found);
         }
-        // The key-shaped reader above can only find references it can parse,
-        // and twice now an audit has spelled a `uses` key in valid YAML it
-        // could not: a quoted key, then an anchored one (`&pin uses: …`). Each
-        // time the scanner reported success having simply counted one fewer
-        // reference, which is the worst failure mode a gate has — silence that
-        // looks like a pass.
-        //
-        // So discovery no longer depends on recognising the key. An action
-        // reference must literally contain `owner/repo@ref`, whatever syntax
-        // surrounds it, and this sweep finds every such token independently.
-        // Anything the reader did not attribute to a `uses:` key is a
-        // violation, so a spelling this tool cannot parse is a build failure
-        // to fix rather than a reference to miss. That inverts the property
-        // from "the scanner understands YAML" — unachievable without a real
-        // parser — to "an action reference cannot hide from a text search",
-        // which holds for anchors, tags, flow mappings, and every future
-        // spelling equally.
-        for (line, token) in reference_shaped_tokens(&text) {
-            let already = attributed
-                .iter()
-                .any(|(seen_line, reference)| *seen_line == line && reference.contains(&token));
-            if !already {
-                violations.push(format!(
-                    "{name}:{line}: {token} — an action-reference-shaped token that this scanner \
-                     could not attribute to a `uses:` key. Rewrite the step in plain block style \
-                     (`uses: owner/repo@<sha> # vX.Y.Z`); node properties, anchors, tags and flow \
-                     mappings on the key are not read"
-                ));
+
+        for reference in found {
+            match classify_reference(&reference) {
+                ReferenceKind::Local(relative) => {
+                    // A local action or reusable workflow runs code from this
+                    // repository, so it needs no digest — but its *own*
+                    // references are remote supply chain, and mutation C showed
+                    // that assuming local actions live under `.github/actions/`
+                    // leaves anywhere else unread. Resolve it wherever it is.
+                    match resolve_local_reference(root, &relative) {
+                        Ok(targets) => queue.extend(targets),
+                        Err(reason) => violations.push(format!(
+                            "{display}: local reference `{reference}` — {reason}"
+                        )),
+                    }
+                }
+                ReferenceKind::Remote => match remote_violation(&reference) {
+                    Some(reason) => {
+                        violations.push(format!("{display}: {reference} — {reason}"));
+                    }
+                    None => match plain_tag_comment(&text, &reference) {
+                        Some(comment) if names_a_release(&comment) => pinned += 1,
+                        Some(comment) => violations.push(format!(
+                            "{display}: {reference} — pinned, but {comment:?} does not name a \
+                             release tag"
+                        )),
+                        None => violations.push(format!(
+                            "{display}: {reference} — pinned, but no `# <tag>` comment is \
+                             readable beside it in the source. Write the step plainly \
+                             (`uses: owner/repo@<sha> # vX.Y.Z`) so a reviewer can tell which \
+                             release the digest is"
+                        )),
+                    },
+                },
             }
         }
     }
 
     if violations.is_empty() {
-        println!("verify-actions: {pinned} action reference(s) pinned by digest and tagged");
+        println!(
+            "verify-actions: {pinned} remote reference(s) pinned and tagged across {} parsed \
+             file(s)",
+            visited.len()
+        );
         Ok(())
     } else {
         Err(TaskError::Policy(format!(
-            "SEC-010 requires every GitHub Action to be pinned to a full commit SHA, with the \
-             release tag kept in a trailing comment. Offending references:\n  {}",
+            "SEC-010 requires every executable workflow dependency to be pinned to an immutable \
+             identifier, with the release tag kept in a trailing comment. Offending \
+             references:\n  {}",
             violations.join("\n  ")
         )))
     }
+}
+
+fn is_yaml(path: &Path) -> bool {
+    path.extension()
+        .and_then(OsStr::to_str)
+        .is_some_and(|extension| {
+            extension.eq_ignore_ascii_case("yml") || extension.eq_ignore_ascii_case("yaml")
+        })
+}
+
+/// Every `uses` mapping value in a parsed document, decoded.
+///
+/// Deliberately context-free: any `uses` key anywhere counts, rather than only
+/// the positions GitHub documents today (`jobs.<id>.uses`,
+/// `jobs.<id>.steps[*].uses`, `runs.steps[*].uses`). Walking the whole tree
+/// cannot miss a context this tool did not anticipate, and a stray `uses` key
+/// somewhere harmless costs one false violation to fix rather than one silent
+/// omission to be exploited.
+fn collect_uses(node: &yaml_rust2::Yaml, found: &mut Vec<String>) {
+    match node {
+        yaml_rust2::Yaml::Hash(map) => {
+            for (key, value) in map {
+                if key.as_str() == Some("uses")
+                    && let Some(text) = value.as_str()
+                {
+                    found.push(text.to_owned());
+                }
+                collect_uses(value, found);
+            }
+        }
+        yaml_rust2::Yaml::Array(items) => {
+            for item in items {
+                collect_uses(item, found);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// What kind of thing a `uses` value names.
+enum ReferenceKind {
+    /// A path inside this repository.
+    Local(String),
+    /// Anything fetched from outside: an action, a reusable workflow, or a
+    /// container image.
+    Remote,
+}
+
+fn classify_reference(reference: &str) -> ReferenceKind {
+    if reference.starts_with("./") || reference.starts_with(".\\") {
+        ReferenceKind::Local(reference[2..].replace('\\', "/"))
+    } else {
+        ReferenceKind::Remote
+    }
+}
+
+/// Resolve a local `./...` reference to the file(s) whose own `uses` keys must
+/// be inspected.
+///
+/// A directory must carry action metadata; a file is taken as a reusable
+/// workflow. Both are required to stay beneath the repository root, so a
+/// `./../..` reference is refused rather than followed out of the tree.
+fn resolve_local_reference(root: &Path, relative: &str) -> Result<Vec<PathBuf>, String> {
+    let candidate = root.join(relative);
+    let resolved = candidate
+        .canonicalize()
+        .map_err(|error| format!("cannot resolve {relative}: {error}"))?;
+    let canonical_root = root
+        .canonicalize()
+        .map_err(|error| format!("cannot resolve the repository root: {error}"))?;
+    if !resolved.starts_with(&canonical_root) {
+        return Err(format!("{relative} resolves outside the repository"));
+    }
+
+    if resolved.is_dir() {
+        let metadata: Vec<PathBuf> = ["action.yml", "action.yaml"]
+            .iter()
+            .map(|name| resolved.join(name))
+            .filter(|path| path.is_file())
+            .collect();
+        if metadata.is_empty() {
+            return Err(format!(
+                "{relative} is a directory with no action.yml or action.yaml, so GitHub could \
+                 not run it and this tool cannot inspect what it would"
+            ));
+        }
+        Ok(metadata)
+    } else if is_yaml(&resolved) {
+        Ok(vec![resolved])
+    } else {
+        Err(format!(
+            "{relative} is neither a directory containing action metadata nor a YAML file"
+        ))
+    }
+}
+
+/// Why a remote reference fails SEC-010, or `None` if its identifier is
+/// immutable.
+fn remote_violation(reference: &str) -> Option<String> {
+    if let Some(image) = reference.strip_prefix("docker://") {
+        // `docker://alpine:3.20` is a documented step-level reference and is
+        // mutable — a tag can be repointed at any image. Mutation B rode in on
+        // the previous check requiring an `@` before it looked.
+        return match image.rsplit_once("@sha256:") {
+            Some((_, digest)) if is_lowercase_hex(digest, 64) => None,
+            _ => Some(
+                "a container image must be pinned by digest (`docker://image@sha256:<64 hex>`); \
+                 a tag can be repointed at different code"
+                    .to_owned(),
+            ),
+        };
+    }
+    if is_pinned(reference) {
+        None
+    } else {
+        Some("not pinned to a full commit SHA".to_owned())
+    }
+}
+
+/// The trailing comment beside the first plain occurrence of `reference` in the
+/// source, if there is one.
+///
+/// The parser discards comments, so auditability is checked against the text.
+/// This is not discovery — the parser already found the reference — so a
+/// reference the text layer cannot locate is reported as unreadable rather than
+/// skipped.
+fn plain_tag_comment(text: &str, reference: &str) -> Option<String> {
+    for line in text.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with('#') {
+            continue;
+        }
+        let Some((code, comment)) = trimmed.split_once('#') else {
+            continue;
+        };
+        if code.contains(reference) {
+            let comment = comment.trim();
+            if !comment.is_empty() {
+                return Some(comment.to_owned());
+            }
+        }
+    }
+    None
 }
 
 /// The SPDX expression every manifest in this repository must declare.
@@ -1304,83 +1484,6 @@ fn manifest_files_under(directory: &Path, found: &mut Vec<PathBuf>) -> Result<()
     Ok(())
 }
 
-/// Collect every `.yml`/`.yaml` file under `directory`, recursively.
-fn yaml_files_under(directory: &Path, found: &mut Vec<PathBuf>) -> Result<(), TaskError> {
-    let entries = fs::read_dir(directory).map_err(|source| TaskError::Io {
-        path: directory.to_owned(),
-        source,
-    })?;
-    for entry in entries {
-        let path = entry
-            .map_err(|source| TaskError::Io {
-                path: directory.to_owned(),
-                source,
-            })?
-            .path();
-        if path.is_dir() {
-            yaml_files_under(&path, found)?;
-        } else if path
-            .extension()
-            .and_then(OsStr::to_str)
-            .is_some_and(|extension| {
-                extension.eq_ignore_ascii_case("yml") || extension.eq_ignore_ascii_case("yaml")
-            })
-        {
-            found.push(path);
-        }
-    }
-    Ok(())
-}
-
-/// One `uses:` entry, with the trailing comment the policy requires.
-///
-/// The comment is carried rather than discarded. It used to be stripped before
-/// the check, so the tag half of the rule this tool reports was enforced by
-/// nothing: a bare 40-character SHA passed while the error message said a
-/// release tag was required. A gate that states a rule it does not apply is
-/// worse than one that states nothing, because it is read as evidence.
-#[derive(Debug, PartialEq, Eq)]
-struct ActionReference {
-    line: usize,
-    reference: String,
-    /// Text after `#` on the same line, trimmed. `None` when absent.
-    comment: Option<String>,
-    /// Why the scanner could not positively read this `uses` construct.
-    ///
-    /// `Some` is an automatic violation. The 2026-07-29 project audit rewrote
-    /// one pinned step as `"uses": actions/checkout@v7` — valid YAML that
-    /// GitHub executes — and the scanner reported success with one *fewer*
-    /// reference: the mutable action was invisible rather than rejected. The
-    /// scanner now enforces a deliberately small YAML subset and refuses
-    /// anything outside it, so an exotic spelling is a failure to fix, never
-    /// a reference to miss.
-    unrecognized: Option<String>,
-}
-
-impl ActionReference {
-    /// Why this reference fails SEC-010, or `None` if it satisfies it.
-    fn violation(&self) -> Option<String> {
-        if let Some(reason) = &self.unrecognized {
-            return Some(reason.clone());
-        }
-        // An action committed to this repository carries no independent supply
-        // chain, so it needs neither a digest nor a release tag.
-        if self.reference.starts_with("./") {
-            return None;
-        }
-        if !is_pinned(&self.reference) {
-            return Some("not pinned to a full commit SHA".to_owned());
-        }
-        match self.comment.as_deref() {
-            None => Some("pinned, but the release tag comment is missing".to_owned()),
-            Some(comment) if !names_a_release(comment) => Some(format!(
-                "pinned, but {comment:?} does not name a release tag"
-            )),
-            Some(_) => None,
-        }
-    }
-}
-
 /// Does this comment name a release, rather than merely say something?
 ///
 /// A tag is what makes a digest auditable: without it nobody can tell which
@@ -1397,276 +1500,6 @@ fn names_a_release(comment: &str) -> bool {
                 .chars()
                 .all(|character| character.is_ascii_digit() || character == '.')
     })
-}
-
-/// Every `owner/repo@ref`-shaped token in a workflow, with its line number.
-///
-/// Syntax-independent discovery, and the reason the scanner no longer fails
-/// open on YAML it cannot parse. A GitHub Action reference must contain this
-/// shape verbatim — no anchor, tag, quoting style, or flow mapping changes the
-/// reference text — so a sweep for the shape cannot be evaded by spelling the
-/// *key* differently.
-///
-/// Comment-only lines are skipped so documentation may name an action; a
-/// reference inside a `run:` script would be reported, which is deliberate
-/// over-refusal. The current workflows contain exactly the seven real
-/// references and nothing else shaped like one, verified before this was
-/// written.
-fn reference_shaped_tokens(text: &str) -> Vec<(usize, String)> {
-    let mut found = Vec::new();
-    for (index, line) in text.lines().enumerate() {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with('#') {
-            continue;
-        }
-        // Strip a trailing comment so a release-tag comment is never mistaken
-        // for a second reference.
-        let code = trimmed
-            .split_once('#')
-            .map_or(trimmed, |(before, _)| before);
-        for token in code.split(|character: char| {
-            !(character.is_ascii_alphanumeric()
-                || matches!(character, '.' | '_' | '-' | '/' | '@' | ':'))
-        }) {
-            // `docker://alpine@sha256:…` and `owner/repo@ref` both qualify; a
-            // bare `owner/repo` without `@` does not, since it cannot be a
-            // pinned-or-unpinned reference on its own.
-            let candidate = token.trim_matches(|c: char| c == ':' || c == '.');
-            if candidate.contains('/') && candidate.contains('@') && !candidate.starts_with("./") {
-                found.push((index + 1, candidate.to_owned()));
-            }
-        }
-    }
-    found
-}
-
-/// What one line of workflow YAML says about `uses`.
-#[derive(Debug, PartialEq, Eq)]
-enum LineReading {
-    /// A `uses` reference the scanner positively parsed.
-    Reference {
-        reference: String,
-        comment: Option<String>,
-    },
-    /// A `uses`-shaped construct outside the enforced subset.
-    ///
-    /// Always a violation. The alternative — interpreting leniently or
-    /// skipping — is what let a quoted key carry a mutable tag past this gate.
-    Unrecognized(String),
-}
-
-/// Extract every `uses:` entry in a workflow, with its trailing comment.
-fn action_references(text: &str) -> Vec<ActionReference> {
-    text.lines()
-        .enumerate()
-        .filter_map(|(index, line)| {
-            action_reference(line).map(|reading| match reading {
-                LineReading::Reference { reference, comment } => ActionReference {
-                    line: index + 1,
-                    reference,
-                    comment,
-                    unrecognized: None,
-                },
-                LineReading::Unrecognized(reason) => ActionReference {
-                    line: index + 1,
-                    reference: line.trim().to_owned(),
-                    comment: None,
-                    unrecognized: Some(reason),
-                },
-            })
-        })
-        .collect()
-}
-
-/// Read one line for a `uses` construct.
-///
-/// The scanner enforces a deliberately small YAML subset: a block-mapping
-/// `uses` key — bare, double-quoted, or single-quoted, with optional space
-/// before the colon — whose value is a plain or quoted scalar on the same
-/// line. Everything else `uses`-shaped is [`LineReading::Unrecognized`], which
-/// is an automatic violation. Failing closed on the exotic spellings is the
-/// lesson of the 2026-07-29 audit; a scanner that skips what it cannot parse
-/// reports one fewer reference instead of one violation, and success with a
-/// smaller number is still success.
-fn action_reference(line: &str) -> Option<LineReading> {
-    let trimmed = line.trim_start();
-    if trimmed.starts_with('#') {
-        return None;
-    }
-    // YAML explicit-key syntax (`? key`) can spell any key, including `uses`,
-    // across two lines. Nothing in a workflow needs it.
-    if trimmed.starts_with("? ") || trimmed == "?" {
-        return Some(LineReading::Unrecognized(
-            "YAML explicit-key syntax is outside the subset this scanner enforces; \
-             write plain `key: value` mappings"
-                .to_owned(),
-        ));
-    }
-    let mut rest = trimmed;
-    if let Some(item) = rest.strip_prefix("- ") {
-        rest = item.trim_start();
-    }
-
-    // A double-quoted key may contain escapes, so `"u\x73es"` decodes to a key
-    // this scanner cannot see without implementing YAML string decoding.
-    // Escaped keys have no legitimate use in a workflow; refuse them all.
-    if let Some(reason) = escaped_quoted_key(rest) {
-        return Some(LineReading::Unrecognized(reason));
-    }
-
-    if let Some(value) = uses_key_value(rest) {
-        return Some(read_uses_value(value));
-    }
-
-    // Flow mappings (`- { name: x, uses: y }`) put the key mid-line, where the
-    // block-style reader above cannot see it. Detect and refuse rather than
-    // parse: flow YAML has its own quoting and nesting rules, and a partial
-    // implementation of them would be this same defect rebuilt.
-    flow_style_uses(rest).map(LineReading::Unrecognized)
-}
-
-/// The value following a block-style `uses` key, if this line has one.
-///
-/// Accepts `uses`, `"uses"`, and `'uses'`, each with optional whitespace
-/// before the colon — all spellings YAML reads as the same key.
-fn uses_key_value(rest: &str) -> Option<&str> {
-    for spelling in ["uses", "\"uses\"", "'uses'"] {
-        if let Some(after_key) = rest.strip_prefix(spelling) {
-            let after_key = after_key.trim_start();
-            if let Some(value) = after_key.strip_prefix(':') {
-                return Some(value);
-            }
-        }
-    }
-    None
-}
-
-/// Parse the scalar value of a `uses` key, or refuse the shapes that would
-/// need a real YAML parser to read faithfully.
-fn read_uses_value(value: &str) -> LineReading {
-    let value = value.trim();
-    let refuse = |what: &str| {
-        LineReading::Unrecognized(format!(
-            "`uses` value is {what}, which is outside the subset this scanner enforces; \
-             write the reference as a plain scalar on the same line"
-        ))
-    };
-    if value.is_empty() {
-        // The reference may continue on the next line as a plain scalar or a
-        // nested node. The old scanner skipped this shape, making it a way to
-        // hide a reference; a value the scanner cannot see is a violation.
-        return refuse("not on the same line as its key");
-    }
-    match value.as_bytes()[0] {
-        b'|' | b'>' => return refuse("a block scalar"),
-        b'*' => return refuse("a YAML alias"),
-        b'&' => return refuse("anchored"),
-        b'{' | b'[' => return refuse("a flow collection"),
-        _ => {}
-    }
-    // The comment is returned rather than dropped. Discarding it here is what
-    // made the tag half of SEC-010 unenforceable further up.
-    let (value, comment) = match value.split_once('#') {
-        Some((before, after)) => (before, Some(after.trim())),
-        None => (value, None),
-    };
-    let value = value.trim().trim_matches(['"', '\'']);
-    let comment = comment.map(str::to_owned).filter(|text| !text.is_empty());
-    if value.is_empty() {
-        return refuse("empty");
-    }
-    LineReading::Reference {
-        reference: value.to_owned(),
-        comment,
-    }
-}
-
-/// A double-quoted mapping key containing a backslash, at the start of this
-/// line's content.
-fn escaped_quoted_key(rest: &str) -> Option<String> {
-    let inner = rest.strip_prefix('"')?;
-    let closing = inner.find('"')?;
-    let key = &inner[..closing];
-    let after = inner[closing + 1..].trim_start();
-    (key.contains('\\') && after.starts_with(':')).then(|| {
-        format!(
-            "quoted mapping key \"{key}\" contains an escape; escaped keys are outside \
-             the subset this scanner enforces"
-        )
-    })
-}
-
-/// A `uses` key in flow-mapping position — immediately after `{` or `,`,
-/// allowing whitespace and one layer of quotes.
-///
-/// Prose is deliberately not matched: `run: echo "uses: x"` has no `{` or `,`
-/// introducing the token, so scripts that merely mention `uses` stay ignored.
-/// A quoted flow key containing an escape is refused for the same reason as at
-/// line start.
-fn flow_style_uses(rest: &str) -> Option<String> {
-    let bytes = rest.as_bytes();
-    for (index, byte) in bytes.iter().enumerate() {
-        if *byte != b'{' && *byte != b',' {
-            continue;
-        }
-        let mut cursor = index + 1;
-        while bytes.get(cursor).is_some_and(|b| *b == b' ' || *b == b'\t') {
-            cursor += 1;
-        }
-        let quote = match bytes.get(cursor) {
-            Some(&q @ (b'"' | b'\'')) => {
-                cursor += 1;
-                Some(q)
-            }
-            _ => None,
-        };
-        let key_start = cursor;
-        if let Some(quote) = quote {
-            while bytes.get(cursor).is_some_and(|b| *b != quote) {
-                cursor += 1;
-            }
-            if cursor >= bytes.len() {
-                continue;
-            }
-            let key = &rest[key_start..cursor];
-            cursor += 1;
-            while bytes.get(cursor).is_some_and(|b| *b == b' ' || *b == b'\t') {
-                cursor += 1;
-            }
-            if bytes.get(cursor) == Some(&b':') {
-                if key == "uses" {
-                    return Some(flow_refusal());
-                }
-                if key.contains('\\') {
-                    return Some(format!(
-                        "quoted flow-mapping key {key:?} contains an escape; escaped keys \
-                         are outside the subset this scanner enforces"
-                    ));
-                }
-            }
-        } else {
-            while bytes
-                .get(cursor)
-                .is_some_and(|b| !matches!(*b, b':' | b' ' | b'\t' | b',' | b'}'))
-            {
-                cursor += 1;
-            }
-            let key = &rest[key_start..cursor];
-            while bytes.get(cursor).is_some_and(|b| *b == b' ' || *b == b'\t') {
-                cursor += 1;
-            }
-            if bytes.get(cursor) == Some(&b':') && key == "uses" {
-                return Some(flow_refusal());
-            }
-        }
-    }
-    None
-}
-
-fn flow_refusal() -> String {
-    "`uses` appears inside a flow mapping, which is outside the subset this scanner \
-     enforces; write the step in block style"
-        .to_owned()
 }
 
 fn is_pinned(reference: &str) -> bool {
@@ -1779,9 +1612,8 @@ impl fmt::Display for TaskError {
 #[cfg(test)]
 mod tests {
     use super::{
-        ActionReference, LineReading, Task, TaskError, action_reference, action_references,
-        claim_matches, is_pinned, parse, parse_test, reference_shaped_tokens, repository_root,
-        run_tier, validate_claim_pattern, verify_action_pins, verify_manifest_licenses,
+        Task, TaskError, claim_matches, is_pinned, parse, parse_test, repository_root, run_tier,
+        validate_claim_pattern, verify_action_pins, verify_manifest_licenses,
         verify_path_ownership,
     };
     use std::ffi::OsString;
@@ -1992,190 +1824,214 @@ mod tests {
         }
     }
 
-    #[test]
-    fn workflow_scanner_reads_references_and_ignores_prose() {
-        let workflow = "\
-jobs:
-  build:
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Quoted form
-        uses: \"actions/setup-node@0000000000000000000000000000000000000000\"
-      # uses: actions/stale@v9
-      - name: Prose must not register
-        run: echo \"uses: actions/checkout@v6\"
-";
-        let found = action_references(workflow);
-        assert_eq!(found.len(), 2, "found {found:?}");
-        assert_eq!(found[0].line, 4);
-        assert_eq!(
-            found[0].reference,
-            "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"
-        );
-        assert_eq!(
-            found[0].comment.as_deref(),
-            Some("v6.0.2"),
-            "the trailing comment must be carried, not discarded"
-        );
-        assert_eq!(found[1].line, 6);
-        assert_eq!(
-            found[1].reference,
-            "actions/setup-node@0000000000000000000000000000000000000000"
-        );
-        assert_eq!(found[1].comment, None);
-        // A `uses` key with no inline value used to be skipped. Its value may
-        // continue on the next line, where this scanner cannot see it, so it is
-        // now refused rather than ignored.
-        assert!(matches!(
-            action_reference("        uses:"),
-            Some(LineReading::Unrecognized(_))
-        ));
-    }
-
-    #[test]
-    fn a_quoted_uses_key_is_scanned_not_skipped() {
-        // The 2026-07-29 audit's live bypass: `"uses"` is the same YAML key as
-        // `uses`, GitHub executes it, and the scanner reported success with one
-        // fewer reference — the mutable action was invisible, not rejected.
-        for spelling in [
-            "\"uses\": actions/checkout@v7",
-            "'uses': actions/checkout@v7",
-            "- \"uses\": actions/checkout@v7",
-            "uses : actions/checkout@v7",
-        ] {
-            let found = action_references(spelling);
-            assert_eq!(found.len(), 1, "{spelling:?} must register");
-            assert!(
-                found[0].violation().is_some(),
-                "{spelling:?} carries a mutable tag and must be a violation"
-            );
+    /// Build a temporary repository root holding one workflow, and optionally
+    /// one local action, then run the real gate over it.
+    fn scan_workflow(
+        tag: &str,
+        workflow: &str,
+        local: Option<(&str, &str)>,
+    ) -> Result<(), TaskError> {
+        let root =
+            std::env::temp_dir().join(format!("partman-xtask-scan-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let workflows = root.join(super::WORKFLOW_DIRECTORY);
+        fs::create_dir_all(&workflows).expect("create workflow directory");
+        fs::write(workflows.join("ci.yml"), workflow).expect("write workflow");
+        if let Some((relative, contents)) = local {
+            let path = root.join(relative);
+            fs::create_dir_all(path.parent().expect("parent")).expect("create action directory");
+            fs::write(path, contents).expect("write action metadata");
         }
+        let result = verify_action_pins(&root);
+        let _ = fs::remove_dir_all(&root);
+        result
+    }
 
-        // And the same spellings with a real pin are accepted, so the fix is
-        // recognition, not a blanket ban on quoting.
-        let pinned = format!("\"uses\": actions/checkout@{} # v7.0.1", "a".repeat(40));
-        let found = action_references(&pinned);
-        assert_eq!(found.len(), 1);
-        assert_eq!(
-            found[0].violation(),
-            None,
-            "a properly pinned quoted key is fine: {:?}",
-            found[0]
+    fn pinned_workflow() -> String {
+        format!(
+            "jobs:\n  build:\n    steps:\n      - uses: actions/checkout@{} # v7.0.1\n",
+            "a".repeat(40)
+        )
+    }
+
+    #[test]
+    fn a_plainly_pinned_and_tagged_workflow_passes() {
+        scan_workflow("baseline", &pinned_workflow(), None)
+            .expect("a digest-pinned, tag-commented reference is the accepted form");
+    }
+
+    #[test]
+    fn the_three_bypasses_the_text_scanners_missed_are_refused() {
+        // Every row is a spelling that passed a previous version of this gate
+        // while *reducing* the reported reference count — silence shaped like a
+        // pass. They are kept permanently because each one cost an audit round
+        // to find.
+        //
+        // A: YAML decodes `@` to `@`, so a scanner searching source text
+        //    for a literal `@` never sees the reference at all.
+        // B: `docker://image:tag` is a documented step-level reference that is
+        //    mutable and contains no `@` whatsoever.
+        // C: a local action outside `.github/actions/` was never recursed into,
+        //    so its own remote references went unread.
+        let escaped =
+            "jobs:\n  build:\n    steps:\n      - &pin uses: \"actions/checkout\\u0040v7\"\n";
+        let error = scan_workflow("escape", escaped, None)
+            .expect_err("a YAML-escaped `@` must not hide a mutable reference");
+        assert!(
+            error.to_string().contains("actions/checkout@v7"),
+            "the decoded reference must be named: {error}"
+        );
+
+        let docker = "jobs:\n  build:\n    steps:\n      - &pin uses: docker://alpine:3.20\n";
+        let error = scan_workflow("docker", docker, None)
+            .expect_err("a mutable container tag must be refused");
+        let message = error.to_string();
+        assert!(
+            message.contains("docker://alpine:3.20"),
+            "the image reference must be named: {error}"
+        );
+        // Asserting the container-specific guidance, not merely that *some*
+        // refusal happened. A deletion sweep found that removing the container
+        // branch still refused this input — `is_pinned` catches it as "not
+        // pinned to a full commit SHA", which is true but tells a reader to
+        // look for a git SHA on a Docker image. The branch exists for the
+        // message, so the test has to hold it to the message.
+        assert!(
+            message.contains("pinned by digest") && message.contains("sha256"),
+            "a container must be told to use an image digest, not a commit SHA: {error}"
+        );
+
+        let local_workflow = "jobs:\n  build:\n    steps:\n      - uses: ./.github/local-action\n";
+        let metadata = "runs:\n  using: composite\n  steps:\n    - uses: actions/cache@v4\n";
+        let error = scan_workflow(
+            "local",
+            local_workflow,
+            Some((".github/local-action/action.yml", metadata)),
+        )
+        .expect_err("a local action's own remote references must be inspected wherever it lives");
+        assert!(
+            error.to_string().contains("actions/cache@v4"),
+            "the nested reference must be named: {error}"
         );
     }
 
     #[test]
-    fn an_action_reference_cannot_hide_behind_key_syntax() {
-        // The 2026-07-29 follow-up audit's bypass, plus the tag variant it
-        // named as the same structural class. Both are valid YAML that GitHub
-        // executes, and the key-shaped reader cannot see either — so discovery
-        // no longer depends on it. Every `owner/repo@ref` token must be
-        // attributable to a `uses:` key the reader parsed; anything else is a
-        // violation, which makes an unparseable spelling a build failure
-        // rather than a reference that vanishes from the count.
-        let sha = "a".repeat(40);
+    fn discovery_does_not_depend_on_how_the_key_is_spelled() {
+        // The parser decides what the document says, so these are all the same
+        // key and all carry the same mutable tag. Each must be refused; none may
+        // simply vanish from the count.
         for spelling in [
-            "        &pin uses: actions/checkout@v7",
-            "        !!str uses: actions/checkout@v7",
-            "        &a2 uses : actions/checkout@v7",
-            "        &pin uses: actions/checkout@v7 # v7.0.1",
-            // A correctly pinned reference behind an unreadable key is still a
-            // violation: the gate cannot confirm what it cannot attribute.
-            &format!("        &pin uses: actions/checkout@{sha} # v7.0.1"),
+            "      - uses: actions/checkout@v7",
+            "      - \"uses\": actions/checkout@v7",
+            "      - 'uses': actions/checkout@v7",
+            "      - &pin uses: actions/checkout@v7",
+            "      - !!str uses: actions/checkout@v7",
+            "      - { uses: actions/checkout@v7 }",
         ] {
             let workflow = format!("jobs:\n  build:\n    steps:\n{spelling}\n");
-            let tokens = reference_shaped_tokens(&workflow);
+            let result = scan_workflow("spelling", &workflow, None);
             assert!(
-                !tokens.is_empty(),
-                "{spelling:?}: the reference must be discovered by shape"
-            );
-            let attributed: Vec<String> = action_references(&workflow)
-                .into_iter()
-                .filter(|entry| entry.unrecognized.is_none())
-                .map(|entry| entry.reference)
-                .collect();
-            assert!(
-                !tokens
-                    .iter()
-                    .all(|(_, token)| attributed.iter().any(|r| r.contains(token))),
-                "{spelling:?}: an unattributable reference must not be treated as read"
+                result.is_err(),
+                "{spelling:?} carries a mutable tag and must be refused, however the key is \
+                 spelled"
             );
         }
     }
 
     #[test]
-    fn the_reference_sweep_does_not_fire_on_prose_or_comments() {
-        // Over-refusal is the safe direction, but not at the cost of being
-        // unusable. Comment-only lines and the release-tag comment must not
-        // register as references.
+    fn a_pinned_digest_still_needs_a_readable_release_tag() {
+        // The parser owns discovery; the trailing comment remains the
+        // auditability layer, because a bare 40-character SHA tells a reviewer
+        // nothing about which release it is. A reference spelled so obscurely
+        // that the comment cannot be associated with it fails here, which is
+        // why writing one that way is a build failure rather than an escape.
+        let sha = "a".repeat(40);
+        let no_comment =
+            format!("jobs:\n  build:\n    steps:\n      - uses: actions/checkout@{sha}\n");
+        let error = scan_workflow("no-tag", &no_comment, None)
+            .expect_err("a digest with no release-tag comment must be refused");
+        assert!(error.to_string().contains("no `# <tag>` comment"));
+
+        let vague = format!(
+            "jobs:\n  build:\n    steps:\n      - uses: actions/checkout@{sha} # do not touch\n"
+        );
+        let error = scan_workflow("vague-tag", &vague, None)
+            .expect_err("a comment that names no version must be refused");
+        assert!(error.to_string().contains("does not name a release tag"));
+    }
+
+    #[test]
+    fn a_local_reference_must_actually_be_runnable_and_inside_the_repository() {
+        // A `./` reference is exempt from pinning because it runs this
+        // repository's own code — so the exemption is only sound if the thing
+        // it names exists, is inspectable, and is really local.
+        let missing = "jobs:\n  build:\n    steps:\n      - uses: ./.github/nope\n";
+        assert!(
+            scan_workflow("missing-local", missing, None).is_err(),
+            "a local reference resolving to nothing must be refused, not exempted"
+        );
+
+        let bare_directory = "jobs:\n  build:\n    steps:\n      - uses: ./.github/bare\n";
+        let error = scan_workflow(
+            "bare-local",
+            bare_directory,
+            Some((".github/bare/readme.txt", "not action metadata\n")),
+        )
+        .expect_err("a local directory without action metadata must be refused");
+        assert!(error.to_string().contains("action.yml"));
+
+        let escaping = "jobs:\n  build:\n    steps:\n      - uses: ./../outside\n";
+        assert!(
+            scan_workflow("escaping-local", escaping, None).is_err(),
+            "a local reference pointing outside the repository must be refused"
+        );
+    }
+
+    #[test]
+    fn a_workflow_that_cannot_be_parsed_is_a_violation_not_a_skip() {
+        // GitHub might still run what this tool cannot read, so unparseable
+        // input fails closed.
+        let broken = "jobs:\n  build:\n  steps:\n   - uses: [unclosed\n";
+        assert!(
+            scan_workflow("unparseable", broken, None).is_err(),
+            "invalid YAML must be refused rather than skipped"
+        );
+    }
+
+    #[test]
+    fn prose_and_comments_are_not_references() {
+        // A parser reads `run:` as a string and comments not at all, so neither
+        // registers — without the over-refusal the text sweep needed.
+        // The `run:` value is single-quoted because `echo "uses: x"` as a bare
+        // plain scalar is not valid YAML — a colon-space inside an unquoted
+        // scalar. Worth noting in passing: the parser refuses that, where the
+        // old text scanner accepted it silently.
         let sha = "a".repeat(40);
         let workflow = format!(
-            "jobs:\n  build:\n    steps:\n      # uses: actions/stale@v9\n      - uses: actions/checkout@{sha} # v7.0.1\n"
+            "jobs:\n  build:\n    steps:\n      # uses: actions/stale@v9\n      - uses: actions/checkout@{sha} # v7.0.1\n      - run: 'echo \"uses: actions/checkout@v6\"'\n"
         );
-        let tokens = reference_shaped_tokens(&workflow);
-        assert_eq!(
-            tokens.len(),
-            1,
-            "only the real reference should register, found {tokens:?}"
-        );
-        assert!(tokens[0].1.ends_with(&sha));
+        scan_workflow("prose", &workflow, None)
+            .expect("a mention inside a script or a comment is not a dependency");
     }
 
     #[test]
-    fn the_repository_workflows_have_no_unattributable_references() {
-        // The sweep over-refuses by design, so this asserts the design is
-        // actually livable on the real workflows: every reference-shaped token
-        // in them is attributable to a `uses:` key.
+    fn recursion_through_local_references_terminates() {
+        // A composite action that references itself must not spin. The visited
+        // set is keyed on the canonical path.
+        let workflow = "jobs:\n  build:\n    steps:\n      - uses: ./.github/loop\n";
+        let metadata = "runs:\n  using: composite\n  steps:\n    - uses: ./.github/loop\n";
+        scan_workflow(
+            "cycle",
+            workflow,
+            Some((".github/loop/action.yml", metadata)),
+        )
+        .expect("a self-referential local action is not a violation, only a cycle to survive");
+    }
+
+    #[test]
+    fn the_repository_workflows_pass_the_real_gate() {
         verify_action_pins(&repository_root())
-            .expect("the repository's own workflows must satisfy both discovery paths");
-    }
-
-    #[test]
-    fn constructs_outside_the_yaml_subset_are_refused_not_skipped() {
-        // Each of these is valid YAML that carries (or could carry) a `uses`
-        // reference somewhere a line scanner cannot faithfully read. Every one
-        // must surface as a violation; silence is how the quoted-key bypass
-        // survived. The flow-mapping case is refused even when its pin is
-        // valid, because reading flow YAML correctly needs a real parser.
-        let sha = "a".repeat(40);
-        for construct in [
-            format!("- {{ name: x, uses: actions/checkout@{sha} }} # v7.0.1"),
-            format!("- {{ \"uses\": actions/checkout@{sha} }} # v7.0.1"),
-            "uses: |".to_owned(),
-            "uses: >".to_owned(),
-            "uses: *pinned_elsewhere".to_owned(),
-            format!("uses: &anchor actions/checkout@{sha} # v7.0.1"),
-            format!("\"u\\x73es\": actions/checkout@{sha} # v7.0.1"),
-            "? uses".to_owned(),
-        ] {
-            let found = action_references(&construct);
-            assert_eq!(found.len(), 1, "{construct:?} must register");
-            assert!(
-                found[0].unrecognized.is_some(),
-                "{construct:?} must be refused as outside the subset"
-            );
-            assert!(
-                found[0].violation().is_some(),
-                "an unrecognized construct is always a violation"
-            );
-        }
-    }
-
-    #[test]
-    fn prose_that_mentions_uses_still_does_not_register() {
-        // Scripts may legitimately talk about actions. The flow detector keys
-        // on `{` and `,` in key position, so quoted prose stays prose.
-        for prose in [
-            "        run: echo \"uses: actions/checkout@v6\"",
-            "      # uses: actions/stale@v9",
-            "        run: grep uses ci.yml",
-        ] {
-            assert_eq!(
-                action_reference(prose),
-                None,
-                "{prose:?} is not a reference"
-            );
-        }
+            .expect("this repository's own workflows must satisfy the gate");
     }
 
     #[test]
@@ -2440,97 +2296,6 @@ jobs:
             "the xtask alias must carry --locked; without it the gate can repair the \
              lockfile it claims to enforce: {alias}"
         );
-    }
-
-    #[test]
-    fn composite_action_metadata_is_scanned_when_present() {
-        let root =
-            std::env::temp_dir().join(format!("partman-xtask-composite-{}", std::process::id()));
-        let workflows = root.join(super::WORKFLOW_DIRECTORY);
-        fs::create_dir_all(&workflows).expect("create workflow directory");
-        fs::write(
-            workflows.join("ci.yml"),
-            format!(
-                "jobs:\n  build:\n    steps:\n      - uses: ./.github/actions/local\n      - uses: actions/checkout@{} # v7.0.1\n",
-                "a".repeat(40)
-            ),
-        )
-        .expect("write workflow");
-
-        // The local action passes as `./...` in the workflow — but its own
-        // metadata carries a remote, mutable reference. Exempting the local
-        // action is safe only because this file is scanned too.
-        let action = root.join(super::LOCAL_ACTIONS_DIRECTORY).join("local");
-        fs::create_dir_all(&action).expect("create action directory");
-        fs::write(
-            action.join("action.yml"),
-            "runs:\n  using: composite\n  steps:\n    - uses: actions/cache@v4\n",
-        )
-        .expect("write action metadata");
-
-        let error = verify_action_pins(&root).expect_err("the mutable tag must be found");
-        assert!(
-            error.to_string().contains("actions/cache@v4"),
-            "the violation must name the reference inside the composite action: {error}"
-        );
-        std::fs::remove_dir_all(&root).ok();
-    }
-
-    #[test]
-    fn a_digest_without_its_release_tag_is_a_violation() {
-        // The rule this tool *reports* — "with the release tag kept in a
-        // trailing comment" — was enforced by nothing. The comment was stripped
-        // before the check, so a bare 40-character SHA passed while the error
-        // message claimed a tag was required. A gate that states a rule it does
-        // not apply is worse than one that states nothing, because it is read
-        // as evidence that the rule holds.
-        let sha = "de0fac2e4500dabe0009e67214ff5f5447ce83dd";
-        let reference = |comment: Option<&str>| ActionReference {
-            line: 1,
-            reference: format!("actions/checkout@{sha}"),
-            comment: comment.map(str::to_owned),
-            unrecognized: None,
-        };
-
-        assert_eq!(reference(Some("v6.0.2")).violation(), None);
-        assert_eq!(reference(Some("v4")).violation(), None);
-        assert_eq!(reference(Some("7.0.1")).violation(), None);
-        assert_eq!(
-            reference(Some("pinned to v6.0.2 by policy")).violation(),
-            None
-        );
-
-        for absent in [None, Some(""), Some("pinned"), Some("do not touch")] {
-            let comment = absent.filter(|text| !text.is_empty());
-            assert!(
-                reference(comment).violation().is_some(),
-                "a digest with {absent:?} for a tag must be refused"
-            );
-        }
-
-        // An unpinned reference still fails first, and says so specifically.
-        let mutable = ActionReference {
-            line: 1,
-            reference: "actions/checkout@v6".to_owned(),
-            comment: Some("v6".to_owned()),
-            unrecognized: None,
-        };
-        assert!(
-            mutable
-                .violation()
-                .is_some_and(|reason| reason.contains("full commit SHA")),
-            "an unpinned reference must fail for being unpinned"
-        );
-
-        // A local action has no release to name, so it is exempt from both
-        // halves rather than from one.
-        let local = ActionReference {
-            line: 1,
-            reference: "./.github/actions/local".to_owned(),
-            comment: None,
-            unrecognized: None,
-        };
-        assert_eq!(local.violation(), None);
     }
 
     #[test]

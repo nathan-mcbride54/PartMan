@@ -269,6 +269,64 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Fixed
 
+- Action discovery is a structural YAML parse, reversing a decision this project
+  defended twice. Three text-based attempts were each defeated by valid YAML,
+  and every one of them reported *success with one fewer reference* — silence
+  shaped like a pass. The third attempt, a sweep for `owner/repo@ref` tokens
+  described here as "syntax-independent" and "unbypassable", fell three ways at
+  once: `"actions/checkout@v7"` hides the `@` behind a YAML escape no text
+  search decodes; `docker://alpine:3.20` is a documented, mutable step reference
+  containing no `@` at all; and a local action outside `.github/actions/` was
+  never recursed into, so its own remote references went unread.
+
+  `yaml-rust2` now parses each workflow and every `uses` mapping key in the tree
+  is a reference with its value decoded — context-free, so a position GitHub
+  adds later cannot be missed. Containers must be pinned by `@sha256:` digest.
+  Local references are resolved wherever they live, must carry action metadata
+  if they name a directory, must stay inside the repository, and are recursed
+  into with a visited set that survives cycles. Unparseable YAML is a violation
+  rather than a skip, and the release-tag comment survives as a separate textual
+  auditability layer rather than as discovery.
+
+  All three bypasses are permanent regressions. A deletion sweep also caught one
+  of the *new* tests not being load-bearing: removing the container-digest
+  branch still refused `docker://alpine:3.20`, because `is_pinned` reports it as
+  "not pinned to a full commit SHA" — true, but it tells a reader to look for a
+  git SHA on a Docker image. The test now asserts the container-specific
+  guidance the branch exists to produce.
+
+- **WP-020 precondition 1 is reopened.** `O_NOFOLLOW` constrains only the final
+  path component, which `open(2)` documents plainly and increment 2b overlooked.
+  Renaming the fixture root aside and putting a symlink in its place redirects
+  the open to an out-of-root file, and matching length, digest, type and link
+  count then all pass — the same lesson as
+  `object_verification_alone_cannot_prove_root_membership`, one directory up.
+  Closing it needs a held root-directory object and an `openat`-style
+  direct-child open; more `canonicalize` calls cannot. Tier 2 stays unavailable
+  on every platform until that lands.
+
+- SI-36 is **withdrawn the day it was filed.** SAFE-009 permits `unsafe` *only*
+  in adapter, FFI, and helper crates, which forbids it in `crates/fixtures` and
+  names the route in the same clause. Reading the omission of that crate from
+  both lists as ambiguity was using the §0.2 process to convert an
+  implementation-location constraint into permission by omission. Precondition 3
+  is ordinary work with a known route, not a blocked decision.
+
+- ADR-0007's justification is corrected. It said the token proves the operator
+  ran the generator; a pure function of public source cannot prove that history,
+  since anyone with the repository can compute the value. It proves only that
+  the invocation presented the exact build-derived value — accident friction,
+  which is what the decision actually rests on. The decision stands.
+
+- Stale documentation corrected across the review set: `HANDOFF`'s execution
+  order, `DECISION_NOTES`' disproved claims, the progress report, the audit
+  response, README's WP-000/WP-020/WP-030 rows, WP-000's "only filesystem reads"
+  sentence, and four traceability headers that named fewer increments or
+  requirements than their own evidence tables contained. The token-mutation
+  count said 12 where the table holds 26, and the ownership count said 100 where
+  the tree holds 101 — that one is now left to the tool to print rather than
+  restated in prose that goes stale on the next file added.
+
 - WP-020 increment 2b: the object binding now starts at the open. Increment 2a
   bound every check to the handle but opened the target by path a second time,
   and the 2026-07-29 follow-up audit showed what lives in that gap: replace

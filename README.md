@@ -91,12 +91,12 @@ Section 14 of the specification is normative. Current state:
 
 | Package | Scope | Status |
 | --- | --- | --- |
-| WP-000 | Repository, CI, `xtask`, CODEOWNERS, dependency policy | In progress — foundation delivered; the 2026-07-29 audit's lock-boundary, action-scanner, and fuzz-graph findings are remediated, but Section 12's definition of done still wants generated traceability and mechanical path-ownership enforcement |
+| WP-000 | Repository, CI, `xtask`, CODEOWNERS, dependency policy | In progress. Lock boundary, licence, fuzz-graph and ownership-inventory gates delivered; action discovery is now a structural YAML parse after three text-based attempts were each defeated. Still open: generated traceability, and enforcing ownership against a change rather than inventorying the tree |
 | ADR-C1 | Canonical encoding and hash strategy | Accepted |
 | ADR-C2 … ADR-C5 | Hashed-artifact body/envelope split, identity strength, provenance shape, aggregation vocabulary | Accepted |
 | WP-010 | Canonical domain model, schema versioning, encoding and hashing | In progress, blocked at increment 3; see `docs/work-packages/WP-010.md` |
-| WP-020 | Disk-image fixture generator and destructive-test interlocks | In progress — increment 1 delivered; see `docs/work-packages/WP-020.md` |
-| WP-030 | Design tokens, dark UI shell, accessibility harness | In progress — increment 1 delivered; see `docs/work-packages/WP-030.md` |
+| WP-020 | Disk-image fixture generator and destructive-test interlocks | In progress — increments 1–1f, 2a and 2b delivered. **Precondition 1 is reopened**: no-follow binds only the final path component, so a swapped fixture-root directory can still redirect the open. Tier 2 must stay unavailable; see `docs/work-packages/WP-020.md` |
+| WP-030 | Design tokens, dark UI shell, accessibility harness | In progress — increments 1, 1a and 1b delivered (tokens and the static accessibility harness). No shell exists, so UI-002 is unimplemented and the rendered half of UI-008 is untested; increment 2 needs an integration assignment first |
 
 WP-020 and WP-030 depend only on WP-000 and could begin in parallel. WP-040 is
 the first package gated on WP-010.

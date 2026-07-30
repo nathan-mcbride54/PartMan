@@ -1,11 +1,26 @@
 # ADR-0007: What SAFE-007's disposable-test token actually proves
 
-- Status: Accepted
+- Status: Accepted, with one claim corrected 2026-07-29 (see "Correction")
 - Date: 2026-07-29
 - Spec version: 4.0.0
 - Work packages blocked: WP-020 increment 2 (precondition 2)
 - Requirement IDs: SAFE-007, SAFE-001, SAFE-005
 - Decision owners: @nathan-mcbride54
+
+## Correction
+
+This ADR said the token "establishes that whoever requested destruction ran the
+generator and copied a value out of its output." The second follow-up audit
+pointed out that a pure function of public source cannot establish that history:
+anyone with the repository can compute the value without running anything.
+
+What the code proves is narrower and is what the decision below actually rests
+on: **the invocation presented the exact build-derived value.** That is accident
+friction — a destructive run cannot be produced by ambient environment state
+alone — and it satisfies SAFE-007's "all present" clause. It is not evidence of
+operator provenance. The decision is unchanged; the justification is corrected,
+because "proves the operator ran the generator" is exactly the kind of claim
+this project has been audited for three times.
 
 ## Context
 
