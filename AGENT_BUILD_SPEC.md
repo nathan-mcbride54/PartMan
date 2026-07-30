@@ -8,9 +8,9 @@ Interface: Dark-first desktop GUI plus a scriptable CLI
 
 ## 0. Document control
 
-- **Spec version:** 4.0.0
+- **Spec version:** 4.1.0
 - **Status:** Active normative contract
-- **Last updated:** 2026-07-28
+- **Last updated:** 2026-07-30
 
 ### 0.1 Versioning and stability
 
@@ -33,6 +33,7 @@ If two requirements in this spec conflict, agents MUST stop, file a spec issue d
 
 | Version | Summary |
 | --- | --- |
+| 4.1.0 | Added MODEL-006 and ADR-C6, resolving SI-31 before any Section 5 set-valued field is implemented. A schema-declared set encodes as a `pce/1` Array whose elements are strictly ordered by an unsigned lexicographic comparison of each element's complete canonical bytes; equal encodings are rejected rather than deduplicated. Semantic arrays retain their schema-defined order, so `pce/1` and every existing hash remain unchanged. Producer and consumer sort-key encoding inherits the set field's actual enclosing depth instead of resetting to zero, closing the encoder/decoder-symmetry defect SI-31 recorded. The normative algorithm and shared Rust/TypeScript vectors live in `schemas/domain/`, including an extent case that makes bytewise and length-first ordering disagree and exact accepted/rejected depth-boundary cases. |
 | 4.0.0 | Fixed the aggregation vocabulary (ADR-C5, resolves SI-07 through SI-10). Section 5 replaces `StorageContainer`, `StoragePool`, and `RaidSet` — three names it listed and never defined — with one `Aggregate` carrying a technology discriminant, adds `BackingSignature`, and renames `Snapshot` to `StorageSnapshot` to end its collision with Section 20's "Snapshot (topology)". MODEL-002 now states how non-linear relationships are modelled: membership has unbounded in-degree, so MAC-003's plural APFS physical stores become representable; an aggregate carries its *self-reported* member count rather than a count of members observed, because deciding from present members would classify a degraded Fusion set as an ordinary mutable container and reach a Section 2.1 MUST NOT by unplugging a cable; Btrfs multi-device is a file system with several backings rather than a container; FS-004's non-file-system signatures materialize as their own nodes so an exported pool or orphaned RAID member is represented rather than discarded (INV-008); and every closed enum over externally observed values carries an unrecognized variant. MODEL-005 gains a body-stability rule narrowing the envelope rule: a hashed body may carry a fact only if it is invariant under re-probe of unchanged hardware. Corrected the Section 20 weak-identity definition, which 3.1.0 left behind when it amended SAFE-003. Noted on ACC-014 that it covers only an *absent* identifier, not an enclosure reporting its own — confirmed on hardware as the more dangerous case and still open. Adversarial review rejected an amendment to MODEL-005's envelope rule that would have swept every descriptive field into the body, reintroducing the unsatisfiable-PLAN-006 failure ADR-C2 exists to prevent; recorded in ADR-C5. |
 | 3.1.0 | Identity strength is now a property of a single record (stable hardware identifier plus size, both sector sizes, and a positively determined partition-table state), with identity *matching* split out as a separate helper-side verdict over an ordered pair; partition-table state becomes three-valued so a blank device and an unreadable one are distinguishable (SAFE-003, ADR-C3, resolves SI-01 and SI-02). MODEL-004 provenance becomes a set of observations held in the envelope, with the four confidence values derived rather than stored, and a positively observed absence declared a value rather than an unavailability (ADR-C4, resolves SI-04). Adversarial review rejected two proposals that reached this point: exempting blank-media initialization from severity 4, which would have created a silent whole-device destruction path because an absent table does not mean absent data; and collapsing disputed body values to a single resolution bit, which would have violated SAFE-003's "all available identifiers" and erased the blank-versus-unreadable distinction. Both rejections are recorded in the ADRs. |
 | 3.0.0 | Split every hashed artifact into a body and an envelope (MODEL-005), with an explicit rule for which side a field lands on: envelope only for the hash itself and for values the helper independently re-derives under HLP-002, body for everything else. Resolves three contradictions that made version 2.0.0 unimplementable — Section 6 required a plan to contain its own hash; hashing capture metadata and provenance made the PLAN-006 freshness comparison unsatisfiable, since two probes of unchanged hardware always differ; and it was undefined whether provenance sat inside the authorization boundary. Clarified CONC-004 (transitional marking is body content, so a transitional snapshot cannot masquerade as a stable one) and PLAN-006 (comparison is over body hashes). Fixed by ADR-C2. Filed as SI-03, SI-05, and SI-06 in `docs/spec-issues/`. |
@@ -350,6 +351,27 @@ Every hashed artifact (plans, topology snapshots) MUST be split into a **body** 
 Enforcing a value is not re-deriving it. The helper enforces the validity window (HLP-004) rather than recomputing it, so the window is body content; an unauthenticated expiry could be extended without invalidating the authorization it was bound to. When a field's side is unclear, it belongs in the body: an envelope field is one an attacker may alter without breaking a hash. *(Added in 3.0.0. A plan cannot contain its own hash, and hashing capture metadata would make the PLAN-006 freshness comparison unsatisfiable, because two probes of unchanged hardware always differ.)*
 
 **Body-stability rule.** A hashed body MAY carry a fact only if that fact is invariant under re-probe of unchanged hardware. This *narrows* the envelope rule rather than replacing it — the envelope rule decides what is authenticated, this one decides whether PLAN-006 is satisfiable, and both MUST hold. Occupancy figures, mount sets, and storage-snapshot sets therefore belong to the envelope: they change without any storage change, through ordinary background activity. A fact that a verdict needs but that fails this rule is evidence the wrong fact was chosen, not grounds to relax the rule. *(Added in 4.0.0 by ADR-C5.)*
+
+### MODEL-006: Canonical collection semantics
+
+Every schema field declared to be a **set** MUST encode as a `pce/1` Array whose
+elements are strictly ascending under an unsigned lexicographic comparison of
+each element's complete canonical bytes. Equal encodings are duplicates and
+MUST be rejected rather than silently deduplicated. A semantic array is not a
+set and MUST retain its schema-defined order; this requirement does not change
+the `pce/1` profile.
+
+Both producer and consumer MUST compute an element's canonical bytes using the
+set field's actual position in the enclosing artifact. If the set Array is at
+depth `d`, element encoding starts at `d + 1` and consumes the remaining depth
+budget from there; it MUST NOT reset to the public standalone encoder's depth
+zero. The schema validation pass, not the generic `pce/1` decoder, owns
+misordered and duplicate-set errors and MUST reject rather than repair them.
+
+The normative algorithm and shared cross-language vectors are in
+`schemas/domain/canonical-collections.md` and
+`schemas/domain/canonical-set-vectors.json`. The decision is fixed by ADR-C6.
+*(Added in 4.1.0 by ADR-C6; resolves SI-31.)*
 
 ## 6. Operation-plan contract
 

@@ -100,6 +100,9 @@ fn check(input: &[u8]) {
     );
 }
 
+// Requirements: MODEL-005
+//   Every seed is a canonical fixed point before mutations are credited as fail-closed evidence
+// Evidence: seeds_are_canonical
 #[test]
 fn seeds_are_canonical() {
     for seed in seeds() {
@@ -108,6 +111,9 @@ fn seeds_are_canonical() {
     }
 }
 
+// Requirements: MODEL-005, SAFE-005
+//   Every single-bit mutation either remains a canonical value or is rejected, never accepted under a different re-encoding
+// Evidence: every_single_bit_flip_preserves_canonicality
 #[test]
 fn every_single_bit_flip_preserves_canonicality() {
     let mut checked = 0_usize;
@@ -127,6 +133,9 @@ fn every_single_bit_flip_preserves_canonicality() {
     );
 }
 
+// Requirements: MODEL-005, SAFE-005
+//   Every truncation either remains a canonical value or fails closed
+// Evidence: every_truncation_preserves_canonicality
 #[test]
 fn every_truncation_preserves_canonicality() {
     for seed in seeds() {
@@ -136,6 +145,9 @@ fn every_truncation_preserves_canonicality() {
     }
 }
 
+// Requirements: MODEL-005, SAFE-005
+//   Appended bytes cannot smuggle trailing content past exact canonical decoding
+// Evidence: appended_bytes_preserve_canonicality
 #[test]
 fn appended_bytes_preserve_canonicality() {
     // Trailing data must never be silently ignored, or two byte strings would
@@ -152,6 +164,9 @@ fn appended_bytes_preserve_canonicality() {
     }
 }
 
+// Requirements: MODEL-005, SAFE-005
+//   Boundary byte substitutions preserve the decode-reencode identity or are refused
+// Evidence: byte_substitutions_preserve_canonicality
 #[test]
 fn byte_substitutions_preserve_canonicality() {
     // Header bytes carry the major type and argument form, so substituting each
@@ -169,6 +184,9 @@ fn byte_substitutions_preserve_canonicality() {
     }
 }
 
+// Requirements: MODEL-005, SAFE-005
+//   Exhaustive one- and two-byte inputs satisfy the strict canonicality property
+// Evidence: short_exhaustive_inputs_preserve_canonicality
 #[test]
 fn short_exhaustive_inputs_preserve_canonicality() {
     // Every one-byte and two-byte input. Small enough to enumerate, and it

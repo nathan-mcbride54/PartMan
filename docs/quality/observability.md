@@ -1,6 +1,6 @@
 # Unprivileged observability
 
-- Spec version: 4.0.0
+- Spec version: 4.1.0
 - Requirement IDs: SAFE-002, SAFE-003, HLP-002, MODEL-005, INV-002, INV-003
 - Status: **Windows established. Linux partly established (one distro, virtual
   disks, no partitions). macOS not established.**

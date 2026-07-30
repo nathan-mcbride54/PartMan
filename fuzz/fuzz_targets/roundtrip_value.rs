@@ -13,6 +13,7 @@
 
 use arbitrary::{Arbitrary, Result, Unstructured};
 use libfuzzer_sys::fuzz_target;
+use partman_domain::canonical::set::{self, Error as SetError};
 use partman_domain::canonical::{Error, MAX_DEPTH, Value, decode, encode};
 use std::collections::BTreeMap;
 
@@ -72,9 +73,36 @@ fuzz_target!(|data: &[u8]| {
     // Whatever the encoder emits, the decoder must accept, and it must be the
     // same value. This is the symmetry that was missing before the encoder
     // enforced the decoder's depth limit.
-    assert_eq!(decode(&bytes), Ok(value), "round trip changed the value");
+    assert_eq!(
+        decode(&bytes).as_ref(),
+        Ok(&value),
+        "round trip changed the value"
+    );
 
     // And the encoding must be canonical: re-encoding is a fixed point.
     let again = encode(&decode(&bytes).expect("just decoded")).expect("re-encodable");
     assert_eq!(again, bytes, "encoding is not a fixed point");
+
+    // When the generated top-level value is an array, drive the schema-level
+    // set producer too. The pce encoder above already proved every element is
+    // encodable at this depth, so only duplicate logical elements may be
+    // refused. A successful producer result must decode to an array that the
+    // set validator accepts unchanged.
+    if let Value::Array(elements) = &value {
+        match set::encode_array(elements, 0) {
+            Ok(set_bytes) => {
+                let Value::Array(sorted) = decode(&set_bytes).expect("set bytes decode") else {
+                    panic!("a set producer emitted something other than an array");
+                };
+                set::validate_array(&sorted, 0).expect("set producer emitted strict order");
+                assert_eq!(
+                    set::encode_array(&sorted, 0).expect("validated set re-encodes"),
+                    set_bytes,
+                    "schema-set encoding is not a fixed point"
+                );
+            }
+            Err(SetError::DuplicateElement { .. }) => {}
+            Err(other) => panic!("set producer refused encodable unique elements: {other}"),
+        }
+    }
 });

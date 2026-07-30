@@ -23,12 +23,23 @@ authorized would not be the bytes describing what executes. The target also
 asserts that hashing an accepted value agrees with hashing the bytes it came
 from, and that re-encoded bytes decode back.
 
+Every decoded array is also passed through the schema-level canonical-set
+validator. Descending or duplicate arrays remain valid semantic `pce/1` arrays
+and are allowed to fail that schema check; when the validator accepts one as a
+set, the set producer must reproduce the input byte for byte.
+
 ### `roundtrip_value`
 
 Drives the encoder from structured values rather than bytes, reaching shapes
 random bytes almost never produce: deep nesting, maps whose key order differs
 between insertion and encoding, and integers at every argument-width boundary.
 Asserts `decode(encode(v)) == v` and that encoding is a fixed point.
+
+For generated top-level arrays, the same target also drives the schema-set
+producer. Unique elements must sort into bytes that decode as a strictly ordered
+set and form their own fixed point; duplicate logical elements must be refused
+rather than removed. This extends the two existing targets rather than adding a
+third target that would exercise the same value generator and parser.
 
 `Value` is built from raw entropy inside the target rather than by deriving
 `Arbitrary` on the domain type, so the domain crate carries no fuzzing

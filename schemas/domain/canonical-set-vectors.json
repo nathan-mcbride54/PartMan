@@ -1,0 +1,99 @@
+{
+  "schema": "partman.canonical-set-vectors",
+  "schema_version": 1,
+  "rule": "unsigned-lexicographic-full-pce-element-bytes",
+  "ordering_vectors": [
+    {
+      "name": "extent order disagrees with length-first",
+      "set_depth": 0,
+      "input": [
+        {
+          "map": [
+            ["len", { "uint": "6" }],
+            ["off", { "uint": "0" }]
+          ]
+        },
+        {
+          "map": [
+            ["len", { "uint": "5" }],
+            ["off", { "uint": "300" }]
+          ]
+        }
+      ],
+      "canonical": "82a2636c656e05636f666619012ca2636c656e06636f666600",
+      "sha256": "d0a9b9d1bea99d5e2403882990692e3cdfdb2ac8c56b4c3497aab05a748b6404"
+    },
+    {
+      "name": "heterogeneous first bytes use unsigned order",
+      "set_depth": 0,
+      "input": [
+        { "bool": false },
+        { "text": "" },
+        { "uint": "24" },
+        { "uint": "0" }
+      ],
+      "canonical": "8400181860f4",
+      "sha256": "995b0457ddf2d98e548ee490990a6204a4adc6ce62a23ea2235cd633d2adab04"
+    },
+    {
+      "name": "nested map precedes boolean by full encoding",
+      "set_depth": 0,
+      "input": [
+        { "bool": true },
+        {
+          "map": [
+            ["y", { "null": true }]
+          ]
+        }
+      ],
+      "canonical": "82a16179f6f5",
+      "sha256": "d184490f82f085907cbd4ed42495d520d36758a8a2b4ab87b1f38374708dc615"
+    }
+  ],
+  "validation_vectors": [
+    {
+      "name": "strictly ascending set",
+      "set_depth": 0,
+      "observed": [
+        { "uint": "0" },
+        { "uint": "1" },
+        { "text": "" }
+      ],
+      "accepted": true
+    },
+    {
+      "name": "descending set",
+      "set_depth": 0,
+      "observed": [
+        { "uint": "1" },
+        { "uint": "0" }
+      ],
+      "accepted": false,
+      "error": "not-strictly-increasing"
+    },
+    {
+      "name": "duplicate set element",
+      "set_depth": 0,
+      "observed": [
+        { "text": "same" },
+        { "text": "same" }
+      ],
+      "accepted": false,
+      "error": "duplicate"
+    }
+  ],
+  "depth_vectors": [
+    {
+      "name": "combined depth exactly at the limit",
+      "set_depth": 27,
+      "element_array_depth": 100,
+      "accepted": true
+    },
+    {
+      "name": "combined depth one beyond the limit",
+      "set_depth": 28,
+      "element_array_depth": 100,
+      "accepted": false
+    }
+  ]
+}

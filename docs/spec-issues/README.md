@@ -52,42 +52,38 @@ SI-31 — which made the register unusable as the dependency gate Section 1.11
 requires it to be. Counts drift; a table that must be edited to add a row does
 not.
 
-Every issue appears exactly once. **Ten items gate increment 3**: seven direct,
+Every issue appears exactly once. **Nine items gate increment 3**: six direct,
 one transitive, and two inputs.
 
 | Class | Meaning | Issues |
 | --- | --- | --- |
-| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-32 |
-| **Direct blocker** | Must be decided before increment 3 writes a type | SI-11, SI-27, SI-28, SI-31, SI-33, SI-34, SI-35 |
+| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-31, SI-32 |
+| **Direct blocker** | Must be decided before increment 3 writes a type | SI-11, SI-27, SI-28, SI-33, SI-34, SI-35 |
 | **Transitive blocker** | Blocks a direct blocker, so it blocks the increment | SI-12 (blocks SI-27) |
 | **Input** | Feeds a direct blocker; not itself a decision | SI-29, SI-30 (both to SI-11) |
 | **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-15, SI-16, SI-17, SI-18, SI-19, SI-20, SI-21, SI-22, SI-23, SI-24, SI-25, SI-26 |
 
 The direct blockers, with the state each is actually in — the distinctions
-matter, because three of the seven are *not* simply "undecided":
+matter, because one of the six is *not* simply "undecided":
 
 | Issue | Hash-visible | State |
 | --- | --- | --- |
 | SI-11 | no | Open. Three design rounds, three rejections; Parts 4–6 |
 | SI-27 | yes | Open, and blocked by SI-12 |
 | SI-28 | yes | **Mitigated-open.** An interim conservative floor is in force and does not resolve it; Part 7 |
-| SI-31 | yes | **Answer settled, decision not landed.** The rule belongs to the per-schema validation layer rather than to `pce/1`, and it carries an unfixed encoder prerequisite — see below |
 | SI-33 | no | Open. The route by which SI-28's floor may later be relaxed |
 | SI-34 | yes | Open. Reopens whether the protection verdict belongs in the hashed body at all |
 | SI-35 | yes | Open. ADR-C3's three table states are not all observable through the interface a client reads |
 | SI-36 | no | **Withdrawn.** Not a conflict: SAFE-009 permits `unsafe` *only* in adapter/FFI/helper crates, which forbids it in `crates/fixtures` and names the route. Filing it read an omission as permission |
 
-**SI-31 is the one most easily misread, and was.** Its *answer* survived
-adversarial review — plain bytewise over each element's fully canonical encoded
-bytes, sets only — while the reasoning first offered for it did not, and the
-scope, the owning document and the proposed evidence were all corrected. None of
-that is the same as landed: no ADR or spec change carries it, every set-valued
-field in Section 5 depends on it, and it is hash-visible. It also records an
-**unfixed encoder defect** — encoding an element resets the depth budget, so a
-100-deep element encodes standalone in both languages while the spliced 200-deep
-result is rejected by both decoders. That becomes reachable exactly when
-set-valued fields exist, and whatever lands SI-31 must state how per-element
-encoding accounts for depth.
+**SI-31 is resolved in spec 4.1.0 by ADR-C6.** Its answer is plain unsigned
+bytewise ordering over each element's full canonical encoding, for
+schema-declared sets only. Semantic arrays retain order and `pce/1` is unchanged.
+The Rust and TypeScript set boundaries now encode sort keys at the element's
+actual enclosing depth, so the standalone-encoding reset the issue recorded is
+closed rather than merely documented. The shared fixture is intentionally
+unsorted and includes both the comparator disagreement and exact depth boundary,
+so it exercises the decision instead of preserving a prearranged answer.
 
 Round one is recorded in Part 4, round two in Part 5, round three in Part 6, and
 SI-28's fourth round in Part 7.
@@ -422,7 +418,14 @@ picked.
 
 ## SI-31 `pce/1` specifies no ordering for array and set elements
 
-**Requirements:** MODEL-005, ADR-C1, `schemas/canonical-encoding.md` §3 · **Blocks 3, hash-visible**
+> **Resolved in spec 4.1.0 by ADR-C6.** The rule is schema-level, sets only:
+> unsigned lexicographic comparison of each element's full canonical bytes,
+> with strict duplicate rejection and inherited enclosing depth. Semantic
+> arrays and the `pce/1` profile are unchanged.
+
+**Requirements:** MODEL-005, MODEL-006, ADR-C1, ADR-C6,
+`schemas/domain/canonical-collections.md` · **Resolved; formerly Blocks 3,
+hash-visible**
 
 Filed against `schemas/canonical-encoding.md` rather than against two conflicting
 requirements, because the defect is an omission in a normative document.
