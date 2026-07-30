@@ -195,9 +195,16 @@ produce identical hashes. Its policy mirrors the Cargo one:
 - `package-lock.json` is committed, and CI installs with `npm ci`, which fails
   rather than silently resolving a different tree.
 - `devDependencies` are pinned to exact versions, not ranges.
-- `npm audit --audit-level=moderate` gates CI. It runs inside
-  `cargo xtask cross-language` because that is the only gate with a Node
-  toolchain; `cargo xtask supply-chain` runs without Node.
+- `npm audit --audit-level=moderate` gates CI, for **every** npm package in the
+  repository. It runs inside `cargo xtask cross-language` because that is the
+  only gate with a Node toolchain; `cargo xtask supply-chain` runs without Node.
+  The packages are discovered by walking the tree rather than named, because a
+  gate pointed at one directory stops covering the repository as soon as the
+  repository grows — WP-030 has `packages/ui/`, `packages/design-tokens/` and
+  `apps/desktop/` reserved, and would have brought unaudited manifests into a
+  green gate. A `package.json` with no committed `package-lock.json` is a
+  violation: `npm audit` would otherwise report on a tree that install time
+  decides.
 - The package has **no runtime dependencies**. Hashing uses Web Crypto and
   testing uses `node:test`, both built in. This is deliberate: the codec is on
   the authorization path, and every dependency there would be one more thing

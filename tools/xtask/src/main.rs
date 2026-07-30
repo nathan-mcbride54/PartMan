@@ -580,12 +580,67 @@ fn cross_language() -> Result<(), TaskError> {
         )));
     }
     npm(&package, &["ci"])?;
+    npm(&package, &["run", "typecheck"])?;
+    npm(&package, &["test"])?;
+
     // This is the only gate with a Node toolchain, so SEC-010's advisory
     // requirement for npm dependencies is enforced here rather than in
     // `supply-chain`, which runs without Node.
-    npm(&package, &["audit", "--audit-level=moderate"])?;
-    npm(&package, &["run", "typecheck"])?;
-    npm(&package, &["test"])
+    audit_npm_packages(&repository_root())
+}
+
+/// Audit **every** npm package in the repository, not one named directory.
+///
+/// The advisory check used to run in `packages/canonical` because that was the
+/// only npm package there was. WP-030's shell reserves `packages/ui/`,
+/// `packages/design-tokens/` and `apps/desktop/`, and a Tauri front end normally
+/// brings its own `package.json` — each of which would have been audited by
+/// nobody while the gate went on reporting success. Discovery is a tree walk for
+/// the same reason the action scanner's is: a gate that checks a hard-coded path
+/// silently stops covering the repository the moment the repository grows.
+///
+/// A package without a committed `package-lock.json` is a violation rather than
+/// a skip. `docs/quality/dependency-policy.md` requires the lockfile, `npm audit`
+/// needs it to know what is actually installed, and auditing a package whose
+/// tree is decided at install time would report a verdict about nothing.
+fn audit_npm_packages(root: &Path) -> Result<(), TaskError> {
+    let mut manifests = Vec::new();
+    manifest_files_under(root, &mut manifests)?;
+    let packages: Vec<PathBuf> = manifests
+        .into_iter()
+        .filter(|path| path.file_name().and_then(OsStr::to_str) == Some("package.json"))
+        .filter_map(|path| path.parent().map(Path::to_path_buf))
+        .collect();
+
+    if packages.is_empty() {
+        return Err(TaskError::Policy(
+            "no npm package was found; refusing to report an advisory pass for a search that \
+             matched nothing"
+                .to_owned(),
+        ));
+    }
+
+    let unlocked: Vec<String> = packages
+        .iter()
+        .filter(|directory| !directory.join("package-lock.json").is_file())
+        .map(|directory| directory.display().to_string())
+        .collect();
+    if !unlocked.is_empty() {
+        return Err(TaskError::Policy(format!(
+            "every npm package needs a committed `package-lock.json`, or `npm audit` reports on a \
+             tree that install time decides:\n  {}",
+            unlocked.join("\n  ")
+        )));
+    }
+
+    for directory in &packages {
+        npm(directory, &["audit", "--audit-level=moderate"])?;
+    }
+    println!(
+        "cross-language: {} npm package(s) audited at moderate and above",
+        packages.len()
+    );
+    Ok(())
 }
 
 fn npm(directory: &Path, args: &[&str]) -> Result<(), TaskError> {
@@ -2709,7 +2764,7 @@ mod tests {
         verify_change_ownership, verify_manifest_licenses, verify_path_ownership,
         verify_workspace_lints, workspace_manifests,
     };
-    use std::ffi::OsString;
+    use std::ffi::{OsStr, OsString};
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::process::Command;
@@ -3365,6 +3420,39 @@ mod tests {
         }
 
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_npm_advisory_check_finds_every_package_not_one_named_directory() {
+        // The advisory check ran in `packages/canonical` by name, because that
+        // was the only npm package there was. WP-030 reserves `packages/ui/`,
+        // `packages/design-tokens/` and `apps/desktop/`, and a Tauri front end
+        // brings its own `package.json` -- each of which would have been audited
+        // by nobody while the gate reported success.
+        let mut manifests = Vec::new();
+        super::manifest_files_under(&repository_root(), &mut manifests)
+            .expect("walk the repository");
+        let packages: Vec<&PathBuf> = manifests
+            .iter()
+            .filter(|path| path.file_name().and_then(OsStr::to_str) == Some("package.json"))
+            .collect();
+        assert!(
+            packages
+                .iter()
+                .any(|path| path.ends_with("packages/canonical/package.json")),
+            "the package that used to be named must still be found: {packages:?}"
+        );
+        // Every one that exists carries the lockfile the audit needs, so the
+        // gate's own refusal path is not tripped by the current tree.
+        for path in &packages {
+            let directory = path.parent().expect("package directory");
+            assert!(
+                directory.join("package-lock.json").is_file(),
+                "{} has no committed lockfile, so `npm audit` would report on a tree that \
+                 install time decides",
+                directory.display()
+            );
+        }
     }
 
     #[test]
