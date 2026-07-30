@@ -242,14 +242,32 @@ impl VerifiedTarget {
 /// ```
 #[derive(Debug)]
 pub struct Authorization {
-    /// Held for at least as long as the verified targets, so the directory they
-    /// were opened relative to cannot be replaced underneath them.
+    /// The fixture root, held from `authorize` through acquisition and
+    /// verification.
     ///
-    /// Never read, and that is the point: its value is its lifetime. Dropping
-    /// it early would release the directory handle that makes the targets'
-    /// containment meaningful. No accessor is offered deliberately — handing
-    /// out the root path is how a consumer would end up reopening by name,
-    /// which is the habit this whole increment exists to remove.
+    /// **What it does:** every target is opened *relative to this handle* by
+    /// catalogue basename, so there is no pathname for anything to redirect
+    /// between the check and the open. That is where containment is
+    /// established.
+    ///
+    /// **What it does not do:** keep containment true afterwards. An earlier
+    /// version of this comment said the handle "is held for at least as long as
+    /// the verified targets", and the 2026-07-30 audit was right that this is
+    /// false — [`Authorization::into_targets`] moves `targets` out and drops
+    /// this field before the caller uses the handles it returned.
+    ///
+    /// Nothing depends on the claim, which is why the code needed no change
+    /// when the claim did. Containment is a property of the returned descriptor:
+    /// once `openat` has resolved the name, the descriptor refers to that object
+    /// whatever later happens to the directory. Renaming or replacing the root
+    /// afterwards cannot reach through an already open file.
+    ///
+    /// It is still worth holding, for the narrower reason that no accessor is
+    /// offered: handing out the root path is how a consumer would end up
+    /// reopening by name, which is the habit this increment exists to remove.
+    /// Whether a held directory handle also *prevents* replacement is
+    /// platform-specific and unsettled — on Unix it does not, and the Windows
+    /// half is open in issue #51 — so nothing here rests on it.
     #[expect(
         dead_code,
         reason = "held for its Drop lifetime; reading it is not the purpose"
