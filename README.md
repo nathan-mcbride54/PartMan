@@ -95,7 +95,7 @@ Section 14 of the specification is normative. Current state:
 | ADR-C1 | Canonical encoding and hash strategy | Accepted |
 | ADR-C2 … ADR-C5 | Hashed-artifact body/envelope split, identity strength, provenance shape, aggregation vocabulary | Accepted |
 | WP-010 | Canonical domain model, schema versioning, encoding and hashing | In progress, blocked at increment 3; see `docs/work-packages/WP-010.md` |
-| WP-020 | Disk-image fixture generator and destructive-test interlocks | In progress — increments 1–1f, 2a and 2b delivered. **Precondition 1 is reopened**: no-follow binds only the final path component, so a swapped fixture-root directory can still redirect the open. Tier 2 must stay unavailable; see `docs/work-packages/WP-020.md` |
+| WP-020 | Disk-image fixture generator and destructive-test interlocks | In progress — increments 1–1f and 2a–2c delivered. Precondition 1 is closed **on Unix only**: 2c opens a direct child relative to a held root directory object, so the intermediate-component swap is refused there. **Windows remains open** — it still opens a saved pathname and has no other-name refusal (issue #51). Tier 2 stays unavailable on every platform regardless, because no destructive suite exists; see `docs/work-packages/WP-020.md` |
 | WP-030 | Design tokens, dark UI shell, accessibility harness | In progress — increments 1, 1a and 1b delivered (tokens and the static accessibility harness). No shell exists, so UI-002 is unimplemented and the rendered half of UI-008 is untested; increment 2 needs an integration assignment first |
 
 WP-020 and WP-030 depend only on WP-000 and could begin in parallel. WP-040 is

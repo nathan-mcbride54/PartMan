@@ -8,12 +8,19 @@ and product requirements are normative.
 - Work on one dependency-ready work package at a time.
 - Create a branch and pull request for each work package. Never push directly to
   the default branch.
-- **Put a `Work-Package: WP-0NN` trailer on every commit**, naming the
+- **Put a `Work-Package: WP-0NN` trailer on every commit you write**, naming the
   assignment the change belongs to. `cargo xtask verify-change-ownership --base
   origin/main` refuses a change whose paths fall outside that assignment, and CI
   runs it on every pull request. The assignment is read from the **base**
   revision, so widening your own `owned-paths` block in the same change does not
   help — that was the hole an audit found in the inventory-only check.
+- It must be a **real git trailer** — a `Key: value` line in the message's last
+  paragraph, which is what `git interpret-trailers --parse` recognises. Git's
+  parser is the one that answers, so a quoted example in the body does not
+  count and a lowercase key does. **Every non-merge commit needs its own**; one
+  trailered commit used to cover an untrailered one beside it. Merge commits are
+  exempt because neither `gh pr update-branch` nor GitHub's generated
+  `refs/pull/N/merge` can carry a trailer, and CI judges the latter.
 - A change to the assignments themselves uses `Governance: <reason>` instead, and
   may then edit **only** `docs/work-packages/WP-*.md`. Land it as its own pull
   request before the work that needs the new paths.
