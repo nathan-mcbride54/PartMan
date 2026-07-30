@@ -8,7 +8,19 @@ and product requirements are normative.
 - Work on one dependency-ready work package at a time.
 - Create a branch and pull request for each work package. Never push directly to
   the default branch.
-- Keep edits inside the owned paths listed in the work-package assignment.
+- **Put a `Work-Package: WP-0NN` trailer on every commit**, naming the
+  assignment the change belongs to. `cargo xtask verify-change-ownership --base
+  origin/main` refuses a change whose paths fall outside that assignment, and CI
+  runs it on every pull request. The assignment is read from the **base**
+  revision, so widening your own `owned-paths` block in the same change does not
+  help — that was the hole an audit found in the inventory-only check.
+- A change to the assignments themselves uses `Governance: <reason>` instead, and
+  may then edit **only** `docs/work-packages/WP-*.md`. Land it as its own pull
+  request before the work that needs the new paths.
+- Keep edits inside the owned paths listed in the work-package assignment. The
+  path checker is file-granular, so a sub-file grant — "this package's own status
+  rows in `README.md`" — is still a review obligation, not something the tool
+  can see.
 - Use `cargo xtask ci` as the local Tier-1 gate.
 - Use `cargo xtask test --tier 1` for the unprivileged test suite.
 - Use `cargo xtask cross-language` for the MODEL-005 Rust/TypeScript hash-parity
