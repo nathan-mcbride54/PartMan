@@ -55,7 +55,7 @@ enum Task {
     SupplyChain,
     Test { tier: u8, profile: Option<String> },
     Tokens,
-    Traceability,
+    Traceability { write: bool },
     VerifyChangeOwnership { base: String },
     VerifyOwnership,
     VerifyActions,
@@ -85,7 +85,7 @@ fn parse(args: &[OsString]) -> Result<Task, TaskError> {
         "probe" => nullary(Task::Probe, command, rest),
         "supply-chain" => nullary(Task::SupplyChain, command, rest),
         "tokens" => nullary(Task::Tokens, command, rest),
-        "traceability" => nullary(Task::Traceability, command, rest),
+        "traceability" => parse_traceability(command, rest),
         "verify-ownership" => nullary(Task::VerifyOwnership, command, rest),
         "verify-change-ownership" => parse_change_ownership(command, rest),
         "verify-actions" => nullary(Task::VerifyActions, command, rest),
@@ -121,7 +121,7 @@ fn execute(task: &Task) -> Result<(), TaskError> {
             run_tier(1, None)?;
             // Last, because it enumerates the test binaries the tier-1 run has
             // just built. Running it first would build them twice.
-            verify_traceability(&repository_root())
+            verify_traceability(&repository_root(), false)
         }
         Task::CrossLanguage => cross_language(),
         Task::Fuzz { seconds } => fuzz(seconds),
@@ -163,7 +163,7 @@ fn execute(task: &Task) -> Result<(), TaskError> {
         Task::Fixtures => generate_fixtures(),
         Task::Probe => probe_fixtures(),
         Task::Tokens => audit_tokens(),
-        Task::Traceability => verify_traceability(&repository_root()),
+        Task::Traceability { write } => verify_traceability(&repository_root(), write),
         Task::VerifyActions => verify_action_pins(&repository_root()),
         Task::VerifyLicenses => verify_manifest_licenses(&repository_root()),
         Task::VerifyOwnership => verify_path_ownership(&repository_root()),
@@ -189,6 +189,20 @@ fn nullary(task: Task, command: &str, rest: &[OsString]) -> Result<Task, TaskErr
 /// The base is required rather than defaulted to `origin/main`. A default would
 /// silently verify against whatever a stale local ref happened to point at, and
 /// a check that quietly measures the wrong thing is worse than one that asks.
+/// `traceability`, optionally with `--write`.
+///
+/// Writing is a separate word rather than the default, so the gate cannot be
+/// satisfied by the act of running it. `cargo xtask ci` never passes it.
+fn parse_traceability(command: &str, rest: &[OsString]) -> Result<Task, TaskError> {
+    match rest {
+        [] => Ok(Task::Traceability { write: false }),
+        [flag] if flag == "--write" => Ok(Task::Traceability { write: true }),
+        _ => Err(TaskError::Usage(format!(
+            "usage: cargo xtask {command} [--write]"
+        ))),
+    }
+}
+
 fn parse_change_ownership(command: &str, rest: &[OsString]) -> Result<Task, TaskError> {
     match rest {
         [flag, value] if flag == "--base" => {
@@ -2720,6 +2734,12 @@ struct Annotation {
     /// Whether a `#[cfg(...)]` sits between the annotation and its function,
     /// which means the test may legitimately be absent from this platform.
     platform_gated: bool,
+    /// The work package this evidence belongs to, where the file is shared and
+    /// ownership cannot answer on its own.
+    declared_package: Option<String>,
+    /// The test this annotation says it documents, checked against the one it
+    /// positionally binds to so the two can disagree.
+    declared_evidence: Option<String>,
 }
 
 /// Check that every requirement annotation names a requirement the
@@ -2737,21 +2757,19 @@ struct Annotation {
 /// reports from the compiled binaries, so an annotation sitting above something
 /// that is not a live test is refused.
 ///
-/// **Be exact about what that does and does not catch, because the first
-/// version of this comment was wrong and only running the mutation found it.**
-/// The binding is *positional* — the annotation attaches to the next function
-/// below it — so renaming a test renames what the annotation documents and
-/// nothing goes stale. That is drift-proof by construction, and it also means
-/// the cross-check cannot detect a rename, because there is no stored name to
-/// disagree with. What it does catch is an annotation that has come adrift from
-/// a test: left above a helper, above a commented-out function, or in a file
-/// with no test under it at all.
+/// **The annotation also names the test it documents, and that redundancy is
+/// the mechanism rather than an oversight.** Binding is positional — the
+/// annotation attaches to the next function below it — so on its own it cannot
+/// notice that the test it was written for has been renamed or deleted. The
+/// first version of this check had no name to compare against and stayed green
+/// through a rename; measured, not reasoned. Writing the name out gives the two
+/// sources something to disagree about, so a rename, a deletion that slides an
+/// annotation onto its neighbour, and an annotation adrift above a helper are
+/// all refused.
 ///
-/// **The gap this leaves, named rather than implied.** Deleting an annotated
-/// test lets its annotation reattach to whichever function follows, silently
-/// crediting that test with another's requirement and claim. Closing it needs
-/// the annotation to *name* its evidence so the two sources can disagree, and
-/// that is the first thing increment 2 should add.
+/// It landed before the rollout rather than after: one extra line is cheap at
+/// twelve annotations and expensive at two hundred, and the rollout is exactly
+/// when a mis-bound annotation becomes likely.
 ///
 /// **What no version of this can check.** Nothing here establishes that a test
 /// *exercises* the requirement it claims. That stays a review obligation, and
@@ -2764,11 +2782,16 @@ struct Annotation {
 /// no annotations exist at all, when an annotation names an unknown ID, an
 /// unknown test, or carries no claim, or when two tests share a leaf name so
 /// that binding an annotation to one of them would be ambiguous.
-fn verify_traceability(root: &Path) -> Result<(), TaskError> {
+fn verify_traceability(root: &Path, write: bool) -> Result<(), TaskError> {
     let vocabulary = spec_requirement_ids(root)?;
     let annotations = collect_annotations(root)?;
     let tests = listed_test_names(root)?;
     let covered = judge_annotations(&vocabulary, &annotations, &tests)?;
+
+    if write {
+        return write_generated_traceability(root, &annotations);
+    }
+    verify_generated_traceability(root, &annotations)?;
 
     println!(
         "traceability: {} annotation(s) over {} requirement(s), checked against {} spec IDs and \
@@ -2838,6 +2861,24 @@ fn judge_annotations(
             problems.push(format!(
                 "{where_}: annotation is not followed by a function, so it binds to nothing"
             ));
+        } else if annotation.declared_evidence.as_deref() != Some(annotation.test.as_str()) {
+            // The two sources disagreeing is the whole point of writing the
+            // name out. Either the test was renamed and the annotation was not,
+            // or an annotated test was deleted and this annotation has slid
+            // onto its neighbour.
+            problems.push(match &annotation.declared_evidence {
+                Some(declared) => format!(
+                    "{where_}: says it documents `{declared}` but sits above `{}`. An annotation \
+                     that has slid onto another test credits it with someone else's requirement",
+                    annotation.test
+                ),
+                None => format!(
+                    "{where_}: does not say which test it documents. Add `// Evidence: {}` — \
+                     binding is positional, so without the name a deleted test silently hands \
+                     its annotation to the next one",
+                    annotation.test
+                ),
+            });
         } else if !tests.contains(&annotation.test) && !annotation.platform_gated {
             problems.push(format!(
                 "{where_}: binds to `{}`, which no test binary reports. Either it is not a test \
@@ -2859,6 +2900,355 @@ fn judge_annotations(
         .flat_map(|annotation| annotation.requirements.iter().map(String::as_str))
         .collect();
     Ok(covered.len())
+}
+
+/// The first line of a generated traceability document.
+///
+/// Whole-file generation rather than a managed region inside a hand-written
+/// file: the gate is then plain byte equality, which is obviously correct in a
+/// way that "extract the region, regenerate it, compare, and also check nobody
+/// added a row outside it" is not.
+const GENERATED_MARKER: &str =
+    "<!-- Generated by `cargo xtask traceability`. Edit the annotations, not this file. -->";
+
+/// The block in a work-package document that declares how its traceability is
+/// produced: a fenced ```` ```traceability ```` block containing `mode:
+/// generated` or `mode: hand-maintained`.
+///
+/// **Each package declares its own, and that placement is load-bearing.** The
+/// first version of this was a constant in `tools/xtask`, which WP-000, WP-020
+/// and WP-030 all own — and WP-010 does not. Under that arrangement WP-010
+/// could never convert itself without editing a file outside its assignment,
+/// so the rollout was blocked by the very ownership rule it was meant to
+/// respect. Found by working out what increment 3 would have to do, not by
+/// review.
+///
+/// The declaration is checked **in both directions**: a package declaring
+/// `hand-maintained` whose document carries the generated marker is refused, so
+/// a stale exemption cannot outlive the conversion; and a package declaring
+/// `generated` is held to byte equality with what its annotations produce. A
+/// package declaring nothing is refused outright, so a new work package cannot
+/// be born hand-maintained by omission.
+const TRACEABILITY_BLOCK: &str = "```traceability";
+
+/// How a package's traceability document is produced.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TraceabilityMode {
+    /// Rendered from annotations; hand edits fail.
+    Generated,
+    /// Still written by hand, and still drifting. An honest interim state.
+    HandMaintained,
+}
+
+/// The `mode:` line inside a document's fenced `traceability` block.
+///
+/// **A line-structural read, not a substring search, and the difference was
+/// measured.** The first version did `text.split_once("```traceability")`, and
+/// WP-000's own document defeated it within the hour: the prose explaining the
+/// block mentions its name, that mention appears before the real block, and the
+/// parser read the sentence instead of the data. That is the same defect the
+/// action scanner was rewritten three times to escape — a document is allowed
+/// to talk about its own syntax, and `prose_and_comments_are_not_references`
+/// exists next door for exactly this reason.
+///
+/// So the fence must be a line of its own, and the block ends at the next line
+/// that is a bare fence.
+fn declared_traceability_mode(text: &str) -> Option<String> {
+    let mut inside = false;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if !inside {
+            inside = trimmed == TRACEABILITY_BLOCK;
+            continue;
+        }
+        if trimmed == "```" {
+            return None;
+        }
+        if let Some(mode) = trimmed.strip_prefix("mode:") {
+            return Some(mode.trim().to_owned());
+        }
+    }
+    None
+}
+
+/// Read each package's declared traceability mode from its own document.
+fn traceability_modes(root: &Path) -> Result<BTreeMap<String, TraceabilityMode>, TaskError> {
+    let directory = root.join("docs/work-packages");
+    let entries = fs::read_dir(&directory).map_err(|source| TaskError::Io {
+        path: directory.clone(),
+        source,
+    })?;
+
+    let mut modes = BTreeMap::new();
+    for entry in entries {
+        let path = entry
+            .map_err(|source| TaskError::Io {
+                path: directory.clone(),
+                source,
+            })?
+            .path();
+        let Some(package) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            continue;
+        };
+        if !package.starts_with("WP-") {
+            continue;
+        }
+        let text = fs::read_to_string(&path).map_err(|source| TaskError::Io {
+            path: path.clone(),
+            source,
+        })?;
+        let declared = declared_traceability_mode(&text);
+        if declared.is_none() && !text.lines().any(|line| line.trim() == TRACEABILITY_BLOCK) {
+            return Err(TaskError::Policy(format!(
+                "{package} declares no traceability mode. Add a fenced `traceability` block \
+                 saying `mode: generated` or `mode: hand-maintained`; a package cannot be born \
+                 hand-maintained by omission"
+            )));
+        }
+        let declared = declared.as_deref();
+        let mode = match declared {
+            Some("generated") => TraceabilityMode::Generated,
+            Some("hand-maintained") => TraceabilityMode::HandMaintained,
+            other => {
+                return Err(TaskError::Policy(format!(
+                    "{package}: traceability mode {other:?} is not understood; expected \
+                     `generated` or `hand-maintained`"
+                )));
+            }
+        };
+        modes.insert(package.to_owned(), mode);
+    }
+    Ok(modes)
+}
+
+/// Which work package an annotation's evidence belongs to.
+///
+/// Answered from the `owned-paths` blocks rather than from anything the
+/// annotation says, so evidence lands in the document of the package that
+/// actually owns the code. Where a path is shared — `tools/xtask/**` is claimed
+/// by three packages — no inference is possible and the annotation must say,
+/// which is then checked against ownership rather than believed.
+fn owning_packages(claims: &BTreeMap<String, Vec<OwnershipClaim>>, file: &str) -> Vec<String> {
+    claims
+        .iter()
+        .filter(|(_, patterns)| {
+            patterns
+                .iter()
+                .any(|claim| claim.kind == ClaimKind::Owned && claim_matches(&claim.pattern, file))
+        })
+        .map(|(package, _)| package.clone())
+        .collect()
+}
+
+/// Decide which package's document an annotation's evidence belongs in.
+///
+/// A declaration is checked against ownership rather than trusted: a package
+/// cannot claim evidence sitting in a file it does not own, which is the same
+/// rule `verify-change-ownership` applies to a diff.
+fn route_annotation(
+    claims: &BTreeMap<String, Vec<OwnershipClaim>>,
+    annotation: &Annotation,
+) -> Result<String, String> {
+    let owners = owning_packages(claims, &annotation.file);
+    let at = format!("{}:{}", annotation.file, annotation.line);
+
+    if let Some(declared) = &annotation.declared_package {
+        return if owners.iter().any(|owner| owner == declared) {
+            Ok(declared.clone())
+        } else if owners.is_empty() {
+            Err(format!(
+                "{at}: declares {declared}, but no package owns this file"
+            ))
+        } else {
+            Err(format!(
+                "{at}: declares {declared}, which does not own this file. Owners: {}",
+                owners.join(", ")
+            ))
+        };
+    }
+
+    match owners.len() {
+        0 => Err(format!(
+            "{at}: no work package owns this file, so its evidence has nowhere to go"
+        )),
+        1 => Ok(owners[0].clone()),
+        _ => Err(format!(
+            "{at}: {} all own this path, so which package's evidence this is cannot be \
+             inferred. Add `// Work-Package: WP-0NN` to the annotation",
+            owners.join(", ")
+        )),
+    }
+}
+
+/// Render one package's traceability document.
+fn render_traceability(package: &str, annotations: &[&Annotation]) -> String {
+    use std::fmt::Write as _;
+
+    let mut requirements: BTreeMap<&str, Vec<&Annotation>> = BTreeMap::new();
+    for annotation in annotations {
+        for requirement in &annotation.requirements {
+            requirements
+                .entry(requirement.as_str())
+                .or_default()
+                .push(annotation);
+        }
+    }
+
+    let mut out = String::new();
+    out.push_str(GENERATED_MARKER);
+    out.push_str("\n\n# ");
+    out.push_str(package);
+    out.push_str(" traceability\n\n");
+    out.push_str(
+        "Every row below is generated from a requirement annotation beside the test that\n\
+         establishes it. Narrative — what a package has *not* established, and why — lives in\n\
+         its work-package document, because a generator cannot write it and would overwrite it.\n\n",
+    );
+    out.push_str("| Requirement | Evidence | What it establishes |\n");
+    out.push_str("| --- | --- | --- |\n");
+    for (requirement, evidence) in &requirements {
+        for annotation in evidence {
+            let _ = writeln!(
+                out,
+                "| {requirement} | `{}` | {} |",
+                annotation.test, annotation.claim
+            );
+        }
+    }
+
+    let _ = writeln!(
+        out,
+        "\n{} requirement(s), {} annotation(s).",
+        requirements.len(),
+        annotations.len()
+    );
+    out.push_str(
+        "\n**Not established here:** that each test exercises the requirement it claims. The\n\
+         generator checks that the requirement exists in the specification and that the test\n\
+         exists in a compiled binary; whether the one proves the other is a review obligation.\n",
+    );
+    out
+}
+
+/// Regenerate every generated traceability document and refuse any difference.
+///
+/// # Errors
+///
+/// Returns [`TaskError`] when a generated document differs from what the
+/// annotations produce, when a package's hand-maintained status disagrees with
+/// its own declared mode, or when an annotation's package cannot be
+/// determined.
+fn verify_generated_traceability(root: &Path, annotations: &[Annotation]) -> Result<(), TaskError> {
+    let claims = ownership_claims(root)?;
+    let mut by_package: BTreeMap<String, Vec<&Annotation>> = BTreeMap::new();
+    let mut problems = Vec::new();
+
+    for annotation in annotations {
+        match route_annotation(&claims, annotation) {
+            Ok(package) => by_package.entry(package).or_default().push(annotation),
+            Err(problem) => problems.push(problem),
+        }
+    }
+    if !problems.is_empty() {
+        return Err(TaskError::Policy(format!(
+            "annotations cannot be routed to a work package:\n  {}",
+            problems.join("\n  ")
+        )));
+    }
+
+    let modes = traceability_modes(root)?;
+    let directory = root.join("docs/traceability");
+    let mut drifted = Vec::new();
+
+    for package in claims.keys() {
+        let path = directory.join(format!("{package}.md"));
+        let existing = fs::read_to_string(&path).unwrap_or_default();
+        let is_generated = existing.starts_with(GENERATED_MARKER);
+        let declared_hand = modes.get(package.as_str()) == Some(&TraceabilityMode::HandMaintained);
+
+        if declared_hand && is_generated {
+            drifted.push(format!(
+                "{package} declares `mode: hand-maintained` but its document is generated. \
+                 Update the declaration in docs/work-packages/{package}.md; a stale exemption is \
+                 one nobody revisits"
+            ));
+            continue;
+        }
+        if !declared_hand && !is_generated {
+            drifted.push(format!(
+                "{package}'s traceability is neither generated nor declared hand-maintained. A \
+                 new work package cannot be born hand-maintained by omission"
+            ));
+            continue;
+        }
+        if declared_hand {
+            continue;
+        }
+
+        let expected = render_traceability(package, by_package.get(package).unwrap_or(&Vec::new()));
+        if existing != expected {
+            drifted.push(format!(
+                "{} is out of date with its annotations. Run `cargo xtask traceability --write`; \
+                 do not hand-edit a generated file",
+                path.display()
+            ));
+        }
+    }
+
+    if !drifted.is_empty() {
+        return Err(TaskError::Policy(format!(
+            "generated traceability has drifted:\n  {}",
+            drifted.join("\n  ")
+        )));
+    }
+
+    let still_by_hand: Vec<&str> = modes
+        .iter()
+        .filter(|(_, mode)| **mode == TraceabilityMode::HandMaintained)
+        .map(|(package, _)| package.as_str())
+        .collect();
+    println!(
+        "traceability: {} generated document(s), {} still hand-maintained{}",
+        modes.len() - still_by_hand.len(),
+        still_by_hand.len(),
+        if still_by_hand.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", still_by_hand.join(", "))
+        }
+    );
+    Ok(())
+}
+
+/// Write every generated traceability document.
+///
+/// # Errors
+///
+/// Returns [`TaskError`] when a document cannot be written, or when annotations
+/// cannot be routed to a package.
+fn write_generated_traceability(root: &Path, annotations: &[Annotation]) -> Result<(), TaskError> {
+    let claims = ownership_claims(root)?;
+    let modes = traceability_modes(root)?;
+    let mut by_package: BTreeMap<String, Vec<&Annotation>> = BTreeMap::new();
+    for annotation in annotations {
+        if let Ok(package) = route_annotation(&claims, annotation) {
+            by_package.entry(package).or_default().push(annotation);
+        }
+    }
+
+    for package in claims.keys() {
+        if modes.get(package.as_str()) != Some(&TraceabilityMode::Generated) {
+            continue;
+        }
+        let path = root.join("docs/traceability").join(format!("{package}.md"));
+        let rendered = render_traceability(package, by_package.get(package).unwrap_or(&Vec::new()));
+        fs::write(&path, rendered).map_err(|source| TaskError::Io {
+            path: path.clone(),
+            source,
+        })?;
+        println!("wrote {}", path.display());
+    }
+    Ok(())
 }
 
 /// Every requirement ID the specification **defines**, as opposed to mentions.
@@ -2969,6 +3359,41 @@ fn parse_annotation(file: &str, index: usize, rest: &str, lines: &[&str]) -> Ann
         cursor += 1;
     }
 
+    // An optional `// Work-Package: WP-0NN`, needed only where a path is
+    // claimed by more than one package and inference is therefore impossible.
+    // Deliberately not required everywhere: a declaration that is usually
+    // redundant gets copied without thought, and then it is not evidence of
+    // anything. Where it does appear it is checked against the `owned-paths`
+    // blocks rather than believed.
+    let mut declared_package = None;
+    if let Some(line) = lines.get(cursor)
+        && let Some(rest) = line.trim_start().strip_prefix("// Work-Package:")
+    {
+        declared_package = Some(rest.trim().to_owned());
+        cursor += 1;
+    }
+
+    // The evidence the annotation is *for*, written out.
+    //
+    // Redundant with the function below it, deliberately and load-bearing:
+    // redundancy is the only thing that lets two sources disagree. Binding is
+    // positional, so without this, deleting an annotated test lets its
+    // annotation slide onto the next function and credit that test with
+    // another's requirement and claim — silently. Measured on the first version
+    // of this check: renaming an annotated test left the gate green, because
+    // there was no stored name to contradict.
+    //
+    // Written before the rollout rather than after it. Adding a line to every
+    // annotation is cheap at twelve and expensive at two hundred, and the
+    // rollout is exactly when a mis-bound annotation becomes likely.
+    let mut declared_evidence = None;
+    if let Some(line) = lines.get(cursor)
+        && let Some(rest) = line.trim_start().strip_prefix("// Evidence:")
+    {
+        declared_evidence = Some(rest.trim().to_owned());
+        cursor += 1;
+    }
+
     // Then the binding: the next function declared. Attributes, ordinary
     // comments and blank lines may sit between, which is what `#[test]` and
     // `#[cfg(windows)]` need.
@@ -3003,6 +3428,8 @@ fn parse_annotation(file: &str, index: usize, rest: &str, lines: &[&str]) -> Ann
         claim,
         test,
         platform_gated,
+        declared_package,
+        declared_evidence,
     }
 }
 
@@ -3086,8 +3513,10 @@ PartMan repository tasks
                                  refuses rather than reporting an empty pass.
   cargo xtask supply-chain       Run cargo-deny and cargo-audit
   cargo xtask tokens             Audit the design tokens for UI-001/007/008
-  cargo xtask traceability       Check requirement annotations against the spec's
-                                 own IDs and the tests that actually exist (11.7)
+  cargo xtask traceability [--write]
+                                 Check requirement annotations against the spec's own
+                                 IDs and the tests that exist, and that every generated
+                                 document matches them. `--write` regenerates (11.7)
   cargo xtask verify-actions     Verify every GitHub Action is pinned by digest
   cargo xtask verify-licenses    Verify every manifest declares MIT OR Apache-2.0
   cargo xtask verify-ownership   Verify every tracked path belongs to a work package
@@ -3199,8 +3628,128 @@ mod tests {
             claim: "what this establishes".to_owned(),
             test: "a_real_test".to_owned(),
             platform_gated: false,
+            declared_package: None,
+            declared_evidence: Some("a_real_test".to_owned()),
         }];
         (vocabulary, annotations, tests)
+    }
+
+    /// Ownership as the routing table: one exclusive path, one shared three
+    /// ways, mirroring `tools/xtask/**`.
+    fn routing_claims() -> std::collections::BTreeMap<String, Vec<super::OwnershipClaim>> {
+        let owned = |pattern: &str| super::OwnershipClaim {
+            pattern: pattern.to_owned(),
+            kind: super::ClaimKind::Owned,
+        };
+        let mut claims = std::collections::BTreeMap::new();
+        claims.insert(
+            "WP-000".to_owned(),
+            vec![owned("tools/xtask/**"), owned("deny.toml")],
+        );
+        claims.insert("WP-020".to_owned(), vec![owned("tools/xtask/**")]);
+        claims.insert("WP-030".to_owned(), vec![owned("tools/xtask/**")]);
+        claims
+    }
+
+    fn annotation_in(file: &str, declared: Option<&str>) -> super::Annotation {
+        super::Annotation {
+            file: file.to_owned(),
+            line: 1,
+            requirements: vec!["SEC-010".to_owned()],
+            claim: "a claim".to_owned(),
+            test: "a_real_test".to_owned(),
+            platform_gated: false,
+            declared_package: declared.map(ToOwned::to_owned),
+            declared_evidence: Some("a_real_test".to_owned()),
+        }
+    }
+
+    #[test]
+    fn a_document_may_discuss_the_traceability_block_without_being_misread() {
+        // Measured regression. The first version searched for the fence as a
+        // substring, and WP-000's own document defeated it: the paragraph
+        // explaining the block names it, that mention precedes the real block,
+        // and the parser read the sentence. Same shape as the action scanner's
+        // three defeats, and `prose_and_comments_are_not_references` is the
+        // neighbouring test for the same principle.
+        let document = "\
+# WP-000
+
+Each package declares its mode in a ```traceability block, and `mode: generated`
+means the file is output rather than prose.
+
+## Traceability
+
+```traceability
+mode: hand-maintained
+```
+";
+        assert_eq!(
+            super::declared_traceability_mode(document).as_deref(),
+            Some("hand-maintained"),
+            "the real block must win over prose that merely names it"
+        );
+
+        // And an empty block reads as undeclared rather than as a default.
+        let empty = "## Traceability\n\n```traceability\n```\n";
+        assert_eq!(super::declared_traceability_mode(empty), None);
+    }
+
+    #[test]
+    fn evidence_in_an_exclusively_owned_file_needs_no_declaration() {
+        let claims = routing_claims();
+        assert_eq!(
+            super::route_annotation(&claims, &annotation_in("deny.toml", None)),
+            Ok("WP-000".to_owned())
+        );
+    }
+
+    #[test]
+    fn evidence_in_a_shared_file_must_say_which_package_it_belongs_to() {
+        // `tools/xtask/**` is genuinely claimed by three packages. Guessing
+        // would put one package's evidence in another's document, which is the
+        // drift the whole exercise exists to remove — so it refuses instead.
+        let claims = routing_claims();
+        let refusal =
+            super::route_annotation(&claims, &annotation_in("tools/xtask/src/main.rs", None))
+                .expect_err("a shared path cannot be routed by inference");
+        assert!(refusal.contains("WP-000, WP-020, WP-030"), "{refusal}");
+
+        assert_eq!(
+            super::route_annotation(
+                &claims,
+                &annotation_in("tools/xtask/src/main.rs", Some("WP-020"))
+            ),
+            Ok("WP-020".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_declaration_cannot_claim_evidence_in_a_file_the_package_does_not_own() {
+        // The same rule `verify-change-ownership` applies to a diff: the
+        // declaration is checked against the `owned-paths` blocks rather than
+        // believed. Otherwise a package could annotate its way into crediting
+        // itself with another's work.
+        let claims = routing_claims();
+        let refusal = super::route_annotation(&claims, &annotation_in("deny.toml", Some("WP-020")))
+            .expect_err("WP-020 does not own deny.toml");
+        assert!(refusal.contains("does not own"), "{refusal}");
+    }
+
+    #[test]
+    fn a_generated_document_announces_itself_and_is_a_pure_function_of_its_input() {
+        // The marker is what the drift gate keys on, and determinism is what
+        // makes byte equality a usable comparison at all.
+        let annotation = annotation_in("deny.toml", None);
+        let first = super::render_traceability("WP-000", &[&annotation]);
+        let second = super::render_traceability("WP-000", &[&annotation]);
+        assert_eq!(first, second, "generation must be deterministic");
+        assert!(first.starts_with(super::GENERATED_MARKER));
+        assert!(first.contains("a_real_test"));
+        assert!(
+            first.contains("Not established here"),
+            "the document must carry its own limit, not rely on a reader knowing it"
+        );
     }
 
     #[test]
@@ -3211,6 +3760,7 @@ mod tests {
         // the failure would be read as noise and the check disabled.
         let (vocabulary, mut annotations, tests) = traceability_inputs();
         annotations[0].test = "a_test_only_built_on_the_other_platform".to_owned();
+        annotations[0].declared_evidence = Some(annotations[0].test.clone());
 
         annotations[0].platform_gated = false;
         super::judge_annotations(&vocabulary, &annotations, &tests)
@@ -3246,27 +3796,43 @@ mod tests {
     }
 
     #[test]
-    fn renaming_an_annotated_test_is_invisible_because_the_binding_is_positional() {
-        // **Recorded as a limit, not a guarantee, and it catches no mutation.**
-        // Renaming a test renames what its annotation documents, so nothing can
-        // go stale — and equally, nothing can be detected. Deleting an
-        // annotated test therefore lets the annotation reattach to the next
-        // function and credit it with someone else's requirement.
+    fn an_annotation_that_has_slid_onto_another_test_is_refused() {
+        // Binding is positional, so on its own it cannot notice that the test
+        // it was written for has been renamed or deleted — measured: the first
+        // version of this check stayed green through a rename. Writing the name
+        // out is what gives the two sources something to disagree about.
         //
-        // This exists so that limit cannot be quietly forgotten while the
-        // surrounding prose talks about cross-checking against live tests.
-        // Closing it needs the annotation to name its evidence explicitly, so
-        // the two sources can disagree; that is increment 2's first job.
+        // The redundancy is the mechanism, not an oversight.
         let lines = vec![
             "    // Requirements: SAFE-007",
             "    //   a claim written for one test",
+            "    // Evidence: the_test_this_was_written_for",
             "    #[test]",
             "    fn whatever_happens_to_be_here_now() {",
         ];
         let annotation = super::parse_annotation("f.rs", 0, " SAFE-007", &lines);
+        assert_eq!(annotation.test, "whatever_happens_to_be_here_now");
         assert_eq!(
-            annotation.test, "whatever_happens_to_be_here_now",
-            "the binding follows position, so it cannot notice which test it was written for"
+            annotation.declared_evidence.as_deref(),
+            Some("the_test_this_was_written_for")
+        );
+
+        let (vocabulary, _, mut tests) = traceability_inputs();
+        tests.insert("whatever_happens_to_be_here_now".to_owned());
+        let refusal = super::judge_annotations(&vocabulary, &[annotation], &tests)
+            .expect_err("an annotation naming a different test than it sits above must refuse");
+        assert!(refusal.to_string().contains("slid onto"), "{refusal}");
+    }
+
+    #[test]
+    fn an_annotation_that_does_not_name_its_evidence_is_refused() {
+        let (vocabulary, mut annotations, tests) = traceability_inputs();
+        annotations[0].declared_evidence = None;
+        let refusal = super::judge_annotations(&vocabulary, &annotations, &tests)
+            .expect_err("an annotation must say which test it documents");
+        assert!(
+            refusal.to_string().contains("does not say which test"),
+            "{refusal}"
         );
     }
 
@@ -3427,6 +3993,8 @@ mod tests {
 
     // Requirements: SAFE-007, SAFE-005
     //   Tier 2 and Tier 3 refuse by default; an unavailable tier fails closed rather than running
+    // Work-Package: WP-000
+    // Evidence: unavailable_destructive_tiers_fail_closed
     #[test]
     fn unavailable_destructive_tiers_fail_closed() {
         for tier in [2, 3] {
@@ -3458,6 +4026,14 @@ mod tests {
             Task::FmtCheck
         );
         assert_eq!(parse(&args(&["probe"])).expect("probe"), Task::Probe);
+        assert_eq!(
+            parse(&args(&["traceability"])).expect("traceability"),
+            Task::Traceability { write: false }
+        );
+        assert_eq!(
+            parse(&args(&["traceability", "--write"])).expect("traceability --write"),
+            Task::Traceability { write: true }
+        );
         assert_eq!(
             parse(&args(&["supply-chain"])).expect("supply-chain"),
             Task::SupplyChain
@@ -3514,6 +4090,8 @@ mod tests {
 
     // Requirements: SAFE-007
     //   the profile is a command-line argument, so it cannot be inherited by accident from a parent shell
+    // Work-Package: WP-000
+    // Evidence: a_destructive_profile_is_an_argument_not_an_environment_variable
     #[test]
     fn a_destructive_profile_is_an_argument_not_an_environment_variable() {
         // SAFE-007 says one environment variable is not proof. Parsing the
@@ -3544,6 +4122,8 @@ mod tests {
 
     // Requirements: SAFE-007
     //   no destructive suite exists, so the runner refuses rather than reporting a pass over an empty run
+    // Work-Package: WP-000
+    // Evidence: a_destructive_tier_refuses_even_with_the_profile_word
     #[test]
     fn a_destructive_tier_refuses_even_with_the_profile_word() {
         // The profile alone is one factor of three, and no suite exists to run
@@ -3579,6 +4159,8 @@ mod tests {
 
     // Requirements: SEC-010
     //   a full commit SHA is accepted and a tag or branch reference is refused, which is what "pinned by digest" has to mean
+    // Work-Package: WP-000
+    // Evidence: digest_pins_are_accepted_and_mutable_references_are_not
     #[test]
     fn digest_pins_are_accepted_and_mutable_references_are_not() {
         assert!(is_pinned(
@@ -3655,6 +4237,8 @@ mod tests {
 
     // Requirements: SEC-010
     //   action discovery is a structural YAML parse: the quoted-key, anchored-key and YAML-escape bypasses that defeated three text scanners are permanent regressions
+    // Work-Package: WP-000
+    // Evidence: the_three_bypasses_the_text_scanners_missed_are_refused
     #[test]
     fn the_three_bypasses_the_text_scanners_missed_are_refused() {
         // Every row is a spelling that passed a previous version of this gate
@@ -3877,6 +4461,8 @@ mod tests {
 
     // Requirements: SEC-010
     //   job containers, the container shorthand, service containers and a Docker action image are all pinned, not only `uses:` references
+    // Work-Package: WP-000
+    // Evidence: container_images_are_executable_dependencies_too
     #[test]
     fn container_images_are_executable_dependencies_too() {
         // `uses:` is not the only way a workflow runs third-party code, and the
@@ -3932,6 +4518,8 @@ mod tests {
     )]
     // Requirements: SEC-010
     //   a Docker action is followed into its Dockerfile, where every image the build pulls must be digest-pinned
+    // Work-Package: WP-000
+    // Evidence: a_dockerfile_action_is_followed_to_its_base_images
     fn a_dockerfile_action_is_followed_to_its_base_images() {
         // `image: Dockerfile` builds from source, so the executable dependency
         // is that file's `FROM` lines rather than a pullable reference.
@@ -4064,6 +4652,8 @@ mod tests {
 
     // Requirements: SEC-010
     //   npm advisory coverage follows discovery rather than a hard-coded path, so a new package cannot be born unaudited
+    // Work-Package: WP-000
+    // Evidence: the_npm_advisory_check_finds_every_package_not_one_named_directory
     #[test]
     fn the_npm_advisory_check_finds_every_package_not_one_named_directory() {
         // The advisory check ran in `packages/canonical` by name, because that
@@ -4131,6 +4721,8 @@ mod tests {
 
     // Requirements: SAFE-009
     //   `unsafe_code = "deny"` reaches a crate only if it opts into the workspace lints, so a member omitting the stanza is refused rather than silently exempt
+    // Work-Package: WP-000
+    // Evidence: every_workspace_member_inherits_the_lint_policy
     #[test]
     fn every_workspace_member_inherits_the_lint_policy() {
         verify_workspace_lints(&repository_root())
@@ -4199,6 +4791,8 @@ mod tests {
 
     // Requirements: SEC-010
     //   this repository's own workflows pass the digest-pinning gate, so the check is exercised against real input rather than only against fixtures
+    // Work-Package: WP-000
+    // Evidence: the_repository_workflows_pass_the_real_gate
     #[test]
     fn the_repository_workflows_pass_the_real_gate() {
         verify_action_pins(&repository_root())
@@ -4207,6 +4801,8 @@ mod tests {
 
     // Requirements: SEC-005
     //   every Cargo and npm manifest declares the project licence, checked semantically so the release inventory has a subject
+    // Work-Package: WP-000
+    // Evidence: every_repository_manifest_declares_the_project_licence
     #[test]
     fn every_repository_manifest_declares_the_project_licence() {
         verify_manifest_licenses(&repository_root())
@@ -4215,6 +4811,8 @@ mod tests {
 
     // Requirements: SEC-005
     //   a `license` key nested anywhere but the document root does not satisfy the inventory
+    // Work-Package: WP-000
+    // Evidence: a_nested_json_licence_property_does_not_satisfy_the_gate
     #[test]
     fn a_nested_json_licence_property_does_not_satisfy_the_gate() {
         // The 2026-07-29 follow-up audit's reproduction: the old check matched
