@@ -750,43 +750,22 @@ fn verify_action_pins(root: &Path) -> Result<(), TaskError> {
 
         let mut found = Vec::new();
         for document in &documents {
-            collect_uses(document, &mut found);
+            collect_dependencies(document, &mut found);
         }
 
-        for reference in found {
-            match classify_reference(&reference) {
-                ReferenceKind::Local(relative) => {
-                    // A local action or reusable workflow runs code from this
-                    // repository, so it needs no digest — but its *own*
-                    // references are remote supply chain, and mutation C showed
-                    // that assuming local actions live under `.github/actions/`
-                    // leaves anywhere else unread. Resolve it wherever it is.
-                    match resolve_local_reference(root, &relative) {
-                        Ok(targets) => queue.extend(targets),
-                        Err(reason) => violations.push(format!(
-                            "{display}: local reference `{reference}` — {reason}"
-                        )),
-                    }
-                }
-                ReferenceKind::Remote => match remote_violation(&reference) {
-                    Some(reason) => {
-                        violations.push(format!("{display}: {reference} — {reason}"));
-                    }
-                    None => match plain_tag_comment(&text, &reference) {
-                        Some(comment) if names_a_release(&comment) => pinned += 1,
-                        Some(comment) => violations.push(format!(
-                            "{display}: {reference} — pinned, but {comment:?} does not name a \
-                             release tag"
-                        )),
-                        None => violations.push(format!(
-                            "{display}: {reference} — pinned, but no `# <tag>` comment is \
-                             readable beside it in the source. Write the step plainly \
-                             (`uses: owner/repo@<sha> # vX.Y.Z`) so a reviewer can tell which \
-                             release the digest is"
-                        )),
-                    },
+        for dependency in found {
+            check_dependency(
+                &ScanContext {
+                    root,
+                    display: &display,
+                    file: &file,
+                    text: &text,
                 },
-            }
+                dependency,
+                &mut queue,
+                &mut violations,
+                &mut pinned,
+            )?;
         }
     }
 
@@ -807,6 +786,114 @@ fn verify_action_pins(root: &Path) -> Result<(), TaskError> {
     }
 }
 
+/// Where one dependency was declared, for the checks that need the file's text
+/// or its neighbours on disk.
+struct ScanContext<'a> {
+    root: &'a Path,
+    display: &'a str,
+    file: &'a Path,
+    text: &'a str,
+}
+
+/// Apply the SEC-010 policy to one declared dependency.
+///
+/// Extracted from `verify_action_pins` so each policy reads on its own: images
+/// are pinned by content digest, Dockerfiles are followed to their base images,
+/// local references are resolved and queued, and remote references need both an
+/// immutable identifier and a readable release tag at every site.
+fn check_dependency(
+    context: &ScanContext<'_>,
+    dependency: Dependency,
+    queue: &mut Vec<PathBuf>,
+    violations: &mut Vec<String>,
+    pinned: &mut usize,
+) -> Result<(), TaskError> {
+    let display = context.display;
+    let reference = match dependency {
+        Dependency::Image(image) => {
+            if names_a_dockerfile(&image) {
+                // A Docker action building from source: the executable
+                // dependency is that Dockerfile's base images.
+                let dockerfile = context
+                    .file
+                    .parent()
+                    .map(|directory| directory.join(image.trim_start_matches("./")))
+                    .filter(|path| path.is_file());
+                match dockerfile {
+                    None => violations.push(format!(
+                        "{display}: `image: {image}` names a Dockerfile that does not exist \
+                         beside the action metadata"
+                    )),
+                    Some(path) => {
+                        let body = fs::read_to_string(&path).map_err(|source| TaskError::Io {
+                            path: path.clone(),
+                            source,
+                        })?;
+                        for base in unpinned_dockerfile_bases(&body) {
+                            violations.push(format!(
+                                "{display}: Dockerfile base image `{base}` is not pinned by \
+                                 digest; write `name@sha256:<64 hex>`"
+                            ));
+                        }
+                    }
+                }
+                return Ok(());
+            }
+            if let Some(reason) = image_violation(&image) {
+                violations.push(format!("{display}: {reason}"));
+            } else {
+                *pinned += 1;
+            }
+            return Ok(());
+        }
+        Dependency::Uses(reference) => reference,
+    };
+
+    if let ReferenceKind::Local(relative) = classify_reference(&reference) {
+        // A local action or reusable workflow runs code from this repository, so
+        // it needs no digest — but its *own* references are remote supply chain,
+        // and assuming local actions live under `.github/actions/` left anywhere
+        // else unread.
+        match resolve_local_reference(context.root, &relative) {
+            Ok(targets) => queue.extend(targets),
+            Err(reason) => {
+                violations.push(format!(
+                    "{display}: local reference `{reference}` — {reason}"
+                ));
+            }
+        }
+        return Ok(());
+    }
+
+    if let Some(reason) = remote_violation(&reference) {
+        violations.push(format!("{display}: {reference} — {reason}"));
+        return Ok(());
+    }
+
+    let audit = every_occurrence_tagged(context.text, &reference);
+    if let Some(comment) = audit.bad_comment {
+        violations.push(format!(
+            "{display}: {reference} — pinned, but {comment:?} does not name a release tag"
+        ));
+    } else if audit.occurrences == 0 {
+        violations.push(format!(
+            "{display}: {reference} — pinned, but no plain occurrence is readable in the source, \
+             so no reviewer can see which release the digest is. Write the step plainly \
+             (`uses: owner/repo@<sha> # vX.Y.Z`)"
+        ));
+    } else if audit.untagged > 0 {
+        violations.push(format!(
+            "{display}: {reference} — {} of {} occurrence(s) carry no `# <tag>` comment. Every \
+             site needs its own; borrowing one from elsewhere in the file proves nothing about \
+             this step",
+            audit.untagged, audit.occurrences
+        ));
+    } else {
+        *pinned += 1;
+    }
+    Ok(())
+}
+
 fn is_yaml(path: &Path) -> bool {
     path.extension()
         .and_then(OsStr::to_str)
@@ -817,31 +904,61 @@ fn is_yaml(path: &Path) -> bool {
 
 /// Every `uses` mapping value in a parsed document, decoded.
 ///
-/// Deliberately context-free: any `uses` key anywhere counts, rather than only
-/// the positions GitHub documents today (`jobs.<id>.uses`,
-/// `jobs.<id>.steps[*].uses`, `runs.steps[*].uses`). Walking the whole tree
-/// cannot miss a context this tool did not anticipate, and a stray `uses` key
-/// somewhere harmless costs one false violation to fix rather than one silent
-/// omission to be exploited.
-fn collect_uses(node: &yaml_rust2::Yaml, found: &mut Vec<String>) {
+/// Deliberately context-free: any `uses` or `image` key anywhere counts, rather
+/// than only the positions GitHub documents today. Walking the whole tree cannot
+/// miss a context this tool did not anticipate, and a stray key somewhere
+/// harmless costs one false violation to fix rather than one silent omission to
+/// be exploited.
+///
+/// `image` is collected because `uses` is not the only way a workflow runs
+/// third-party code. A job container (`jobs.<id>.container.image`), a service
+/// container (`jobs.<id>.services.<name>.image`), and a Docker action's
+/// `runs.image` are all executable dependencies that GitHub pulls and runs, and
+/// the previous version of this scanner saw none of them.
+fn collect_dependencies(node: &yaml_rust2::Yaml, found: &mut Vec<Dependency>) {
     match node {
         yaml_rust2::Yaml::Hash(map) => {
             for (key, value) in map {
-                if key.as_str() == Some("uses")
-                    && let Some(text) = value.as_str()
-                {
-                    found.push(text.to_owned());
+                match key.as_str() {
+                    Some("uses") => {
+                        if let Some(text) = value.as_str() {
+                            found.push(Dependency::Uses(text.to_owned()));
+                        }
+                    }
+                    Some("container") => {
+                        // `container: alpine:3.20` is the shorthand for
+                        // `container: { image: alpine:3.20 }`, so a scalar here
+                        // is itself an image reference.
+                        if let Some(text) = value.as_str() {
+                            found.push(Dependency::Image(text.to_owned()));
+                        }
+                    }
+                    Some("image") => {
+                        if let Some(text) = value.as_str() {
+                            found.push(Dependency::Image(text.to_owned()));
+                        }
+                    }
+                    _ => {}
                 }
-                collect_uses(value, found);
+                collect_dependencies(value, found);
             }
         }
         yaml_rust2::Yaml::Array(items) => {
             for item in items {
-                collect_uses(item, found);
+                collect_dependencies(item, found);
             }
         }
         _ => {}
     }
+}
+
+/// A declared dependency, and which policy applies to it.
+enum Dependency {
+    /// A `uses:` value: an action, a reusable workflow, or a `docker://` image.
+    Uses(String),
+    /// An `image:` or scalar `container:` value: a container GitHub pulls and
+    /// runs, or the literal `Dockerfile` a Docker action builds.
+    Image(String),
 }
 
 /// What kind of thing a `uses` value names.
@@ -880,11 +997,28 @@ fn resolve_local_reference(root: &Path, relative: &str) -> Result<Vec<PathBuf>, 
     }
 
     if resolved.is_dir() {
-        let metadata: Vec<PathBuf> = ["action.yml", "action.yaml"]
-            .iter()
-            .map(|name| resolved.join(name))
-            .filter(|path| path.is_file())
-            .collect();
+        // Containment is re-checked on the metadata file itself, not inferred
+        // from the directory. `is_file()` follows links, so a symlinked
+        // `action.yml` aimed outside the repository would otherwise be read and
+        // trusted — the directory passing the check above says nothing about
+        // where its contents point.
+        let mut metadata = Vec::new();
+        for name in ["action.yml", "action.yaml"] {
+            let candidate = resolved.join(name);
+            if !candidate.is_file() {
+                continue;
+            }
+            let file = candidate
+                .canonicalize()
+                .map_err(|error| format!("cannot resolve {relative}/{name}: {error}"))?;
+            if !file.starts_with(&canonical_root) {
+                return Err(format!(
+                    "{relative}/{name} resolves outside the repository, so its contents are not \
+                     this repository's code to exempt"
+                ));
+            }
+            metadata.push(file);
+        }
         if metadata.is_empty() {
             return Err(format!(
                 "{relative} is a directory with no action.yml or action.yaml, so GitHub could \
@@ -924,30 +1058,121 @@ fn remote_violation(reference: &str) -> Option<String> {
     }
 }
 
-/// The trailing comment beside the first plain occurrence of `reference` in the
-/// source, if there is one.
+/// Why an image reference fails SEC-010, or `None` if it is immutable.
 ///
-/// The parser discards comments, so auditability is checked against the text.
-/// This is not discovery — the parser already found the reference — so a
-/// reference the text layer cannot locate is reported as unreadable rather than
-/// skipped.
-fn plain_tag_comment(text: &str, reference: &str) -> Option<String> {
+/// A tag is not an identifier: `alpine:3.20` can be repointed at different code
+/// by whoever controls the repository, which is the same substitution a mutable
+/// action tag allows. `Dockerfile` is the one non-reference value GitHub
+/// accepts, and it is handled by the caller, which reads that file's `FROM`
+/// lines instead.
+fn image_violation(image: &str) -> Option<String> {
+    let bare = image.strip_prefix("docker://").unwrap_or(image);
+    match bare.rsplit_once("@sha256:") {
+        Some((_, digest)) if is_lowercase_hex(digest, 64) => None,
+        _ => Some(format!(
+            "container image `{image}` is not pinned by digest; write \
+             `name@sha256:<64 hex>`, because a tag can be repointed at different code"
+        )),
+    }
+}
+
+/// Whether an `image:` value names a Dockerfile to build rather than an image to
+/// pull.
+fn names_a_dockerfile(image: &str) -> bool {
+    let trimmed = image.trim_start_matches("./");
+    trimmed == "Dockerfile" || trimmed.ends_with("/Dockerfile")
+}
+
+/// Every `FROM` base image in a Dockerfile that is not pinned by digest.
+///
+/// A Docker action with `image: Dockerfile` builds from source in the action
+/// directory, so the base images in that Dockerfile are the executable
+/// dependency. `FROM x AS builder` and `FROM --platform=… x` are both accepted
+/// spellings; a stage name defined earlier in the same file is an internal
+/// reference and not a pull.
+fn unpinned_dockerfile_bases(text: &str) -> Vec<String> {
+    let mut unpinned = Vec::new();
+    let mut stages: BTreeSet<String> = BTreeSet::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('#') {
+            continue;
+        }
+        let Some(rest) = trimmed
+            .strip_prefix("FROM ")
+            .or_else(|| trimmed.strip_prefix("from "))
+        else {
+            continue;
+        };
+        let mut tokens = rest
+            .split_whitespace()
+            .filter(|token| !token.starts_with("--"));
+        let Some(base) = tokens.next() else { continue };
+        // `FROM base AS name` defines a stage that later FROMs may reference.
+        let mut remaining = tokens;
+        if remaining
+            .next()
+            .is_some_and(|word| word.eq_ignore_ascii_case("as"))
+            && let Some(name) = remaining.next()
+        {
+            stages.insert(name.to_owned());
+        }
+        if stages.contains(base) || base.starts_with('$') {
+            continue;
+        }
+        if image_violation(base).is_some() {
+            unpinned.push(base.to_owned());
+        }
+    }
+    unpinned
+}
+
+/// Whether **every** plain occurrence of `reference` in the source carries a
+/// release-tag comment, and how many were seen.
+///
+/// Binding matters. The previous version returned the first comment found
+/// anywhere in the file for that reference, so two steps sharing a SHA — one
+/// tagged, one bare — both passed on the tagged one's comment. Requiring every
+/// occurrence to be tagged binds the check to each site without needing source
+/// positions from the parser, and is stricter than pairing them one-to-one
+/// would be.
+fn every_occurrence_tagged(text: &str, reference: &str) -> TagAudit {
+    let mut occurrences = 0_usize;
+    let mut untagged = 0_usize;
+    let mut bad_comment = None;
     for line in text.lines() {
         let trimmed = line.trim_start();
         if trimmed.starts_with('#') {
             continue;
         }
-        let Some((code, comment)) = trimmed.split_once('#') else {
-            continue;
+        let (code, comment) = match trimmed.split_once('#') {
+            Some((code, comment)) => (code, Some(comment.trim())),
+            None => (trimmed, None),
         };
-        if code.contains(reference) {
-            let comment = comment.trim();
-            if !comment.is_empty() {
-                return Some(comment.to_owned());
+        if !code.contains(reference) {
+            continue;
+        }
+        occurrences += 1;
+        match comment.filter(|text| !text.is_empty()) {
+            None => untagged += 1,
+            Some(comment) if !names_a_release(comment) => {
+                bad_comment = Some(comment.to_owned());
             }
+            Some(_) => {}
         }
     }
-    None
+    TagAudit {
+        occurrences,
+        untagged,
+        bad_comment,
+    }
+}
+
+/// What the textual auditability pass saw for one reference.
+struct TagAudit {
+    occurrences: usize,
+    untagged: usize,
+    bad_comment: Option<String>,
 }
 
 /// The SPDX expression every manifest in this repository must declare.
@@ -1831,9 +2056,18 @@ mod tests {
         workflow: &str,
         local: Option<(&str, &str)>,
     ) -> Result<(), TaskError> {
-        let root =
-            std::env::temp_dir().join(format!("partman-xtask-scan-{tag}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
+        // A per-call counter as well as the process id, so no two invocations
+        // ever address the same directory. Reusing a path was flaky on Windows,
+        // where `remove_dir_all` can return before the deletion is visible and
+        // the next `create_dir_all` then fails with NotFound. Never reusing a
+        // name removes the race instead of retrying around it.
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "partman-xtask-scan-{tag}-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
         let workflows = root.join(super::WORKFLOW_DIRECTORY);
         fs::create_dir_all(&workflows).expect("create workflow directory");
         fs::write(workflows.join("ci.yml"), workflow).expect("write workflow");
@@ -1987,6 +2221,58 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_action_metadata_file_cannot_escape_the_repository() {
+        // A `./` reference is exempt from pinning because it runs this
+        // repository's own code. Checking the *directory* is inside the tree
+        // says nothing about where its contents point: a symlinked `action.yml`
+        // aimed outside would have been read and trusted, and whatever it
+        // declared would have been treated as first-party.
+        //
+        // A deletion sweep found this fix had no test — the containment check
+        // could be removed with every test still green, which is exactly the
+        // criticism the audit made of the traversal coverage.
+        let root =
+            std::env::temp_dir().join(format!("partman-xtask-symlink-meta-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let workflows = root.join(super::WORKFLOW_DIRECTORY);
+        fs::create_dir_all(&workflows).expect("create workflow directory");
+        fs::write(
+            workflows.join("ci.yml"),
+            "jobs:\n  build:\n    steps:\n      - uses: ./.github/act\n",
+        )
+        .expect("write workflow");
+        let action = root.join(".github/act");
+        fs::create_dir_all(&action).expect("create action directory");
+
+        // The real metadata lives outside the repository and declares a mutable
+        // reference, so following the link would both escape containment and
+        // read an unpinned dependency as though it were ours.
+        let outside = std::env::temp_dir().join(format!(
+            "partman-xtask-outside-meta-{}.yml",
+            std::process::id()
+        ));
+        fs::write(
+            &outside,
+            "runs:\n  using: composite\n  steps:\n    - uses: actions/cache@v4\n",
+        )
+        .expect("write outside metadata");
+        std::os::unix::fs::symlink(&outside, action.join("action.yml"))
+            .expect("symlink action.yml outside the repository");
+
+        let result = verify_action_pins(&root);
+        let _ = fs::remove_dir_all(&root);
+        let _ = fs::remove_file(&outside);
+
+        let error = result.expect_err("a symlinked action.yml pointing outside must be refused");
+        assert!(
+            error.to_string().contains("outside the repository"),
+            "the refusal must say containment failed, not merely that something was unpinned: \
+             {error}"
+        );
+    }
+
     #[test]
     fn a_workflow_that_cannot_be_parsed_is_a_violation_not_a_skip() {
         // GitHub might still run what this tool cannot read, so unparseable
@@ -2026,6 +2312,123 @@ mod tests {
             Some((".github/loop/action.yml", metadata)),
         )
         .expect("a self-referential local action is not a violation, only a cycle to survive");
+    }
+
+    #[test]
+    fn container_images_are_executable_dependencies_too() {
+        // `uses:` is not the only way a workflow runs third-party code, and the
+        // previous scanner saw none of these. GitHub pulls and runs a job
+        // container, a service container, and a Docker action's `runs.image`.
+        // Each must be pinned by content digest, because a tag can be repointed
+        // exactly like a mutable action tag.
+        let job_container =
+            "jobs:\n  build:\n    container:\n      image: alpine:3.20\n    steps: []\n";
+        let error = scan_workflow("job-container", job_container, None)
+            .expect_err("a job container must be pinned by digest");
+        assert!(
+            error.to_string().contains("alpine:3.20"),
+            "the image must be named: {error}"
+        );
+
+        // The scalar shorthand for the same thing.
+        let shorthand = "jobs:\n  build:\n    container: alpine:3.20\n    steps: []\n";
+        assert!(
+            scan_workflow("container-shorthand", shorthand, None).is_err(),
+            "`container: <image>` is the documented shorthand and must be checked too"
+        );
+
+        let service = "jobs:\n  build:\n    services:\n      db:\n        image: postgres:16\n    steps: []\n";
+        let error = scan_workflow("service", service, None)
+            .expect_err("a service container must be pinned by digest");
+        assert!(error.to_string().contains("postgres:16"));
+
+        // A digest-pinned container is the accepted form.
+        let pinned = format!(
+            "jobs:\n  build:\n    container:\n      image: alpine@sha256:{}\n    steps: []\n",
+            "b".repeat(64)
+        );
+        scan_workflow("container-pinned", &pinned, None)
+            .expect("an image pinned by sha256 digest is immutable and acceptable");
+
+        // A local Docker action's own base image.
+        let workflow = "jobs:\n  build:\n    steps:\n      - uses: ./.github/docker-action\n";
+        let metadata = "runs:\n  using: docker\n  image: docker://alpine:3.20\n";
+        let error = scan_workflow(
+            "docker-action",
+            workflow,
+            Some((".github/docker-action/action.yml", metadata)),
+        )
+        .expect_err("a Docker action's image must be pinned by digest");
+        assert!(error.to_string().contains("alpine:3.20"));
+    }
+
+    #[test]
+    fn a_dockerfile_action_is_followed_to_its_base_images() {
+        // `image: Dockerfile` builds from source, so the executable dependency
+        // is that file's `FROM` lines rather than a pullable reference.
+        let root =
+            std::env::temp_dir().join(format!("partman-xtask-dockerfile-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let workflows = root.join(super::WORKFLOW_DIRECTORY);
+        fs::create_dir_all(&workflows).expect("create workflow directory");
+        fs::write(
+            workflows.join("ci.yml"),
+            "jobs:\n  build:\n    steps:\n      - uses: ./.github/built\n",
+        )
+        .expect("write workflow");
+        let action = root.join(".github/built");
+        fs::create_dir_all(&action).expect("create action directory");
+        fs::write(
+            action.join("action.yml"),
+            "runs:\n  using: docker\n  image: Dockerfile\n",
+        )
+        .expect("write action metadata");
+
+        fs::write(action.join("Dockerfile"), "FROM alpine:3.20\nRUN true\n")
+            .expect("write Dockerfile");
+        let error = verify_action_pins(&root).expect_err("an unpinned FROM must be refused");
+        assert!(
+            error.to_string().contains("alpine:3.20"),
+            "the base image must be named: {error}"
+        );
+
+        // Digest-pinned, plus a multi-stage build whose second FROM references
+        // an internal stage rather than pulling anything.
+        let pinned = format!(
+            "FROM alpine@sha256:{} AS builder\nFROM builder\nRUN true\n",
+            "c".repeat(64)
+        );
+        fs::write(action.join("Dockerfile"), pinned).expect("write pinned Dockerfile");
+        verify_action_pins(&root)
+            .expect("a digest-pinned base and an internal stage reference are both fine");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_release_comment_cannot_be_borrowed_from_another_step() {
+        // Two steps sharing one SHA, only the second tagged. The previous check
+        // searched the whole file for the reference and returned the first
+        // comment it found, so the bare step passed on the tagged step's
+        // comment — a reviewer looking at step one would see no version at all.
+        let sha = "a".repeat(40);
+        let borrowed = format!(
+            "jobs:\n  one:\n    steps:\n      - uses: actions/checkout@{sha}\n  two:\n    steps:\n      - uses: actions/checkout@{sha} # v7.0.1\n"
+        );
+        let error = scan_workflow("borrowed-tag", &borrowed, None)
+            .expect_err("every occurrence needs its own release-tag comment");
+        assert!(
+            error.to_string().contains("carry no `# <tag>` comment"),
+            "the refusal must say which sites are untagged: {error}"
+        );
+
+        // Both tagged is fine, and proves the check is not simply counting
+        // occurrences and refusing repeats.
+        let both = format!(
+            "jobs:\n  one:\n    steps:\n      - uses: actions/checkout@{sha} # v7.0.1\n  two:\n    steps:\n      - uses: actions/checkout@{sha} # v7.0.1\n"
+        );
+        scan_workflow("both-tagged", &both, None)
+            .expect("the same action pinned twice, tagged at both sites, is acceptable");
     }
 
     #[test]
