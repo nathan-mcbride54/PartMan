@@ -296,6 +296,19 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   name, and adding one without updating branch protection in the same change
   leaves every pull request waiting forever on a check that never reports.
 
+- **The npm advisory check audits every package, not one named directory.** It
+  ran in `packages/canonical` by name, because that was the only npm package
+  there was. WP-030 reserves `packages/ui/`, `packages/design-tokens/` and
+  `apps/desktop/`, and a Tauri front end normally brings its own `package.json` —
+  each of which would have been audited by nobody while `cargo xtask
+  cross-language` went on reporting success. Discovery is a tree walk now, for
+  the same reason the action scanner's is: a gate that checks a hard-coded path
+  stops covering the repository the moment the repository grows, and says
+  nothing when it does. A package without a committed `package-lock.json` is a
+  violation rather than a skip — `npm audit` without one reports a verdict about
+  a tree that install time decides. Coverage is unchanged today (one package,
+  the same one) and correct when the shell lands.
+
 - **The Dockerfile half of `verify-actions` fails closed.** Structural YAML
   parsing closed the workflow half and left this separate line scanner alone; a
   project audit found three fail-open paths in it and an adversarial pass found
