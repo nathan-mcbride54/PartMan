@@ -3472,6 +3472,31 @@ fn route_annotation(
     }
 }
 
+/// Route every annotation, refusing the whole set if any one is ambiguous.
+fn annotations_by_package<'a>(
+    claims: &BTreeMap<String, Vec<OwnershipClaim>>,
+    annotations: &'a [Annotation],
+) -> Result<BTreeMap<String, Vec<&'a Annotation>>, TaskError> {
+    let mut by_package = BTreeMap::new();
+    let mut problems = Vec::new();
+    for annotation in annotations {
+        match route_annotation(claims, annotation) {
+            Ok(package) => by_package
+                .entry(package)
+                .or_insert_with(Vec::new)
+                .push(annotation),
+            Err(problem) => problems.push(problem),
+        }
+    }
+    if !problems.is_empty() {
+        return Err(TaskError::Policy(format!(
+            "annotations cannot be routed to a work package:\n  {}",
+            problems.join("\n  ")
+        )));
+    }
+    Ok(by_package)
+}
+
 /// Escape content before placing it inside a Markdown table cell.
 fn markdown_table_cell(value: &str) -> String {
     value.replace('|', "\\|").replace('\n', " ")
@@ -3563,27 +3588,13 @@ fn verify_generated_traceability(
     declared: &[DeclaredEvidence],
 ) -> Result<(), TaskError> {
     let claims = ownership_claims(root)?;
-    let mut by_package: BTreeMap<String, Vec<&Annotation>> = BTreeMap::new();
+    let by_package = annotations_by_package(&claims, annotations)?;
     let mut declared_by_package: BTreeMap<String, Vec<&DeclaredEvidence>> = BTreeMap::new();
-    let mut problems = Vec::new();
-
-    for annotation in annotations {
-        match route_annotation(&claims, annotation) {
-            Ok(package) => by_package.entry(package).or_default().push(annotation),
-            Err(problem) => problems.push(problem),
-        }
-    }
     for row in declared {
         declared_by_package
             .entry(row.package.clone())
             .or_default()
             .push(row);
-    }
-    if !problems.is_empty() {
-        return Err(TaskError::Policy(format!(
-            "annotations cannot be routed to a work package:\n  {}",
-            problems.join("\n  ")
-        )));
     }
 
     let modes = traceability_modes(root)?;
@@ -3667,13 +3678,8 @@ fn write_generated_traceability(
 ) -> Result<(), TaskError> {
     let claims = ownership_claims(root)?;
     let modes = traceability_modes(root)?;
-    let mut by_package: BTreeMap<String, Vec<&Annotation>> = BTreeMap::new();
+    let by_package = annotations_by_package(&claims, annotations)?;
     let mut declared_by_package: BTreeMap<String, Vec<&DeclaredEvidence>> = BTreeMap::new();
-    for annotation in annotations {
-        if let Ok(package) = route_annotation(&claims, annotation) {
-            by_package.entry(package).or_default().push(annotation);
-        }
-    }
     for row in declared {
         declared_by_package
             .entry(row.package.clone())
@@ -4246,6 +4252,18 @@ mode: hand-maintained
     }
 
     #[test]
+    fn unroutable_annotations_refuse_generation_before_rendering() {
+        let claims = routing_claims();
+        let annotations = vec![annotation_in("tools/xtask/src/main.rs", None)];
+        let refusal = super::annotations_by_package(&claims, &annotations)
+            .expect_err("generation must not silently drop ambiguous evidence");
+        assert!(
+            refusal.to_string().contains("cannot be routed"),
+            "{refusal}"
+        );
+    }
+
+    #[test]
     fn a_generated_document_announces_itself_and_is_a_pure_function_of_its_input() {
         // The marker is what the drift gate keys on, and determinism is what
         // makes byte equality a usable comparison at all.
@@ -4311,6 +4329,7 @@ Prose may mention ```traceability-evidence without opening the block.
             "- requirement:\n  - SAFE-007\n  evidence:\n  - test: a_real_test\n  claim: misspelled field\n",
             "- requirements:\n  - SAFE-007\n  - SAFE-007\n  evidence:\n  - test: a_real_test\n  claim: duplicate requirement\n",
             "- requirements:\n  - SAFE-007\n  evidence:\n  - path: deny.toml\n    test: a_real_test\n  claim: ambiguous evidence kind\n",
+            "- requirements:\n  - SAFE-007\n  evidence:\n  - test: a_real_test\n  claim: first claim\n  claim: silently replaced claim\n",
             "- &same\n  requirements:\n  - SAFE-007\n  evidence:\n  - test: a_real_test\n  claim: duplicate row\n- *same\n",
         ] {
             assert!(

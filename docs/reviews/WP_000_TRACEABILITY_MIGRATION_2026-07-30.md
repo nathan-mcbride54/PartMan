@@ -59,7 +59,7 @@ The generated count is informational. The last two counts are the merge gate.
 | 25 | Rename endpoints and raw path handling | Generated equivalent | Section 1.10 structured row |
 | 26 | Traceability command and spec-owned vocabulary | Expanded | Section 11.7 command row plus annotation proving IDs, headings, and actual Section 1 contract items come from the specification |
 | 27 | Generator failure mutations and passing control | Expanded | Section 12 structured row plus the new structured-evidence mutation annotations |
-| 28 | Orphaned annotation and measured helper mutation | Expanded | Section 11.7 structured row for orphan and slid-annotation refusals |
+| 28 | Orphaned annotation and measured helper mutation | Expanded | Section 11.7 structured row for orphan, slid-annotation, and pre-render routing refusals |
 | 29 | Positional binding's undetectable-rename limitation | Superseded, narrative retained | The limitation was closed by the explicit `// Evidence:` name. The measured failure of the first version and why redundancy is load-bearing remain in `docs/work-packages/WP-000.md`; the generated table carries the replacement regressions rather than presenting an old limitation as a current guarantee |
 | 30 | Cross-platform handling of `cfg`-gated tests | Generated equivalent | Section 11.7 structured row |
 | 31 | Promotion of a matching reserved path into ownership | Generated equivalent | Section 1.10 structured row |
