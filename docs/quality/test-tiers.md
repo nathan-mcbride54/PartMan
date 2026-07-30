@@ -18,11 +18,24 @@ Tier 1 is unprivileged and safe on every developer host. It currently contains:
   simulation, the specification-derived role vocabulary, and the mutation table
   that proves each check can fail (WP-030).
 
-Filesystem access is limited to reading `.github/workflows/` for the action-pin
-check, `schemas/canonical-encoding-vectors.json` for the shared vectors,
-`schemas/design-tokens.json` for the WP-030 accessibility harness, and temporary
-directories the fixture and token tests create and remove themselves. No test
-opens a block device at any tier.
+Filesystem access is all of repository-controlled text, and it has grown with
+each gate: workflow and composite-action YAML plus any Dockerfile they build for
+the action-pin check; Cargo and npm manifests, `cargo metadata` output and the
+two licence texts for the licence check; the `owned-paths` blocks, every tracked
+path from `git ls-files`, and the workspace membership `cargo metadata` reports
+for the two ownership checks; both lockfiles; `.cargo/config.toml`;
+`schemas/canonical-encoding-vectors.json` for the shared vectors;
+`schemas/design-tokens.json` for the WP-030 accessibility harness; and temporary
+directories the tests create and remove themselves. Tier 1 also launches `git`
+and `cargo` as subprocesses.
+
+*This paragraph previously said access was limited to `.github/workflows/`, two
+schema files and temporary directories. That stopped being true as gates were
+added, and a boundary description that lags the code is worse than none — it is
+the sentence a reader would rely on to decide the tier is safe.*
+
+**No test opens a block device at any tier.** That has been true throughout and
+is the claim this section exists to make.
 Later packages may add pure planner, validator, and regular-file fixture tests.
 
 Run it with:

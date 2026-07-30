@@ -32,6 +32,28 @@ by digest. Runner image provenance is recorded by GitHub in each job.
   executes hostile-byte parser tests. `cargo xtask fuzz` now verifies the lock
   with `--locked` before fuzzing, `cargo xtask supply-chain` checks the fuzz
   graph against this same policy, and Dependabot updates `/fuzz` weekly.
+- **A lockfile is generated, so ownership of it is ownership of its inputs.**
+  `Cargo.lock` is WP-000's, but every package that adds a crate or a dependency
+  rewrites it, and until 2026-07-30 that made the ownership gate refuse both
+  halves of any such change. A `derived-paths` block in a work-package document
+  declares a path generated; `verify-change-ownership` then lets any package
+  carry it, **but only alongside a manifest the lockfile actually resolves**. A
+  lockfile moving on its own is not regeneration — nothing in such a change asks
+  the resolver for a different answer — and stays the owner's to make.
+
+  The manifest is matched to the nearest lockfile above it, so editing
+  `fuzz/Cargo.toml` cannot vouch for the root `Cargo.lock`: `fuzz/` is excluded
+  from the workspace and carries its own lock. That was a hole in the first
+  version of the rule, found by attacking it rather than by review.
+
+  **What this does not establish:** a re-pin travelling alongside a genuine
+  manifest change passes. `--locked` cannot see it either — a transitive
+  dependency moved to a different version with a valid checksum still satisfies
+  every manifest. Telling the two apart needs the resolver's answer at both
+  revisions, which means the base tree and a full resolution on every pull
+  request. This is the residual risk the repository has always carried; the
+  derived declaration does not widen it, and `cargo deny`, `cargo audit` and
+  owner review are what stand against it.
 - Reject wildcard Rust dependency versions, except for path dependencies between
   crates in this workspace. Those carry no version requirement, which the check
   reports as `*`, but they resolve to a sibling directory in this repository and

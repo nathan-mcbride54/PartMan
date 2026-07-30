@@ -102,6 +102,7 @@ fn execute(task: &Task) -> Result<(), TaskError> {
             verify_toolchain()?;
             verify_action_pins(&repository_root())?;
             verify_manifest_licenses(&repository_root())?;
+            verify_workspace_lints(&repository_root())?;
             verify_path_ownership(&repository_root())?;
             audit_tokens()?;
             cargo(&["fmt", "--all", "--", "--check"])?;
@@ -1111,48 +1112,185 @@ fn names_a_dockerfile(image: &str) -> bool {
     trimmed == "Dockerfile" || trimmed.ends_with("/Dockerfile")
 }
 
-/// Every `FROM` base image in a Dockerfile that is not pinned by digest.
+/// Every image a Dockerfile pulls that is not pinned by digest.
 ///
 /// A Docker action with `image: Dockerfile` builds from source in the action
-/// directory, so the base images in that Dockerfile are the executable
-/// dependency. `FROM x AS builder` and `FROM --platform=… x` are both accepted
-/// spellings; a stage name defined earlier in the same file is an internal
-/// reference and not a pull.
+/// directory, so every image that build pulls is an executable dependency under
+/// SEC-010 — and "every image" is wider than "every `FROM`".
+///
+/// Structural YAML parsing closed the workflow half of this gate. It did not
+/// make *this* parser structural, and an audit plus an adversarial pass found
+/// nine ways a mutable image passed unseen. Four needed no unusual syntax at
+/// all:
+///
+/// - **A tab after `FROM`.** The old matcher was `strip_prefix("FROM ")`, one
+///   literal space. `BuildKit` splits on `[\t\v\f\r ]+`, so every other member of
+///   that class was invisible. This was the cheapest bypass in the file.
+/// - **A UTF-8 BOM** on the first line, which `BuildKit` strips and `str::trim`
+///   does not — the failure mode a Windows contributor produces by accident.
+/// - **`COPY --from=<image>`** and **`RUN --mount=…,from=<image>`**, which pull
+///   images that never appear in any `FROM`.
+/// - **`FROM alpine AS alpine`**, where the stage was registered from the same
+///   line before the base was tested against it, so the image shadowed itself.
+///
+/// The rest were the reviewer's three — a `$`-prefixed base skipped outright,
+/// case-sensitive instruction matching, and the `# syntax=` parser directive
+/// naming a `BuildKit` frontend image that was skipped as a comment — plus a
+/// continuation whose `\` was stored as a stage name.
+///
+/// Two things it deliberately does *not* do, both checked rather than assumed:
+/// `FROM scratch` is not a pull and is not a violation, and `# check=` and
+/// `# escape=` name no image, so only `syntax=` is treated as a dependency.
 fn unpinned_dockerfile_bases(text: &str) -> Vec<String> {
     let mut unpinned = Vec::new();
     let mut stages: BTreeSet<String> = BTreeSet::new();
-    for line in text.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with('#') {
+    let body = text.strip_prefix('\u{feff}').unwrap_or(text);
+
+    for reference in parser_directive_images(body) {
+        if image_violation(&reference).is_some() {
+            unpinned.push(reference);
+        }
+    }
+
+    for logical in logical_lines(body) {
+        let trimmed = logical.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
-        let Some(rest) = trimmed
-            .strip_prefix("FROM ")
-            .or_else(|| trimmed.strip_prefix("from "))
-        else {
+        let Some((instruction, rest)) = split_instruction(trimmed) else {
             continue;
         };
+
+        // `COPY --from=` and `RUN --mount=…,from=` pull an image that no `FROM`
+        // ever names.
+        if instruction.eq_ignore_ascii_case("COPY")
+            || instruction.eq_ignore_ascii_case("ADD")
+            || instruction.eq_ignore_ascii_case("RUN")
+        {
+            for reference in mounted_images(rest) {
+                if !is_stage(&stages, &reference) && image_violation(&reference).is_some() {
+                    unpinned.push(reference);
+                }
+            }
+            continue;
+        }
+
+        if !instruction.eq_ignore_ascii_case("FROM") {
+            continue;
+        }
+
         let mut tokens = rest
-            .split_whitespace()
-            .filter(|token| !token.starts_with("--"));
+            .split(DOCKERFILE_SPACE)
+            .filter(|token| !token.is_empty() && !token.starts_with("--"));
         let Some(base) = tokens.next() else { continue };
-        // `FROM base AS name` defines a stage that later FROMs may reference.
+
+        // Test the base against the stages defined *before* this line, then
+        // register this line's own stage. Registering first let
+        // `FROM alpine AS alpine` shadow itself.
+        let internal = is_stage(&stages, base);
         let mut remaining = tokens;
         if remaining
             .next()
             .is_some_and(|word| word.eq_ignore_ascii_case("as"))
             && let Some(name) = remaining.next()
+            && name != "\\"
         {
-            stages.insert(name.to_owned());
+            stages.insert(name.to_ascii_lowercase());
         }
-        if stages.contains(base) || base.starts_with('$') {
+        if internal || base.eq_ignore_ascii_case("scratch") {
             continue;
         }
-        if image_violation(base).is_some() {
+        // A variable base is refused rather than skipped. Resolving `ARG`
+        // would have to prove no `--build-arg` can override it, so the first
+        // policy is simply that a base image is written out.
+        if base.contains('$') || image_violation(base).is_some() {
             unpinned.push(base.to_owned());
         }
     }
     unpinned
+}
+
+/// The whitespace `BuildKit` accepts between a Dockerfile instruction and its
+/// arguments.
+const DOCKERFILE_SPACE: [char; 5] = [' ', '\t', '\u{b}', '\u{c}', '\r'];
+
+/// Join continuation lines, so a `FROM` split across two lines is one line.
+fn logical_lines(text: &str) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    for raw in text.lines() {
+        let line = raw.trim_end_matches('\r');
+        if let Some(head) = line.trim_end().strip_suffix('\\') {
+            current.push_str(head);
+            current.push(' ');
+        } else {
+            current.push_str(line);
+            lines.push(std::mem::take(&mut current));
+        }
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    lines
+}
+
+/// An instruction keyword and the rest of its line.
+fn split_instruction(line: &str) -> Option<(&str, &str)> {
+    let end = line.find(DOCKERFILE_SPACE)?;
+    let (instruction, rest) = line.split_at(end);
+    Some((instruction, rest.trim_start_matches(DOCKERFILE_SPACE)))
+}
+
+/// Images named by `--from=` on `COPY`/`ADD`, or by a `from=` key inside a
+/// `RUN --mount=`.
+fn mounted_images(rest: &str) -> Vec<String> {
+    let mut images = Vec::new();
+    for token in rest.split(DOCKERFILE_SPACE) {
+        if let Some(value) = token.strip_prefix("--from=") {
+            images.push(value.to_owned());
+        } else if let Some(mount) = token.strip_prefix("--mount=") {
+            for field in mount.split(',') {
+                if let Some(value) = field.strip_prefix("from=") {
+                    images.push(value.to_owned());
+                }
+            }
+        }
+    }
+    images
+}
+
+/// A `--from=` value naming an earlier stage is internal, not a pull. Stage
+/// names are case-insensitive to `BuildKit`, and a numeric index names a stage
+/// by position.
+fn is_stage(stages: &BTreeSet<String>, reference: &str) -> bool {
+    stages.contains(&reference.to_ascii_lowercase()) || reference.parse::<usize>().is_ok()
+}
+
+/// Images named by a parser directive.
+///
+/// `# syntax=<ref>` tells `BuildKit` to fetch a frontend image and run it as the
+/// builder — an executable dependency by any reading of SEC-010, and one the
+/// old scanner discarded as a comment. Directives are only legal before the
+/// first instruction, and `escape=` and `check=` name no image.
+fn parser_directive_images(text: &str) -> Vec<String> {
+    let mut images = Vec::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let Some(directive) = trimmed.strip_prefix('#') else {
+            break;
+        };
+        let directive = directive.trim();
+        let Some((key, value)) = directive.split_once('=') else {
+            continue;
+        };
+        if key.trim().eq_ignore_ascii_case("syntax") {
+            images.push(value.trim().to_owned());
+        }
+    }
+    images
 }
 
 /// Whether **every** plain occurrence of `reference` in the source carries a
@@ -1256,7 +1394,7 @@ fn verify_path_ownership(root: &Path) -> Result<(), TaskError> {
                 .filter(|file| claim_matches(&claim.pattern, file))
                 .collect();
             if matched.is_empty() {
-                if claim.reserved {
+                if claim.reserved() {
                     reservations.push(format!("{package}: {}", claim.pattern));
                 } else {
                     violations.push(format!(
@@ -1266,7 +1404,23 @@ fn verify_path_ownership(root: &Path) -> Result<(), TaskError> {
                     ));
                 }
             }
-            if !claim.reserved {
+            // A derived declaration says how a path comes to be, not who owns
+            // it. Counting it as coverage would let a path be declared
+            // generated and then be claimed by nobody.
+            //
+            // A *reservation* that has started matching files is different, and
+            // treating it as no coverage was a real defect: the two halves of
+            // Section 1.10 disagreed. `verify_change_ownership` already lets a
+            // package write inside its own reservation, so the first commit to
+            // do so passed the change gate and then failed the inventory —
+            // "claimed by no work package" about a path the package had claimed
+            // in advance, in the document, precisely so this could not happen.
+            // The promotion that would have fixed it has no legal route: a
+            // governance change moving the paths early leaves `main` red on a
+            // stale claim, and moving them in the same change as the files is
+            // an assignment edit under a `Work-Package:` trailer, which
+            // `AGENTS.md` forbids. So a reservation counts once it matches.
+            if claim.kind != ClaimKind::Derived {
                 for file in matched {
                     overlaps
                         .entry(file.clone())
@@ -1316,8 +1470,29 @@ fn verify_path_ownership(root: &Path) -> Result<(), TaskError> {
 /// One declared claim.
 struct OwnershipClaim {
     pattern: String,
-    /// From an `owned-paths-reserved` block: matching nothing is expected.
-    reserved: bool,
+    kind: ClaimKind,
+}
+
+/// Which block a claim came from.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ClaimKind {
+    /// `owned-paths`: this package authors the path.
+    Owned,
+    /// `owned-paths-reserved`: matching nothing yet is the point.
+    Reserved,
+    /// `derived-paths`: the path is generated from other files, so a change
+    /// that regenerates it is not authoring it. See [`derivation_is_plausible`].
+    Derived,
+}
+
+impl OwnershipClaim {
+    fn reserved(&self) -> bool {
+        self.kind == ClaimKind::Reserved
+    }
+
+    fn derived(&self) -> bool {
+        self.kind == ClaimKind::Derived
+    }
 }
 
 /// Files git tracks, as forward-slash relative paths.
@@ -1421,22 +1596,24 @@ fn ownership_claims_at(
     Ok(packages)
 }
 
-/// Parse the `owned-paths` and `owned-paths-reserved` blocks out of one
-/// work-package document.
+/// Parse the `owned-paths`, `owned-paths-reserved` and `derived-paths` blocks
+/// out of one work-package document.
 fn parse_owned_paths(name: &str, text: &str) -> Result<Vec<OwnershipClaim>, TaskError> {
     let mut claims = Vec::new();
-    let mut inside: Option<bool> = None;
+    let mut inside: Option<ClaimKind> = None;
     for line in text.lines() {
         let trimmed = line.trim();
         match inside {
             None => {
                 if trimmed == "```owned-paths" {
-                    inside = Some(false);
+                    inside = Some(ClaimKind::Owned);
                 } else if trimmed == "```owned-paths-reserved" {
-                    inside = Some(true);
+                    inside = Some(ClaimKind::Reserved);
+                } else if trimmed == "```derived-paths" {
+                    inside = Some(ClaimKind::Derived);
                 }
             }
-            Some(reserved) => {
+            Some(kind) => {
                 if trimmed == "```" {
                     inside = None;
                     continue;
@@ -1448,9 +1625,12 @@ fn parse_owned_paths(name: &str, text: &str) -> Result<Vec<OwnershipClaim>, Task
                     continue;
                 }
                 validate_claim_pattern(name, pattern)?;
+                if kind == ClaimKind::Derived {
+                    validate_derived_pattern(name, pattern)?;
+                }
                 claims.push(OwnershipClaim {
                     pattern: pattern.to_owned(),
-                    reserved,
+                    kind,
                 });
             }
         }
@@ -1460,7 +1640,7 @@ fn parse_owned_paths(name: &str, text: &str) -> Result<Vec<OwnershipClaim>, Task
             "{name}: an `owned-paths` block is not closed"
         )));
     }
-    if claims.is_empty() {
+    if !claims.iter().any(|claim| claim.kind == ClaimKind::Owned) {
         return Err(TaskError::Policy(format!(
             "{name} declares no owned paths; every work package must state its assignment in an \
              `owned-paths` block"
@@ -1495,33 +1675,31 @@ fn parse_owned_paths(name: &str, text: &str) -> Result<Vec<OwnershipClaim>, Task
 /// trailer cannot be used to smuggle code past the check.
 fn verify_change_ownership(root: &Path, base: &str) -> Result<(), TaskError> {
     let range = format!("{base}...HEAD");
-    let changed: Vec<String> = git(root, &["diff", "--name-only", &range])?
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .map(str::to_owned)
-        .collect();
+    let changed = changed_paths(root, &range)?;
 
     if changed.is_empty() {
         println!("verify-change-ownership: no paths changed against {base}");
         return Ok(());
     }
 
-    let messages = git(root, &["log", "--format=%B%x00", &format!("{base}..HEAD")])?;
-    let commits: Vec<&str> = messages
-        .split('\0')
-        .map(str::trim)
-        .filter(|body| !body.is_empty())
-        .collect();
-    if commits.is_empty() {
+    let (declared, governance) = read_declarations(root, base, changed.len())?;
+
+    // The mode must be unanimous. Governance used to win by being tested first,
+    // so a range mixing the two was judged as paperwork and the work package it
+    // also declared was never checked against anything.
+    if !declared.is_empty() && !governance.is_empty() {
         return Err(TaskError::Policy(format!(
-            "{} path(s) differ from {base} but no commit does so; refusing to guess which work \
-             package owns the change",
-            changed.len()
+            "this range mixes an assignment change with ordinary work: {} declared, and \
+             `Governance:` given as {}. Land the assignment change as its own pull request first \
+             — that ordering is the point of the separation, not a formality",
+            declared
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+                .join(", "),
+            governance.join("; ")
         )));
     }
-
-    let (declared, governance) = read_declarations(&commits);
 
     if !governance.is_empty() {
         return governance_change(&changed, &governance);
@@ -1561,36 +1739,156 @@ fn verify_change_ownership(root: &Path, base: &str) -> Result<(), TaskError> {
         ))
     })?;
 
-    let mut strays = Vec::new();
-    for path in &changed {
-        let owned = claims
-            .iter()
-            .any(|claim| !claim.reserved && claim_matches(&claim.pattern, path));
-        let reserved = claims
-            .iter()
-            .any(|claim| claim.reserved && claim_matches(&claim.pattern, path));
-        if !owned && !reserved {
-            strays.push(path.clone());
+    // Declared generated by *any* package — but only by one that also answers
+    // for the path. Generatedness is a property of the file rather than a
+    // privilege of one assignment, and that argument survives; what needed
+    // guarding is a document asserting it about a file it does not own, which
+    // would have let any package grant every package the exemption.
+    let derived: Vec<&str> = catalogue
+        .values()
+        .flat_map(|declared| {
+            declared.iter().filter(|claim| {
+                claim.derived()
+                    && declared.iter().any(|owned| {
+                        owned.kind == ClaimKind::Owned && owned.pattern == claim.pattern
+                    })
+            })
+        })
+        .map(|claim| claim.pattern.as_str())
+        .collect();
+
+    // Which manifests actually resolve into each generated lockfile the change
+    // touches. Asked of cargo, and only for a lockfile this change carries, so
+    // an ordinary change pays nothing for the question.
+    let mut resolves = BTreeSet::new();
+    for pattern in &derived {
+        if changed.iter().any(|path| claim_matches(pattern, path)) {
+            resolves.extend(workspace_manifests(root, pattern)?);
         }
     }
 
-    if strays.is_empty() {
-        println!(
-            "verify-change-ownership: {} path(s) all belong to {package} as assigned at {base}",
-            changed.len()
-        );
-        Ok(())
-    } else {
-        Err(TaskError::Policy(format!(
-            "this change declares `{package}`, but {} path(s) are outside that assignment as it \
-             stood at {base}. Widening the assignment in this same change does not help — the \
-             catalogue is read from the base for exactly that reason. Either land the assignment \
-             change as a separate `Governance:` pull request, or move these edits to the package \
-             that owns them:\n  {}",
-            strays.len(),
-            strays.join("\n  ")
-        )))
+    let (strays, regenerated) = classify(&changed, claims, &derived, &resolves);
+
+    if !strays.is_empty() {
+        return Err(stray_paths(&package, base, &strays, &derived, &resolves));
     }
+    println!(
+        "verify-change-ownership: {} path(s) belong to {package} as assigned at {base}; {} \
+         regenerated, not authored",
+        changed.len() - regenerated.len(),
+        regenerated.len()
+    );
+    for path in &regenerated {
+        println!("  regenerated: {path}");
+    }
+    Ok(())
+}
+
+/// Split the changed paths into the ones this assignment cannot account for and
+/// the ones it regenerated rather than authored.
+fn classify<'a>(
+    changed: &'a [String],
+    claims: &[OwnershipClaim],
+    derived: &[&str],
+    resolves: &BTreeSet<String>,
+) -> (Vec<String>, Vec<&'a str>) {
+    let mut strays = Vec::new();
+    let mut regenerated = Vec::new();
+    for path in changed {
+        let assigned = claims
+            .iter()
+            .any(|claim| !claim.derived() && claim_matches(&claim.pattern, path));
+        if assigned {
+            continue;
+        }
+        if derived.iter().any(|pattern| claim_matches(pattern, path))
+            && derivation_is_plausible(changed, resolves)
+        {
+            regenerated.push(path.as_str());
+        } else {
+            strays.push(path.clone());
+        }
+    }
+    (strays, regenerated)
+}
+
+/// The refusal, naming every stray and why a generated one was still refused.
+fn stray_paths(
+    package: &str,
+    base: &str,
+    strays: &[String],
+    derived: &[&str],
+    resolves: &BTreeSet<String>,
+) -> TaskError {
+    let alone: Vec<&str> = strays
+        .iter()
+        .map(String::as_str)
+        .filter(|path| derived.iter().any(|pattern| claim_matches(pattern, path)))
+        .collect();
+    let note = if alone.is_empty() {
+        String::new()
+    } else {
+        // Name the manifests that would have worked. The author who trips this
+        // has usually edited *a* manifest and is entitled to know why it did not
+        // count — an audit found the first version pointing them at the thing
+        // they had already done.
+        let mut resolving: Vec<&str> = resolves.iter().map(String::as_str).collect();
+        resolving.sort_unstable();
+        format!(
+            "\n\n{} of these are generated files, and a generated file moving on its own is not \
+             regeneration — nothing in this change asks the generator for a different answer:\n  \
+             {}\n\nCarrying one needs a change to a manifest it actually resolves. Cargo says \
+             those are:\n  {}\n\nOtherwise the pin belongs to the package that owns the lockfile.",
+            alone.len(),
+            alone.join("\n  "),
+            if resolving.is_empty() {
+                "(none — cargo was not asked, because no generated path was claimed here)"
+                    .to_owned()
+            } else {
+                resolving.join("\n  ")
+            }
+        )
+    };
+    TaskError::Policy(format!(
+        "this change declares `{package}`, but {} path(s) are outside that assignment as it stood \
+         at {base}. Widening the assignment in this same change does not help — the catalogue is \
+         read from the base for exactly that reason. Either land the assignment change as a \
+         separate `Governance:` pull request, or move these edits to the package that owns \
+         them:\n  {}{note}",
+        strays.len(),
+        strays.join("\n  ")
+    ))
+}
+
+/// Every path a change touches, both halves of a rename included.
+///
+/// Three defects lived in the one line this replaces, and an audit found all
+/// three in the same expression:
+///
+/// - **`--no-renames`.** Rename detection is on by default, and `--name-only`
+///   prints only a rename's *destination*. So `git mv` moved a file out of
+///   another package's territory and the gate checked only where it landed —
+///   and worse, a `Governance:` change could delete any file in the repository
+///   by renaming it to a `docs/work-packages/WP-*.md` name, because the source
+///   never appeared. Disabling detection makes the source a deletion and the
+///   destination an addition, so both are judged.
+/// - **`-z`.** `--name-only` C-quotes any path with a non-ASCII byte, so a
+///   legitimate `crates/tokens/src/café.rs` arrived as `"crates/..caf\303\251.rs"`
+///   and matched no claim — a gate refusing work it should permit, which erodes
+///   trust in it exactly as fast as a bypass does. `verify_path_ownership`
+///   already used `ls-files -z`; this makes the two agree.
+/// - **No `trim`.** Git does not quote a leading space, so `.map(str::trim)`
+///   silently normalised ` crates/tokens/src/lib.rs` onto the owned path. A
+///   path is a byte string, and trimming it is a normalisation the ownership
+///   catalogue never agreed to.
+fn changed_paths(root: &Path, range: &str) -> Result<Vec<String>, TaskError> {
+    Ok(
+        git(root, &["diff", "--no-renames", "-z", "--name-only", range])?
+            .split('\0')
+            .filter(|path| !path.is_empty())
+            .map(str::to_owned)
+            .collect(),
+    )
 }
 
 /// A `Governance:` change may edit the assignments themselves, and nothing else.
@@ -1618,20 +1916,115 @@ fn governance_change(changed: &[String], reasons: &[String]) -> Result<(), TaskE
     )))
 }
 
-/// The `Work-Package:` and `Governance:` trailers across a range of commits.
-fn read_declarations(commits: &[&str]) -> (BTreeSet<String>, Vec<String>) {
+/// The declaration on **every non-merge commit** in the range.
+///
+/// Two things were wrong with the version this replaces, and both let a commit
+/// travel without saying what it belonged to.
+///
+/// **The trailers were unioned across the range.** One declaring commit
+/// laundered every undeclared commit beside it, so a two-commit pull request
+/// passed with a trailer on only the second. Each commit is now asked
+/// individually, and one that declares nothing is named in the refusal.
+///
+/// **The parse was a line scan, not a trailer parse.** Any line that began with
+/// the key after trimming counted — including a fenced example inside a commit
+/// body, and including a leading-space continuation line that git does not treat
+/// as a trailer at all — while a genuine lowercase `work-package:` trailer, which
+/// git accepts, was refused. Git's own parser now answers, through the
+/// `%(trailers:…)` atom in the same `git log` call: same semantics as
+/// `git interpret-trailers --parse`, no second process, and no house dialect to
+/// keep in step with git's.
+///
+/// **Merge commits are exempt, deliberately and not by accident.** They author
+/// no content of their own, and the exemption is not a convenience: branch
+/// protection is `strict: true`, so `gh pr update-branch` merges `main` into
+/// every stale branch and GitHub writes those merge commits itself — three are
+/// already in this history — and for a `pull_request` event CI checks out
+/// GitHub's generated `refs/pull/N/merge`. `main` carries 51 merge commits and
+/// exactly none of them has a trailer. A literal "every commit" rule would fail
+/// every pull request on the day it landed, which is why the documents that
+/// claimed one were corrected rather than the code being tightened to match.
+fn read_declarations(
+    root: &Path,
+    base: &str,
+    changed: usize,
+) -> Result<(BTreeSet<String>, Vec<String>), TaskError> {
+    const RECORD: &str = "%H%x1f%(trailers:key=Work-Package,valueonly,only)\
+                          %x1f%(trailers:key=Governance,valueonly,only)%x00";
+    let log = git(
+        root,
+        &[
+            "log",
+            "--no-merges",
+            &format!("--format={RECORD}"),
+            &format!("{base}..HEAD"),
+        ],
+    )?;
+
     let mut declared = BTreeSet::new();
     let mut governance = Vec::new();
-    for body in commits {
-        for line in body.lines().map(str::trim) {
-            if let Some(value) = line.strip_prefix("Work-Package:") {
-                declared.insert(value.trim().to_owned());
-            } else if let Some(reason) = line.strip_prefix("Governance:") {
-                governance.push(reason.trim().to_owned());
+    let mut undeclared = Vec::new();
+    let mut both = Vec::new();
+    let mut seen = 0_usize;
+
+    for record in log.split('\0').filter(|record| !record.trim().is_empty()) {
+        seen += 1;
+        let mut fields = record.trim_start_matches(['\r', '\n']).split('\x1f');
+        let commit = fields.next().unwrap_or_default().trim();
+        let short = commit.get(..8).unwrap_or(commit);
+        let packages = trailer_values(fields.next().unwrap_or_default());
+        let reasons = trailer_values(fields.next().unwrap_or_default());
+
+        match (packages.is_empty(), reasons.is_empty()) {
+            (true, true) => undeclared.push(short.to_owned()),
+            (false, false) => both.push(short.to_owned()),
+            _ => {
+                declared.extend(packages);
+                governance.extend(reasons);
             }
         }
     }
-    (declared, governance)
+
+    if seen == 0 {
+        return Err(TaskError::Policy(format!(
+            "{changed} path(s) differ from {base} but no commit does so; refusing to guess which \
+             work package owns the change"
+        )));
+    }
+    if !both.is_empty() {
+        return Err(TaskError::Policy(format!(
+            "a change is either ordinary work or a change to the assignments, never both, but {} \
+             commit(s) declare `Work-Package:` and `Governance:` together: {}",
+            both.len(),
+            both.join(", ")
+        )));
+    }
+    if !undeclared.is_empty() {
+        return Err(TaskError::Policy(format!(
+            "{} commit(s) carry no declaration: {}. Every non-merge commit needs a \
+             `Work-Package: WP-0NN` trailer, or `Governance: <reason>` if it edits assignments. \
+             A trailer is git's own last-paragraph `Key: value`, so an example quoted in the body \
+             does not count and a rewritten message must keep it",
+            undeclared.len(),
+            undeclared.join(", ")
+        )));
+    }
+    Ok((declared, governance))
+}
+
+/// Non-empty trailer values, one per line, as `%(trailers:valueonly)` emits them.
+///
+/// An empty value is dropped rather than recorded: `Governance:` with no reason
+/// used to be accepted and printed as an empty parenthesis, which is an audit
+/// record of nothing. Dropping it here makes the commit undeclared, and the
+/// refusal then says so by name.
+fn trailer_values(field: &str) -> Vec<String> {
+    field
+        .lines()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Whether a path is a work-package assignment document.
@@ -1684,6 +2077,209 @@ fn validate_claim_pattern(package: &str, pattern: &str) -> Result<(), TaskError>
         )));
     }
     Ok(())
+}
+
+/// A derived path is only understood if this tool knows how it is derived.
+///
+/// `Cargo.lock` is the one derivation defined today. Anything else is refused
+/// rather than exempted, because a `derived-paths` block is an *exemption* from
+/// the ownership check and an exemption nobody can verify is a hole with a
+/// comment beside it. Adding a second kind means writing its rule first.
+fn validate_derived_pattern(package: &str, pattern: &str) -> Result<(), TaskError> {
+    if is_named(pattern, "Cargo.lock") {
+        return Ok(());
+    }
+    Err(TaskError::Policy(format!(
+        "{package}: `{pattern}` is declared derived, but no derivation is defined for it. A \
+         derived path is exempt from change ownership, so the exemption may only cover a path \
+         whose regeneration this tool can check. Today that is a Cargo lockfile"
+    )))
+}
+
+/// Whether a change plausibly *regenerated* a derived path rather than edited it.
+///
+/// A Cargo lockfile is a function of the manifests it resolves. Cargo already
+/// proves the two agree — `--locked` sits in the `xtask` alias, so a lock that
+/// does not match its manifests refuses before any gate runs. What that cannot
+/// see is a lockfile changed **on its own**: re-pinning a transitive dependency
+/// to a different version with a valid checksum still satisfies every manifest.
+///
+/// So the exemption is conditional. A change may carry a lockfile it does not
+/// own when it also changes a manifest, because then the lockfile churn is a
+/// consequence of work the change is entitled to do. A lockfile moving by
+/// itself is not regeneration, and belongs to the package that owns it.
+///
+/// The manifest must be one this lockfile actually resolves, and **cargo is
+/// asked, not the pathname**. Two earlier versions of this rule guessed:
+///
+/// - The first accepted any `Cargo.toml` anywhere. `fuzz/` is *excluded* from
+///   the root workspace and carries its own lockfile, so editing
+///   `fuzz/Cargo.toml` cannot change the root `Cargo.lock` — yet it unlocked it.
+/// - The second matched a manifest to the nearest lockfile above it. That was a
+///   proxy for workspace membership, and the proxy was writable: an adversarial
+///   pass showed a file merely *named* `Cargo.toml` — a note, a fixture, a
+///   symlink — anywhere a package owned would unlock the root lockfile, and that
+///   deleting `fuzz/Cargo.lock` in one pull request let `fuzz/Cargo.toml` vouch
+///   for the root lock in the next while `fuzz` stayed excluded.
+///
+/// A fourth lexical predicate standing in for a semantic fact was not worth
+/// writing. [`workspace_manifests`] asks `cargo metadata` which manifests belong
+/// to the workspace that lockfile locks, so membership is answered by the tool
+/// that defines it. A path that is not a member's manifest is not a manifest,
+/// whatever it is called.
+///
+/// **What this does not establish:** a re-pin travelling *alongside* a genuine
+/// manifest change passes. Distinguishing the two needs the resolver's answer at
+/// both revisions, which means base's whole tree and a full resolution on every
+/// pull request. The residual risk is the same one the repository has always
+/// carried — nothing here makes it worse — and `cargo deny`, `cargo audit` and
+/// owner review are what stand against it. Recorded in
+/// `docs/quality/dependency-policy.md` rather than implied to be covered.
+fn derivation_is_plausible(changed: &[String], resolves: &BTreeSet<String>) -> bool {
+    changed.iter().any(|path| resolves.contains(path))
+}
+
+/// Every workspace member inherits the workspace lint policy.
+///
+/// `[workspace.lints]` denies `unsafe_code` and warns on `missing_docs`, and CI
+/// turns warnings into errors — but **only for a crate that opts in** with
+/// `[lints] workspace = true`. A member that omits the stanza inherits nothing,
+/// and this was measured rather than reasoned about: a new member with an
+/// `unsafe fn` in it produced **zero** diagnostics and `cargo xtask ci` stayed
+/// green.
+///
+/// That is the shape this repository rejects everywhere else — a safety property
+/// resting on a declaration somebody has to remember rather than on something
+/// computed. The membership list comes from `cargo metadata`, so a crate cannot
+/// escape by not being mentioned here.
+///
+/// The manifest **text** is read rather than `cargo metadata`, because metadata
+/// resolves the inheritance away: by the time cargo reports a package, a manifest
+/// that opted in and one that did not look the same.
+fn verify_workspace_lints(root: &Path) -> Result<(), TaskError> {
+    let mut violations = Vec::new();
+    let members = workspace_manifests(root, "Cargo.lock")?;
+    let mut checked = 0_usize;
+
+    for relative in &members {
+        if relative == "Cargo.toml" {
+            continue; // The virtual root declares the policy; it inherits nothing.
+        }
+        let path = root.join(relative);
+        let text = fs::read_to_string(&path).map_err(|source| TaskError::Io {
+            path: path.clone(),
+            source,
+        })?;
+        checked += 1;
+        if !inherits_workspace_lints(&text) {
+            violations.push(format!(
+                "{relative} does not declare `[lints]\\nworkspace = true`, so it inherits none of \
+                 `[workspace.lints]` — `unsafe_code = \"deny\"` included"
+            ));
+        }
+    }
+
+    if violations.is_empty() {
+        println!("verify-lints: {checked} workspace member(s) inherit the workspace lint policy");
+        return Ok(());
+    }
+    Err(TaskError::Policy(format!(
+        "SAFE-009 rests on `unsafe_code = \"deny\"` reaching every crate, and a member that omits \
+         the opt-in silently escapes it:\n  {}",
+        violations.join("\n  ")
+    )))
+}
+
+/// Whether a manifest opts into `[workspace.lints]`.
+///
+/// Comments are stripped first: `# [lints]` above `# workspace = true` is not an
+/// opt-in, and a check that read it as one would report coverage that does not
+/// exist.
+fn inherits_workspace_lints(manifest: &str) -> bool {
+    let mut inside = false;
+    for line in manifest.lines() {
+        let code = line
+            .split_once('#')
+            .map_or(line, |(before, _)| before)
+            .trim();
+        if code.starts_with('[') {
+            inside = code == "[lints]";
+            continue;
+        }
+        if inside && code.replace(' ', "") == "workspace=true" {
+            return true;
+        }
+    }
+    false
+}
+
+/// Every manifest belonging to the workspace that `lockfile` locks.
+///
+/// The workspace root manifest is included explicitly, because this repository's
+/// root is a *virtual* manifest — `[workspace]` with no `[package]` — so it
+/// never appears in `packages`, and adding a member to it is the single most
+/// legitimate reason for the lockfile to move.
+///
+/// `--locked` for the reason it sits in the alias: this check must not be the
+/// thing that repairs a stale lockfile. A workspace that does not resolve is an
+/// error here rather than an empty set, so a broken manifest cannot quietly
+/// become "no manifest changed".
+fn workspace_manifests(root: &Path, lockfile: &str) -> Result<BTreeSet<String>, TaskError> {
+    let directory = lockfile.rsplit_once('/').map(|(parent, _)| parent);
+    let manifest = directory.map_or_else(
+        || "Cargo.toml".to_owned(),
+        |parent| format!("{parent}/Cargo.toml"),
+    );
+
+    let (_, paths) = cargo_package_licenses(root, &manifest)?;
+    let mut manifests = BTreeSet::new();
+    manifests.insert(manifest);
+    for path in paths {
+        manifests.insert(relative_to_root(root, &path)?);
+    }
+    Ok(manifests)
+}
+
+/// A manifest path from `cargo metadata`, as a repository-relative git path.
+///
+/// **Both spellings of the root are tried, and failing to relativize is an
+/// error.** The first version silently dropped a path it could not strip, and
+/// macOS caught it within minutes of the change reaching CI: `std::env::temp_dir`
+/// is `/var/folders/…`, `/var` is a symlink to `/private/var`, and `cargo
+/// metadata` answers with the resolved `/private/var/…`. Every member manifest
+/// failed to strip, the set silently shrank to the workspace root alone, and a
+/// legitimate change was refused with a message listing manifests that did not
+/// include the one the author had just edited.
+///
+/// Canonicalizing the root alone would trade one platform for another: on
+/// Windows `fs::canonicalize` yields a `\\?\` prefix that `cargo metadata`'s
+/// plain `D:\…` never matches. So both are tried, and a path that matches
+/// neither is a refusal rather than a quiet omission — a check that forgets part
+/// of its own input is the failure mode this repository keeps finding.
+fn relative_to_root(root: &Path, path: &Path) -> Result<String, TaskError> {
+    let canonical = fs::canonicalize(root).ok();
+    let relative = path
+        .strip_prefix(root)
+        .ok()
+        .or_else(|| {
+            canonical
+                .as_deref()
+                .and_then(|base| path.strip_prefix(base).ok())
+        })
+        .ok_or_else(|| {
+            TaskError::Policy(format!(
+                "`cargo metadata` reported the manifest {} , which is not inside {}. Refusing to \
+                 drop it: a workspace-membership answer with a member missing would refuse a \
+                 change that is entitled to carry the lockfile",
+                path.display(),
+                root.display()
+            ))
+        })?;
+    Ok(relative.to_string_lossy().replace('\\', "/"))
+}
+
+fn is_named(path: &str, file: &str) -> bool {
+    Path::new(path).file_name().and_then(OsStr::to_str) == Some(file)
 }
 
 fn claim_matches(pattern: &str, file: &str) -> bool {
@@ -2107,13 +2703,16 @@ impl fmt::Display for TaskError {
 #[cfg(test)]
 mod tests {
     use super::{
-        Task, TaskError, claim_matches, is_pinned, parse, parse_test, repository_root, run_tier,
-        validate_claim_pattern, verify_action_pins, verify_change_ownership,
-        verify_manifest_licenses, verify_path_ownership,
+        Task, TaskError, claim_matches, derivation_is_plausible, inherits_workspace_lints,
+        is_pinned, parse, parse_test, relative_to_root, repository_root, run_tier,
+        validate_claim_pattern, validate_derived_pattern, verify_action_pins,
+        verify_change_ownership, verify_manifest_licenses, verify_path_ownership,
+        verify_workspace_lints, workspace_manifests,
     };
     use std::ffi::OsString;
     use std::fs;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
 
     fn args(values: &[&str]) -> Vec<OsString> {
         values.iter().map(OsString::from).collect()
@@ -2634,6 +3233,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one regression per confirmed bypass; splitting them hides the roster"
+    )]
     fn a_dockerfile_action_is_followed_to_its_base_images() {
         // `image: Dockerfile` builds from source, so the executable dependency
         // is that file's `FROM` lines rather than a pullable reference.
@@ -2673,7 +3276,167 @@ mod tests {
         verify_action_pins(&root)
             .expect("a digest-pinned base and an internal stage reference are both fine");
 
+        // Nine ways a mutable image used to pass this gate unseen. Each is a
+        // permanent regression, and each was confirmed against the scanner
+        // before the rewrite -- the gate exited successfully on all of them.
+        let digest = format!("alpine@sha256:{}", "c".repeat(64));
+        for (name, dockerfile, expected) in [
+            // The reviewer's three.
+            (
+                "an ARG-supplied base",
+                "ARG BASE=alpine:3.20\nFROM ${BASE}\n".to_owned(),
+                "${BASE}",
+            ),
+            (
+                "a mixed-case instruction",
+                "From alpine:3.20\n".to_owned(),
+                "alpine:3.20",
+            ),
+            (
+                "a BuildKit frontend, which is pulled and executed as the builder",
+                format!("# syntax=docker/dockerfile:1\nFROM {digest}\n"),
+                "docker/dockerfile:1",
+            ),
+            // Four that need no unusual syntax at all.
+            (
+                "a tab instead of a space",
+                "FROM\talpine:3.20\n".to_owned(),
+                "alpine:3.20",
+            ),
+            (
+                "a UTF-8 BOM on the first line",
+                "\u{feff}FROM alpine:3.20\n".to_owned(),
+                "alpine:3.20",
+            ),
+            (
+                "COPY --from, which pulls an image no FROM names",
+                format!("FROM {digest}\nCOPY --from=busybox:1.36 /bin/busybox /bin/\n"),
+                "busybox:1.36",
+            ),
+            (
+                "RUN --mount=from, same",
+                format!("FROM {digest}\nRUN --mount=type=bind,from=golang:1.24,target=/go true\n"),
+                "golang:1.24",
+            ),
+            // And two spellings of a stage shadowing an image.
+            (
+                "a stage that names itself after the image it pulls",
+                "FROM alpine AS alpine\nFROM alpine\n".to_owned(),
+                "alpine",
+            ),
+            (
+                "a continuation whose backslash was stored as a stage name",
+                "FROM alpine:3.20 AS \\\n  builder\n".to_owned(),
+                "alpine:3.20",
+            ),
+        ] {
+            fs::write(action.join("Dockerfile"), &dockerfile).expect("write Dockerfile");
+            let error = verify_action_pins(&root).expect_err("must be refused");
+            assert!(
+                error.to_string().contains(expected),
+                "{name}: the refusal must name {expected}: {error}"
+            );
+        }
+
+        // Two things that must NOT be violations, checked rather than assumed:
+        // `scratch` is not a pull, and `check=`/`escape=` name no image.
+        for (name, dockerfile) in [
+            ("FROM scratch", "FROM scratch\n".to_owned()),
+            (
+                "a check directive",
+                format!("# check=error=true\nFROM {digest}\n"),
+            ),
+            (
+                "an escape directive",
+                format!("# escape=`\nFROM {digest}\n"),
+            ),
+            (
+                "COPY --from naming an earlier stage",
+                format!("FROM {digest} AS build\nFROM {digest}\nCOPY --from=build /x /x\n"),
+            ),
+            (
+                "COPY --from naming a stage by index",
+                format!("FROM {digest}\nFROM {digest}\nCOPY --from=0 /x /x\n"),
+            ),
+        ] {
+            fs::write(action.join("Dockerfile"), &dockerfile).expect("write Dockerfile");
+            verify_action_pins(&root)
+                .unwrap_or_else(|error| panic!("{name} is not a pull and must pass: {error}"));
+        }
+
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_manifest_outside_the_root_is_refused_rather_than_dropped() {
+        // macOS caught this within minutes of the change reaching CI. The first
+        // version wrote `if let Ok(relative) = path.strip_prefix(root)`, which
+        // silently discarded anything that did not strip -- and on macOS nothing
+        // did, because `std::env::temp_dir()` is `/var/folders/…` while `/var` is
+        // a symlink to `/private/var` and `cargo metadata` answers with the
+        // resolved path. The membership set shrank to the workspace root alone
+        // and a legitimate change was refused, listing manifests that did not
+        // include the one the author had just edited.
+        let root = repository_root();
+        assert_eq!(
+            relative_to_root(
+                &root,
+                &root.join("crates").join("tokens").join("Cargo.toml")
+            )
+            .expect("a path under the root relativizes"),
+            "crates/tokens/Cargo.toml"
+        );
+
+        // The property that matters: a path that cannot be placed inside the
+        // root is an error, never a quiet omission. A membership answer with a
+        // member missing refuses a change that was entitled to carry the
+        // lockfile, and says nothing about why.
+        let error = relative_to_root(&root, Path::new("/elsewhere/Cargo.toml"))
+            .expect_err("an outside manifest must be refused, not dropped");
+        assert!(
+            error.to_string().contains("Refusing to drop it"),
+            "the refusal must say why silence would be wrong: {error}"
+        );
+    }
+
+    #[test]
+    fn every_workspace_member_inherits_the_lint_policy() {
+        verify_workspace_lints(&repository_root())
+            .expect("every member of this workspace opts into `[workspace.lints]`");
+
+        // The hole this closes, measured: a member that omits the stanza gets
+        // none of `[workspace.lints]`, so an `unsafe fn` compiles clean and
+        // `cargo xtask ci` stays green. `unsafe_code = "deny"` was opt-in.
+        assert!(inherits_workspace_lints(
+            "[package]\nname = \"x\"\n\n[lints]\nworkspace = true\n"
+        ));
+        assert!(inherits_workspace_lints("[lints]\nworkspace=true\n"));
+        assert!(!inherits_workspace_lints("[package]\nname = \"x\"\n"));
+        assert!(
+            !inherits_workspace_lints("[package]\nname = \"x\"\n\n[lints]\nworkspace = false\n"),
+            "opting out is not opting in"
+        );
+        // A commented-out stanza inherits nothing. (This one holds because a
+        // `#` line is not a table header, not because comments are stripped --
+        // a deletion sweep showed the assertion passing either way, so it is
+        // labelled honestly rather than left looking like evidence.)
+        assert!(
+            !inherits_workspace_lints("[package]\nname = \"x\"\n# [lints]\n# workspace = true\n"),
+            "a commented stanza inherits nothing"
+        );
+        // Comment stripping earns its place in the other direction: a trailing
+        // comment must not make a real opt-in invisible. Refusing a manifest
+        // that did opt in would send an author looking for a fault that is not
+        // there.
+        assert!(
+            inherits_workspace_lints("[lints] # policy\nworkspace = true # everything\n"),
+            "a trailing comment must not hide a real opt-in"
+        );
+        // And the stanza must be in `[lints]`, not merely somewhere in the file.
+        assert!(
+            !inherits_workspace_lints("[lints]\nrust = {}\n\n[dependencies]\nworkspace = true\n"),
+            "`workspace = true` under another table is a different setting"
+        );
     }
 
     #[test]
@@ -2817,9 +3580,8 @@ mod tests {
             .check()
             .expect_err("an undeclared change must be refused");
         assert!(
-            error
-                .to_string()
-                .contains("no commit declares a work package")
+            error.to_string().contains("carry no declaration"),
+            "the refusal must name the undeclared commits: {error}"
         );
 
         // The right trailer: accepted.
@@ -2833,6 +3595,173 @@ mod tests {
             .check()
             .expect_err("a change belonging to two packages must be split");
         assert!(error.to_string().contains("more than one work package"));
+    }
+
+    #[test]
+    fn every_commit_declares_for_itself_and_git_decides_what_a_trailer_is() {
+        // Four ways a commit used to travel without saying what it belonged to.
+        // All four were found by audit against the version that unioned the
+        // trailers of a whole range and scanned for them by hand.
+        let repo = GitFixture::new("per-commit");
+
+        // One trailered commit used to launder every untrailered commit beside
+        // it: the set contained exactly one package, so the range passed.
+        repo.write("tools/xtask/src/main.rs", "// first\n");
+        repo.commit("first commit, no trailer at all");
+        repo.write("tools/xtask/src/second.rs", "// second\n");
+        repo.commit("second commit\n\nWork-Package: WP-000");
+        let error = repo
+            .check()
+            .expect_err("a trailer on one commit must not cover the commit before it");
+        assert!(
+            error.to_string().contains("carry no declaration"),
+            "the undeclared commit must be named: {error}"
+        );
+
+        // A quoted example is not a trailer. Git's parser says so, and the hand
+        // scan did not: it accepted any line that began with the key after
+        // trimming, which a fenced block in a commit body satisfies.
+        let repo = GitFixture::new("fenced");
+        repo.write("tools/xtask/src/main.rs", "// edited\n");
+        repo.commit(
+            "explain the ownership rule\n\nRun it like this:\n\n    Work-Package: WP-000\n\nand \
+             it passes.\n",
+        );
+        let error = repo
+            .check()
+            .expect_err("an example in the body is not a declaration");
+        assert!(error.to_string().contains("carry no declaration"));
+
+        // Git's key matching is case-insensitive, and the hand scan's was not,
+        // so a valid trailer was refused. Adopting git's parser fixes both
+        // directions at once.
+        repo.amend("edited\n\nwork-package: WP-000");
+        repo.check()
+            .expect("git accepts a lowercase trailer key, so this gate must too");
+
+        // A governance change with no reason is an audit record of nothing. It
+        // used to be accepted and printed as an empty parenthesis.
+        let repo = GitFixture::new("empty-reason");
+        repo.write(
+            "docs/work-packages/WP-020.md",
+            "# WP-020\n\n```owned-paths\ndocs/work-packages/WP-020.md\n```\n\nedited\n",
+        );
+        repo.commit("move a path\n\nGovernance:");
+        let error = repo
+            .check()
+            .expect_err("a governance declaration needs its reason");
+        assert!(error.to_string().contains("carry no declaration"));
+
+        // Declaring both modes in one commit is a contradiction, not a
+        // precedence question. Governance used to win silently, so the work
+        // package named beside it was never checked against anything.
+        repo.amend("move a path\n\nWork-Package: WP-000\nGovernance: paperwork");
+        let error = repo
+            .check()
+            .expect_err("a commit is ordinary work or an assignment change, never both");
+        assert!(
+            error.to_string().contains("never both"),
+            "the refusal must say why: {error}"
+        );
+    }
+
+    #[test]
+    fn a_rename_is_judged_at_both_ends() {
+        // Rename detection is on by default and `--name-only` prints only a
+        // rename's destination, so `git mv` carried a file out of another
+        // package's territory and the gate saw only where it landed.
+        let repo = GitFixture::new("rename");
+        super::git(
+            &repo.root,
+            &[
+                "mv",
+                "docs/work-packages/WP-020.md",
+                "tools/xtask/stolen.md",
+            ],
+        )
+        .expect("rename across packages");
+        repo.commit("reorganise\n\nWork-Package: WP-000");
+        let error = repo
+            .check()
+            .expect_err("the source of a rename is a deletion and must be judged");
+        assert!(
+            error.to_string().contains("docs/work-packages/WP-020.md"),
+            "the vacated path must be named, not just the destination: {error}"
+        );
+
+        // Worse, the same blind spot let a `Governance:` change delete any file
+        // in the repository by renaming it to an assignment document's name:
+        // every path the check could see was an assignment document.
+        let repo = GitFixture::new("rename-governance");
+        super::git(
+            &repo.root,
+            &[
+                "mv",
+                "tools/xtask/src/main.rs",
+                "docs/work-packages/WP-777.md",
+            ],
+        )
+        .expect("rename code into a document name");
+        repo.commit("paperwork\n\nGovernance: adding WP-777");
+        let error = repo
+            .check()
+            .expect_err("a governance change must not be able to delete code");
+        assert!(error.to_string().contains("tools/xtask/src/main.rs"));
+
+        // A rename wholly inside one package is honest work and still passes.
+        let repo = GitFixture::new("rename-inside");
+        super::git(
+            &repo.root,
+            &["mv", "tools/xtask/src/main.rs", "tools/xtask/src/cli.rs"],
+        )
+        .expect("rename within a package");
+        repo.commit("rename a module\n\nWork-Package: WP-000");
+        repo.check()
+            .expect("both halves are owned, so both halves pass");
+    }
+
+    #[test]
+    fn a_path_is_a_byte_string_not_a_trimmed_quoted_one() {
+        // Two more defects lived in the same expression as the rename one.
+        //
+        // `--name-only` C-quotes a non-ASCII path, so a legitimate file inside
+        // owned territory arrived as `"tools/xtask/caf\303\251.rs"` and matched
+        // no claim -- the gate refusing work it should permit, which costs trust
+        // as fast as a bypass does.
+        let repo = GitFixture::new("unicode");
+        repo.write("tools/xtask/café.rs", "// accented\n");
+        repo.commit("add an accented filename\n\nWork-Package: WP-000");
+        repo.check()
+            .expect("a non-ASCII path inside an owned directory is owned");
+
+        // And git does not quote a leading space, so `.map(str::trim)` silently
+        // normalised ` tools/xtask/x.rs` onto the owned path. Trimming a path is
+        // a normalisation the ownership catalogue never agreed to.
+        let repo = GitFixture::new("leading-space");
+        repo.write(" not-owned.rs", "// leading space\n");
+        repo.commit("add a path with a leading space\n\nWork-Package: WP-000");
+        let error = repo
+            .check()
+            .expect_err("a leading space must not be normalised away");
+        assert!(error.to_string().contains("not-owned.rs"));
+    }
+
+    #[test]
+    fn a_merge_commit_is_exempt_because_this_repository_cannot_trailer_one() {
+        // The exemption is deliberate and load-bearing, not an oversight
+        // inherited from the union bug. Branch protection is `strict: true`, so
+        // `gh pr update-branch` merges main into every stale branch and GitHub
+        // writes that commit itself; for a `pull_request` event CI checks out
+        // GitHub's generated `refs/pull/N/merge`. Neither can carry a trailer.
+        // `main` holds 51 merge commits and none of them has one, so a literal
+        // "every commit" rule would have failed every pull request on the day
+        // it landed.
+        let repo = GitFixture::new("merge");
+        repo.write("tools/xtask/src/main.rs", "// on the branch\n");
+        repo.commit("do the work\n\nWork-Package: WP-000");
+        repo.merge_untrailered_into_head();
+        repo.check()
+            .expect("an untrailered merge commit must not fail the gate");
     }
 
     #[test]
@@ -2877,9 +3806,10 @@ mod tests {
         // Assignments alone: accepted.
         repo.write(
             "docs/work-packages/WP-020.md",
-            "# WP-020\n\n```owned-paths\ndocs/work-packages/WP-020.md\ncrates/fixtures/**\n```\n",
+            "# WP-020\n\n```owned-paths\ndocs/work-packages/WP-020.md\ncrates/fixtures/**\n\
+             crates/tokens/**\n```\n",
         );
-        repo.commit("reassign a path\n\nGovernance: crates/fixtures moves to WP-020");
+        repo.commit("reassign a path\n\nGovernance: crates/tokens moves to WP-020");
         repo.check()
             .expect("a governance change may edit assignments");
 
@@ -2893,6 +3823,249 @@ mod tests {
         assert!(error.to_string().contains("tools/xtask/src/main.rs"));
     }
 
+    #[test]
+    fn a_generated_lockfile_is_regenerated_by_whoever_changes_a_manifest() {
+        // The deadlock this closes, measured against `02ec952`: a WP-030 change
+        // creating `apps/desktop/src-tauri` was refused for `Cargo.lock` and
+        // `Cargo.toml`; the same tree declaring WP-000 was refused for the crate
+        // it had to create. Neither package could take the first step, and the
+        // wall is not WP-030's -- every package that adds a dependency rewrites
+        // the lockfile, which only WP-000 claims.
+        let repo = GitFixture::new("derived");
+
+        // A manifest this package owns, and the lockfile that follows from it:
+        // accepted, because the lockfile is generated rather than authored.
+        repo.write(
+            "crates/fixtures/Cargo.toml",
+            "[package]\nname = \"fixture-crate\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\
+             publish = false\n# a dependency was added\n",
+        );
+        repo.write("Cargo.lock", "# regenerated\n");
+        repo.commit("add a dependency\n\nWork-Package: WP-020");
+        repo.check()
+            .expect("a lockfile that follows a manifest this package owns is regeneration");
+
+        // A file merely *named* `Cargo.toml`, inside territory this package
+        // genuinely owns, does not unlock the lockfile. This is the hole an
+        // adversarial pass found in the previous version, where the predicate
+        // was the basename: a note, a fixture or a symlink called `Cargo.toml`
+        // anywhere a package owned was accepted as a manifest.
+        let repo = GitFixture::new("derived-decoy");
+        repo.write("crates/fixtures/notes/Cargo.toml", "# still not a member\n");
+        repo.write("Cargo.lock", "# carried in on a decoy\n");
+        repo.commit("add a note that looks like a manifest\n\nWork-Package: WP-020");
+        let error = repo
+            .check()
+            .expect_err("a path is not a manifest merely for being called one");
+        assert!(
+            error.to_string().contains("Cargo.lock"),
+            "the carried lockfile must be the refusal: {error}"
+        );
+
+        // The lockfile alone: refused. Nothing in the change asks the resolver
+        // for a different answer, so this is a hand edit wearing regeneration's
+        // clothes -- a transitive dependency re-pinned to a different version
+        // still satisfies every manifest, so `--locked` would accept it.
+        let repo = GitFixture::new("derived-alone");
+        repo.write("Cargo.lock", "# re-pinned by hand\n");
+        repo.commit("quietly move a pin\n\nWork-Package: WP-020");
+        let error = repo
+            .check()
+            .expect_err("a lockfile moving on its own is not regeneration");
+        assert!(
+            error.to_string().contains("not regeneration"),
+            "the refusal must explain why a generated file was still refused: {error}"
+        );
+
+        // A manifest in an excluded workspace does not unlock the root lockfile,
+        // because it cannot change it. The first version of this rule accepted
+        // any `Cargo.toml` anywhere and would have passed this; the second
+        // matched the nearest lockfile above it, which held only while that
+        // lockfile existed. Membership comes from `exclude` now, so deleting
+        // `nested/Cargo.lock` cannot re-open it.
+        let repo = GitFixture::new("derived-nested");
+        repo.write(
+            "nested/Cargo.toml",
+            "[package]\nname = \"nested-crate\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\
+             publish = false\n# a dependency was added\n",
+        );
+        repo.write("Cargo.lock", "# and the root lock moved too\n");
+        repo.commit("edit the excluded workspace\n\nWork-Package: WP-020");
+        let error = repo
+            .check()
+            .expect_err("an excluded manifest cannot vouch for the root lockfile");
+        assert!(error.to_string().contains("Cargo.lock"));
+
+        // And the exemption is load-bearing: without the `derived-paths`
+        // declaration the accepted case above goes back to being refused. This
+        // is the deletion sweep -- a check that cannot fail is not a check.
+        let repo = GitFixture::new_without_derived_declaration("underived");
+        repo.write(
+            "crates/fixtures/Cargo.toml",
+            "[package]\nname = \"fixture-crate\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\
+             publish = false\n# a dependency was added\n",
+        );
+        repo.write("Cargo.lock", "# regenerated\n");
+        repo.commit("add a dependency\n\nWork-Package: WP-020");
+        let error = repo
+            .check()
+            .expect_err("undeclared, the lockfile is WP-000's alone");
+        assert!(error.to_string().contains("Cargo.lock"));
+
+        // And a package cannot declare a file generated that it does not answer
+        // for. Generatedness is a property of the file rather than a privilege
+        // of one assignment, which is why any document may state it -- but an
+        // adversarial pass pointed out that a document stating it about someone
+        // else's file is a unilateral grant to everybody, made in a change that
+        // only edits assignment documents.
+        let repo = GitFixture::new_with_a_stranger_declaring_it("stranger");
+        repo.write(
+            "crates/fixtures/Cargo.toml",
+            "[package]\nname = \"fixture-crate\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\
+             publish = false\n# a dependency was added\n",
+        );
+        repo.write("Cargo.lock", "# regenerated\n");
+        repo.commit("add a dependency\n\nWork-Package: WP-020");
+        let error = repo
+            .check()
+            .expect_err("declaring another package's file generated grants nothing");
+        assert!(error.to_string().contains("Cargo.lock"));
+    }
+
+    #[test]
+    fn declaring_a_path_generated_is_not_claiming_it() {
+        // `derived-paths` says how a file comes to be, not who answers for it.
+        // If it counted as coverage, "this is generated" would be a way to make
+        // a file belong to nobody while the inventory still read as complete.
+        let repo = GitFixture::new("inventory");
+        verify_path_ownership(&repo.root).expect("the base catalogue covers every tracked file");
+
+        repo.write(
+            "docs/work-packages/WP-000.md",
+            "# WP-000\n\n```owned-paths\ntools/xtask/**\nCargo.toml\n\
+             docs/work-packages/WP-000.md\n```\n\n```derived-paths\nCargo.lock\n```\n",
+        );
+        let error = verify_path_ownership(&repo.root)
+            .expect_err("a path only declared generated is claimed by nobody");
+        assert!(
+            error.to_string().contains("Cargo.lock"),
+            "the unclaimed path must be named: {error}"
+        );
+    }
+
+    #[test]
+    fn a_reservation_that_has_started_matching_files_is_coverage() {
+        // The two halves of Section 1.10 disagreed, and it deadlocked the shell.
+        // `verify_change_ownership` lets a package write inside its own
+        // reservation, so the first commit to do so passed the change gate --
+        // and then `cargo xtask ci` failed the inventory with "claimed by no
+        // work package" about a path the package had claimed in advance, in the
+        // document, precisely so this could not happen.
+        //
+        // The promotion that would have resolved it has no legal route: a
+        // governance change moving the paths early leaves `main` red on a stale
+        // claim, and moving them in the same change as the files is an
+        // assignment edit under a `Work-Package:` trailer, which AGENTS.md
+        // forbids. So a reservation counts once it matches something.
+        let repo = GitFixture::new("reserved");
+        repo.write("apps/desktop/src-tauri/Cargo.toml", "# the shell arrives\n");
+        repo.commit("start the shell\n\nWork-Package: WP-020");
+
+        verify_path_ownership(&repo.root)
+            .expect("a reserved claim that now matches files covers them");
+        repo.check()
+            .expect("and the change gate agrees, as it always did");
+
+        // A reservation matching nothing is still reported rather than counted,
+        // and a file no claim reaches at all is still a violation.
+        let repo = GitFixture::new("reserved-empty");
+        verify_path_ownership(&repo.root).expect("an unmatched reservation is not a violation");
+        repo.write("unclaimed.rs", "// nobody claims this\n");
+        repo.commit("add an unclaimed file\n\nWork-Package: WP-000");
+        let error = verify_path_ownership(&repo.root)
+            .expect_err("a path outside every claim is still unclaimed");
+        assert!(error.to_string().contains("unclaimed.rs"));
+    }
+
+    #[test]
+    fn a_derived_path_needs_a_derivation_this_tool_can_check() {
+        // `derived-paths` is an exemption from the ownership check. An exemption
+        // covering a path whose regeneration nothing can verify is a hole with a
+        // comment beside it, so an unknown derivation is refused rather than
+        // trusted.
+        validate_derived_pattern("WP-test", "Cargo.lock").expect("the one defined derivation");
+        validate_derived_pattern("WP-test", "fuzz/Cargo.lock").expect("nested lockfiles too");
+        for unknown in [
+            "Cargo.toml",
+            "docs/traceability/WP-000.md",
+            "package-lock.json",
+        ] {
+            assert!(
+                validate_derived_pattern("WP-test", unknown).is_err(),
+                "{unknown:?} has no defined derivation and must be refused, not exempted"
+            );
+        }
+
+        // The plausibility rule is membership now, not spelling: `cargo
+        // metadata` answers, so the set is the real workspace.
+        let resolves =
+            workspace_manifests(&repository_root(), "Cargo.lock").expect("the root workspace");
+        assert!(
+            resolves.contains("Cargo.toml"),
+            "the virtual root manifest must count — adding a member to it is the most \
+             legitimate reason of all for the lockfile to move: {resolves:?}"
+        );
+        assert!(resolves.contains("crates/fixtures/Cargo.toml"));
+
+        assert!(derivation_is_plausible(
+            &["crates/fixtures/Cargo.toml".to_owned()],
+            &resolves
+        ));
+        assert!(derivation_is_plausible(
+            &["Cargo.toml".to_owned()],
+            &resolves
+        ));
+        assert!(!derivation_is_plausible(&[], &resolves));
+
+        // The hole an adversarial pass found in the second version of this rule:
+        // a file merely *named* `Cargo.toml`, anywhere a package already owns,
+        // unlocked the root lockfile. Membership is not a spelling.
+        for decoy in [
+            "docs/quality/Cargo.toml",
+            "crates/fixtures/tests/Cargo.toml",
+            "docs/quality/Cargo.toml.md",
+        ] {
+            assert!(
+                !derivation_is_plausible(&[decoy.to_owned()], &resolves),
+                "{decoy} is not a member's manifest and must not unlock the lockfile"
+            );
+        }
+
+        // And the hole found in the first version: `fuzz/` is excluded from the
+        // root workspace, so its manifest cannot change the root lock. That now
+        // follows from `exclude` rather than from a lockfile sitting beside it,
+        // so deleting `fuzz/Cargo.lock` can no longer re-open it.
+        assert!(
+            !resolves.contains("fuzz/Cargo.toml"),
+            "cargo agrees `fuzz` is not a member: {resolves:?}"
+        );
+        assert!(!derivation_is_plausible(
+            &["fuzz/Cargo.toml".to_owned()],
+            &resolves
+        ));
+    }
+
+    /// Who, if anyone, declares `Cargo.lock` generated in a fixture catalogue.
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Declared {
+        /// WP-000, which also owns it. The real arrangement.
+        ByItsOwner,
+        /// WP-020, which does not own it.
+        ByAStranger,
+        /// Nobody.
+        NotAtAll,
+    }
+
     /// A throwaway git repository with a minimal ownership catalogue.
     ///
     /// Built rather than reusing this repository, so the tests neither depend on
@@ -2903,6 +4076,21 @@ mod tests {
 
     impl GitFixture {
         fn new(tag: &str) -> Self {
+            Self::build(tag, Declared::ByItsOwner)
+        }
+
+        /// The same catalogue with WP-000's `derived-paths` block removed, so a
+        /// test can watch the exemption stop working.
+        fn new_without_derived_declaration(tag: &str) -> Self {
+            Self::build(tag, Declared::NotAtAll)
+        }
+
+        /// `Cargo.lock` declared generated by WP-020, which does not own it.
+        fn new_with_a_stranger_declaring_it(tag: &str) -> Self {
+            Self::build(tag, Declared::ByAStranger)
+        }
+
+        fn build(tag: &str, derived: Declared) -> Self {
             use std::sync::atomic::{AtomicU64, Ordering};
             static NEXT: AtomicU64 = AtomicU64::new(0);
             let root = std::env::temp_dir().join(format!(
@@ -2920,17 +4108,80 @@ mod tests {
             ] {
                 super::git(&fixture.root, &args).expect("initialise the fixture repository");
             }
-            // The base revision's catalogue: WP-000 owns xtask and its own
-            // document, WP-020 owns its own.
+            // The base revision's catalogue: WP-000 owns xtask, the workspace
+            // files and its own document; WP-020 owns its own and the fixture
+            // crate. WP-000 also declares the lockfile generated, which is what
+            // lets another package's manifest change carry it.
+            let by_owner = if derived == Declared::ByItsOwner {
+                "\n```derived-paths\nCargo.lock\n```\n"
+            } else {
+                ""
+            };
+            let by_stranger = if derived == Declared::ByAStranger {
+                "\n```derived-paths\nCargo.lock\n```\n"
+            } else {
+                ""
+            };
             fixture.write(
                 "docs/work-packages/WP-000.md",
-                "# WP-000\n\n```owned-paths\ntools/xtask/**\ndocs/work-packages/WP-000.md\n```\n",
+                &format!(
+                    "# WP-000\n\n```owned-paths\ntools/xtask/**\nCargo.toml\nCargo.lock\n\
+                     docs/work-packages/WP-000.md\n```\n{by_owner}"
+                ),
             );
             fixture.write(
                 "docs/work-packages/WP-020.md",
-                "# WP-020\n\n```owned-paths\ndocs/work-packages/WP-020.md\n```\n",
+                &format!(
+                    "# WP-020\n\n```owned-paths\ndocs/work-packages/WP-020.md\n\
+                     crates/fixtures/**\nnested/**\n```\n\n```owned-paths-reserved\napps/**\n\
+                     ```\n{by_stranger}"
+                ),
             );
+            // A *real* Cargo workspace, because the lockfile rule asks cargo
+            // which manifests are members. A fixture of text files named
+            // `Cargo.toml` would prove the plumbing and skip the question the
+            // rule now turns on -- which is exactly the mistake that made the
+            // previous version of this rule wrong.
+            fixture.write(
+                "Cargo.toml",
+                "[workspace]\nmembers = [\"crates/fixtures\"]\nexclude = [\"nested\"]\n\
+                 resolver = \"3\"\n",
+            );
+            fixture.write(
+                "crates/fixtures/Cargo.toml",
+                "[package]\nname = \"fixture-crate\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\
+                 publish = false\n",
+            );
+            fixture.write("crates/fixtures/src/lib.rs", "");
+            // Named like a manifest, owned by WP-020, and not a member: the
+            // decoy the adversarial pass used to unlock the root lockfile.
+            fixture.write("crates/fixtures/notes/Cargo.toml", "# not a member\n");
+            // A workspace excluded from the root one -- `fuzz/` in the real
+            // repository.
+            fixture.write(
+                "nested/Cargo.toml",
+                "[package]\nname = \"nested-crate\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\
+                 publish = false\n",
+            );
+            fixture.write("nested/src/lib.rs", "");
             fixture.write("tools/xtask/src/main.rs", "// base\n");
+            for manifest in ["Cargo.toml", "nested/Cargo.toml"] {
+                let status = Command::new("cargo")
+                    .args([
+                        "generate-lockfile",
+                        "--offline",
+                        "--manifest-path",
+                        manifest,
+                    ])
+                    .current_dir(&fixture.root)
+                    .output()
+                    .expect("run cargo generate-lockfile");
+                assert!(
+                    status.status.success(),
+                    "fixture workspace {manifest} must resolve: {}",
+                    String::from_utf8_lossy(&status.stderr)
+                );
+            }
             fixture.commit("base");
             super::git(&fixture.root, &["tag", "base"]).expect("tag the base revision");
             fixture
@@ -2949,6 +4200,44 @@ mod tests {
 
         fn amend(&self, message: &str) {
             super::git(&self.root, &["commit", "--amend", "-m", message]).expect("amend");
+        }
+
+        /// Add a genuine untrailered merge commit, the shape
+        /// `gh pr update-branch` produces when `main` moves under a branch.
+        ///
+        /// The side branch must really diverge: merging an ancestor is a no-op
+        /// that creates no commit at all, and a deletion sweep caught exactly
+        /// that — the first version of this helper made a test that could not
+        /// fail.
+        fn merge_untrailered_into_head(&self) {
+            let branch = super::git(&self.root, &["rev-parse", "HEAD"]).expect("head");
+            super::git(&self.root, &["checkout", "-q", "base"]).expect("detach onto base");
+            self.write("tools/xtask/src/meanwhile.rs", "// landed on main\n");
+            self.commit("unrelated xtask work landed on main\n\nWork-Package: WP-000");
+            let sideline = super::git(&self.root, &["rev-parse", "HEAD"]).expect("sideline");
+            super::git(&self.root, &["checkout", "-q", branch.trim()]).expect("back to the branch");
+            super::git(
+                &self.root,
+                &[
+                    "merge",
+                    "--no-ff",
+                    "--no-edit",
+                    "-m",
+                    "Merge branch 'main' into work/something",
+                    sideline.trim(),
+                ],
+            )
+            .expect("merge without a trailer");
+            assert_eq!(
+                super::git(
+                    &self.root,
+                    &["rev-list", "--count", "--merges", "base..HEAD"]
+                )
+                .expect("count merges")
+                .trim(),
+                "1",
+                "the fixture must actually contain a merge commit, or the test cannot fail"
+            );
         }
 
         fn check(&self) -> Result<(), TaskError> {
