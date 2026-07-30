@@ -269,6 +269,53 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Fixed
 
+- Containers are executable dependencies, and the scanner now sees them. It
+  collected only `uses` keys, so a job container
+  (`jobs.<id>.container.image`), the documented `container: <image>` shorthand, a
+  service container (`jobs.<id>.services.<name>.image`), and a Docker action's
+  `runs.image` were all invisible — every one of them code GitHub pulls and
+  runs. An `image:` value must now be pinned by content digest, because a tag can
+  be repointed exactly like a mutable action tag. `image: Dockerfile` is followed
+  to that file's `FROM` lines, with multi-stage builds understood so an internal
+  stage reference is not mistaken for a pull.
+
+- A release-tag comment can no longer be borrowed from another step. The check
+  searched the whole file for the reference and returned the first comment it
+  found, so two steps sharing one SHA — one tagged, one bare — both passed on the
+  tagged one's comment, and a reviewer reading the bare step saw no version at
+  all. Every occurrence must now carry its own tag.
+
+- A symlinked `action.yml` can no longer escape the repository. Containment was
+  checked on the local action's *directory* and then inferred for its contents,
+  so metadata linked to a file outside the tree would have been read and treated
+  as first-party code. The metadata file is canonicalized and re-checked. A
+  deletion sweep found this fix had **no test** — the check could be removed with
+  everything still green, which was the audit's criticism of the traversal
+  coverage repeated — so a Unix regression now exercises a real symlink.
+
+- **WP-020's status table said containment was closed while the prose beneath it
+  said reopened.** The corrections had gone into the deep prose and not the table
+  a reader actually consults, which could have authorized Tier-2 work on a
+  reopened precondition — the most dangerous kind of documentation drift this
+  project can have. The table now carries increment 2c (not started, precondition
+  1 reopened) and states that Tier 2 stays unavailable per platform until it
+  lands. The token's "proves the operator ran the generator" wording is corrected
+  in all three places it survived, and precondition 3 no longer cites SI-36 as a
+  live blocker.
+
+- WP-000 traceability cited three tests that no longer exist, having named the
+  text-scanner suite the YAML parse replaced. Traceability naming absent evidence
+  is worse than naming none. The rows now cite the tests that exist, including
+  the container, Dockerfile, comment-binding and local-resolution regressions.
+
+- Recorded, not hidden: PR #47 was a nominal WP-000 change that also edited
+  WP-010, WP-020 and WP-030 documents. The ownership *inventory* passed because
+  every path was claimed by someone; only reading caught it. Audit-driven
+  corrections to another package's records are a legitimate need with no route in
+  the current model, and the fix is a governance route under issue #39 — **not**
+  widening WP-000's claims, which is the move that would make the checker
+  complicit.
+
 - Action discovery is a structural YAML parse, reversing a decision this project
   defended twice. Three text-based attempts were each defeated by valid YAML,
   and every one of them reported *success with one fewer reference* — silence

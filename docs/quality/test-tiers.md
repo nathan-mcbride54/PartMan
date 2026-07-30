@@ -53,9 +53,11 @@ implemented and enforced together:
   This file used to say the token "cannot be known without having generated that
   fixture set", which was wrong: the token is a pure function of the source, so
   it is identical on every machine that builds the same commit, and it is
-  printed where CI captures it. It proves the operator ran the generator and
-  passed back what it recorded, nothing more — an **operator-intent proof**, not
-  an independent factor. That is now a recorded decision rather than an open
+  printed where CI captures it. It proves only that the invocation presented the
+  exact build-derived value — anyone holding the repository can compute it
+  without running the generator, so it is accident friction rather than evidence
+  of provenance, and not an independent factor. That is a recorded decision
+  rather than an open
   question: [ADR-0007](../adr/0007-safe-007-third-factor.md) explains why making
   it random would have been worse, since the interlock would then have to learn
   the token from the very directory it is verifying;
