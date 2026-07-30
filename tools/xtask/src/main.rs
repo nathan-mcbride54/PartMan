@@ -2723,7 +2723,7 @@ struct Annotation {
     file: String,
     /// 1-indexed line of the marker, so a refusal can be navigated to.
     line: usize,
-    /// The requirement IDs claimed, in the order written.
+    /// The requirement IDs or stable section references claimed, in order.
     requirements: Vec<String>,
     /// What this evidence establishes. Becomes the evidence-table cell, which
     /// is why it lives beside the code rather than in the document: there is
@@ -2740,6 +2740,52 @@ struct Annotation {
     /// The test this annotation says it documents, checked against the one it
     /// positionally binds to so the two can disagree.
     declared_evidence: Option<String>,
+}
+
+/// The fence containing structured evidence that cannot live beside one test.
+///
+/// Requirement relationships are necessarily authored somewhere. This block is
+/// source metadata, not a hand-written output table: the parser validates every
+/// requirement against the specification, every path against git and package
+/// ownership, every test against libtest, and every command against xtask's
+/// parser before the generator is allowed to render it.
+const TRACEABILITY_EVIDENCE_BLOCK: &str = "```traceability-evidence";
+
+/// One typed reference inside a structured evidence declaration.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum DeclaredEvidenceItem {
+    /// A tracked repository file owned by the declaring package.
+    Path(String),
+    /// A real xtask invocation accepted by the same parser users reach.
+    Command(String),
+    /// A live test leaf name reported by libtest.
+    Test(String),
+}
+
+impl DeclaredEvidenceItem {
+    /// The value rendered in the generated evidence cell.
+    fn value(&self) -> &str {
+        match self {
+            Self::Path(value) | Self::Command(value) | Self::Test(value) => value,
+        }
+    }
+}
+
+/// One structured evidence relationship from a work-package document.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct DeclaredEvidence {
+    /// The package authoring and owning this relationship.
+    package: String,
+    /// Repository-relative work-package document.
+    file: String,
+    /// 1-indexed line of the opening fence.
+    line: usize,
+    /// Specification IDs or stable section references the evidence supports.
+    requirements: Vec<String>,
+    /// Typed artifacts, commands, and tests supporting the claim.
+    evidence: Vec<DeclaredEvidenceItem>,
+    /// What the evidence establishes.
+    claim: String,
 }
 
 /// Check that every requirement annotation names a requirement the
@@ -2778,32 +2824,43 @@ struct Annotation {
 ///
 /// # Errors
 ///
-/// Returns [`TaskError`] when the specification yields no requirement IDs, when
-/// no annotations exist at all, when an annotation names an unknown ID, an
-/// unknown test, or carries no claim, or when two tests share a leaf name so
-/// that binding an annotation to one of them would be ambiguous.
+/// Returns [`TaskError`] when the specification yields no stable references,
+/// when no annotations exist at all, when an annotation names an unknown
+/// reference or test, when structured evidence is stale or malformed, or when
+/// two tests share a leaf name so binding would be ambiguous.
 fn verify_traceability(root: &Path, write: bool) -> Result<(), TaskError> {
-    let vocabulary = spec_requirement_ids(root)?;
+    let vocabulary = spec_traceability_references(root)?;
     let annotations = collect_annotations(root)?;
     let tests = listed_test_names(root)?;
-    let covered = judge_annotations(&vocabulary, &annotations, &tests)?;
+    judge_annotations(&vocabulary, &annotations, &tests)?;
+    let declared = collect_declared_evidence(root, &vocabulary, &tests)?;
+    let covered: BTreeSet<&str> = annotations
+        .iter()
+        .flat_map(|annotation| annotation.requirements.iter().map(String::as_str))
+        .chain(
+            declared
+                .iter()
+                .flat_map(|evidence| evidence.requirements.iter().map(String::as_str)),
+        )
+        .collect();
 
     if write {
-        return write_generated_traceability(root, &annotations);
+        return write_generated_traceability(root, &annotations, &declared);
     }
-    verify_generated_traceability(root, &annotations)?;
+    verify_generated_traceability(root, &annotations, &declared)?;
 
     println!(
-        "traceability: {} annotation(s) over {} requirement(s), checked against {} spec IDs and \
-         {} live tests",
+        "traceability: {} annotation(s) and {} structured evidence row(s) over {} requirement(s), \
+         checked against {} spec reference(s) and {} live tests",
         annotations.len(),
-        covered,
+        declared.len(),
+        covered.len(),
         vocabulary.len(),
         tests.len()
     );
     println!(
-        "  not checked, and not checkable here: whether a test exercises the requirement it \
-         claims. That is a review obligation"
+        "  not checked, and not checkable here: whether the evidence logically establishes the \
+         requirement it claims. That is a review obligation"
     );
     Ok(())
 }
@@ -2909,7 +2966,7 @@ fn judge_annotations(
 /// way that "extract the region, regenerate it, compare, and also check nobody
 /// added a row outside it" is not.
 const GENERATED_MARKER: &str =
-    "<!-- Generated by `cargo xtask traceability`. Edit the annotations, not this file. -->";
+    "<!-- Generated by `cargo xtask traceability`. Edit evidence sources, not this file. -->";
 
 /// The block in a work-package document that declares how its traceability is
 /// produced: a fenced ```` ```traceability ```` block containing `mode:
@@ -2926,15 +2983,15 @@ const GENERATED_MARKER: &str =
 /// The declaration is checked **in both directions**: a package declaring
 /// `hand-maintained` whose document carries the generated marker is refused, so
 /// a stale exemption cannot outlive the conversion; and a package declaring
-/// `generated` is held to byte equality with what its annotations produce. A
-/// package declaring nothing is refused outright, so a new work package cannot
-/// be born hand-maintained by omission.
+/// `generated` is held to byte equality with what its annotations and typed
+/// evidence declarations produce. A package declaring nothing is refused
+/// outright, so a new work package cannot be born hand-maintained by omission.
 const TRACEABILITY_BLOCK: &str = "```traceability";
 
 /// How a package's traceability document is produced.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TraceabilityMode {
-    /// Rendered from annotations; hand edits fail.
+    /// Rendered from validated evidence sources; hand edits fail.
     Generated,
     /// Still written by hand, and still drifting. An honest interim state.
     HandMaintained,
@@ -3021,6 +3078,341 @@ fn traceability_modes(root: &Path) -> Result<BTreeMap<String, TraceabilityMode>,
     Ok(modes)
 }
 
+/// Extract one exact fenced block without mistaking prose for its opening.
+fn exact_fenced_block(text: &str, marker: &str) -> Result<Option<(usize, String)>, String> {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut found = None;
+    let mut index = 0;
+    while index < lines.len() {
+        if lines[index].trim() != marker {
+            index += 1;
+            continue;
+        }
+        if found.is_some() {
+            return Err(format!("declares more than one {marker} block"));
+        }
+
+        let opening_line = index + 1;
+        index += 1;
+        let body_start = index;
+        while index < lines.len() && lines[index].trim() != "```" {
+            index += 1;
+        }
+        if index == lines.len() {
+            return Err(format!(
+                "opens a {marker} block at line {opening_line} but never closes it"
+            ));
+        }
+        found = Some((opening_line, lines[body_start..index].join("\n")));
+        index += 1;
+    }
+    Ok(found)
+}
+
+/// Parse and validate every structured evidence row declared by a package.
+fn collect_declared_evidence(
+    root: &Path,
+    vocabulary: &BTreeSet<String>,
+    tests: &BTreeSet<String>,
+) -> Result<Vec<DeclaredEvidence>, TaskError> {
+    let directory = root.join("docs/work-packages");
+    let entries = fs::read_dir(&directory).map_err(|source| TaskError::Io {
+        path: directory.clone(),
+        source,
+    })?;
+    let tracked: BTreeSet<String> = tracked_files(root)?.into_iter().collect();
+    let claims = ownership_claims(root)?;
+    let mut declared = Vec::new();
+    let mut problems = Vec::new();
+
+    for entry in entries {
+        let path = entry
+            .map_err(|source| TaskError::Io {
+                path: directory.clone(),
+                source,
+            })?
+            .path();
+        let Some(package) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            continue;
+        };
+        if !package.starts_with("WP-") {
+            continue;
+        }
+        let text = fs::read_to_string(&path).map_err(|source| TaskError::Io {
+            path: path.clone(),
+            source,
+        })?;
+        let block = exact_fenced_block(&text, TRACEABILITY_EVIDENCE_BLOCK)
+            .map_err(|problem| TaskError::Policy(format!("{package}: {problem}")))?;
+        let Some((line, body)) = block else {
+            continue;
+        };
+        let file = format!("docs/work-packages/{package}.md");
+        let rows = parse_declared_evidence(package, &file, line, &body)
+            .map_err(|problem| TaskError::Policy(format!("{file}:{line}: {problem}")))?;
+
+        for row in rows {
+            validate_declared_evidence(&row, vocabulary, tests, &tracked, &claims)
+                .unwrap_or_else(|row_problems| problems.extend(row_problems));
+            declared.push(row);
+        }
+    }
+
+    if !problems.is_empty() {
+        return Err(TaskError::Policy(format!(
+            "structured traceability evidence is not usable:\n  {}",
+            problems.join("\n  ")
+        )));
+    }
+    Ok(declared)
+}
+
+/// Decode one YAML evidence block.
+fn parse_declared_evidence(
+    package: &str,
+    file: &str,
+    line: usize,
+    body: &str,
+) -> Result<Vec<DeclaredEvidence>, String> {
+    use yaml_rust2::{Yaml, YamlLoader};
+
+    let documents =
+        YamlLoader::load_from_str(body).map_err(|error| format!("invalid YAML: {error}"))?;
+    if documents.len() != 1 {
+        return Err(format!(
+            "expected one YAML document, found {}",
+            documents.len()
+        ));
+    }
+    let Some(rows) = documents[0].as_vec() else {
+        return Err("the block must be a YAML sequence of evidence rows".to_owned());
+    };
+    if rows.is_empty() {
+        return Err("the block contains no evidence rows".to_owned());
+    }
+
+    let mut parsed = Vec::new();
+    let mut unique_rows = BTreeSet::new();
+    for (offset, row) in rows.iter().enumerate() {
+        let number = offset + 1;
+        let Some(fields) = row.as_hash() else {
+            return Err(format!("row {number} must be a mapping"));
+        };
+        for key in fields.keys() {
+            let Some(key) = key.as_str() else {
+                return Err(format!("row {number} has a non-string field name"));
+            };
+            if !matches!(key, "requirements" | "evidence" | "claim") {
+                return Err(format!(
+                    "row {number} has unknown field {key:?}; expected requirements, evidence, claim"
+                ));
+            }
+        }
+        let field = |name: &str| fields.get(&Yaml::String(name.to_owned()));
+
+        let requirements = string_sequence(field("requirements"), number, "requirements")?;
+        if requirements.iter().collect::<BTreeSet<_>>().len() != requirements.len() {
+            return Err(format!("row {number} repeats a requirement"));
+        }
+        let evidence = parse_declared_evidence_items(field("evidence"), number)?;
+
+        let Some(claim) = field("claim")
+            .and_then(Yaml::as_str)
+            .map(str::trim)
+            .filter(|claim| !claim.is_empty())
+        else {
+            return Err(format!("row {number} field `claim` must be a string"));
+        };
+        let row = DeclaredEvidence {
+            package: package.to_owned(),
+            file: file.to_owned(),
+            line,
+            requirements,
+            evidence,
+            claim: claim.to_owned(),
+        };
+        if !unique_rows.insert(row.clone()) {
+            return Err(format!("row {number} duplicates an earlier evidence row"));
+        }
+        parsed.push(row);
+    }
+    Ok(parsed)
+}
+
+/// Decode the typed items in one structured evidence row.
+fn parse_declared_evidence_items(
+    value: Option<&yaml_rust2::Yaml>,
+    row: usize,
+) -> Result<Vec<DeclaredEvidenceItem>, String> {
+    let Some(items) = value.and_then(yaml_rust2::Yaml::as_vec) else {
+        return Err(format!(
+            "row {row} field `evidence` must be a non-empty sequence"
+        ));
+    };
+    if items.is_empty() {
+        return Err(format!("row {row} field `evidence` is empty"));
+    }
+
+    let mut evidence = Vec::new();
+    let mut unique = BTreeSet::new();
+    for item in items {
+        let Some(mapping) = item.as_hash() else {
+            return Err(format!(
+                "row {row} evidence item must be a one-field mapping"
+            ));
+        };
+        if mapping.len() != 1 {
+            return Err(format!(
+                "row {row} evidence item must name exactly one of path, command, or test"
+            ));
+        }
+        let (kind, value) = mapping.iter().next().expect("one entry was checked");
+        let Some(kind) = kind.as_str() else {
+            return Err(format!("row {row} evidence item has a non-string kind"));
+        };
+        let Some(value) = value
+            .as_str()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            return Err(format!(
+                "row {row} evidence item {kind:?} has no string value"
+            ));
+        };
+        let item = match kind {
+            "path" => DeclaredEvidenceItem::Path(value.to_owned()),
+            "command" => DeclaredEvidenceItem::Command(value.to_owned()),
+            "test" => DeclaredEvidenceItem::Test(value.to_owned()),
+            _ => {
+                return Err(format!(
+                    "row {row} evidence kind {kind:?} is not understood; expected path, command, \
+                     or test"
+                ));
+            }
+        };
+        if !unique.insert(format!("{kind}\0{value}")) {
+            return Err(format!(
+                "row {row} repeats the same {kind} evidence {value:?}"
+            ));
+        }
+        evidence.push(item);
+    }
+    Ok(evidence)
+}
+
+/// Read a required YAML sequence of non-empty strings.
+fn string_sequence(
+    value: Option<&yaml_rust2::Yaml>,
+    row: usize,
+    field: &str,
+) -> Result<Vec<String>, String> {
+    let Some(items) = value.and_then(yaml_rust2::Yaml::as_vec) else {
+        return Err(format!(
+            "row {row} field `{field}` must be a non-empty sequence"
+        ));
+    };
+    if items.is_empty() {
+        return Err(format!("row {row} field `{field}` is empty"));
+    }
+    items
+        .iter()
+        .map(|item| {
+            item.as_str()
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .map(ToOwned::to_owned)
+                .ok_or_else(|| format!("row {row} field `{field}` contains a non-string value"))
+        })
+        .collect()
+}
+
+/// Validate a structured relationship against sources outside its own block.
+fn validate_declared_evidence(
+    row: &DeclaredEvidence,
+    vocabulary: &BTreeSet<String>,
+    tests: &BTreeSet<String>,
+    tracked: &BTreeSet<String>,
+    claims: &BTreeMap<String, Vec<OwnershipClaim>>,
+) -> Result<(), Vec<String>> {
+    let at = format!("{}:{}", row.file, row.line);
+    let mut problems = Vec::new();
+
+    for requirement in &row.requirements {
+        if !vocabulary.contains(requirement) {
+            problems.push(format!(
+                "{at}: `{requirement}` is not a requirement ID or stable section reference \
+                 defined by AGENT_BUILD_SPEC.md"
+            ));
+        }
+    }
+    for item in &row.evidence {
+        match item {
+            DeclaredEvidenceItem::Path(path) => {
+                if path.contains('\\')
+                    || Path::new(path).is_absolute()
+                    || Path::new(path)
+                        .components()
+                        .any(|component| !matches!(component, std::path::Component::Normal(_)))
+                {
+                    problems.push(format!(
+                        "{at}: evidence path {path:?} must be a normalized repository-relative file"
+                    ));
+                    continue;
+                }
+                if !tracked.contains(path) {
+                    problems.push(format!(
+                        "{at}: evidence path {path:?} is not a tracked file"
+                    ));
+                    continue;
+                }
+                let owners = owning_packages(claims, path);
+                if !owners.iter().any(|owner| owner == &row.package) {
+                    problems.push(format!(
+                        "{at}: {} declares evidence path {path:?} but does not own it; owners: {}",
+                        row.package,
+                        if owners.is_empty() {
+                            "none".to_owned()
+                        } else {
+                            owners.join(", ")
+                        }
+                    ));
+                }
+            }
+            DeclaredEvidenceItem::Command(command) => {
+                let Some(arguments) = command.strip_prefix("cargo xtask ") else {
+                    problems.push(format!(
+                        "{at}: command evidence {command:?} is not an xtask invocation; only \
+                         commands whose parser this gate can validate are accepted"
+                    ));
+                    continue;
+                };
+                let arguments: Vec<OsString> = arguments
+                    .split_ascii_whitespace()
+                    .map(OsString::from)
+                    .collect();
+                if arguments.is_empty() || parse(&arguments).is_err() {
+                    problems.push(format!(
+                        "{at}: command evidence {command:?} is not accepted by xtask's parser"
+                    ));
+                }
+            }
+            DeclaredEvidenceItem::Test(test) => {
+                if !tests.contains(test) {
+                    problems.push(format!(
+                        "{at}: test evidence `{test}` is not reported by any compiled test binary"
+                    ));
+                }
+            }
+        }
+    }
+
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(problems)
+    }
+}
+
 /// Which work package an annotation's evidence belongs to.
 ///
 /// Answered from the `owned-paths` blocks rather than from anything the
@@ -3080,17 +3472,40 @@ fn route_annotation(
     }
 }
 
+/// Escape content before placing it inside a Markdown table cell.
+fn markdown_table_cell(value: &str) -> String {
+    value.replace('|', "\\|").replace('\n', " ")
+}
+
 /// Render one package's traceability document.
-fn render_traceability(package: &str, annotations: &[&Annotation]) -> String {
+fn render_traceability(
+    package: &str,
+    annotations: &[&Annotation],
+    declared: &[&DeclaredEvidence],
+) -> String {
     use std::fmt::Write as _;
 
-    let mut requirements: BTreeMap<&str, Vec<&Annotation>> = BTreeMap::new();
+    let mut requirements: BTreeMap<String, BTreeSet<(String, String)>> = BTreeMap::new();
     for annotation in annotations {
         for requirement in &annotation.requirements {
             requirements
-                .entry(requirement.as_str())
+                .entry(requirement.clone())
                 .or_default()
-                .push(annotation);
+                .insert((format!("`{}`", annotation.test), annotation.claim.clone()));
+        }
+    }
+    for row in declared {
+        let evidence = row
+            .evidence
+            .iter()
+            .map(|item| format!("`{}`", item.value()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        for requirement in &row.requirements {
+            requirements
+                .entry(requirement.clone())
+                .or_default()
+                .insert((evidence.clone(), row.claim.clone()));
         }
     }
 
@@ -3100,32 +3515,37 @@ fn render_traceability(package: &str, annotations: &[&Annotation]) -> String {
     out.push_str(package);
     out.push_str(" traceability\n\n");
     out.push_str(
-        "Every row below is generated from a requirement annotation beside the test that\n\
-         establishes it. Narrative — what a package has *not* established, and why — lives in\n\
-         its work-package document, because a generator cannot write it and would overwrite it.\n\n",
+        "Every row below is generated from either a requirement annotation beside a test or a\n\
+         typed evidence declaration in the package's work-package document. The generator checks\n\
+         each specification reference and checks that every test, tracked path, and xtask command\n\
+         exists and belongs here. Narrative — what a package has *not* established, and why —\n\
+         remains in its work-package document.\n\n",
     );
     out.push_str("| Requirement | Evidence | What it establishes |\n");
     out.push_str("| --- | --- | --- |\n");
     for (requirement, evidence) in &requirements {
-        for annotation in evidence {
+        for (items, claim) in evidence {
             let _ = writeln!(
                 out,
-                "| {requirement} | `{}` | {} |",
-                annotation.test, annotation.claim
+                "| {} | {} | {} |",
+                markdown_table_cell(requirement),
+                markdown_table_cell(items),
+                markdown_table_cell(claim)
             );
         }
     }
 
     let _ = writeln!(
         out,
-        "\n{} requirement(s), {} annotation(s).",
+        "\n{} requirement(s), {} annotation(s), {} structured evidence row(s).",
         requirements.len(),
-        annotations.len()
+        annotations.len(),
+        declared.len()
     );
     out.push_str(
-        "\n**Not established here:** that each test exercises the requirement it claims. The\n\
-         generator checks that the requirement exists in the specification and that the test\n\
-         exists in a compiled binary; whether the one proves the other is a review obligation.\n",
+        "\n**Not established here:** that the evidence logically proves the requirement it claims.\n\
+         The generator checks stable references, existence, command syntax, and ownership; the\n\
+         semantic relationship remains a review obligation.\n",
     );
     out
 }
@@ -3135,12 +3555,16 @@ fn render_traceability(package: &str, annotations: &[&Annotation]) -> String {
 /// # Errors
 ///
 /// Returns [`TaskError`] when a generated document differs from what the
-/// annotations produce, when a package's hand-maintained status disagrees with
-/// its own declared mode, or when an annotation's package cannot be
-/// determined.
-fn verify_generated_traceability(root: &Path, annotations: &[Annotation]) -> Result<(), TaskError> {
+/// validated evidence sources produce, when a package's hand-maintained status
+/// disagrees with its declared mode, or when evidence cannot be routed.
+fn verify_generated_traceability(
+    root: &Path,
+    annotations: &[Annotation],
+    declared: &[DeclaredEvidence],
+) -> Result<(), TaskError> {
     let claims = ownership_claims(root)?;
     let mut by_package: BTreeMap<String, Vec<&Annotation>> = BTreeMap::new();
+    let mut declared_by_package: BTreeMap<String, Vec<&DeclaredEvidence>> = BTreeMap::new();
     let mut problems = Vec::new();
 
     for annotation in annotations {
@@ -3148,6 +3572,12 @@ fn verify_generated_traceability(root: &Path, annotations: &[Annotation]) -> Res
             Ok(package) => by_package.entry(package).or_default().push(annotation),
             Err(problem) => problems.push(problem),
         }
+    }
+    for row in declared {
+        declared_by_package
+            .entry(row.package.clone())
+            .or_default()
+            .push(row);
     }
     if !problems.is_empty() {
         return Err(TaskError::Policy(format!(
@@ -3185,11 +3615,15 @@ fn verify_generated_traceability(root: &Path, annotations: &[Annotation]) -> Res
             continue;
         }
 
-        let expected = render_traceability(package, by_package.get(package).unwrap_or(&Vec::new()));
+        let expected = render_traceability(
+            package,
+            by_package.get(package).unwrap_or(&Vec::new()),
+            declared_by_package.get(package).unwrap_or(&Vec::new()),
+        );
         if existing != expected {
             drifted.push(format!(
-                "{} is out of date with its annotations. Run `cargo xtask traceability --write`; \
-                 do not hand-edit a generated file",
+                "{} is out of date with its evidence sources. Run `cargo xtask traceability \
+                 --write`; do not hand-edit a generated file",
                 path.display()
             ));
         }
@@ -3224,16 +3658,27 @@ fn verify_generated_traceability(root: &Path, annotations: &[Annotation]) -> Res
 ///
 /// # Errors
 ///
-/// Returns [`TaskError`] when a document cannot be written, or when annotations
-/// cannot be routed to a package.
-fn write_generated_traceability(root: &Path, annotations: &[Annotation]) -> Result<(), TaskError> {
+/// Returns [`TaskError`] when a document cannot be written or evidence cannot
+/// be routed to a package.
+fn write_generated_traceability(
+    root: &Path,
+    annotations: &[Annotation],
+    declared: &[DeclaredEvidence],
+) -> Result<(), TaskError> {
     let claims = ownership_claims(root)?;
     let modes = traceability_modes(root)?;
     let mut by_package: BTreeMap<String, Vec<&Annotation>> = BTreeMap::new();
+    let mut declared_by_package: BTreeMap<String, Vec<&DeclaredEvidence>> = BTreeMap::new();
     for annotation in annotations {
         if let Ok(package) = route_annotation(&claims, annotation) {
             by_package.entry(package).or_default().push(annotation);
         }
+    }
+    for row in declared {
+        declared_by_package
+            .entry(row.package.clone())
+            .or_default()
+            .push(row);
     }
 
     for package in claims.keys() {
@@ -3241,7 +3686,11 @@ fn write_generated_traceability(root: &Path, annotations: &[Annotation]) -> Resu
             continue;
         }
         let path = root.join("docs/traceability").join(format!("{package}.md"));
-        let rendered = render_traceability(package, by_package.get(package).unwrap_or(&Vec::new()));
+        let rendered = render_traceability(
+            package,
+            by_package.get(package).unwrap_or(&Vec::new()),
+            declared_by_package.get(package).unwrap_or(&Vec::new()),
+        );
         fs::write(&path, rendered).map_err(|source| TaskError::Io {
             path: path.clone(),
             source,
@@ -3251,15 +3700,15 @@ fn write_generated_traceability(root: &Path, annotations: &[Annotation]) -> Resu
     Ok(())
 }
 
-/// Every requirement ID the specification **defines**, as opposed to mentions.
+/// Every stable traceability reference the specification defines.
 ///
-/// Two definition forms, both measured against the current document: a
-/// `### ID: Title` heading, and a `- **ID:** text` list item. Reading only
-/// definition sites is what keeps the set clean without a hand-written deny
-/// list — `SHA-256` and `WP-0NN` are mentioned but never defined, so they are
-/// excluded by construction rather than by a special case somebody has to
-/// maintain.
-fn spec_requirement_ids(root: &Path) -> Result<BTreeSet<String>, TaskError> {
+/// This includes requirement IDs at their definition sites, numeric Markdown
+/// headings, and the numbered operating-contract items under Section 1. The
+/// latter is deliberately narrow: the specification itself refers to
+/// `Section 1.10`, although item 10 is a list item rather than a heading. Merely
+/// accepting `Section 1.N` because Section 1 exists would let an invented item
+/// pass, so each accepted item must be present in the source document.
+fn spec_traceability_references(root: &Path) -> Result<BTreeSet<String>, TaskError> {
     let path = root.join("AGENT_BUILD_SPEC.md");
     let text = fs::read_to_string(&path).map_err(|error| {
         TaskError::Policy(format!(
@@ -3267,14 +3716,49 @@ fn spec_requirement_ids(root: &Path) -> Result<BTreeSet<String>, TaskError> {
             path.display()
         ))
     })?;
+    let references = spec_traceability_references_from(&text);
 
-    let mut ids = BTreeSet::new();
+    if references.is_empty() {
+        return Err(TaskError::Policy(format!(
+            "no traceability references found in {}. The vocabulary must come from the \
+             specification, so an empty parse is a failure rather than an empty allow-list",
+            path.display()
+        )));
+    }
+    Ok(references)
+}
+
+/// Parse stable references from specification text.
+fn spec_traceability_references_from(text: &str) -> BTreeSet<String> {
+    let mut references = BTreeSet::new();
+    let mut top_level_section = None;
+
     for line in text.lines() {
         let trimmed = line.trim_start();
+        let section = numeric_section_heading(trimmed);
+        if trimmed.starts_with("## ") {
+            top_level_section.clone_from(&section);
+        }
+        if let Some(section) = section {
+            references.insert(format!("Section {section}"));
+        }
+
+        // Section 1 is an explicitly numbered operating contract. The spec and
+        // repository documents cite items such as Section 1.10 and 1.11, so
+        // recognize only list items that actually exist there.
+        if top_level_section.as_deref() == Some("1")
+            && line == trimmed
+            && let Some((number, _)) = trimmed.split_once(". ")
+            && !number.is_empty()
+            && number.chars().all(|character| character.is_ascii_digit())
+        {
+            references.insert(format!("Section 1.{number}"));
+        }
+
         if let Some(rest) = trimmed.strip_prefix("### ")
             && let Some(id) = leading_requirement_id(rest)
         {
-            ids.insert(id);
+            references.insert(id);
         }
         // `- **ID:** …`, the form most requirements use.
         if let Some(rest) = trimmed
@@ -3282,18 +3766,28 @@ fn spec_requirement_ids(root: &Path) -> Result<BTreeSet<String>, TaskError> {
             .or_else(|| trimmed.strip_prefix("**"))
             && let Some(id) = leading_requirement_id(rest)
         {
-            ids.insert(id);
+            references.insert(id);
         }
     }
+    references
+}
 
-    if ids.is_empty() {
-        return Err(TaskError::Policy(format!(
-            "no requirement IDs found in {}. The vocabulary must come from the specification, \
-             so an empty parse is a failure rather than an empty allow-list",
-            path.display()
-        )));
+/// `### 11.7 Traceability` -> `11.7`; only numeric heading tokens qualify.
+fn numeric_section_heading(line: &str) -> Option<String> {
+    let rest = line
+        .strip_prefix("### ")
+        .or_else(|| line.strip_prefix("## "))?;
+    let candidate = rest.split_ascii_whitespace().next()?.trim_end_matches('.');
+    if candidate.is_empty()
+        || candidate.starts_with('.')
+        || candidate.ends_with('.')
+        || candidate
+            .split('.')
+            .any(|part| part.is_empty() || !part.chars().all(|c| c.is_ascii_digit()))
+    {
+        return None;
     }
-    Ok(ids)
+    Some(candidate.to_owned())
 }
 
 /// `SAFE-007: …` -> `SAFE-007`, and `Some` only when the text opens with an ID
@@ -3514,9 +4008,9 @@ PartMan repository tasks
   cargo xtask supply-chain       Run cargo-deny and cargo-audit
   cargo xtask tokens             Audit the design tokens for UI-001/007/008
   cargo xtask traceability [--write]
-                                 Check requirement annotations against the spec's own
-                                 IDs and the tests that exist, and that every generated
-                                 document matches them. `--write` regenerates (11.7)
+                                 Check annotations and typed evidence against the spec,
+                                 live tests, tracked ownership, and xtask's parser, and
+                                 check generated documents. `--write` regenerates (11.7)
   cargo xtask verify-actions     Verify every GitHub Action is pinned by digest
   cargo xtask verify-licenses    Verify every manifest declares MIT OR Apache-2.0
   cargo xtask verify-ownership   Verify every tracked path belongs to a work package
@@ -3664,6 +4158,21 @@ mod tests {
         }
     }
 
+    fn declared_evidence_in(package: &str) -> super::DeclaredEvidence {
+        super::DeclaredEvidence {
+            package: package.to_owned(),
+            file: format!("docs/work-packages/{package}.md"),
+            line: 3,
+            requirements: vec!["Section 1.10".to_owned()],
+            evidence: vec![
+                super::DeclaredEvidenceItem::Path("deny.toml".to_owned()),
+                super::DeclaredEvidenceItem::Command("cargo xtask ci".to_owned()),
+                super::DeclaredEvidenceItem::Test("a_real_test".to_owned()),
+            ],
+            claim: "typed evidence is checked rather than copied".to_owned(),
+        }
+    }
+
     #[test]
     fn a_document_may_discuss_the_traceability_block_without_being_misread() {
         // Measured regression. The first version searched for the fence as a
@@ -3741,15 +4250,132 @@ mode: hand-maintained
         // The marker is what the drift gate keys on, and determinism is what
         // makes byte equality a usable comparison at all.
         let annotation = annotation_in("deny.toml", None);
-        let first = super::render_traceability("WP-000", &[&annotation]);
-        let second = super::render_traceability("WP-000", &[&annotation]);
+        let declared = declared_evidence_in("WP-000");
+        let first = super::render_traceability("WP-000", &[&annotation], &[&declared]);
+        let second = super::render_traceability("WP-000", &[&annotation], &[&declared]);
         assert_eq!(first, second, "generation must be deterministic");
         assert!(first.starts_with(super::GENERATED_MARKER));
         assert!(first.contains("a_real_test"));
+        assert!(first.contains("deny.toml"));
+        assert!(first.contains("1 structured evidence row(s)"));
         assert!(
             first.contains("Not established here"),
             "the document must carry its own limit, not rely on a reader knowing it"
         );
+    }
+
+    // Requirements: Section 11.7, Section 12
+    //   structured evidence is parsed from an exact fenced block, and malformed, duplicate, or unclosed sources are refused rather than skipped
+    // Work-Package: WP-000
+    // Evidence: structured_evidence_blocks_are_structural_and_typed
+    #[test]
+    fn structured_evidence_blocks_are_structural_and_typed() {
+        let document = "\
+Prose may mention ```traceability-evidence without opening the block.
+
+```traceability-evidence
+- requirements:
+  - Section 1.10
+  evidence:
+  - path: deny.toml
+  - command: cargo xtask ci
+  - test: a_real_test
+  claim: typed evidence is checked rather than copied
+```
+";
+        let (line, body) = super::exact_fenced_block(document, super::TRACEABILITY_EVIDENCE_BLOCK)
+            .expect("the block is structurally valid")
+            .expect("the exact fence is present");
+        let rows =
+            super::parse_declared_evidence("WP-000", "docs/work-packages/WP-000.md", line, &body)
+                .expect("the typed YAML must parse");
+        assert_eq!(rows, vec![declared_evidence_in("WP-000")]);
+
+        let duplicate = format!("{document}\n{document}");
+        assert!(
+            super::exact_fenced_block(&duplicate, super::TRACEABILITY_EVIDENCE_BLOCK)
+                .expect_err("two blocks are ambiguous")
+                .contains("more than one")
+        );
+        assert!(
+            super::exact_fenced_block(
+                "```traceability-evidence\n- requirements: []\n",
+                super::TRACEABILITY_EVIDENCE_BLOCK
+            )
+            .expect_err("an unclosed block must not disappear")
+            .contains("never closes")
+        );
+
+        for invalid in [
+            "- requirements: []\n  evidence: []\n  claim: empty must refuse\n",
+            "- requirement:\n  - SAFE-007\n  evidence:\n  - test: a_real_test\n  claim: misspelled field\n",
+            "- requirements:\n  - SAFE-007\n  - SAFE-007\n  evidence:\n  - test: a_real_test\n  claim: duplicate requirement\n",
+            "- requirements:\n  - SAFE-007\n  evidence:\n  - path: deny.toml\n    test: a_real_test\n  claim: ambiguous evidence kind\n",
+            "- &same\n  requirements:\n  - SAFE-007\n  evidence:\n  - test: a_real_test\n  claim: duplicate row\n- *same\n",
+        ] {
+            assert!(
+                super::parse_declared_evidence(
+                    "WP-000",
+                    "docs/work-packages/WP-000.md",
+                    1,
+                    invalid
+                )
+                .is_err(),
+                "malformed structured evidence must fail closed: {invalid}"
+            );
+        }
+    }
+
+    // Requirements: Section 11.7, Section 12
+    //   a structured row must name known requirements and live, package-owned evidence; invalid commands and stale references each fail closed
+    // Work-Package: WP-000
+    // Evidence: structured_evidence_is_validated_against_independent_sources
+    #[test]
+    fn structured_evidence_is_validated_against_independent_sources() {
+        let vocabulary = ["Section 1.10".to_owned()].into_iter().collect();
+        let tests = ["a_real_test".to_owned()].into_iter().collect();
+        let tracked = ["deny.toml".to_owned()].into_iter().collect();
+        let claims = routing_claims();
+        let row = declared_evidence_in("WP-000");
+        super::validate_declared_evidence(&row, &vocabulary, &tests, &tracked, &claims)
+            .expect("every independent source supports this row");
+
+        let mut mutations = Vec::new();
+        let mut unknown_requirement = row.clone();
+        unknown_requirement.requirements = vec!["Section 1.99".to_owned()];
+        mutations.push(unknown_requirement);
+
+        let mut untracked_path = row.clone();
+        untracked_path.evidence = vec![super::DeclaredEvidenceItem::Path("missing.md".to_owned())];
+        mutations.push(untracked_path);
+
+        let mut wrong_owner = row.clone();
+        wrong_owner.package = "WP-020".to_owned();
+        mutations.push(wrong_owner);
+
+        let mut missing_test = row.clone();
+        missing_test.evidence = vec![super::DeclaredEvidenceItem::Test("renamed_test".to_owned())];
+        mutations.push(missing_test);
+
+        let mut invalid_command = row;
+        invalid_command.evidence = vec![super::DeclaredEvidenceItem::Command(
+            "cargo xtask imaginary".to_owned(),
+        )];
+        mutations.push(invalid_command);
+
+        for mutation in mutations {
+            assert!(
+                super::validate_declared_evidence(
+                    &mutation,
+                    &vocabulary,
+                    &tests,
+                    &tracked,
+                    &claims
+                )
+                .is_err(),
+                "every mutation must be refused: {mutation:?}"
+            );
+        }
     }
 
     #[test]
@@ -3836,24 +4462,51 @@ mode: hand-maintained
         );
     }
 
+    // Requirements: Section 11.7, Section 1.10
+    //   the traceability vocabulary comes from real ID definitions, numbered headings, and actual numbered operating-contract items rather than from strings this tool invents
+    // Work-Package: WP-000
+    // Evidence: the_requirement_vocabulary_comes_from_the_specification_not_from_this_tool
     #[test]
     fn the_requirement_vocabulary_comes_from_the_specification_not_from_this_tool() {
         // The rule the token audit broke when its thresholds lived inside the
         // file it audited, and the rule the canonical vectors follow. If this
         // tool owned the list, an annotation could name anything the tool had
         // been told about.
-        let ids = super::spec_requirement_ids(&super::repository_root())
-            .expect("the specification must yield its own requirement IDs");
+        let ids = super::spec_traceability_references(&super::repository_root())
+            .expect("the specification must yield its own traceability references");
         for defined in ["SAFE-007", "SEC-010", "SEC-005", "MODEL-005", "UI-008"] {
             assert!(ids.contains(defined), "{defined} is defined in the spec");
+        }
+        for section in ["Section 1", "Section 1.10", "Section 11.7", "Section 12"] {
+            assert!(ids.contains(section), "{section} is anchored in the spec");
         }
         // Mentioned in the specification, never *defined* there. Reading only
         // definition sites excludes them without a hand-maintained deny list,
         // which is the property that keeps the set clean as the spec grows.
-        for mentioned_only in ["SHA-256", "WP-000", "WP-095"] {
+        for mentioned_only in ["SHA-256", "WP-000", "WP-095", "Section 1.99"] {
             assert!(
                 !ids.contains(mentioned_only),
                 "{mentioned_only} is mentioned but not defined, so it is not a requirement"
+            );
+        }
+
+        let synthetic = "\
+## 1. Contract
+1. First
+10. Tenth
+Mention Section 1.99 in prose.
+## Appendix
+11. This is not item 11 of Section 1.
+### 11.7 Real numeric heading
+";
+        let parsed = super::spec_traceability_references_from(synthetic);
+        for present in ["Section 1", "Section 1.1", "Section 1.10", "Section 11.7"] {
+            assert!(parsed.contains(present), "{present} has a definition site");
+        }
+        for absent in ["Section 1.11", "Section 1.99"] {
+            assert!(
+                !parsed.contains(absent),
+                "{absent} is mentioned outside a definition site"
             );
         }
     }
