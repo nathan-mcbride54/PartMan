@@ -475,6 +475,53 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   widen it, and it is recorded in `docs/quality/dependency-policy.md` rather than
   implied to be covered.
 
+- WP-020 increment 2d: the Windows halves of issue #51, and one of them was a
+  live defect rather than a missing check. A file outside the fixture root
+  holding a fixture's exact bytes, hard-linked in at that fixture's name, passed
+  name, location, type, length and digest, authorized, and was destroyed through
+  the authorized handle — reproduced before it was fixed, with the link count
+  reading 2 through the handle the whole time and read only under `cfg(unix)`.
+  The comment claiming the Windows share mode closed that hole is deleted: the
+  share mode refuses *other* openers, and the write that reaches every name is
+  this interlock's own.
+
+  **Neither half needed FFI, so the crate-placement question issue #51 asks to
+  be decided is not decided — the premise did not survive measurement.**
+  Containment needs a held *directory* handle, not a handle-relative open, and
+  `std` opens directories given `FILE_FLAG_BACKUP_SEMANTICS`; the link count
+  needs `GetFileInformationByHandle`, which a safe wrapper exposes. So
+  `unsafe_code = "deny"` still holds across the whole workspace and no new crate
+  exists. The rejected options, including the ntdll route that would have been
+  stronger, are recorded in `docs/work-packages/WP-020.md` rather than dropped.
+
+  The root is now held with a share mode excluding `FILE_SHARE_DELETE`, which
+  makes the filesystem refuse to rename or delete it during the one window the
+  target handles cannot cover — between the root open and the first child open.
+  **Windows containment is therefore enforcement by the filesystem, not
+  resolution from a handle, and it holds only as far as the driver does.**
+  Measured: NTFS, `ReFS` and the Windows SMB server refuse the swap; the WSL 9p
+  redirector does not, and a swap staged from the Linux side redirected the open
+  to a decoy with the root handle held. Roots that are not locally served are
+  refused outright, which over-refuses SMB to a Windows server and is the
+  deliberate direction under SAFE-005.
+
+  Six mutations, each caught by the test named for it — and two of the tests
+  were decoration until the mutations said so. The namespace test exercised only
+  its classifier, so deleting the call site left the suite green; it now goes
+  through `RootDirectory::hold`. The reparse-point guard proved unreachable —
+  `is_file()` through the handle already refuses a file symlink and a junction,
+  measured both ways, contradicting a review finding — so it was removed rather
+  than shipped as an untestable branch. A drafted test asserting that the root
+  cannot be renamed while an authorization is alive was also rejected: that
+  refusal comes from the *target* handle and predates this increment, so the
+  test passed with the fix removed.
+
+  What it does not close is listed in `docs/work-packages/WP-020.md`: a
+  third-party filesystem presenting as a drive letter is indistinguishable from
+  NTFS by a path-prefix check; the link count is a snapshot and a later alias is
+  not prevented; `ReFS` file identity is unproven; and the symlink test is
+  environment-gated. Tier 2 stays unavailable on every platform.
+
 - WP-020 increment 2c: containment now starts from a held directory object, on
   Unix. Increment 2b bound every check to the target's handle and still opened
   that handle by absolute pathname, and `O_NOFOLLOW` constrains only the final
