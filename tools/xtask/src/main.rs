@@ -55,6 +55,7 @@ enum Task {
     SupplyChain,
     Test { tier: u8, profile: Option<String> },
     Tokens,
+    VerifyChangeOwnership { base: String },
     VerifyOwnership,
     VerifyActions,
     VerifyLicenses,
@@ -84,6 +85,7 @@ fn parse(args: &[OsString]) -> Result<Task, TaskError> {
         "supply-chain" => nullary(Task::SupplyChain, command, rest),
         "tokens" => nullary(Task::Tokens, command, rest),
         "verify-ownership" => nullary(Task::VerifyOwnership, command, rest),
+        "verify-change-ownership" => parse_change_ownership(command, rest),
         "verify-actions" => nullary(Task::VerifyActions, command, rest),
         "verify-licenses" => nullary(Task::VerifyLicenses, command, rest),
         "verify-toolchain" => nullary(Task::VerifyToolchain, command, rest),
@@ -158,6 +160,9 @@ fn execute(task: &Task) -> Result<(), TaskError> {
         Task::VerifyActions => verify_action_pins(&repository_root()),
         Task::VerifyLicenses => verify_manifest_licenses(&repository_root()),
         Task::VerifyOwnership => verify_path_ownership(&repository_root()),
+        Task::VerifyChangeOwnership { ref base } => {
+            verify_change_ownership(&repository_root(), base)
+        }
         Task::VerifyToolchain => verify_toolchain(),
     }
 }
@@ -169,6 +174,29 @@ fn nullary(task: Task, command: &str, rest: &[OsString]) -> Result<Task, TaskErr
         Err(TaskError::Usage(format!(
             "`cargo xtask {command}` takes no arguments; run `cargo xtask help`"
         )))
+    }
+}
+
+/// Parse `verify-change-ownership --base <revision>`.
+///
+/// The base is required rather than defaulted to `origin/main`. A default would
+/// silently verify against whatever a stale local ref happened to point at, and
+/// a check that quietly measures the wrong thing is worse than one that asks.
+fn parse_change_ownership(command: &str, rest: &[OsString]) -> Result<Task, TaskError> {
+    match rest {
+        [flag, value] if flag == "--base" => {
+            let base = value.to_string_lossy().trim().to_owned();
+            if base.is_empty() {
+                return Err(TaskError::Usage(format!(
+                    "`cargo xtask {command} --base <revision>` needs a revision"
+                )));
+            }
+            Ok(Task::VerifyChangeOwnership { base })
+        }
+        _ => Err(TaskError::Usage(format!(
+            "`cargo xtask {command}` requires `--base <revision>`, for example \
+             `--base origin/main`"
+        ))),
     }
 }
 
@@ -1353,51 +1381,290 @@ fn ownership_claims(root: &Path) -> Result<BTreeMap<String, Vec<OwnershipClaim>>
             path: path.clone(),
             source,
         })?;
-        let mut claims = Vec::new();
-        let mut inside: Option<bool> = None;
-        for line in text.lines() {
-            let trimmed = line.trim();
-            match inside {
-                None => {
-                    if trimmed == "```owned-paths" {
-                        inside = Some(false);
-                    } else if trimmed == "```owned-paths-reserved" {
-                        inside = Some(true);
-                    }
-                }
-                Some(reserved) => {
-                    if trimmed == "```" {
-                        inside = None;
-                        continue;
-                    }
-                    let pattern = trimmed
-                        .split_once('#')
-                        .map_or(trimmed, |(before, _)| before.trim());
-                    if pattern.is_empty() {
-                        continue;
-                    }
-                    validate_claim_pattern(&name, pattern)?;
-                    claims.push(OwnershipClaim {
-                        pattern: pattern.to_owned(),
-                        reserved,
-                    });
-                }
-            }
-        }
-        if inside.is_some() {
-            return Err(TaskError::Policy(format!(
-                "{name}: an `owned-paths` block is not closed"
-            )));
-        }
-        if claims.is_empty() {
-            return Err(TaskError::Policy(format!(
-                "{name} declares no owned paths; every work package must state its assignment \
-                 in an `owned-paths` block"
-            )));
-        }
-        packages.insert(name, claims);
+        packages.insert(name.clone(), parse_owned_paths(&name, &text)?);
     }
     Ok(packages)
+}
+
+/// The ownership catalogue **as of a git revision**.
+///
+/// Reading the catalogue from the base rather than the working tree is what
+/// stops a pull request widening its own `owned-paths` block and then passing
+/// against the widened version — the hole the 2026-07-29 second follow-up audit
+/// identified in the inventory check.
+fn ownership_claims_at(
+    root: &Path,
+    revision: &str,
+) -> Result<BTreeMap<String, Vec<OwnershipClaim>>, TaskError> {
+    let listing = git(
+        root,
+        &["ls-tree", "--name-only", revision, "docs/work-packages/"],
+    )?;
+    let mut packages = BTreeMap::new();
+    for path in listing.lines() {
+        let path = path.trim();
+        let Some(name) = Path::new(path)
+            .file_stem()
+            .and_then(OsStr::to_str)
+            .filter(|stem| stem.starts_with("WP-"))
+        else {
+            continue;
+        };
+        let text = git(root, &["show", &format!("{revision}:{path}")])?;
+        packages.insert(name.to_owned(), parse_owned_paths(name, &text)?);
+    }
+    if packages.is_empty() {
+        return Err(TaskError::Policy(format!(
+            "no work-package assignments found at {revision}; change ownership cannot be verified"
+        )));
+    }
+    Ok(packages)
+}
+
+/// Parse the `owned-paths` and `owned-paths-reserved` blocks out of one
+/// work-package document.
+fn parse_owned_paths(name: &str, text: &str) -> Result<Vec<OwnershipClaim>, TaskError> {
+    let mut claims = Vec::new();
+    let mut inside: Option<bool> = None;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        match inside {
+            None => {
+                if trimmed == "```owned-paths" {
+                    inside = Some(false);
+                } else if trimmed == "```owned-paths-reserved" {
+                    inside = Some(true);
+                }
+            }
+            Some(reserved) => {
+                if trimmed == "```" {
+                    inside = None;
+                    continue;
+                }
+                let pattern = trimmed
+                    .split_once('#')
+                    .map_or(trimmed, |(before, _)| before.trim());
+                if pattern.is_empty() {
+                    continue;
+                }
+                validate_claim_pattern(name, pattern)?;
+                claims.push(OwnershipClaim {
+                    pattern: pattern.to_owned(),
+                    reserved,
+                });
+            }
+        }
+    }
+    if inside.is_some() {
+        return Err(TaskError::Policy(format!(
+            "{name}: an `owned-paths` block is not closed"
+        )));
+    }
+    if claims.is_empty() {
+        return Err(TaskError::Policy(format!(
+            "{name} declares no owned paths; every work package must state its assignment in an \
+             `owned-paths` block"
+        )));
+    }
+    Ok(claims)
+}
+
+/// Every path a change touches belongs to the work package that change declares.
+///
+/// This is the half of Section 1.10 that `verify-ownership` deliberately does
+/// not attempt, and the 2026-07-29 second follow-up audit was right that the
+/// inventory alone is not enough: *"a feature PR can widen its own `owned-paths`
+/// block and then pass against the widened current tree."* It caught a real
+/// instance — PR #47 was a nominal WP-000 change that also edited WP-010,
+/// WP-020 and WP-030 documents, and the inventory passed because every path was
+/// claimed by *someone*.
+///
+/// Two design choices make it work without new infrastructure:
+///
+/// - **The declaration is a commit trailer**, `Work-Package: WP-030`. This
+///   repository already uses trailers (`Co-Authored-By`), the value stays in the
+///   log forever, and it needs no API call, no label, and no branch-name
+///   convention — branch names here are inconsistent, so keying on them would
+///   have been a guess dressed as a rule.
+/// - **The catalogue is read from the base revision**, never the working tree.
+///   Widening your own assignment in the same change therefore buys nothing,
+///   which is the specific hole the audit named.
+///
+/// A change to the assignments themselves needs `Governance: <reason>`, and in
+/// that mode **only** work-package documents may change — so a governance
+/// trailer cannot be used to smuggle code past the check.
+fn verify_change_ownership(root: &Path, base: &str) -> Result<(), TaskError> {
+    let range = format!("{base}...HEAD");
+    let changed: Vec<String> = git(root, &["diff", "--name-only", &range])?
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_owned)
+        .collect();
+
+    if changed.is_empty() {
+        println!("verify-change-ownership: no paths changed against {base}");
+        return Ok(());
+    }
+
+    let messages = git(root, &["log", "--format=%B%x00", &format!("{base}..HEAD")])?;
+    let commits: Vec<&str> = messages
+        .split('\0')
+        .map(str::trim)
+        .filter(|body| !body.is_empty())
+        .collect();
+    if commits.is_empty() {
+        return Err(TaskError::Policy(format!(
+            "{} path(s) differ from {base} but no commit does so; refusing to guess which work \
+             package owns the change",
+            changed.len()
+        )));
+    }
+
+    let (declared, governance) = read_declarations(&commits);
+
+    if !governance.is_empty() {
+        return governance_change(&changed, &governance);
+    }
+
+    let package = match declared.len() {
+        0 => {
+            return Err(TaskError::Policy(
+                "no commit declares a work package. Add a `Work-Package: WP-0NN` trailer to the \
+                 commit, or `Governance: <reason>` if the change edits assignments themselves. \
+                 Section 1.10 requires a change to belong to an assignment, and no tool can \
+                 infer which one from a diff"
+                    .to_owned(),
+            ));
+        }
+        1 => declared.iter().next().expect("one element").clone(),
+        _ => {
+            return Err(TaskError::Policy(format!(
+                "commits declare more than one work package ({}). One change belongs to one \
+                 assignment; a shared path still has exactly one owning package for a given \
+                 change. Split the pull request",
+                declared
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )));
+        }
+    };
+
+    let catalogue = ownership_claims_at(root, base)?;
+    let claims = catalogue.get(&package).ok_or_else(|| {
+        TaskError::Policy(format!(
+            "commits declare `{package}`, which has no assignment at {base}. A new work package \
+             needs its `docs/work-packages/{package}.md` and its `owned-paths` block to land in a \
+             `Governance:` change first"
+        ))
+    })?;
+
+    let mut strays = Vec::new();
+    for path in &changed {
+        let owned = claims
+            .iter()
+            .any(|claim| !claim.reserved && claim_matches(&claim.pattern, path));
+        let reserved = claims
+            .iter()
+            .any(|claim| claim.reserved && claim_matches(&claim.pattern, path));
+        if !owned && !reserved {
+            strays.push(path.clone());
+        }
+    }
+
+    if strays.is_empty() {
+        println!(
+            "verify-change-ownership: {} path(s) all belong to {package} as assigned at {base}",
+            changed.len()
+        );
+        Ok(())
+    } else {
+        Err(TaskError::Policy(format!(
+            "this change declares `{package}`, but {} path(s) are outside that assignment as it \
+             stood at {base}. Widening the assignment in this same change does not help — the \
+             catalogue is read from the base for exactly that reason. Either land the assignment \
+             change as a separate `Governance:` pull request, or move these edits to the package \
+             that owns them:\n  {}",
+            strays.len(),
+            strays.join("\n  ")
+        )))
+    }
+}
+
+/// A `Governance:` change may edit the assignments themselves, and nothing else.
+///
+/// Restricting the blast radius is what stops the trailer becoming a universal
+/// bypass for the check it sits beside.
+fn governance_change(changed: &[String], reasons: &[String]) -> Result<(), TaskError> {
+    let stray: Vec<&str> = changed
+        .iter()
+        .map(String::as_str)
+        .filter(|path| !is_assignment_document(path))
+        .collect();
+    if stray.is_empty() {
+        println!(
+            "verify-change-ownership: governance change touching {} assignment document(s) ({})",
+            changed.len(),
+            reasons.join("; ")
+        );
+        return Ok(());
+    }
+    Err(TaskError::Policy(format!(
+        "a `Governance:` change may only edit work-package assignments, so that the trailer \
+         cannot be used to carry code past the ownership check. Also changed:\n  {}",
+        stray.join("\n  ")
+    )))
+}
+
+/// The `Work-Package:` and `Governance:` trailers across a range of commits.
+fn read_declarations(commits: &[&str]) -> (BTreeSet<String>, Vec<String>) {
+    let mut declared = BTreeSet::new();
+    let mut governance = Vec::new();
+    for body in commits {
+        for line in body.lines().map(str::trim) {
+            if let Some(value) = line.strip_prefix("Work-Package:") {
+                declared.insert(value.trim().to_owned());
+            } else if let Some(reason) = line.strip_prefix("Governance:") {
+                governance.push(reason.trim().to_owned());
+            }
+        }
+    }
+    (declared, governance)
+}
+
+/// Whether a path is a work-package assignment document.
+///
+/// Case-insensitive on the extension: git can carry `WP-020.MD`, and a
+/// governance check that silently declined to recognise it would let an
+/// assignment edit slip through as ordinary code — or the reverse.
+fn is_assignment_document(path: &str) -> bool {
+    path.starts_with("docs/work-packages/WP-")
+        && Path::new(path)
+            .extension()
+            .and_then(OsStr::to_str)
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
+}
+
+/// Run a git command in `root` and return its stdout.
+fn git(root: &Path, args: &[&str]) -> Result<String, TaskError> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(root)
+        .output()
+        .map_err(|source| TaskError::Launch {
+            program: "git".to_owned(),
+            source,
+        })?;
+    if !output.status.success() {
+        return Err(TaskError::Policy(format!(
+            "`git {}` failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 /// Only exact paths and `prefix/**` are supported, and anything else is an
@@ -1791,6 +2058,9 @@ PartMan repository tasks
   cargo xtask verify-actions     Verify every GitHub Action is pinned by digest
   cargo xtask verify-licenses    Verify every manifest declares MIT OR Apache-2.0
   cargo xtask verify-ownership   Verify every tracked path belongs to a work package
+  cargo xtask verify-change-ownership --base <rev>
+                                 Verify this change belongs to the work package its
+                                 commits declare, judged against <rev>
   cargo xtask verify-toolchain   Verify the pinned Rust compiler
 "
     );
@@ -1838,11 +2108,12 @@ impl fmt::Display for TaskError {
 mod tests {
     use super::{
         Task, TaskError, claim_matches, is_pinned, parse, parse_test, repository_root, run_tier,
-        validate_claim_pattern, verify_action_pins, verify_manifest_licenses,
-        verify_path_ownership,
+        validate_claim_pattern, verify_action_pins, verify_change_ownership,
+        verify_manifest_licenses, verify_path_ownership,
     };
     use std::ffi::OsString;
     use std::fs;
+    use std::path::PathBuf;
 
     fn args(values: &[&str]) -> Vec<OsString> {
         values.iter().map(OsString::from).collect()
@@ -2527,6 +2798,167 @@ mod tests {
                 validate_claim_pattern("WP-test", bad).is_err(),
                 "{bad:?} must be refused rather than silently matching nothing"
             );
+        }
+    }
+
+    #[test]
+    fn a_change_must_declare_which_work_package_it_belongs_to() {
+        // The 2026-07-29 second follow-up audit's F-06: the inventory check
+        // proves every path is claimed by *someone*, which is why PR #47 passed
+        // while editing three other packages' documents. These tests exercise
+        // the four behaviours that close it, in a throwaway repository so they
+        // cannot depend on this one's history.
+        let repo = GitFixture::new("declare");
+
+        // No trailer: refused, because no tool can infer the package from a diff.
+        repo.write("tools/xtask/src/main.rs", "// edited\n");
+        repo.commit("touch xtask with no declaration");
+        let error = repo
+            .check()
+            .expect_err("an undeclared change must be refused");
+        assert!(
+            error
+                .to_string()
+                .contains("no commit declares a work package")
+        );
+
+        // The right trailer: accepted.
+        repo.amend("touch xtask\n\nWork-Package: WP-000");
+        repo.check().expect("WP-000 owns tools/xtask/**");
+
+        // Two packages in one change: refused. A shared path still has exactly
+        // one owning package for a given change.
+        repo.amend("touch xtask\n\nWork-Package: WP-000\nWork-Package: WP-020");
+        let error = repo
+            .check()
+            .expect_err("a change belonging to two packages must be split");
+        assert!(error.to_string().contains("more than one work package"));
+    }
+
+    #[test]
+    fn a_change_cannot_reach_outside_its_assignment_or_widen_it_to_fit() {
+        let repo = GitFixture::new("stray");
+
+        // The PR #47 shape: declare WP-000, edit a document WP-020 owns.
+        repo.write(
+            "docs/work-packages/WP-020.md",
+            "# WP-020\n\n```owned-paths\ndocs/work-packages/WP-020.md\n```\n\nedited\n",
+        );
+        repo.commit("edit WP-020's document\n\nWork-Package: WP-000");
+        let error = repo
+            .check()
+            .expect_err("reaching into another package's paths must be refused");
+        assert!(
+            error.to_string().contains("docs/work-packages/WP-020.md"),
+            "the stray path must be named: {error}"
+        );
+
+        // And widening your own assignment in the same change must not rescue
+        // it — the catalogue is read from the base for exactly this reason.
+        // This is the hole the audit identified in the inventory check.
+        repo.write(
+            "docs/work-packages/WP-000.md",
+            "# WP-000\n\n```owned-paths\ntools/xtask/**\ndocs/work-packages/WP-000.md\ndocs/work-packages/WP-020.md\n```\n",
+        );
+        repo.commit("widen WP-000 to cover it\n\nWork-Package: WP-000");
+        let error = repo
+            .check()
+            .expect_err("self-widening must not defeat the check");
+        assert!(
+            error.to_string().contains("does not help"),
+            "the refusal should explain why widening failed: {error}"
+        );
+    }
+
+    #[test]
+    fn a_governance_change_may_move_assignments_but_carry_nothing_else() {
+        let repo = GitFixture::new("governance");
+
+        // Assignments alone: accepted.
+        repo.write(
+            "docs/work-packages/WP-020.md",
+            "# WP-020\n\n```owned-paths\ndocs/work-packages/WP-020.md\ncrates/fixtures/**\n```\n",
+        );
+        repo.commit("reassign a path\n\nGovernance: crates/fixtures moves to WP-020");
+        repo.check()
+            .expect("a governance change may edit assignments");
+
+        // Assignments plus code: refused, or the trailer becomes a universal
+        // bypass for exactly the check it sits beside.
+        repo.write("tools/xtask/src/main.rs", "// smuggled\n");
+        repo.commit("and quietly change code too\n\nGovernance: still just paperwork");
+        let error = repo
+            .check()
+            .expect_err("a governance change must not carry code");
+        assert!(error.to_string().contains("tools/xtask/src/main.rs"));
+    }
+
+    /// A throwaway git repository with a minimal ownership catalogue.
+    ///
+    /// Built rather than reusing this repository, so the tests neither depend on
+    /// nor disturb real history, and `--base` means something definite.
+    struct GitFixture {
+        root: PathBuf,
+    }
+
+    impl GitFixture {
+        fn new(tag: &str) -> Self {
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let root = std::env::temp_dir().join(format!(
+                "partman-xtask-git-{tag}-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            let fixture = Self { root };
+            fs::create_dir_all(&fixture.root).expect("create fixture repository");
+            for args in [
+                vec!["init", "--initial-branch=main"],
+                vec!["config", "user.email", "test@example.invalid"],
+                vec!["config", "user.name", "Test"],
+                vec!["config", "commit.gpgsign", "false"],
+            ] {
+                super::git(&fixture.root, &args).expect("initialise the fixture repository");
+            }
+            // The base revision's catalogue: WP-000 owns xtask and its own
+            // document, WP-020 owns its own.
+            fixture.write(
+                "docs/work-packages/WP-000.md",
+                "# WP-000\n\n```owned-paths\ntools/xtask/**\ndocs/work-packages/WP-000.md\n```\n",
+            );
+            fixture.write(
+                "docs/work-packages/WP-020.md",
+                "# WP-020\n\n```owned-paths\ndocs/work-packages/WP-020.md\n```\n",
+            );
+            fixture.write("tools/xtask/src/main.rs", "// base\n");
+            fixture.commit("base");
+            super::git(&fixture.root, &["tag", "base"]).expect("tag the base revision");
+            fixture
+        }
+
+        fn write(&self, relative: &str, contents: &str) {
+            let path = self.root.join(relative);
+            fs::create_dir_all(path.parent().expect("parent")).expect("create parent");
+            fs::write(path, contents).expect("write fixture file");
+        }
+
+        fn commit(&self, message: &str) {
+            super::git(&self.root, &["add", "-A"]).expect("stage");
+            super::git(&self.root, &["commit", "-m", message]).expect("commit");
+        }
+
+        fn amend(&self, message: &str) {
+            super::git(&self.root, &["commit", "--amend", "-m", message]).expect("amend");
+        }
+
+        fn check(&self) -> Result<(), TaskError> {
+            verify_change_ownership(&self.root, "base")
+        }
+    }
+
+    impl Drop for GitFixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
         }
     }
 

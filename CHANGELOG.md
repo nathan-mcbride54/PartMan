@@ -269,6 +269,33 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Fixed
 
+- `cargo xtask verify-change-ownership` closes the half of Section 1.10 that the
+  inventory check deliberately left open, and that an audit then caught in
+  practice: PR #47 was a nominal WP-000 change that also edited WP-010, WP-020
+  and WP-030 documents, and `verify-ownership` passed it because every path was
+  claimed by *someone*.
+
+  Every commit now carries a `Work-Package: WP-0NN` trailer, and every changed
+  path must fall inside that assignment. A trailer rather than a branch name or a
+  label because this repository's branch names are inconsistent — keying on them
+  would have been a guess dressed as a rule — and because trailers are already
+  used here, need no API call, and stay in the log permanently.
+
+  The assignment is read from the **base revision**, never the working tree, so
+  widening your own `owned-paths` block in the same change buys nothing. That was
+  the audit's specific criticism, and a deletion sweep confirms it: switching the
+  read back to the working tree fails the self-widening test by name.
+
+  `Governance: <reason>` permits editing the assignments themselves, and then
+  **only** `docs/work-packages/WP-*.md` may change — otherwise the trailer would
+  become a universal bypass for the check it sits beside. That restriction is
+  swept too.
+
+  Wired into CI as a *step* in the existing Tier-1 job rather than a new job, on
+  Linux and pull requests only. A new job would need a new required-status-check
+  name, and adding one without updating branch protection in the same change
+  leaves every pull request waiting forever on a check that never reports.
+
 - WP-020 increment 2c: containment now starts from a held directory object, on
   Unix. Increment 2b bound every check to the target's handle and still opened
   that handle by absolute pathname, and `O_NOFOLLOW` constrains only the final

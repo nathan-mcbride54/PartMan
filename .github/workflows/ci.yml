@@ -34,8 +34,25 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # Full history, so `verify-change-ownership` below can reach the merge
+          # base. A shallow clone has no merge base to diff against, and the
+          # check would have to be skipped -- which for an ownership gate means
+          # passing vacuously.
+          fetch-depth: 0
       - name: Run the unprivileged Tier-1 gate
         run: cargo xtask ci
+      # Section 1.10: a change belongs to the work package its commits declare.
+      # Added as a *step* inside this job on purpose -- a new job would need a
+      # new required-status-check name, and renaming or adding required checks
+      # without updating branch protection in the same change leaves every pull
+      # request waiting forever on something that never reports.
+      #
+      # Linux only, because the answer cannot differ by operating system and
+      # three identical verdicts are three chances for one to flake. Pull
+      # requests only, because a push to `main` has no proposal to judge.
+      - name: Verify the change belongs to its work package
+        if: matrix.os == 'ubuntu-24.04' && github.event_name == 'pull_request'
+        run: cargo xtask verify-change-ownership --base origin/${{ github.base_ref }}
 
   # Ran on Linux alone while runner minutes were metered against a private
   # repository, where Windows bills 2x and macOS 10x. On a public repository
