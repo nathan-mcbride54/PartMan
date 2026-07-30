@@ -12,62 +12,38 @@ already made and landed, or a decision still open with the reason it is open.
 | #63 | `deny.toml` licence election; the duplicate-major blind spot | closes #61 |
 | #64 | Governance: each package declares how its traceability is produced | — |
 
-## Open, and held deliberately
+## PR #65 resumed — the deliberate hold is satisfied locally
 
-**PR #65 — #39 increment 2.** CI green, 12/12, judging `92c28aa`.
+The first version of PR #65 generated WP-000's document and refused hand edits,
+but it converted 31 hand-written evidence rows into 13 generated evidence rows.
+That 18-row difference contained evidence the generator could not express. The
+decision owner correctly held the green PR until the conversion could prove zero
+unexplained evidence loss.
 
-It does what it says: `docs/traceability/WP-000.md` is generated, hand edits fail
-CI, and seven mutations are each refused by name.
+The work has now landed on the PR branch:
 
-**It also converts 31 hand-written evidence rows into 13 generated evidence
-rows.** The 18-row difference contains evidence the generator cannot express,
-not drift being removed — so the file is currently *less complete* than the one
-it replaces. (The earlier “33-row” count included the Markdown header and
-separator.) The final generated table need not contain exactly 31 evidence rows:
-generation may legitimately consolidate or relocate evidence. The acceptance
-criterion is zero unexplained evidence loss, not row-count equality.
+- Stable references come from requirement definition sites and numeric
+  specification headings. `Section 1.N` is narrower: an item is accepted only
+  when that exact numbered operating-contract item exists, so mentioning an
+  invented `Section 1.99` does not add it to the vocabulary.
+- Non-test and aggregated evidence lives in a typed
+  ```` ```traceability-evidence ```` block in the package-owned work-package
+  document. Paths are checked against git and ownership, tests against compiled
+  binaries, and commands against xtask's real parser.
+- `docs/reviews/WP_000_TRACEABILITY_MIGRATION_2026-07-30.md` gives every one of
+  the 31 old rows a disposition. None remains unsupported.
+- The generated output currently has 46 evidence rows from 15 source-local
+  annotations and 26 structured declarations. The larger number is expected:
+  evidence carrying several requirements renders once for each requirement.
+- Malformed/duplicate/unclosed blocks, repeated relationships, unknown
+  requirements, invented sections, missing or cross-owned paths, missing tests,
+  invalid commands, stale annotations, and hand-edited output are automated
+  refusals.
 
-**Decided 2026-07-30 by the decision owner: hold #65 and close the two gaps
-below first.** Green CI is not the merge condition here; a conversion that loses
-no evidence is. Do not merge it on the strength of the checkmark, and do not
-merge it as a clean conversion — it is not one until the gaps close, and the PR
-carries a comment saying so.
-
-The work therefore lands on the #65 branch rather than after it: extend the
-generator, record a disposition for every hand-written row, regenerate, and
-confirm no evidence relationship was lost without explanation. Then merge one
-PR that is a genuine conversion.
-
-## The two gaps — now blocking the merge of #65, not just increment 3
-
-Close both on the #65 branch. They also block increment 3, the rollout to
-WP-010, WP-020 and WP-030, which would otherwise multiply the gap by four.
-
-**Definition of done for #65:** regenerating `docs/traceability/WP-000.md` yields
-a table that carries the evidence the 31-row hand-written version carried. A
-row-by-row migration ledger classifies every old relationship as a generated
-equivalent, an intentional consolidation, evidence moved to a named narrative or
-ADR record, a superseded/invalid relationship with rationale, or a still-
-unsupported relationship that blocks the merge.
-
-1. **Section references have no requirement ID.** The vocabulary is built from
-   IDs the specification *defines* (208 of them, from `### ID:` headings and
-   `- **ID:**` list items). Eight of WP-000's lost rows cited Section 1.10, which
-   is a numbered list item rather than a heading, so there is nothing to anchor
-   it to. WP-000's largest body of evidence — the ownership gates — is therefore
-   absent from its own table.
-
-   Likely route: parse top-level section numbers from `## N.` headings and accept
-   `Section N` or `Section N.M` where `N` is a real section. Weaker than the ID
-   anchor but still anchored to the document rather than to a list this tool owns.
-
-2. **Non-test evidence has nowhere to go.** Rows naming `deny.toml`,
-   `.gitattributes`, `.github/CODEOWNERS`, `rust-toolchain.toml` or a command are
-   real evidence and are not tests, and an annotation binds to a function.
-
-   Likely route: a file-level annotation form, or a block in the work-package
-   document that the generator folds in — the second needs care, because the
-   point of generation is that the table cannot be hand-written.
+The merge condition remains zero unexplained evidence loss, not equal row
+counts. That condition is now met locally. PR #65 still requires its updated
+three-platform CI and final diff review before merge; a green historical run on
+the earlier 13-row version is not evidence for this implementation.
 
 ## Facts measured this session, so they are not re-derived
 
