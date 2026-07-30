@@ -875,6 +875,11 @@ fn verify_object(
 /// Split by platform because the two answer it differently, not because they
 /// mean different things.
 #[cfg(unix)]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the Windows half of this pair genuinely fails, and one signature across both is \
+              what keeps the caller free of a platform branch"
+)]
 fn object_facts(
     metadata: &std::fs::Metadata,
     _file: &File,
