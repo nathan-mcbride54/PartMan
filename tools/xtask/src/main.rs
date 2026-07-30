@@ -55,6 +55,7 @@ enum Task {
     SupplyChain,
     Test { tier: u8, profile: Option<String> },
     Tokens,
+    Traceability,
     VerifyChangeOwnership { base: String },
     VerifyOwnership,
     VerifyActions,
@@ -84,6 +85,7 @@ fn parse(args: &[OsString]) -> Result<Task, TaskError> {
         "probe" => nullary(Task::Probe, command, rest),
         "supply-chain" => nullary(Task::SupplyChain, command, rest),
         "tokens" => nullary(Task::Tokens, command, rest),
+        "traceability" => nullary(Task::Traceability, command, rest),
         "verify-ownership" => nullary(Task::VerifyOwnership, command, rest),
         "verify-change-ownership" => parse_change_ownership(command, rest),
         "verify-actions" => nullary(Task::VerifyActions, command, rest),
@@ -116,7 +118,10 @@ fn execute(task: &Task) -> Result<(), TaskError> {
                 "-D",
                 "warnings",
             ])?;
-            run_tier(1, None)
+            run_tier(1, None)?;
+            // Last, because it enumerates the test binaries the tier-1 run has
+            // just built. Running it first would build them twice.
+            verify_traceability(&repository_root())
         }
         Task::CrossLanguage => cross_language(),
         Task::Fuzz { seconds } => fuzz(seconds),
@@ -158,6 +163,7 @@ fn execute(task: &Task) -> Result<(), TaskError> {
         Task::Fixtures => generate_fixtures(),
         Task::Probe => probe_fixtures(),
         Task::Tokens => audit_tokens(),
+        Task::Traceability => verify_traceability(&repository_root()),
         Task::VerifyActions => verify_action_pins(&repository_root()),
         Task::VerifyLicenses => verify_manifest_licenses(&repository_root()),
         Task::VerifyOwnership => verify_path_ownership(&repository_root()),
@@ -2686,6 +2692,380 @@ fn cargo(args: &[&str]) -> Result<(), TaskError> {
     }
 }
 
+/// The marker that opens a requirement annotation.
+///
+/// Deliberately not a `#[doc]` attribute or a macro. Test names here are prose
+/// by convention, so an ID cannot live in the name, and a registration macro
+/// would have to be added to every crate to record something a comment already
+/// says. The cost of choosing a comment is that a *text* scan reads it, and
+/// this repository has watched three text scanners be defeated — so nothing
+/// rests on the scan alone. See [`verify_traceability`].
+const ANNOTATION_MARKER: &str = "// Requirements:";
+
+/// One requirement annotation, bound to the test that follows it.
+#[derive(Debug, PartialEq, Eq)]
+struct Annotation {
+    /// Repository-relative source file.
+    file: String,
+    /// 1-indexed line of the marker, so a refusal can be navigated to.
+    line: usize,
+    /// The requirement IDs claimed, in the order written.
+    requirements: Vec<String>,
+    /// What this evidence establishes. Becomes the evidence-table cell, which
+    /// is why it lives beside the code rather than in the document: there is
+    /// nowhere else for it to drift to.
+    claim: String,
+    /// The test function this annotation binds to.
+    test: String,
+    /// Whether a `#[cfg(...)]` sits between the annotation and its function,
+    /// which means the test may legitimately be absent from this platform.
+    platform_gated: bool,
+}
+
+/// Check that every requirement annotation names a requirement the
+/// specification defines and a test that actually exists.
+///
+/// **The generator must not own the vocabulary it validates against.** That is
+/// the same rule the canonical vectors follow — neither language may hold its
+/// own copy — and the same one the token audit broke when its thresholds lived
+/// inside the file it audited. So the ID set is parsed out of
+/// `AGENT_BUILD_SPEC.md` at its definition sites, and an ID this repository
+/// invents is a refusal rather than a new requirement.
+///
+/// **A text scan is not trusted on its own.** Annotations are read from source
+/// text, but the function each one binds to is checked against the list libtest
+/// reports from the compiled binaries, so an annotation sitting above something
+/// that is not a live test is refused.
+///
+/// **Be exact about what that does and does not catch, because the first
+/// version of this comment was wrong and only running the mutation found it.**
+/// The binding is *positional* — the annotation attaches to the next function
+/// below it — so renaming a test renames what the annotation documents and
+/// nothing goes stale. That is drift-proof by construction, and it also means
+/// the cross-check cannot detect a rename, because there is no stored name to
+/// disagree with. What it does catch is an annotation that has come adrift from
+/// a test: left above a helper, above a commented-out function, or in a file
+/// with no test under it at all.
+///
+/// **The gap this leaves, named rather than implied.** Deleting an annotated
+/// test lets its annotation reattach to whichever function follows, silently
+/// crediting that test with another's requirement and claim. Closing it needs
+/// the annotation to *name* its evidence so the two sources can disagree, and
+/// that is the first thing increment 2 should add.
+///
+/// **What no version of this can check.** Nothing here establishes that a test
+/// *exercises* the requirement it claims. That stays a review obligation, and
+/// the honest version of it is printed with the summary rather than left for a
+/// reader to infer.
+///
+/// # Errors
+///
+/// Returns [`TaskError`] when the specification yields no requirement IDs, when
+/// no annotations exist at all, when an annotation names an unknown ID, an
+/// unknown test, or carries no claim, or when two tests share a leaf name so
+/// that binding an annotation to one of them would be ambiguous.
+fn verify_traceability(root: &Path) -> Result<(), TaskError> {
+    let vocabulary = spec_requirement_ids(root)?;
+    let annotations = collect_annotations(root)?;
+    let tests = listed_test_names(root)?;
+    let covered = judge_annotations(&vocabulary, &annotations, &tests)?;
+
+    println!(
+        "traceability: {} annotation(s) over {} requirement(s), checked against {} spec IDs and \
+         {} live tests",
+        annotations.len(),
+        covered,
+        vocabulary.len(),
+        tests.len()
+    );
+    println!(
+        "  not checked, and not checkable here: whether a test exercises the requirement it \
+         claims. That is a review obligation"
+    );
+    Ok(())
+}
+
+/// The judgement itself, over data rather than over the filesystem.
+///
+/// Separated from [`verify_traceability`] for the same reason [`parse`] is
+/// separated from [`execute`]: a check nobody can drive with synthetic input is
+/// a check nobody proves can fail, and Section 12 requires every check to be
+/// shown capable of failing.
+///
+/// Returns how many distinct requirements carry evidence.
+///
+/// # Errors
+///
+/// Returns [`TaskError`] on an empty annotation set, an unknown requirement ID,
+/// a missing claim, or a test no binary reports.
+fn judge_annotations(
+    vocabulary: &BTreeSet<String>,
+    annotations: &[Annotation],
+    tests: &BTreeSet<String>,
+) -> Result<usize, TaskError> {
+    // Vacuity, per Section 12. An empty run must fail, never report a pass over
+    // nothing — the same rule that makes an empty destructive target list a
+    // refusal rather than a vacuous success.
+    if annotations.is_empty() {
+        return Err(TaskError::Policy(format!(
+            "no requirement annotations found. Every behaviour change needs requirement-ID \
+             traceability, so finding none is a failure rather than a clean run. Annotate a \
+             test with `{ANNOTATION_MARKER} <ID>` above it"
+        )));
+    }
+
+    let mut problems = Vec::new();
+    for annotation in annotations {
+        let where_ = format!("{}:{}", annotation.file, annotation.line);
+        if annotation.requirements.is_empty() {
+            problems.push(format!("{where_}: annotation names no requirement"));
+        }
+        for requirement in &annotation.requirements {
+            if !vocabulary.contains(requirement) {
+                problems.push(format!(
+                    "{where_}: `{requirement}` is not defined in AGENT_BUILD_SPEC.md. An \
+                     annotation cannot invent a requirement"
+                ));
+            }
+        }
+        if annotation.claim.is_empty() {
+            problems.push(format!(
+                "{where_}: annotation has no claim line. Write what the evidence establishes on \
+                 the following `//   ` line; it is the traceability table's cell"
+            ));
+        }
+        if annotation.test.is_empty() {
+            problems.push(format!(
+                "{where_}: annotation is not followed by a function, so it binds to nothing"
+            ));
+        } else if !tests.contains(&annotation.test) && !annotation.platform_gated {
+            problems.push(format!(
+                "{where_}: binds to `{}`, which no test binary reports. Either it is not a test \
+                 at all, or the annotation has drifted away from the one it documents",
+                annotation.test
+            ));
+        }
+    }
+
+    if !problems.is_empty() {
+        return Err(TaskError::Policy(format!(
+            "traceability annotations are not usable as evidence:\n  {}",
+            problems.join("\n  ")
+        )));
+    }
+
+    let covered: BTreeSet<&str> = annotations
+        .iter()
+        .flat_map(|annotation| annotation.requirements.iter().map(String::as_str))
+        .collect();
+    Ok(covered.len())
+}
+
+/// Every requirement ID the specification **defines**, as opposed to mentions.
+///
+/// Two definition forms, both measured against the current document: a
+/// `### ID: Title` heading, and a `- **ID:** text` list item. Reading only
+/// definition sites is what keeps the set clean without a hand-written deny
+/// list — `SHA-256` and `WP-0NN` are mentioned but never defined, so they are
+/// excluded by construction rather than by a special case somebody has to
+/// maintain.
+fn spec_requirement_ids(root: &Path) -> Result<BTreeSet<String>, TaskError> {
+    let path = root.join("AGENT_BUILD_SPEC.md");
+    let text = fs::read_to_string(&path).map_err(|error| {
+        TaskError::Policy(format!(
+            "cannot read the specification at {}: {error}",
+            path.display()
+        ))
+    })?;
+
+    let mut ids = BTreeSet::new();
+    for line in text.lines() {
+        let trimmed = line.trim_start();
+        if let Some(rest) = trimmed.strip_prefix("### ")
+            && let Some(id) = leading_requirement_id(rest)
+        {
+            ids.insert(id);
+        }
+        // `- **ID:** …`, the form most requirements use.
+        if let Some(rest) = trimmed
+            .strip_prefix("- **")
+            .or_else(|| trimmed.strip_prefix("**"))
+            && let Some(id) = leading_requirement_id(rest)
+        {
+            ids.insert(id);
+        }
+    }
+
+    if ids.is_empty() {
+        return Err(TaskError::Policy(format!(
+            "no requirement IDs found in {}. The vocabulary must come from the specification, \
+             so an empty parse is a failure rather than an empty allow-list",
+            path.display()
+        )));
+    }
+    Ok(ids)
+}
+
+/// `SAFE-007: …` -> `SAFE-007`, and `Some` only when the text opens with an ID
+/// followed immediately by a colon.
+fn leading_requirement_id(text: &str) -> Option<String> {
+    let (candidate, _) = text.split_once(':')?;
+    let candidate = candidate.trim_end_matches('*').trim();
+    let (prefix, number) = candidate.split_once('-')?;
+    let prefix_ok = (2..=5).contains(&prefix.len())
+        && prefix
+            .chars()
+            .all(|character| character.is_ascii_uppercase());
+    let number_ok = number.len() == 3 && number.chars().all(|c| c.is_ascii_digit());
+    (prefix_ok && number_ok).then(|| candidate.to_owned())
+}
+
+/// Read every annotation out of the repository's tracked Rust sources.
+fn collect_annotations(root: &Path) -> Result<Vec<Annotation>, TaskError> {
+    let mut found = Vec::new();
+    for file in tracked_files(root)? {
+        if Path::new(&file).extension().is_none_or(|ext| ext != "rs") {
+            continue;
+        }
+        let text = fs::read_to_string(root.join(&file))
+            .map_err(|error| TaskError::Policy(format!("cannot read {file}: {error}")))?;
+        let lines: Vec<&str> = text.lines().collect();
+        for (index, line) in lines.iter().enumerate() {
+            let trimmed = line.trim_start();
+            let Some(rest) = trimmed.strip_prefix(ANNOTATION_MARKER) else {
+                continue;
+            };
+            found.push(parse_annotation(&file, index, rest, &lines));
+        }
+    }
+    Ok(found)
+}
+
+/// Build one annotation from its marker line and what follows it.
+fn parse_annotation(file: &str, index: usize, rest: &str, lines: &[&str]) -> Annotation {
+    let requirements = rest
+        .split(',')
+        .map(str::trim)
+        .filter(|piece| !piece.is_empty())
+        .map(ToOwned::to_owned)
+        .collect();
+
+    // Continuation lines are indented under the marker (`//   text`), which
+    // distinguishes the claim from an ordinary comment that happens to sit
+    // beneath an annotation.
+    let mut claim = String::new();
+    let mut cursor = index + 1;
+    while let Some(line) = lines.get(cursor) {
+        let Some(comment) = line.trim_start().strip_prefix("//") else {
+            break;
+        };
+        let Some(text) = comment.strip_prefix("   ") else {
+            break;
+        };
+        if !claim.is_empty() {
+            claim.push(' ');
+        }
+        claim.push_str(text.trim());
+        cursor += 1;
+    }
+
+    // Then the binding: the next function declared. Attributes, ordinary
+    // comments and blank lines may sit between, which is what `#[test]` and
+    // `#[cfg(windows)]` need.
+    //
+    // A `#[cfg(` on the way down is remembered, because a platform-gated test
+    // is absent from *this* platform's listing and must not be reported as
+    // missing evidence. It is counted as unverified-here instead.
+    let mut test = String::new();
+    let mut platform_gated = false;
+    for line in lines.iter().skip(cursor).take(12) {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("#[cfg(") {
+            platform_gated = true;
+        }
+        if let Some(after) = trimmed.split_once("fn ") {
+            let name: String = after
+                .1
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            if !name.is_empty() {
+                test = name;
+            }
+            break;
+        }
+    }
+
+    Annotation {
+        file: file.to_owned(),
+        line: index + 1,
+        requirements,
+        claim,
+        test,
+        platform_gated,
+    }
+}
+
+/// Every test name the compiled binaries report, as leaf names.
+///
+/// This is the structural half of the check, and the reason a comment scan is
+/// acceptable for the other half: libtest is asked what tests exist rather than
+/// the source being asked what it looks like.
+///
+/// Leaf names because an annotation sits beside a function and knows nothing
+/// about its module path. That is only unambiguous while leaf names are unique,
+/// so this refuses a duplicate rather than assuming — measured at 216 tests and
+/// 216 distinct names when written, which is a fact that could stop being true.
+fn listed_test_names(root: &Path) -> Result<BTreeSet<String>, TaskError> {
+    let output = Command::new(env!("CARGO"))
+        .current_dir(root)
+        .args([
+            "test",
+            "--workspace",
+            "--all-targets",
+            "--locked",
+            "--",
+            "--list",
+        ])
+        .output()
+        .map_err(|error| TaskError::Policy(format!("cannot list tests: {error}")))?;
+    if !output.status.success() {
+        return Err(TaskError::Policy(format!(
+            "listing tests failed, so annotations cannot be checked against reality: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+
+    let listing = String::from_utf8_lossy(&output.stdout);
+    let mut names = BTreeSet::new();
+    let mut duplicates = BTreeSet::new();
+    for line in listing.lines() {
+        let Some(path) = line.strip_suffix(": test") else {
+            continue;
+        };
+        let leaf = path.rsplit("::").next().unwrap_or(path).trim();
+        if !names.insert(leaf.to_owned()) {
+            duplicates.insert(leaf.to_owned());
+        }
+    }
+
+    if !duplicates.is_empty() {
+        return Err(TaskError::Policy(format!(
+            "two or more tests share a leaf name, so an annotation could not say which one it \
+             means: {}. Rename one, or annotations stop being evidence",
+            duplicates.into_iter().collect::<Vec<_>>().join(", ")
+        )));
+    }
+    if names.is_empty() {
+        return Err(TaskError::Policy(
+            "no tests were listed, so every annotation would be unverifiable. Failing rather \
+             than passing over nothing"
+                .to_owned(),
+        ));
+    }
+    Ok(names)
+}
+
 fn print_help() {
     println!(
         "\
@@ -2706,6 +3086,8 @@ PartMan repository tasks
                                  refuses rather than reporting an empty pass.
   cargo xtask supply-chain       Run cargo-deny and cargo-audit
   cargo xtask tokens             Audit the design tokens for UI-001/007/008
+  cargo xtask traceability       Check requirement annotations against the spec's
+                                 own IDs and the tests that actually exist (11.7)
   cargo xtask verify-actions     Verify every GitHub Action is pinned by digest
   cargo xtask verify-licenses    Verify every manifest declares MIT OR Apache-2.0
   cargo xtask verify-ownership   Verify every tracked path belongs to a work package
@@ -2799,6 +3181,252 @@ mod tests {
         }
     }
 
+    /// A vocabulary, annotations and a test list, for driving
+    /// `judge_annotations` without touching the filesystem.
+    fn traceability_inputs() -> (
+        std::collections::BTreeSet<String>,
+        Vec<super::Annotation>,
+        std::collections::BTreeSet<String>,
+    ) {
+        let vocabulary = ["SAFE-007".to_owned(), "SEC-010".to_owned()]
+            .into_iter()
+            .collect();
+        let tests = ["a_real_test".to_owned()].into_iter().collect();
+        let annotations = vec![super::Annotation {
+            file: "tools/xtask/src/main.rs".to_owned(),
+            line: 1,
+            requirements: vec!["SAFE-007".to_owned()],
+            claim: "what this establishes".to_owned(),
+            test: "a_real_test".to_owned(),
+            platform_gated: false,
+        }];
+        (vocabulary, annotations, tests)
+    }
+
+    #[test]
+    fn a_platform_gated_test_is_not_reported_as_missing_evidence() {
+        // A `#[cfg(unix)]` test is absent from a Windows listing and vice
+        // versa. Without this the gate would pass on one operating system and
+        // fail on another for the same source, which is worse than no gate:
+        // the failure would be read as noise and the check disabled.
+        let (vocabulary, mut annotations, tests) = traceability_inputs();
+        annotations[0].test = "a_test_only_built_on_the_other_platform".to_owned();
+
+        annotations[0].platform_gated = false;
+        super::judge_annotations(&vocabulary, &annotations, &tests)
+            .expect_err("an ungated test that is not listed must still be refused");
+
+        annotations[0].platform_gated = true;
+        super::judge_annotations(&vocabulary, &annotations, &tests)
+            .expect("a cfg-gated test absent from this platform's listing must be tolerated");
+    }
+
+    #[test]
+    fn an_annotation_with_no_function_under_it_binds_to_nothing_and_is_refused() {
+        // The orphan case: an annotation left behind in a file, or pushed out
+        // of range of the function it was written for. Covered here rather than
+        // by a source mutation because aiming a mutation at it reliably is
+        // harder than stating it directly.
+        let lines = vec![
+            "    // Requirements: SAFE-007",
+            "    //   a claim with nothing beneath it",
+            "",
+            "    struct NotAFunction;",
+        ];
+        let annotation = super::parse_annotation("f.rs", 0, " SAFE-007", &lines);
+        assert_eq!(annotation.test, "");
+
+        let (vocabulary, _, tests) = traceability_inputs();
+        let refusal = super::judge_annotations(&vocabulary, &[annotation], &tests)
+            .expect_err("an annotation binding to nothing must be refused");
+        assert!(
+            refusal.to_string().contains("binds to nothing"),
+            "{refusal}"
+        );
+    }
+
+    #[test]
+    fn renaming_an_annotated_test_is_invisible_because_the_binding_is_positional() {
+        // **Recorded as a limit, not a guarantee, and it catches no mutation.**
+        // Renaming a test renames what its annotation documents, so nothing can
+        // go stale — and equally, nothing can be detected. Deleting an
+        // annotated test therefore lets the annotation reattach to the next
+        // function and credit it with someone else's requirement.
+        //
+        // This exists so that limit cannot be quietly forgotten while the
+        // surrounding prose talks about cross-checking against live tests.
+        // Closing it needs the annotation to name its evidence explicitly, so
+        // the two sources can disagree; that is increment 2's first job.
+        let lines = vec![
+            "    // Requirements: SAFE-007",
+            "    //   a claim written for one test",
+            "    #[test]",
+            "    fn whatever_happens_to_be_here_now() {",
+        ];
+        let annotation = super::parse_annotation("f.rs", 0, " SAFE-007", &lines);
+        assert_eq!(
+            annotation.test, "whatever_happens_to_be_here_now",
+            "the binding follows position, so it cannot notice which test it was written for"
+        );
+    }
+
+    #[test]
+    fn the_requirement_vocabulary_comes_from_the_specification_not_from_this_tool() {
+        // The rule the token audit broke when its thresholds lived inside the
+        // file it audited, and the rule the canonical vectors follow. If this
+        // tool owned the list, an annotation could name anything the tool had
+        // been told about.
+        let ids = super::spec_requirement_ids(&super::repository_root())
+            .expect("the specification must yield its own requirement IDs");
+        for defined in ["SAFE-007", "SEC-010", "SEC-005", "MODEL-005", "UI-008"] {
+            assert!(ids.contains(defined), "{defined} is defined in the spec");
+        }
+        // Mentioned in the specification, never *defined* there. Reading only
+        // definition sites excludes them without a hand-maintained deny list,
+        // which is the property that keeps the set clean as the spec grows.
+        for mentioned_only in ["SHA-256", "WP-000", "WP-095"] {
+            assert!(
+                !ids.contains(mentioned_only),
+                "{mentioned_only} is mentioned but not defined, so it is not a requirement"
+            );
+        }
+    }
+
+    #[test]
+    fn an_annotation_cannot_invent_a_requirement() {
+        let (vocabulary, mut annotations, tests) = traceability_inputs();
+        annotations[0].requirements = vec!["SAFE-999".to_owned()];
+        let refusal = super::judge_annotations(&vocabulary, &annotations, &tests)
+            .expect_err("an undefined requirement must be refused");
+        assert!(refusal.to_string().contains("SAFE-999"), "{refusal}");
+    }
+
+    #[test]
+    fn an_annotation_naming_a_test_that_no_longer_exists_is_refused() {
+        // The failure mode that matters. `docs/traceability/WP-000.md` has
+        // already had to delete three rows naming tests that had been removed,
+        // and a document citing absent evidence is worse than one citing none.
+        let (vocabulary, mut annotations, tests) = traceability_inputs();
+        annotations[0].test = "a_test_that_was_renamed".to_owned();
+        let refusal = super::judge_annotations(&vocabulary, &annotations, &tests)
+            .expect_err("an annotation naming a missing test must be refused");
+        assert!(
+            refusal.to_string().contains("a_test_that_was_renamed"),
+            "{refusal}"
+        );
+    }
+
+    #[test]
+    fn an_annotation_without_a_claim_is_refused() {
+        // The claim is the traceability table's cell. Without it the generated
+        // document would have to invent one, which is where hand-maintenance
+        // creeps back in.
+        let (vocabulary, mut annotations, tests) = traceability_inputs();
+        annotations[0].claim = String::new();
+        let refusal = super::judge_annotations(&vocabulary, &annotations, &tests)
+            .expect_err("an annotation with no claim must be refused");
+        assert!(refusal.to_string().contains("claim"), "{refusal}");
+    }
+
+    #[test]
+    fn finding_no_annotations_is_a_failure_not_a_clean_run() {
+        // Section 12: the generator must not be able to pass vacuously. Zero
+        // annotations is the shape an accidentally-disabled scanner takes.
+        let (vocabulary, _, tests) = traceability_inputs();
+        let refusal = super::judge_annotations(&vocabulary, &[], &tests)
+            .expect_err("an empty annotation set must fail rather than report a clean run");
+        assert!(refusal.to_string().contains("no requirement annotations"));
+    }
+
+    #[test]
+    fn the_happy_path_reports_the_requirements_it_actually_covered() {
+        // The control. Without it every assertion above could be passing
+        // because the judgement refuses everything.
+        let (vocabulary, annotations, tests) = traceability_inputs();
+        let covered = super::judge_annotations(&vocabulary, &annotations, &tests)
+            .expect("a well-formed annotation must be accepted");
+        assert_eq!(covered, 1);
+    }
+
+    #[test]
+    fn an_annotation_binds_to_the_function_below_it_across_its_attributes() {
+        // `#[test]` and `#[cfg(windows)]` sit between the annotation and the
+        // function, so the binding has to step over them.
+        let lines = vec![
+            "    // Requirements: SAFE-007",
+            "    //   the claim, which continues",
+            "    //   onto a second line",
+            "    #[cfg(windows)]",
+            "    #[test]",
+            "    fn the_bound_test() {",
+        ];
+        let annotation = super::parse_annotation("f.rs", 0, " SAFE-007", &lines);
+        assert_eq!(annotation.requirements, vec!["SAFE-007".to_owned()]);
+        assert_eq!(annotation.test, "the_bound_test");
+        assert_eq!(
+            annotation.claim,
+            "the claim, which continues onto a second line"
+        );
+    }
+
+    #[test]
+    fn an_ordinary_comment_under_an_annotation_is_not_swallowed_as_a_claim() {
+        // Continuation lines are indented under the marker. Without that rule
+        // the next ordinary comment would be absorbed into the claim and end up
+        // printed in the traceability table.
+        let lines = vec![
+            "    // Requirements: SAFE-007",
+            "    //   the real claim",
+            "    // an ordinary comment about the implementation",
+            "    fn the_bound_test() {",
+        ];
+        let annotation = super::parse_annotation("f.rs", 0, " SAFE-007", &lines);
+        assert_eq!(annotation.claim, "the real claim");
+    }
+
+    #[test]
+    fn requirement_ids_are_recognised_only_in_definition_position() {
+        assert_eq!(
+            super::leading_requirement_id("SAFE-007: Host protection"),
+            Some("SAFE-007".to_owned())
+        );
+        assert_eq!(
+            super::leading_requirement_id("SEC-010:** Supply chain"),
+            Some("SEC-010".to_owned())
+        );
+        assert_eq!(
+            super::leading_requirement_id("SAFE-007 without a colon"),
+            None
+        );
+
+        // **Shape is not what makes the vocabulary clean, and the first
+        // version of this test claimed it was.** `SHA-256` and `WP-000` are
+        // both ID-shaped and this function accepts them — asserted rather than
+        // hidden, because the wrong version passed review in my own head and
+        // was caught only by running it.
+        //
+        // What excludes them is that neither appears in *definition* position
+        // in the specification. That is a property of the document, not of this
+        // predicate, and it is checked against the real document by
+        // `the_requirement_vocabulary_comes_from_the_specification_not_from_this_tool`.
+        // If the spec ever grew a `### SHA-256:` heading the vocabulary would
+        // absorb it and that test is what would notice.
+        assert_eq!(
+            super::leading_requirement_id("SHA-256: a digest"),
+            Some("SHA-256".to_owned())
+        );
+        assert_eq!(
+            super::leading_requirement_id("WP-000: a package"),
+            Some("WP-000".to_owned())
+        );
+        assert_eq!(
+            super::leading_requirement_id("SAFE-7: too few digits"),
+            None
+        );
+    }
+
+    // Requirements: SAFE-007, SAFE-005
+    //   Tier 2 and Tier 3 refuse by default; an unavailable tier fails closed rather than running
     #[test]
     fn unavailable_destructive_tiers_fail_closed() {
         for tier in [2, 3] {
@@ -2884,6 +3512,8 @@ mod tests {
         assert!(message.contains("prober.rs"), "{message}");
     }
 
+    // Requirements: SAFE-007
+    //   the profile is a command-line argument, so it cannot be inherited by accident from a parent shell
     #[test]
     fn a_destructive_profile_is_an_argument_not_an_environment_variable() {
         // SAFE-007 says one environment variable is not proof. Parsing the
@@ -2912,6 +3542,8 @@ mod tests {
         }
     }
 
+    // Requirements: SAFE-007
+    //   no destructive suite exists, so the runner refuses rather than reporting a pass over an empty run
     #[test]
     fn a_destructive_tier_refuses_even_with_the_profile_word() {
         // The profile alone is one factor of three, and no suite exists to run
@@ -2945,6 +3577,8 @@ mod tests {
         }
     }
 
+    // Requirements: SEC-010
+    //   a full commit SHA is accepted and a tag or branch reference is refused, which is what "pinned by digest" has to mean
     #[test]
     fn digest_pins_are_accepted_and_mutable_references_are_not() {
         assert!(is_pinned(
@@ -3019,6 +3653,8 @@ mod tests {
             .expect("a digest-pinned, tag-commented reference is the accepted form");
     }
 
+    // Requirements: SEC-010
+    //   action discovery is a structural YAML parse: the quoted-key, anchored-key and YAML-escape bypasses that defeated three text scanners are permanent regressions
     #[test]
     fn the_three_bypasses_the_text_scanners_missed_are_refused() {
         // Every row is a spelling that passed a previous version of this gate
@@ -3239,6 +3875,8 @@ mod tests {
         .expect("a self-referential local action is not a violation, only a cycle to survive");
     }
 
+    // Requirements: SEC-010
+    //   job containers, the container shorthand, service containers and a Docker action image are all pinned, not only `uses:` references
     #[test]
     fn container_images_are_executable_dependencies_too() {
         // `uses:` is not the only way a workflow runs third-party code, and the
@@ -3292,6 +3930,8 @@ mod tests {
         clippy::too_many_lines,
         reason = "one regression per confirmed bypass; splitting them hides the roster"
     )]
+    // Requirements: SEC-010
+    //   a Docker action is followed into its Dockerfile, where every image the build pulls must be digest-pinned
     fn a_dockerfile_action_is_followed_to_its_base_images() {
         // `image: Dockerfile` builds from source, so the executable dependency
         // is that file's `FROM` lines rather than a pullable reference.
@@ -3422,6 +4062,8 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
+    // Requirements: SEC-010
+    //   npm advisory coverage follows discovery rather than a hard-coded path, so a new package cannot be born unaudited
     #[test]
     fn the_npm_advisory_check_finds_every_package_not_one_named_directory() {
         // The advisory check ran in `packages/canonical` by name, because that
@@ -3487,6 +4129,8 @@ mod tests {
         );
     }
 
+    // Requirements: SAFE-009
+    //   `unsafe_code = "deny"` reaches a crate only if it opts into the workspace lints, so a member omitting the stanza is refused rather than silently exempt
     #[test]
     fn every_workspace_member_inherits_the_lint_policy() {
         verify_workspace_lints(&repository_root())
@@ -3553,18 +4197,24 @@ mod tests {
             .expect("the same action pinned twice, tagged at both sites, is acceptable");
     }
 
+    // Requirements: SEC-010
+    //   this repository's own workflows pass the digest-pinning gate, so the check is exercised against real input rather than only against fixtures
     #[test]
     fn the_repository_workflows_pass_the_real_gate() {
         verify_action_pins(&repository_root())
             .expect("this repository's own workflows must satisfy the gate");
     }
 
+    // Requirements: SEC-005
+    //   every Cargo and npm manifest declares the project licence, checked semantically so the release inventory has a subject
     #[test]
     fn every_repository_manifest_declares_the_project_licence() {
         verify_manifest_licenses(&repository_root())
             .expect("every manifest in this repository declares MIT OR Apache-2.0");
     }
 
+    // Requirements: SEC-005
+    //   a `license` key nested anywhere but the document root does not satisfy the inventory
     #[test]
     fn a_nested_json_licence_property_does_not_satisfy_the_gate() {
         // The 2026-07-29 follow-up audit's reproduction: the old check matched
