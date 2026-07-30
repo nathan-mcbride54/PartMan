@@ -156,6 +156,27 @@ and the follow-up audit defeated it by nesting the property under `metadata`:
 the line still read `"license": "MIT OR Apache-2.0"` while the document's root
 `license` was `undefined`. A line cannot tell you where in a document it sits.
 
+## Known gap: a duplicate major version will not fail CI
+
+`[bans] multiple-versions` is `"warn"`, and `cargo xtask supply-chain` does not
+pass `--deny warnings` to `cargo deny`. So two majors of one crate in the graph
+produce a message nobody is required to read.
+
+There is a concrete case waiting to happen. `winapi-util 0.1.11` — the safe
+`GetFileInformationByHandle` wrapper `crates/fixtures` reads its SAFE-007 link
+count through — requires `windows-sys >=0.48.0, <=0.61.*`. `rustix` depends on
+`windows-sys` too. The day `windows-sys` 0.62 ships and `rustix` bumps to it,
+the graph carries two majors, Dependabot raises the bump, and **nothing flags
+the divergence**: the warning prints and the job stays green.
+
+Recorded rather than fixed because the fix is a judgement this note is not
+entitled to make on its own. Promoting `multiple-versions` to `"deny"` would
+refuse the graph the moment any transitive dependency lags, which is a common
+and usually harmless state; leaving it as a warning nobody surfaces is the
+status quo, which is worse than it looks because the warning reads as covered.
+Whoever next touches the supply-chain gate should decide between denying it,
+surfacing the warning count in the job summary, or pinning the pair explicitly.
+
 ## Documented deviation: hosted runner images are not digest-pinned
 
 SEC-010 requires CI actions **and builder images** to be pinned by digest. The
