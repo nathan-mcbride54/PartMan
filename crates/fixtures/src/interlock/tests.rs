@@ -53,11 +53,21 @@ struct Sandbox {
 /// guarantee is a property of *the filesystem serving the root*, and a
 /// developer's temporary directory need not be the same filesystem as the
 /// clone the fixtures are really generated into. On the machine this increment
-/// was written on they differ — `%TEMP%` is NTFS and the working copy is on a
-/// `ReFS` Dev Drive — so a green suite is evidence about `%TEMP%` unless
-/// someone points it elsewhere at least once.
+/// was written on they differ — `%TEMP%` is on an NTFS volume and the working
+/// copy is on a `ReFS` one — so a green suite is evidence about `%TEMP%` unless
+/// someone points it elsewhere.
+///
+/// It was pointed elsewhere: the whole suite was run with the root on that
+/// `ReFS` volume and passed, which is how the separator defect below was found.
 fn sandbox_base() -> PathBuf {
-    std::env::var_os("PARTMAN_TEST_ROOT").map_or_else(std::env::temp_dir, PathBuf::from)
+    let base = std::env::var_os("PARTMAN_TEST_ROOT").map_or_else(std::env::temp_dir, PathBuf::from);
+    // Re-collecting through `components` normalises the separators. Windows
+    // accepts `/` in a path, but `mklink` is parsed by `cmd`, which reads a
+    // leading `/` as the start of a switch — so `PARTMAN_TEST_ROOT=D:/x/y`
+    // made junction creation fail and the root-swap test blame the *platform*
+    // for it. Found by pointing the suite at this repository's own ReFS volume,
+    // which is exactly what the override exists for.
+    base.components().collect()
 }
 
 impl Sandbox {
@@ -497,8 +507,11 @@ fn swapping_the_fixture_root_directory_before_open_cannot_redirect_the_write() {
         fs::rename(&control_root, &moved).expect("with nothing held, the root renames freely");
         assert!(
             junction(&control_root, &decoy_root),
-            "the control needs a junction; if this platform cannot make one the test below \
-             proves nothing"
+            "could not create a junction at {}. The control has to succeed or the defended \
+             case below proves nothing, so this is a failure rather than a skip. Check the \
+             separators first — `mklink` is parsed by `cmd`, which reads a leading `/` as a \
+             switch — then whether the volume supports reparse points. NTFS and ReFS both do",
+            control_root.display()
         );
         let redirected =
             identity_of(&control_root.join("blank-512.img")).expect("open through the junction");

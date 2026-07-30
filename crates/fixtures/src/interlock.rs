@@ -123,11 +123,12 @@ fn handle_facts(file: &File) -> io::Result<HandleFacts> {
 ///
 /// Caveat, recorded rather than assumed away: `BY_HANDLE_FILE_INFORMATION`'s
 /// 64-bit index is documented as not guaranteed unique on `ReFS`, and this
-/// repository's own working copy sits on a `ReFS` Dev Drive. No collision was
-/// produced in review — two byte-identical files returned different indices —
-/// so the identity assertions are sound on NTFS and *unproven* rather than
-/// broken on `ReFS`. The 128-bit `FILE_ID_INFO` that would settle it is not
-/// exposed by the safe wrapper.
+/// repository's own working copy sits on a `ReFS` volume. The whole interlock
+/// suite was run with its root on that volume and passed, and no collision was
+/// produced — two byte-identical files returned different indices. That is
+/// evidence, not a proof of uniqueness: the 128-bit `FILE_ID_INFO` that would
+/// settle it is not exposed by the safe wrapper. Read this as "measured to hold
+/// here", never as "cannot collide".
 #[cfg(windows)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct HandleFacts {
