@@ -75,7 +75,7 @@ matter, because three of the seven are *not* simply "undecided":
 | SI-33 | no | Open. The route by which SI-28's floor may later be relaxed |
 | SI-34 | yes | Open. Reopens whether the protection verdict belongs in the hashed body at all |
 | SI-35 | yes | Open. ADR-C3's three table states are not all observable through the interface a client reads |
-| SI-36 | no | Open. SAFE-009 neither permits nor forbids reviewed `unsafe` in a test-fixture crate, and SAFE-007's Windows other-name check cannot be written without it; blocks WP-020 precondition 3 |
+| SI-36 | no | **Withdrawn.** Not a conflict: SAFE-009 permits `unsafe` *only* in adapter/FFI/helper crates, which forbids it in `crates/fixtures` and names the route. Filing it read an omission as permission |
 
 **SI-31 is the one most easily misread, and was.** Its *answer* survived
 adversarial review — plain bytewise over each element's fully canonical encoded
@@ -1667,7 +1667,26 @@ freezing a wrong rule now is the expensive option and deferring is not.
 
 ## SI-36 May a test-fixture crate contain reviewed `unsafe`?
 
-**Requirements:** SAFE-009, SAFE-007, SAFE-001 · **Blocks WP-020 precondition 3**
+> **WITHDRAWN 2026-07-29, the same day it was filed.** The second follow-up
+> audit was right and this filing was wrong. SAFE-009 says `unsafe` "is
+> permitted **only** in adapter, FFI, and helper crates inside reviewed,
+> documented modules." *Only* is a rule, not an enumeration: it forbids `unsafe`
+> in `crates/fixtures` and simultaneously names the route — a separate, narrow
+> platform-query adapter crate with a reviewed module, or a vetted safe
+> dependency. There is no conflict to file.
+>
+> Reading the omission of `crates/fixtures` from *both* lists as ambiguity was
+> using the §0.2 process to turn an implementation-location constraint into
+> permission by omission. That is the opposite of what filing is for, and the
+> audit's phrasing is the one to remember: *"Do not use the spec-issue process
+> to turn an implementation-location constraint into permission by omission."*
+>
+> WP-020 precondition 3 therefore has a known route and stays open as ordinary
+> work, not as a blocked decision. The text below is kept because the toolchain
+> measurement in it is still accurate and useful — `number_of_links` really is
+> unstable, so FFI or a safe dependency really is the only path.
+
+**Requirements:** SAFE-009, SAFE-007, SAFE-001 · **Withdrawn; not a conflict**
 
 Filed 2026-07-29 from an attempt to close WP-020's third increment-2
 precondition, not from a reading. The precondition asks for the Windows

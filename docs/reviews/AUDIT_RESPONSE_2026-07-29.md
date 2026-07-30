@@ -27,6 +27,14 @@
 > `docs/work-packages/WP-020.md`. Handle binding is real, but it is delivered
 > only *after* an open that can still follow a raced symlink out of the fixture
 > root.
+>
+> **Further corrections after `PROJECT_AUDIT_SECOND_FOLLOW_UP_2026-07-29.md`:**
+> the action-scanner disposition was wrong a *second* time — the
+> "syntax-independent sweep" that replaced the subset enforcer was itself
+> defeated by a YAML escape, a container tag with no `@`, and a local action
+> outside `.github/actions/`. Discovery is now a structural YAML parse. And
+> precondition 1 stayed open rather than closing at increment 2b, because
+> `O_NOFOLLOW` binds only the final path component.
 
 This answers `PROJECT_AUDIT_2026-07-29.md` finding by finding, for the next
 reviewer. Every reproduction the audit described was re-run before being acted

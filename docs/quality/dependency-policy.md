@@ -72,40 +72,42 @@ operating systems and again as a Tier-1 unit test, and it fails closed when the
 workflow directory is missing or empty, so a renamed directory cannot make it
 pass vacuously.
 
-**Discovery does not depend on recognising the key.** Two audits in a row
-defeated a key-shaped reader with valid YAML it could not parse — first a
-quoted key (`"uses":`), then an anchored one (`&pin uses:`) — and each time the
-scanner reported success having simply counted one *fewer* reference. That is
-the worst failure mode a gate has: silence that looks like a pass.
+**Discovery is a structural YAML parse.** It took three failed attempts at
+reading source text to get here, and the history is the argument for the
+dependency:
 
-So the scanner has two paths, and the second is the guarantee:
+1. A line reader keyed on `uses:` — defeated by `"uses":`, a quoted key.
+2. The same reader plus refusals for shapes it could not parse — defeated by
+   `&pin uses:`, an anchored key, which it neither read nor refused.
+3. A "syntax-independent" sweep for `owner/repo@ref` tokens — defeated three
+   ways at once: `"actions/checkout@v7"` hides the `@` behind a YAML escape
+   no text search decodes; `docker://alpine:3.20` is a documented, mutable
+   step reference containing no `@` at all; and a local action outside
+   `.github/actions/` was never recursed into.
 
-1. A **key-shaped reader** over a deliberately small YAML subset — a
-   block-style `uses` key, bare or quoted, with optional space before the
-   colon, whose value is a plain or quoted scalar on the same line. Flow
-   mappings, block scalars, aliases, anchors, escaped keys, explicit-key
-   syntax, and next-line values are each a named violation. This path extracts
-   the reference and its release-tag comment.
-2. A **reference-shaped sweep** for every `owner/repo@ref` token in the file.
-   An action reference must contain that shape verbatim; no anchor, tag,
-   quoting style, or flow mapping changes the reference *text*. Any token the
-   reader could not attribute to a `uses:` key is a violation.
+Every attempt reported **success with one fewer reference** — silence shaped
+like a pass, the worst failure mode a gate has. Deciding what a YAML document
+*says* requires reading it as YAML. `yaml-rust2` is pinned and audited like
+every other dependency; interpreting security-relevant YAML incorrectly a
+fourth time is the larger risk, and that trade is now settled rather than
+re-argued.
 
-That inverts the property from "the scanner understands YAML", which is not
-achievable without a real parser, to "an action reference cannot hide from a
-text search", which holds for anchors, tags, flow mappings, and every future
-spelling equally. The sweep over-refuses by design: a reference-shaped token
-inside a `run:` script would be reported, and the fix is to rewrite the step in
-plain block style. Comment-only lines and trailing release-tag comments are
-exempt, and the repository's own workflows contain exactly the seven real
-references and nothing else shaped like one.
+Two layers, answering different questions:
 
-A structural YAML parser remains the alternative if the sweep's over-refusal
-ever becomes unworkable. It was not adopted here because the sweep achieves the
-correctness property the audits were actually demanding — unbypassable
-discovery — without putting a YAML dependency inside the tool that gates
-dependencies. If that judgement turns out wrong, the reopen path is a small,
-reviewed parser crate, and this paragraph is its context.
+- **Discovery and pinning** come from the parsed document. Every `uses` mapping
+  key anywhere in the tree is a reference, with its value decoded by the
+  parser — context-free on purpose, so a position GitHub adds later cannot be
+  missed. Actions and reusable workflows need a 40-character commit SHA;
+  `docker://` images need `@sha256:` and 64 hex, because a container tag can be
+  repointed. Local `./…` references are resolved wherever they live, required
+  to carry `action.yml`/`action.yaml` if they name a directory, required to stay
+  inside the repository, and recursed into with a visited set that survives
+  cycles. A file that will not parse is a violation, not a skip.
+- **Auditability** stays textual. A remote reference must also appear plainly in
+  the source with its release tag in a trailing comment, so a reviewer can tell
+  which release a digest is. A reference spelled so obscurely that the text
+  layer cannot find it fails this check — deliberately, which is what makes
+  writing one that way a build failure rather than a way to disappear.
 
 A mutable tag such as `@v6` is not a pin: the upstream account can move it onto
 new code that would then execute with this repository's credentials.

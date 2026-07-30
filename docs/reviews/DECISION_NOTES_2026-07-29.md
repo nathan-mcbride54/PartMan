@@ -1,5 +1,36 @@
 # Decision notes — 2026-07-29, second audit round
 
+> **Superseded in part by `PROJECT_AUDIT_SECOND_FOLLOW_UP_2026-07-29.md`.** Do
+> not act on the following claims below; each was disproved by a planted
+> mutation or a documented platform semantic:
+>
+> - **"The reference sweep is unbypassable."** Wrong three ways. A YAML escape
+>   (`"actions/checkout@v7"`) hides the `@` from any text search; a mutable
+>   `docker://alpine:3.20` contains no `@` at all; and a local action outside
+>   `.github/actions/` was never recursed into. Section 1's whole argument for
+>   declining a parser fails with it, and **the parser decision is reversed** —
+>   discovery is now a structural YAML parse.
+> - **"WP-020 precondition 1 is closed"** and **"no-follow opening cannot leave
+>   the fixture root."** `O_NOFOLLOW` constrains only the *final* path
+>   component. Replacing the fixture-root directory with a symlink redirects the
+>   open to an out-of-root file, and every handle-based check then passes.
+>   Precondition 1 is **reopened**.
+> - **"The token proves the operator ran the generator."** A pure function of
+>   public source cannot prove that history; anyone can compute the value
+>   without running anything. It proves only that the invocation presented the
+>   exact build-derived value.
+> - **"SI-36 reflects a specification ambiguity."** SAFE-009 says `unsafe` is
+>   permitted **only** in adapter, FFI, and helper crates — which *forbids* it
+>   in `crates/fixtures` and names the route. Reading the omission as ambiguity
+>   was using the spec-issue process to convert a location constraint into
+>   permission.
+> - **"Increment 2 is no longer gated"** and **"the shell is ready to begin."**
+>   Both premature; see the second follow-up's F-03 and F-07.
+>
+> Section 5's process lesson stands, and the third round proved it again: the
+> attempted fix repeated the defect a third time, and a deletion sweep also
+> caught one of this round's own tests not being load-bearing.
+
 For the next agent. This covers the round that answered
 `PROJECT_AUDIT_FOLLOW_UP_2026-07-29.md`, and it is about **decisions and their
 reasoning** rather than a list of what changed — the CHANGELOG and the pull

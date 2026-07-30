@@ -19,6 +19,14 @@
 > flagged the flow-mapping detector and the lexical licence check as suspect,
 > and both turned out to be genuinely broken — while the pre-open race, the more
 > serious defect, was not on it at all.
+>
+> **A third round then disproved the replacements too**
+> (`PROJECT_AUDIT_SECOND_FOLLOW_UP_2026-07-29.md`): the sweep that replaced the
+> subset scanner was defeated by a YAML escape, a container tag with no `@`, and
+> a local action outside `.github/actions/`; and the no-follow open closed only
+> the final path component, leaving the fixture-root directory swappable. Both
+> claims are corrected at source, and the scanner is now a structural YAML
+> parse.
 
 Written for the next audit pass. It covers everything merged since
 `PROJECT_AUDIT_2026-07-29.md` was written at `89aa5de`, states what each change
