@@ -29,9 +29,18 @@
 //! handle, and the same handle — the verified object itself — is what the
 //! destructive consumer receives. Renaming or swapping the path afterwards
 //! changes which object the *name* refers to; it cannot change which object
-//! the authorization holds. On Windows the handle is opened with a share mode
-//! that additionally refuses concurrent writes, deletion, and renames — via
-//! any name, including a hard link — for as long as the authorization lives.
+//! the authorization holds.
+//!
+//! On Windows the target handle additionally carries a share mode that refuses
+//! concurrent opens. State its reach exactly, because an overstated version of
+//! this sentence is what let the F-03 hard-link hole ship: **it refuses writes
+//! to the unnamed `$DATA` stream through any name, and refuses rename and
+//! delete of the directory entry the handle was opened under.** Writes to
+//! *named* alternate data streams and changes to file attributes still succeed,
+//! and the share mode says nothing at all about this interlock's own write —
+//! which is the one that reaches every hard link. Other names are refused by
+//! counting them (see [`verify_object`]), never by the share mode.
+//!
 //! The path checks (fixture root, exact expected location, symlink refusal)
 //! are kept as hygiene, but nothing safety-relevant rests on a path once the
 //! handle is open.
@@ -63,10 +72,77 @@ const FILE_SHARE_READ: u32 = 0x0000_0001;
 /// [`tests::a_symlink_swapped_in_before_open_is_refused`]; on Windows creating
 /// a symlink needs `SeCreateSymbolicLinkPrivilege`, which a CI runner cannot be
 /// relied on to hold, so that platform's refusal rests on this flag plus the
-/// standard library reporting a reparse point as a symlink — recorded as such
-/// rather than claimed as tested.
+/// reparse-point attribute check in [`verify_object`] — recorded as such rather
+/// than claimed as tested everywhere.
 #[cfg(windows)]
 const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+
+/// `FILE_FLAG_BACKUP_SEMANTICS`: required to obtain a handle to a *directory*.
+///
+/// Needed only by [`RootDirectory::open`], and deliberately never passed to
+/// [`RootDirectory::open_child`] — see the comment there, which records the
+/// measurement. Despite the name it needs no privilege for a directory the
+/// caller owns: the measuring host held no `SeBackupPrivilege` and the open
+/// succeeded on NTFS, on `ReFS`, over SMB, and on a `subst` drive.
+#[cfg(windows)]
+const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+
+/// The Windows facts about an open object that stable `std` will not give.
+///
+/// **This is the only place `winapi_util` is named in this crate, and a test
+/// asserts that.** The confinement is deliberate rather than tidy:
+/// `winapi_util::HandleRef` predates Rust's I/O safety, carries no lifetime,
+/// and is constructible from safe code — so a later line could obtain an
+/// authoritative-looking answer for a *closed* handle, which was demonstrated
+/// during review inside a crate with `unsafe_code = "deny"` and no `unsafe`
+/// token in it. Taking `&File` and returning plain integers means the borrow
+/// checker governs the handle's lifetime and no raw handle ever escapes.
+///
+/// This is **not** the same guarantee the Unix half gets. `rustix` takes
+/// `BorrowedFd<'_>` and is I/O-safe by construction; this wrapper is not, and
+/// the dependency is justified on its own audited merits rather than by
+/// analogy with `rustix`.
+#[cfg(windows)]
+fn handle_facts(file: &File) -> io::Result<HandleFacts> {
+    let information = winapi_util::file::information(file)?;
+    Ok(HandleFacts {
+        links: information.number_of_links(),
+        identity: (information.file_index(), information.volume_serial_number()),
+    })
+}
+
+/// What one [`handle_facts`] call answers.
+///
+/// `identity` is Windows' nearest analogue of an inode — the file index paired
+/// with the volume serial. Nothing in the interlock reads it; the *tests* do,
+/// because the standing rule here is that a containment regression asserts
+/// which object was authorized rather than whether a call refused, and a decoy
+/// holding a fixture's exact bytes is indistinguishable by content. It is
+/// returned from this one function rather than fetched separately so that the
+/// confinement described above stays a single call site.
+///
+/// Caveat, recorded rather than assumed away: `BY_HANDLE_FILE_INFORMATION`'s
+/// 64-bit index is documented as not guaranteed unique on `ReFS`, and this
+/// repository's own working copy sits on a `ReFS` Dev Drive. No collision was
+/// produced in review — two byte-identical files returned different indices —
+/// so the identity assertions are sound on NTFS and *unproven* rather than
+/// broken on `ReFS`. The 128-bit `FILE_ID_INFO` that would settle it is not
+/// exposed by the safe wrapper.
+#[cfg(windows)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct HandleFacts {
+    /// Hard links naming this object. Excludes any 8.3 short-name alias.
+    links: u64,
+    /// `(file index, volume serial number)`.
+    identity: (u64, u64),
+}
+
+/// The identity of an open object, for tests that must name *which* object was
+/// authorized. Routed through [`handle_facts`] so there is still one call site.
+#[cfg(all(windows, test))]
+pub(crate) fn object_identity(file: &File) -> io::Result<(u64, u64)> {
+    handle_facts(file).map(|facts| facts.identity)
+}
 
 /// Environment variable carrying the disposable-test token.
 pub const TOKEN_VARIABLE: &str = "PARTMAN_DISPOSABLE_TOKEN";
@@ -84,6 +160,46 @@ pub struct Request {
     pub targets: Vec<PathBuf>,
 }
 
+/// Is this canonical root served by a filesystem whose share modes Windows
+/// enforces?
+///
+/// A pure function of the path prefix, so it is unit-testable without needing a
+/// network filesystem to exist on the machine running the tests.
+///
+/// **Why this exists.** The whole Windows containment argument is that the
+/// filesystem refuses to rename or delete a directory with a live handle. A
+/// redirector is free not to implement that, and one measurably does not: with
+/// the root handle held on `\\wsl.localhost\Debian\...`, a swap staged from the
+/// Linux side succeeded and the subsequent child open returned the decoy's
+/// object identity. NTFS, `ReFS` and the Windows SMB server all refused the same
+/// attack.
+///
+/// So a UNC root is refused. That **over-refuses** SMB to a Windows server,
+/// which was measured to hold, and that is the deliberate direction: SAFE-005
+/// requires failing closed, and the cost of refusing a working configuration is
+/// an error message, while the cost of trusting a broken one is a destructive
+/// write outside the fixture root.
+///
+/// It does **not** catch a third-party filesystem mounted at a *drive letter*
+/// (`WinFsp`, Dokan, sshfs-win, or a mapped drive that canonicalizes to one).
+/// Separating those needs a volume-class query that no safe wrapper here
+/// exposes; it is recorded as residual risk in `docs/work-packages/WP-020.md`
+/// rather than silently assumed away.
+#[cfg(windows)]
+fn root_namespace_is_local(path: &Path) -> bool {
+    use std::path::{Component, Prefix};
+
+    match path.components().next() {
+        Some(Component::Prefix(prefix)) => {
+            !matches!(prefix.kind(), Prefix::UNC(..) | Prefix::VerbatimUNC(..))
+        }
+        // No prefix at all means the path is not canonical, which
+        // `canonicalize` should have made impossible. Refuse rather than
+        // reason about how it happened.
+        _ => false,
+    }
+}
+
 /// The fixture directory, held open as an object.
 ///
 /// Increment 2b bound every check to the target's handle and still opened that
@@ -99,13 +215,46 @@ pub struct Request {
 /// So the directory itself becomes an object, and targets are opened *relative
 /// to it* by catalogue basename. Path resolution then starts from a handle
 /// nothing can rebind, rather than from a name that can be.
+/// The two platforms establish containment by different mechanisms, and the
+/// difference is load-bearing rather than an implementation detail.
+///
+/// **Unix resolves.** `openat` from a held descriptor starts path resolution at
+/// an object nothing can rebind, so containment holds on every Unix filesystem
+/// because it is a property of how the name is resolved.
+///
+/// **Windows refuses.** There is no safe handle-relative open in stable `std`,
+/// so the child is still opened by pathname — and what makes that sound is that
+/// no component of the pathname can be exchanged while the handle lives. That
+/// is *the filesystem driver's* behaviour, not the resolver's, and it therefore
+/// holds only as far as the driver does. Measured: NTFS, `ReFS` and the Windows
+/// SMB server refuse the swap; the WSL 9p redirector permits it, and a swap
+/// staged from the Linux side redirected the open to a decoy with the root
+/// handle held. Roots on a filesystem Windows does not serve are therefore
+/// refused outright by [`RootDirectory::open`] rather than silently trusted.
 #[derive(Debug)]
 pub struct RootDirectory {
-    /// The directory handle. Unix only: this is what `openat` resolves from.
-    #[cfg(unix)]
+    /// The directory handle.
+    ///
+    /// On Unix this is what `openat` resolves from. On Windows it is held for
+    /// its share mode: opened without `FILE_SHARE_DELETE`, it makes the
+    /// filesystem refuse rename and delete of the root for as long as it lives,
+    /// which closes the one window the target handles do not cover — between
+    /// this open and the first [`Self::open_child`].
+    ///
+    /// Never read on Windows, and that is the point: its effect is the share
+    /// mode the kernel enforces while it is alive, not anything this code does
+    /// with it. `the_root_handle_alone_refuses_renaming_the_root` is what
+    /// proves it is doing something, since a lint cannot.
+    #[cfg_attr(
+        windows,
+        expect(
+            dead_code,
+            reason = "held for its share mode; reading it is not the purpose"
+        )
+    )]
     handle: File,
-    /// The path the directory was opened at, for reporting and for the
-    /// Windows fallback below.
+    /// The canonical path the directory was opened at, for reporting and for
+    /// the Windows child open.
     path: PathBuf,
 }
 
@@ -115,16 +264,51 @@ impl RootDirectory {
         let path = root
             .canonicalize()
             .map_err(|error| Refusal::ManifestUnreadable(format!("fixture root: {error}")))?;
+        Self::hold(path)
+    }
+
+    /// Hold an already-canonical root.
+    ///
+    /// Split out from [`Self::open`] so a test can prove the namespace
+    /// precondition is *reached*, not merely that the classifier it calls
+    /// returns the right answer. The first version of this increment tested
+    /// only the classifier, and deleting the call site left the whole suite
+    /// green — the same shape of defect as a traceability row naming evidence
+    /// that no longer exists. A test can hand this a literal UNC path without
+    /// needing one to exist on the machine running it.
+    fn hold(path: PathBuf) -> Result<Self, Refusal> {
+        // Before the handle is taken, because on a filesystem Windows does not
+        // serve, taking it proves nothing.
+        #[cfg(windows)]
+        if !root_namespace_is_local(&path) {
+            return Err(Refusal::RootNotLocallyServed { path });
+        }
+
         #[cfg(unix)]
-        {
-            let handle = File::open(&path)
-                .map_err(|error| Refusal::ManifestUnreadable(format!("fixture root: {error}")))?;
-            Ok(Self { handle, path })
-        }
-        #[cfg(not(unix))]
-        {
-            Ok(Self { path })
-        }
+        let handle = File::open(&path)
+            .map_err(|error| Refusal::ManifestUnreadable(format!("fixture root: {error}")))?;
+
+        #[cfg(windows)]
+        let handle = {
+            use std::os::windows::fs::OpenOptionsExt as _;
+            std::fs::OpenOptions::new()
+                .read(true)
+                // No `FILE_SHARE_DELETE`. This is the entire mechanism: with it
+                // the root can be renamed aside mid-authorization, and without
+                // it the filesystem refuses. Proved behaviourally rather than by
+                // reading the constant back — see
+                // `the_root_handle_alone_refuses_renaming_the_root`.
+                .share_mode(FILE_SHARE_READ)
+                // `BACKUP_SEMANTICS` is what makes a directory openable at all.
+                .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+                .open(&path)
+                .map_err(|error| Refusal::RootUnavailable {
+                    path: path.clone(),
+                    reason: error.to_string(),
+                })?
+        };
+
+        Ok(Self { handle, path })
     }
 
     /// Open a direct child by name, refusing to follow a link at that name.
@@ -132,7 +316,12 @@ impl RootDirectory {
     /// `name` is a catalogue basename and must contain no separator, so there
     /// are no intermediate components for anything to redirect.
     fn open_child(&self, name: &str, target: &Path) -> Result<File, Refusal> {
-        if name.contains('/') || name.contains('\\') {
+        // `:` joins the list on Windows, where `name:stream` addresses an
+        // alternate data stream of `name` rather than a file called
+        // `name:stream`. Catalogue basenames make it unreachable today, and
+        // without it the refusal would come from the manifest lookup failing —
+        // which is failing closed by accident rather than by design.
+        if name.contains('/') || name.contains('\\') || name.contains(':') {
             return Err(Refusal::TargetOutsideRoot {
                 path: target.to_path_buf(),
             });
@@ -161,18 +350,29 @@ impl RootDirectory {
 
         #[cfg(not(unix))]
         {
-            // **Windows is not yet closed, and this is the residual.** There is
-            // no stable, safe handle-relative open in the standard library, and
-            // the `NtCreateFile` route needs FFI, which SAFE-009 permits only
-            // in an adapter/FFI/helper crate — not here. So this platform still
-            // opens by pathname and remains exposed to a swapped root
-            // directory. Recorded in `docs/work-packages/WP-020.md`; Tier 2
-            // must stay unavailable on Windows until it is closed.
+            // Windows still opens by pathname, because stable `std` exposes no
+            // handle-relative open. What makes that sound here is that
+            // `self.path` is canonical — every reparse point and `subst`
+            // mapping was collapsed out of it before the root handle was taken
+            // — and that the held root handle stops any component of it being
+            // exchanged while this runs. See the `RootDirectory` doc comment
+            // for the exact reach of that, and for the filesystem classes where
+            // it does not hold and the root is refused instead.
             let mut options = std::fs::OpenOptions::new();
             options.read(true).write(true);
             {
                 use std::os::windows::fs::OpenOptionsExt as _;
                 options.share_mode(FILE_SHARE_READ);
+                // `FILE_FLAG_OPEN_REPARSE_POINT` and **nothing else**. Adding
+                // `FILE_FLAG_BACKUP_SEMANTICS` here — the flag the root open
+                // two functions up now needs — would open a junction planted at
+                // this name instead of refusing it, and it would report
+                // `is_file()`, so the regular-file check would not catch it
+                // either. Measured, all three variants, junction at the child
+                // name: no flags -> refused os 5; `OPEN_REPARSE_POINT` ->
+                // refused os 5; `OPEN_REPARSE_POINT | BACKUP_SEMANTICS` ->
+                // **opened**. `an_entry_replaced_by_a_junction_is_refused`
+                // fails if the flag is ever copied down here.
                 options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
             }
             options
@@ -256,21 +456,38 @@ pub struct Authorization {
     /// false — [`Authorization::into_targets`] moves `targets` out and drops
     /// this field before the caller uses the handles it returned.
     ///
-    /// Nothing depends on the claim, which is why the code needed no change
-    /// when the claim did. Containment is a property of the returned descriptor:
-    /// once `openat` has resolved the name, the descriptor refers to that object
-    /// whatever later happens to the directory. Renaming or replacing the root
-    /// afterwards cannot reach through an already open file.
+    /// Nothing depends on that, on either platform, and for the same reason:
+    /// containment is a property of the returned descriptor. Once the child is
+    /// open, the descriptor refers to that object whatever later happens to the
+    /// directory, so renaming or replacing the root afterwards cannot reach
+    /// through it.
     ///
-    /// It is still worth holding, for the narrower reason that no accessor is
+    /// **The window it does cover differs by platform, and on Windows it is
+    /// load-bearing.** On Unix the descriptor is resolved by `openat` from this
+    /// handle, so the handle is the resolution root and needs no help. On
+    /// Windows the child is opened by pathname, and this handle's share mode is
+    /// what stops the root being renamed aside between [`authorize`] taking it
+    /// and the first child open — the one window the target handles cannot
+    /// cover, because no target is open yet. Measured: with this handle the
+    /// swap is refused; without it the same swap succeeds and the child open
+    /// lands on the decoy.
+    ///
+    /// It is also worth holding for the narrower reason that no accessor is
     /// offered: handing out the root path is how a consumer would end up
     /// reopening by name, which is the habit this increment exists to remove.
-    /// Whether a held directory handle also *prevents* replacement is
-    /// platform-specific and unsettled — on Unix it does not, and the Windows
-    /// half is open in issue #51 — so nothing here rests on it.
-    #[expect(
-        dead_code,
-        reason = "held for its Drop lifetime; reading it is not the purpose"
+    #[cfg_attr(
+        unix,
+        expect(
+            dead_code,
+            reason = "held for its Drop lifetime; reading it is not the purpose"
+        )
+    )]
+    #[cfg_attr(
+        windows,
+        expect(
+            dead_code,
+            reason = "held for its share mode; reading it is not the purpose"
+        )
     )]
     root: RootDirectory,
     targets: Vec<VerifiedTarget>,
@@ -330,12 +547,40 @@ pub enum Refusal {
         /// The path as supplied.
         path: PathBuf,
     },
-    /// A target is reachable under more than one name.
+    /// A target is reachable under more than one hard link.
+    ///
+    /// Deliberately not "more than one name". On an 8.3-enabled NTFS volume a
+    /// file also has a short-name directory entry that this count does not
+    /// include — measured, `BLANK-~1.IMG` beside `blank-512.img` with the count
+    /// still reading 1. That alias cannot leave its parent directory, so it is
+    /// not a route out of the fixture root; but a refusal that claimed "exactly
+    /// one name" would be stating something false on most Windows volumes.
     TargetHasOtherNames {
         /// The path as supplied.
         path: PathBuf,
-        /// How many names refer to this file.
+        /// How many hard links refer to this file.
         links: u64,
+    },
+    /// The fixture root is not on a filesystem whose share modes Windows
+    /// enforces, so containment cannot be established there.
+    #[cfg(windows)]
+    RootNotLocallyServed {
+        /// The canonical root path.
+        path: PathBuf,
+    },
+    /// The fixture root could not be held open — most often because another
+    /// process holds it with a sharing mode that excludes this one.
+    ///
+    /// Separate from [`Self::ManifestUnreadable`] because that variant's
+    /// message names a manifest, and no manifest is involved in holding a
+    /// directory. There is deliberately **no retry**: retrying a safety
+    /// precondition until it passes turns a gate into advice.
+    #[cfg(windows)]
+    RootUnavailable {
+        /// The canonical root path.
+        path: PathBuf,
+        /// The underlying reason.
+        reason: String,
     },
 }
 
@@ -380,8 +625,24 @@ impl fmt::Display for Refusal {
             ),
             Self::TargetHasOtherNames { path, links } => write!(
                 formatter,
-                "{} is reachable under {links} names; a destructive suite must address a file \
-                 with exactly one",
+                "{} is reachable under {links} hard links; a destructive suite must address a \
+                 file with exactly one, because a write through this handle reaches every one \
+                 of them",
+                path.display()
+            ),
+            #[cfg(windows)]
+            Self::RootNotLocallyServed { path } => write!(
+                formatter,
+                "{} is not on a locally served volume; Windows containment relies on the \
+                 filesystem refusing to rename a directory that is held open, which a network \
+                 redirector need not do. Generate fixtures on a local NTFS or ReFS volume",
+                path.display()
+            ),
+            #[cfg(windows)]
+            Self::RootUnavailable { path, reason } => write!(
+                formatter,
+                "cannot hold the fixture root {}: {reason}. Another process holds it with an \
+                 incompatible sharing mode; identify the holder rather than retrying",
                 path.display()
             ),
         }
@@ -427,8 +688,18 @@ pub fn authorize(root: &Path, request: &Request) -> Result<Authorization, Refusa
     // be exchanged between the check and the write.
     let root = RootDirectory::open(root)?;
 
+    // Deduplicate before opening anything. The share mode on a verified target
+    // refuses a second write handle to the same object — including the one this
+    // loop would take on the next iteration — so a request naming a target
+    // twice used to refuse *itself*, reporting "used by another process" and
+    // pointing an operator at a race that was not happening. Fails closed
+    // either way; this makes it fail for the true reason.
+    let mut seen = std::collections::BTreeSet::new();
     let mut verified = Vec::with_capacity(request.targets.len());
     for target in &request.targets {
+        if !seen.insert(target.as_path()) {
+            continue;
+        }
         verified.push(verify_target(&root, manifest, target)?);
     }
 
@@ -540,30 +811,44 @@ fn verify_object(
     let metadata = file
         .metadata()
         .map_err(|error| unresolvable(target, &error))?;
+    // This is also what refuses a **reparse point** on Windows, and that is
+    // worth stating because a review of this increment asserted otherwise —
+    // that a swapped-in file symlink was caught only by the length check and by
+    // the raceable by-path `symlink_metadata` above. Measured, through the
+    // handle, for a file symlink and for a directory junction, with and without
+    // backup semantics: `is_file()` is `false` and `is_symlink()` is `true` in
+    // every case, so the refusal happens here and is neither raceable nor
+    // accidental. An explicit `FILE_ATTRIBUTE_REPARSE_POINT` test was written
+    // during this increment and then removed: no handle the interlock can
+    // produce reaches it, and an unreachable guard reads as protection while
+    // proving nothing.
     if !metadata.is_file() {
         return Err(Refusal::TargetNotRegularFile {
             path: target.to_path_buf(),
         });
     }
 
+    let links = object_facts(&metadata, file, target)?;
+
     // A hard link is a regular file, and canonicalizing one still yields a path
     // under the root, so neither name check sees it. Requiring the content to
     // equal a generated fixture already means a link can only ever point at
-    // something that *is* a fixture — but a second name for the file is still a
-    // second thing a destructive suite could reach, so refuse it where the
-    // platform will say. On Windows the share mode on this handle closes the
-    // same hole for the duration of the authorization instead: a hard link is
-    // another name for the same file object, and opening that object for
-    // writing while this handle lives is refused.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt as _;
-        if metadata.nlink() > 1 {
-            return Err(Refusal::TargetHasOtherNames {
-                path: target.to_path_buf(),
-                links: metadata.nlink(),
-            });
-        }
+    // something that *is* a fixture by content — but a user's own file may hold
+    // a fixture's bytes, and a write through this handle reaches every name the
+    // object has, including one outside the fixture root. So the count is
+    // refused on both platforms.
+    //
+    // **This used to say the Windows share mode closed the same hole. It does
+    // not, and that sentence is why F-03 shipped.** The share mode refuses
+    // *other* openers; the destructive write here goes through the handle that
+    // was already authorized, and no share mode constrains it. Reproduced
+    // during review: a user file hard-linked in at the fixture's name, length
+    // and digest both passing, written through, destroyed.
+    if links > 1 {
+        return Err(Refusal::TargetHasOtherNames {
+            path: target.to_path_buf(),
+            links,
+        });
     }
 
     if metadata.len() != expected_length {
@@ -582,6 +867,34 @@ fn verify_object(
         });
     }
     Ok(())
+}
+
+/// How many hard links name this object, read through the open handle rather
+/// than through a path.
+///
+/// Split by platform because the two answer it differently, not because they
+/// mean different things.
+#[cfg(unix)]
+fn object_facts(
+    metadata: &std::fs::Metadata,
+    _file: &File,
+    _target: &Path,
+) -> Result<u64, Refusal> {
+    use std::os::unix::fs::MetadataExt as _;
+
+    Ok(metadata.nlink())
+}
+
+/// The Windows half of [`object_facts`].
+///
+/// Stable `std` will not answer this — `number_of_links` is unstable behind
+/// `windows_by_handle` — which is why this crate carries a safe wrapper
+/// dependency. See [`handle_facts`] for why the call is confined to one place.
+#[cfg(windows)]
+fn object_facts(_metadata: &std::fs::Metadata, file: &File, target: &Path) -> Result<u64, Refusal> {
+    handle_facts(file)
+        .map(|facts| facts.links)
+        .map_err(|error| unresolvable(target, &error))
 }
 
 fn unresolvable(path: &Path, error: &io::Error) -> Refusal {
