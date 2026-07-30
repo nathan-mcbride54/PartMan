@@ -84,6 +84,113 @@ pub struct Request {
     pub targets: Vec<PathBuf>,
 }
 
+/// The fixture directory, held open as an object.
+///
+/// Increment 2b bound every check to the target's handle and still opened that
+/// handle by absolute pathname, which the 2026-07-29 second follow-up audit
+/// showed is not enough: `O_NOFOLLOW` constrains only the **final** path
+/// component, so renaming the fixture root aside and leaving a symlink at its
+/// name redirects the open to an out-of-root file whose length, digest, type
+/// and link count all match. Containment cannot be established by any check on
+/// the object, because a user's ordinary file may hold a fixture's exact bytes —
+/// `object_verification_alone_cannot_prove_root_membership` records that
+/// directly.
+///
+/// So the directory itself becomes an object, and targets are opened *relative
+/// to it* by catalogue basename. Path resolution then starts from a handle
+/// nothing can rebind, rather than from a name that can be.
+#[derive(Debug)]
+pub struct RootDirectory {
+    /// The directory handle. Unix only: this is what `openat` resolves from.
+    #[cfg(unix)]
+    handle: File,
+    /// The path the directory was opened at, for reporting and for the
+    /// Windows fallback below.
+    path: PathBuf,
+}
+
+impl RootDirectory {
+    /// Open the fixture root and hold it.
+    fn open(root: &Path) -> Result<Self, Refusal> {
+        let path = root
+            .canonicalize()
+            .map_err(|error| Refusal::ManifestUnreadable(format!("fixture root: {error}")))?;
+        #[cfg(unix)]
+        {
+            let handle = File::open(&path)
+                .map_err(|error| Refusal::ManifestUnreadable(format!("fixture root: {error}")))?;
+            Ok(Self { handle, path })
+        }
+        #[cfg(not(unix))]
+        {
+            Ok(Self { path })
+        }
+    }
+
+    /// Open a direct child by name, refusing to follow a link at that name.
+    ///
+    /// `name` is a catalogue basename and must contain no separator, so there
+    /// are no intermediate components for anything to redirect.
+    fn open_child(&self, name: &str, target: &Path) -> Result<File, Refusal> {
+        if name.contains('/') || name.contains('\\') {
+            return Err(Refusal::TargetOutsideRoot {
+                path: target.to_path_buf(),
+            });
+        }
+
+        #[cfg(unix)]
+        {
+            // Resolution starts at the held directory, so an intermediate
+            // component cannot be swapped: there are no intermediate
+            // components. `NOFOLLOW` covers the last one. No `unsafe` appears
+            // here or anywhere in this crate — `rustix` is a safe wrapper, so
+            // SAFE-009's prohibition needs no exception.
+            use rustix::fs::{Mode, OFlags};
+            let opened = rustix::fs::openat(
+                &self.handle,
+                name,
+                OFlags::RDWR | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                Mode::empty(),
+            )
+            .map_err(|error| Refusal::TargetUnresolvable {
+                path: target.to_path_buf(),
+                reason: error.to_string(),
+            })?;
+            Ok(File::from(opened))
+        }
+
+        #[cfg(not(unix))]
+        {
+            // **Windows is not yet closed, and this is the residual.** There is
+            // no stable, safe handle-relative open in the standard library, and
+            // the `NtCreateFile` route needs FFI, which SAFE-009 permits only
+            // in an adapter/FFI/helper crate — not here. So this platform still
+            // opens by pathname and remains exposed to a swapped root
+            // directory. Recorded in `docs/work-packages/WP-020.md`; Tier 2
+            // must stay unavailable on Windows until it is closed.
+            let mut options = std::fs::OpenOptions::new();
+            options.read(true).write(true);
+            {
+                use std::os::windows::fs::OpenOptionsExt as _;
+                options.share_mode(FILE_SHARE_READ);
+                options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+            }
+            options
+                .open(self.path.join(name))
+                .map_err(|error| Refusal::TargetUnresolvable {
+                    path: target.to_path_buf(),
+                    reason: error.to_string(),
+                })
+        }
+    }
+
+    /// The canonical path the directory was opened at.
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
 /// One verified target: the open file object, and the name it was found under.
 ///
 /// The [`File`] is the verification: every disposability check ran against
@@ -135,6 +242,19 @@ impl VerifiedTarget {
 /// ```
 #[derive(Debug)]
 pub struct Authorization {
+    /// Held for at least as long as the verified targets, so the directory they
+    /// were opened relative to cannot be replaced underneath them.
+    ///
+    /// Never read, and that is the point: its value is its lifetime. Dropping
+    /// it early would release the directory handle that makes the targets'
+    /// containment meaningful. No accessor is offered deliberately — handing
+    /// out the root path is how a consumer would end up reopening by name,
+    /// which is the habit this whole increment exists to remove.
+    #[expect(
+        dead_code,
+        reason = "held for its Drop lifetime; reading it is not the purpose"
+    )]
+    root: RootDirectory,
     targets: Vec<VerifiedTarget>,
 }
 
@@ -283,29 +403,34 @@ pub fn authorize(root: &Path, request: &Request) -> Result<Authorization, Refusa
         return Err(Refusal::NoTargets);
     }
 
-    let root = root
-        .canonicalize()
-        .map_err(|error| Refusal::ManifestUnreadable(format!("fixture root: {error}")))?;
+    // Hold the directory as an object before verifying anything inside it, and
+    // keep it alive inside the returned `Authorization`. Targets are opened
+    // relative to this handle, so the directory a verified file lives in cannot
+    // be exchanged between the check and the write.
+    let root = RootDirectory::open(root)?;
 
     let mut verified = Vec::with_capacity(request.targets.len());
     for target in &request.targets {
         verified.push(verify_target(&root, manifest, target)?);
     }
 
-    Ok(Authorization { targets: verified })
+    Ok(Authorization {
+        root,
+        targets: verified,
+    })
 }
 
 /// Verify one target, returning the open, verified file object.
 fn verify_target(
-    root: &Path,
+    root: &RootDirectory,
     manifest: &Manifest,
     target: &Path,
 ) -> Result<VerifiedTarget, Refusal> {
-    // `symlink_metadata` does not follow links, so a symlink aimed at a device
-    // is rejected here rather than silently resolved into one. This is a
-    // by-name check and therefore raceable; it exists to give symlinks their
-    // own honest refusal. Safety does not rest on it — whatever object the
-    // open below actually yields is re-verified through the handle.
+    // Everything from here to the open is **hygiene**: it gives a caller's
+    // mistake an honest, specific refusal. All of it is by-name and therefore
+    // raceable, and after this increment none of it is safety-critical — the
+    // open below starts from a held directory object rather than from any of
+    // these strings.
     let link_metadata =
         std::fs::symlink_metadata(target).map_err(|error| unresolvable(target, &error))?;
     if !link_metadata.is_file() {
@@ -314,77 +439,18 @@ fn verify_target(
         });
     }
 
-    // Canonicalize only after establishing it is a regular file, then confirm it
-    // is inside the fixture root. Doing this on the resolved path is what makes
-    // `..` traversal and a relative path from an unexpected working directory
-    // both harmless.
     let resolved = target
         .canonicalize()
         .map_err(|error| unresolvable(target, &error))?;
-    if !resolved.starts_with(root) {
+    if !resolved.starts_with(root.path()) {
         return Err(Refusal::TargetOutsideRoot {
             path: target.to_path_buf(),
         });
     }
 
-    // A test seam, and the only way the race below can be scheduled rather
-    // than sampled. Compiled out of release builds entirely.
-    #[cfg(test)]
-    tests::run_before_open_hook(&resolved);
-
-    // Open the object, then verify *it*. Everything after this line reads
-    // through the handle: the name has done its job and is never trusted
-    // again. Write access is requested because this handle is what the
-    // destructive consumer will receive — verifying one handle and writing
-    // through another would reopen the gap this function exists to close.
-    //
-    // **The open must not follow a link.** The checks above ran against the
-    // path; this open resolves the path a second time, and the 2026-07-29
-    // follow-up audit showed what lives in that gap: replace `root/name` with
-    // a symlink to an out-of-root file holding the same bytes, and the handle
-    // is on a file outside the fixture tree that passes every handle-based
-    // check. `object_verification_alone_cannot_prove_root_membership` records
-    // that directly — the object checks are correct and say nothing about
-    // *where* the object lives, because a user's ordinary file may hold a
-    // fixture's bytes. Containment therefore has to be established by the open
-    // itself refusing to leave the directory.
-    let mut options = std::fs::OpenOptions::new();
-    options.read(true).write(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt as _;
-        // `O_NOFOLLOW` fails with ELOOP if the final component is a symlink,
-        // so a link swapped in after canonicalization is refused instead of
-        // followed. Taken from `libc` rather than written out, because the
-        // value is not the same on Linux, macOS and the BSDs.
-        options.custom_flags(libc::O_NOFOLLOW);
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::OpenOptionsExt as _;
-        // FILE_SHARE_READ alone: while this handle is open, every other open
-        // for writing or deletion — through any name, including a hard link —
-        // fails with a sharing violation. The rename/replace family needs
-        // DELETE access, so a verified target cannot be swapped out from
-        // under its authorization. POSIX offers no mandatory equivalent;
-        // there, the guarantee is that the held object cannot be *changed
-        // which* object it is.
-        options.share_mode(FILE_SHARE_READ);
-        // FILE_FLAG_OPEN_REPARSE_POINT is the `O_NOFOLLOW` analogue: the
-        // reparse point is opened rather than traversed, so a symlink or
-        // junction swapped in at the target's name yields a handle whose
-        // metadata reports a symlink, and `verify_object`'s `is_file()` check
-        // refuses it.
-        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
-    }
-    let mut file = options
-        .open(&resolved)
-        .map_err(|error| unresolvable(target, &error))?;
-
-    // The decisive checks are anchored to the compiled catalogue: this file
-    // must be a fixture *by name*, and its length and bytes must be exactly
-    // that fixture's. Membership by digest alone was too weak — it let any file
-    // pass so long as some entry, anywhere in the manifest, shared its digest.
+    // Anchored to the compiled catalogue: this must be a fixture *by name*.
+    // Membership by digest alone was too weak — it let any file pass so long as
+    // some entry, anywhere in the manifest, shared its digest.
     let name = resolved
         .file_name()
         .and_then(|name| name.to_str())
@@ -397,26 +463,33 @@ fn verify_target(
             path: target.to_path_buf(),
         })?;
 
-    // The path must be *exactly* the one this fixture is generated at, not
-    // merely somewhere beneath the root with the right file name. `starts_with`
-    // plus `file_name` admits `<root>/sub/blank-512.img` — an ordinary copy in a
-    // subdirectory, with a matching name, length, and digest. That combination
-    // was verified to authorize before this equality replaced it.
-    if resolved != root.join(name) {
+    // The caller must have asked for exactly where this fixture is generated,
+    // not merely somewhere beneath the root with the right file name.
+    // `starts_with` plus `file_name` admits `<root>/sub/blank-512.img` — an
+    // ordinary copy in a subdirectory with a matching name, length and digest.
+    if resolved != root.path().join(name) {
         return Err(Refusal::TargetOutsideRoot {
             path: target.to_path_buf(),
         });
     }
 
+    // A test seam, and the only way the race below can be scheduled rather than
+    // sampled. Compiled out of release builds entirely.
+    #[cfg(test)]
+    tests::run_before_open_hook(&resolved);
+
+    // The decisive step. `name` is a catalogue basename opened relative to the
+    // held root directory, so there are no intermediate components for anything
+    // to redirect and no absolute pathname to re-resolve. Everything after this
+    // reads through the returned handle.
+    let mut file = root.open_child(name, target)?;
+
     verify_object(&mut file, entry.length, &entry.digest, target)?;
 
     // `verify_object` read to the end to hash the contents, so the cursor is at
-    // EOF. Rewind before the handle leaves this function: a destructive
-    // consumer handed a "fresh" file will reasonably assume offset zero, and
-    // the follow-up audit noted that the alternative — documenting the
-    // contract — makes the unsafe default the easy one. The existing
-    // replace-after-authorization test had to seek explicitly, which was the
-    // smell.
+    // EOF. Rewind before the handle leaves this function: a destructive consumer
+    // handed a "fresh" file will reasonably assume offset zero, and documenting
+    // the contract instead would make the unsafe default the easy one.
     file.seek(SeekFrom::Start(0))
         .map_err(|error| unresolvable(target, &error))?;
 

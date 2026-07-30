@@ -269,6 +269,33 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Fixed
 
+- WP-020 increment 2c: containment now starts from a held directory object, on
+  Unix. Increment 2b bound every check to the target's handle and still opened
+  that handle by absolute pathname, and `O_NOFOLLOW` constrains only the final
+  path component — so renaming the fixture root aside and leaving a symlink at
+  its name redirected the open to an out-of-root file whose length, digest, type
+  and link count all matched. No check on the object could have caught it: a
+  user's ordinary file may hold a fixture's exact bytes, which is what
+  `object_verification_alone_cannot_prove_root_membership` already recorded.
+
+  `Authorization` holds the fixture directory open and targets are opened
+  relative to that handle by catalogue basename, via `rustix::fs::openat` with
+  `NOFOLLOW`. There are no intermediate components left to redirect, and the
+  directory handle outlives the target handles because one value owns both.
+  `rustix` is a safe wrapper, so no `unsafe` appears in this crate and SAFE-009
+  needs no exception — the adapter crate F-03 contemplated is not required for
+  the Unix half. The regression stages the audit's exact attack through the
+  pre-open seam and compares the authorized handle's **inode** to the real
+  fixture's, because the decoy holds identical bytes and content cannot tell
+  them apart.
+
+  **Windows is not closed.** The standard library exposes no safe
+  handle-relative open, and the `NtCreateFile` route needs FFI that SAFE-009
+  permits only in an adapter/FFI/helper crate. That platform still opens by
+  pathname and the full finding stands there; the code says so at
+  `RootDirectory::open_child`, and Tier 2 must not be enabled on Windows until
+  it is closed.
+
 - Containers are executable dependencies, and the scanner now sees them. It
   collected only `uses` keys, so a job container
   (`jobs.<id>.container.image`), the documented `container: <image>` shorthand, a
