@@ -21,6 +21,39 @@ export interface Vector {
   readonly sha256: string
 }
 
+/** One producer-side schema-set ordering vector. */
+export interface SetOrderingVector {
+  readonly name: string
+  readonly setDepth: number
+  readonly input: readonly Value[]
+  readonly canonical: string
+  readonly sha256: string
+}
+
+/** One decoder-side schema-set validation vector. */
+export interface SetValidationVector {
+  readonly name: string
+  readonly setDepth: number
+  readonly observed: readonly Value[]
+  readonly accepted: boolean
+  readonly error?: 'duplicate' | 'not-strictly-increasing'
+}
+
+/** A compact inherited-depth case shared by both implementations. */
+export interface SetDepthVector {
+  readonly name: string
+  readonly setDepth: number
+  readonly elementArrayDepth: number
+  readonly accepted: boolean
+}
+
+/** All cross-language vectors for the schema-level canonical-set rule. */
+export interface SetVectors {
+  readonly ordering: readonly SetOrderingVector[]
+  readonly validation: readonly SetValidationVector[]
+  readonly depth: readonly SetDepthVector[]
+}
+
 /**
  * The JSON representation of a value.
  *
@@ -55,6 +88,12 @@ export function fixturePath(): string {
   return join(here, '..', '..', '..', 'schemas', 'canonical-encoding-vectors.json')
 }
 
+/** Absolute path of the schema-level canonical-set fixture. */
+export function setFixturePath(): string {
+  const here = dirname(fileURLToPath(import.meta.url))
+  return join(here, '..', '..', '..', 'schemas', 'domain', 'canonical-set-vectors.json')
+}
+
 /** Load and build every vector in the shared fixture. */
 export function loadVectors(): Vector[] {
   const raw = JSON.parse(readFileSync(fixturePath(), 'utf8')) as {
@@ -70,4 +109,62 @@ export function loadVectors(): Vector[] {
     canonical: entry.canonical,
     sha256: entry.sha256,
   }))
+}
+
+/** Load the producer, validator, and inherited-depth set vectors. */
+export function loadSetVectors(): SetVectors {
+  const raw = JSON.parse(readFileSync(setFixturePath(), 'utf8')) as {
+    schema: string
+    schema_version: number
+    rule: string
+    ordering_vectors: {
+      name: string
+      set_depth: number
+      input: JsonValue[]
+      canonical: string
+      sha256: string
+    }[]
+    validation_vectors: {
+      name: string
+      set_depth: number
+      observed: JsonValue[]
+      accepted: boolean
+      error?: 'duplicate' | 'not-strictly-increasing'
+    }[]
+    depth_vectors: {
+      name: string
+      set_depth: number
+      element_array_depth: number
+      accepted: boolean
+    }[]
+  }
+  if (
+    raw.schema !== 'partman.canonical-set-vectors' ||
+    raw.schema_version !== 1 ||
+    raw.rule !== 'unsigned-lexicographic-full-pce-element-bytes'
+  ) {
+    throw new Error('canonical-set fixture declares an unsupported schema or ordering rule')
+  }
+  return {
+    ordering: raw.ordering_vectors.map((entry) => ({
+      name: entry.name,
+      setDepth: entry.set_depth,
+      input: entry.input.map(build),
+      canonical: entry.canonical,
+      sha256: entry.sha256,
+    })),
+    validation: raw.validation_vectors.map((entry) => ({
+      name: entry.name,
+      setDepth: entry.set_depth,
+      observed: entry.observed.map(build),
+      accepted: entry.accepted,
+      ...(entry.error === undefined ? {} : { error: entry.error }),
+    })),
+    depth: raw.depth_vectors.map((entry) => ({
+      name: entry.name,
+      setDepth: entry.set_depth,
+      elementArrayDepth: entry.element_array_depth,
+      accepted: entry.accepted,
+    })),
+  }
 }

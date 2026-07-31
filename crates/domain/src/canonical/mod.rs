@@ -19,6 +19,7 @@
 
 mod decode;
 mod encode;
+pub mod set;
 
 use core::fmt;
 use std::collections::BTreeMap;
@@ -121,6 +122,10 @@ impl fmt::Display for Hash {
 /// `schemas/canonical-encoding.md` §5, so that the literal MODEL-005 rule is
 /// preserved.
 ///
+/// This is a generic `pce/1` primitive, not an artifact-schema verdict. Future
+/// authorization code must use a typed boundary that validates the complete
+/// schema before it reaches this digest operation.
+///
 /// # Errors
 ///
 /// Returns the same errors as [`encode`].
@@ -134,12 +139,12 @@ pub fn hash(value: &Value) -> Result<Hash, Error> {
 /// encoding, so bytes that survive it are canonical by construction rather than
 /// by the caller's say-so.
 ///
-/// This replaced a `hash_canonical_bytes(&[u8]) -> Hash` whose documentation
-/// said "use this only for bytes produced by `encode` or accepted by `decode`".
-/// That is an instruction, not a guarantee — the plan hash is an authorization
-/// boundary under HLP-001, HLP-003 and SEC-001, and a public function that
-/// hashes whatever it is given is a way around strict decoding for anyone who
-/// forgets. Nothing about the digest changed; only who is allowed to ask for one.
+/// This proves only `pce/1` byte canonicality. It cannot know whether an Array
+/// occupies a schema-declared set field or whether an artifact satisfies any
+/// other domain invariant. A future typed artifact boundary must complete its
+/// schema validation before hashing the exact validated bytes and must not use
+/// this generic function as its authorization decision. Nothing about the
+/// digest changes when that higher layer is added.
 ///
 /// # Errors
 ///

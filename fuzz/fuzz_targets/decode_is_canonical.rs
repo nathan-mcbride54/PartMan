@@ -15,7 +15,8 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use partman_domain::canonical::{decode, encode, hash, hash_encoded};
+use partman_domain::canonical::set::{self, Error as SetError};
+use partman_domain::canonical::{Value, decode, encode, hash, hash_encoded};
 
 fuzz_target!(|data: &[u8]| {
     let Ok(value) = decode(data) else {
@@ -38,6 +39,26 @@ fuzz_target!(|data: &[u8]| {
         "hash disagreed with its own canonical bytes"
     );
 
-    // Decoding is idempotent on canonical bytes.
+    // Every decoded array is also useful adversarial input for the schema-level
+    // set validator. A descending array remains a valid semantic array and is
+    // ignored here; if the validator accepts it as a set, the set producer must
+    // reproduce the exact bytes rather than sorting to something else.
+    if let Value::Array(elements) = &value {
+        match set::validate_array(elements, 0) {
+            Ok(()) => assert_eq!(
+                set::encode_array(elements, 0).expect("a validated set must encode"),
+                data,
+                "set validator accepted bytes the set producer changes"
+            ),
+            Err(
+                SetError::DuplicateElement { .. } | SetError::NotStrictlyIncreasing { .. },
+            ) => {}
+            Err(other) => panic!("a decoded top-level array failed set validation: {other}"),
+        }
+    }
+
+    // Decoding is idempotent on canonical bytes. This intentionally comes
+    // after the borrowed set check so the assertion can consume `value`
+    // without adding a clone to every fuzz iteration.
     assert_eq!(decode(&reencoded), Ok(value), "re-encoded bytes must decode back");
 });

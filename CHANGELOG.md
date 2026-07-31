@@ -19,6 +19,20 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   heap. Fuzzing now pins a 4 GiB process ceiling while retaining a separate
   256 MiB single-allocation ceiling, a 4,096-byte input limit, and the existing
   25-second per-input timeout.
+- WP-010 increment 2a resolves SI-31 with schema-level canonical set semantics
+  in spec 4.1.0 and ADR-C6. Rust and TypeScript now sort set elements by an
+  unsigned lexicographic comparison of each element's full canonical bytes,
+  reject duplicates without deduplicating, validate strict order at the schema
+  boundary, and inherit the enclosing artifact's depth budget when producing
+  element sort keys. One shared, deliberately unsorted fixture pins exact
+  bytes, hashes, comparator disagreement, and the accepted/rejected depth
+  boundary. Semantic arrays and the `pce/1` profile remain unchanged. Both
+  existing fuzz targets exercise the new producer/validator paths, and WP-010's
+  traceability is now generated with a zero-loss migration ledger. The
+  TypeScript authorization boundary also snapshots generic arrays, schema sets,
+  and raw hash bytes without consulting caller-controlled constructor species
+  or mutable prototype methods; regression tests cover element substitution,
+  dropping, reordering, and wider typed-array views.
 - WP-010 increment 1: the `pce/1` canonical encoding. `schemas/canonical-encoding.md`
   specifies it normatively, and `crates/domain` implements the encoder, a strict
   validating decoder, and SHA-256 hashing over canonical bytes (MODEL-005).

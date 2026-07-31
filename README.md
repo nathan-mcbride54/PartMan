@@ -1,7 +1,7 @@
 # PartMan
 
 PartMan is a safety-first, cross-platform disk partition manager defined by
-`AGENT_BUILD_SPEC.md` 4.0.0. The intended product is a dark-first Tauri desktop
+`AGENT_BUILD_SPEC.md` 4.1.0. The intended product is a dark-first Tauri desktop
 application plus a scriptable CLI, backed by a shared Rust domain, planner,
 validator, journal, image engine, and per-platform privileged helpers.
 
@@ -18,7 +18,10 @@ What does exist:
 - The `pce/1` canonical encoding: a byte-exact encoder, a strict validating
   decoder, and SHA-256 hashing, implemented in Rust (`crates/domain`) and
   TypeScript (`packages/canonical`) and proven to agree (WP-010, increments 1
-  and 2).
+  and 2). Schema-declared sets now have a separate cross-language producer and
+  validator: full element encodings sort by unsigned byte order, duplicates
+  fail closed, and element sort keys inherit their enclosing depth (increment
+  2a, MODEL-006). Ordinary arrays and all existing `pce/1` hashes are unchanged.
 - The design tokens and the accessibility harness that computes WCAG 2.2 AA
   contrast, redundant non-colour channels, and colour-vision separation from
   them (WP-030 increment 1). There is still no user interface for them to
@@ -74,7 +77,7 @@ reports status only and never redefines either.
 | Accessibility harness runs | Partial — `cargo xtask tokens` computes UI-001/007/008 from `schemas/design-tokens.json` and gates CI (WP-030 increment 1). It renders nothing, so the keyboard, screen-reader, zoom and reduced-motion halves of UI-008 are untouched |
 
 The three partial rows are tracked as known gaps in
-`docs/traceability/WP-000.md`, `docs/traceability/WP-010.md`, and
+`docs/traceability/WP-000.md`, `docs/work-packages/WP-010.md`, and
 `docs/traceability/WP-030.md`. They are recorded rather than rounded up: a
 milestone that exits on a criterion nobody verified is worse than one that exits
 late.
@@ -94,7 +97,7 @@ Section 14 of the specification is normative. Current state:
 | WP-000 | Repository, CI, `xtask`, CODEOWNERS, dependency policy | In progress. Lock boundary, licence, fuzz-graph and ownership-inventory gates delivered; action discovery is now a structural YAML parse after three text-based attempts were each defeated, and the Dockerfile scanner behind it fails closed after nine further bypasses were found and made regressions. Ownership is enforced against a change, not only inventoried, and a generated lockfile may travel with the manifest it follows. `unsafe_code = "deny"` is no longer opt-in per crate. `docs/traceability/WP-000.md` is generated from source-local test annotations and typed evidence declarations, anchored to real requirement definitions and numeric specification sections, and cross-checked against live tests, tracked/owned paths, and xtask's parser. Its 31-row hand-written predecessor has a zero-loss migration ledger, and a hand edit fails CI. WP-010, WP-020 and WP-030 remain hand-written; their package-owned rollout is now dependency-ready (issue #39) |
 | ADR-C1 | Canonical encoding and hash strategy | Accepted |
 | ADR-C2 … ADR-C5 | Hashed-artifact body/envelope split, identity strength, provenance shape, aggregation vocabulary | Accepted |
-| WP-010 | Canonical domain model, schema versioning, encoding and hashing | In progress, blocked at increment 3; see `docs/work-packages/WP-010.md` |
+| WP-010 | Canonical domain model, schema versioning, encoding and hashing | In progress. SI-31 is resolved by the delivered schema-set boundary, and traceability is generated with a zero-loss migration ledger; increment 3 remains blocked by the authoritative issue register. See `docs/work-packages/WP-010.md` |
 | WP-020 | Disk-image fixture generator and destructive-test interlocks | In progress — increments 1–1f and 2a–2d delivered. Preconditions 1 and 3 are now closed on both platforms (issue #51): Unix opens a direct child relative to a held root object, Windows holds the root with a share mode the filesystem enforces, and the other-name refusal — which was a **live defect**, not a missing check — now reads the link count through the authorized handle everywhere. Windows containment is enforcement by the filesystem rather than resolution from a handle, so it is **unproven for roots that are not on a local volume**, and non-local roots are refused. Tier 2 stays unavailable on every platform because no destructive suite exists; see `docs/work-packages/WP-020.md` |
 | WP-030 | Design tokens, dark UI shell, accessibility harness | In progress — increments 1, 1a and 1b delivered (tokens and the static accessibility harness). No shell exists, so UI-002 is unimplemented and the rendered half of UI-008 is untested. **Increment 2 is dependency-ready as of 2026-07-30**: the integration decisions are recorded, and the two ownership deadlocks that made the first crate uncommittable are closed — proved by scaffolding it and running both gates, not by asserting it |
 

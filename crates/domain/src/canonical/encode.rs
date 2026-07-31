@@ -16,8 +16,16 @@ use super::{Error, MAX_DEPTH, Value, compare_keys};
 /// artifact nobody can revalidate. It would also recurse without bound on a
 /// deep value, turning a rejectable input into a stack overflow.
 pub fn encode(value: &Value) -> Result<Vec<u8>, Error> {
+    encode_at_depth(value, 0)
+}
+
+/// Encode one value as though it occupied `depth` in an enclosing artifact.
+///
+/// Schema-level set ordering needs the exact bytes an element will occupy
+/// without resetting the enclosing artifact's depth budget to zero.
+pub(super) fn encode_at_depth(value: &Value, depth: usize) -> Result<Vec<u8>, Error> {
     let mut out = Vec::new();
-    write_value(&mut out, value, 0)?;
+    write_value(&mut out, value, depth)?;
     Ok(out)
 }
 
@@ -66,6 +74,11 @@ fn write_value(out: &mut Vec<u8>, value: &Value, depth: usize) -> Result<(), Err
         Value::Null => out.push(0xf6),
     }
     Ok(())
+}
+
+/// Write the array head used by the schema-level set encoder.
+pub(super) fn write_array_head(out: &mut Vec<u8>, length: usize) {
+    write_head(out, 4, length_argument(length));
 }
 
 /// Widen a container length to the argument type.

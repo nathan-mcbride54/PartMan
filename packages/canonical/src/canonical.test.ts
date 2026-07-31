@@ -11,6 +11,7 @@ import { test } from 'node:test'
 
 import {
   CanonicalError,
+  CanonicalSetError,
   MAX_DEPTH,
   type Value,
   array,
@@ -19,6 +20,7 @@ import {
   compareKeys,
   decode,
   encode,
+  encodeSetArray,
   fromHex,
   hash,
   hashEncoded,
@@ -28,10 +30,12 @@ import {
   text,
   toHex,
   uint,
+  validateSetArray,
 } from './canonical.ts'
-import { loadVectors } from './vectors.ts'
+import { loadSetVectors, loadVectors } from './vectors.ts'
 
 const vectors = loadVectors()
+const setVectors = loadSetVectors()
 
 test('the shared fixture is not empty', () => {
   assert.ok(vectors.length >= 30, `expected the full fixture, got ${vectors.length}`)
@@ -54,6 +58,248 @@ test('every shared vector round-trips through decode', () => {
     const decoded = decode(fromHex(vector.canonical))
     assert.equal(toHex(encode(decoded)), vector.canonical, vector.name)
   }
+})
+
+test('shared set vectors exercise sorting and match recorded bytes and hashes', async () => {
+  assert.ok(setVectors.ordering.length >= 3, 'the canonical-set fixture looks truncated')
+  for (const vector of setVectors.ordering) {
+    const unsorted = encode(array(vector.input))
+    assert.notEqual(
+      toHex(unsorted),
+      vector.canonical,
+      `${vector.name}: the fixture input is already sorted, so it does not exercise the sort`,
+    )
+
+    const encoded = encodeSetArray(vector.input, vector.setDepth)
+    assert.equal(toHex(encoded), vector.canonical, vector.name)
+    assert.equal(toHex(await hashEncoded(encoded)), vector.sha256, vector.name)
+    const decoded = decode(encoded)
+    assert.equal(decoded.kind, 'array', vector.name)
+    validateSetArray((decoded as { kind: 'array'; value: readonly Value[] }).value, 0)
+  }
+})
+
+test('the extent vector distinguishes bytewise order from length-first order', () => {
+  const vector = setVectors.ordering[0]
+  assert.ok(vector, 'the extent vector is present')
+  const firstInput = encode(vector.input[0] as Value)
+  const secondInput = encode(vector.input[1] as Value)
+
+  // The first input is shorter, so length-first would keep it first. The
+  // recorded bytewise rule moves the longer second input ahead of it.
+  assert.ok(firstInput.length < secondInput.length)
+  assert.ok(toHex(encodeSetArray(vector.input, vector.setDepth)).startsWith(`82${toHex(secondInput)}`))
+})
+
+test('shared validation vectors enforce strict order without repairing', () => {
+  assert.ok(setVectors.validation.length >= 3, 'the set-validation fixture looks truncated')
+  for (const vector of setVectors.validation) {
+    if (vector.accepted) {
+      assert.doesNotThrow(
+        () => validateSetArray(vector.observed, vector.setDepth),
+        vector.name,
+      )
+      continue
+    }
+    assert.throws(
+      () => validateSetArray(vector.observed, vector.setDepth),
+      (error: unknown) => {
+        assert.ok(error instanceof CanonicalSetError, vector.name)
+        const expected =
+          vector.error === 'duplicate' ? 'identical canonical bytes' : 'does not follow'
+        assert.ok(error.message.includes(expected), `${vector.name}: ${error.message}`)
+        return true
+      },
+    )
+  }
+})
+
+test('set element encoding inherits the enclosing depth budget', () => {
+  assert.ok(setVectors.depth.length >= 2, 'the set-depth fixture looks truncated')
+  for (const vector of setVectors.depth) {
+    let element: Value = uint(0n)
+    for (let depth = 0; depth < vector.elementArrayDepth; depth++) {
+      element = array([element])
+    }
+
+    // The defect SI-31 recorded: every element is valid on its own. Its answer
+    // must change once it occupies a deep set field.
+    assert.doesNotThrow(() => encode(element), `${vector.name}: standalone element`)
+    if (vector.accepted) {
+      assert.doesNotThrow(
+        () => encodeSetArray([element], vector.setDepth),
+        `${vector.name}: producer inherited boundary`,
+      )
+      assert.doesNotThrow(
+        () => validateSetArray([element], vector.setDepth),
+        `${vector.name}: validator inherited boundary`,
+      )
+    } else {
+      assert.throws(
+        () => encodeSetArray([element], vector.setDepth),
+        CanonicalSetError,
+        `${vector.name}: producer inherited boundary`,
+      )
+      assert.throws(
+        () => validateSetArray([element], vector.setDepth),
+        CanonicalSetError,
+        `${vector.name}: validator inherited boundary`,
+      )
+    }
+  }
+})
+
+test('semantic arrays retain order and set duplicates are refused, not removed', async () => {
+  const descending = [uint(1n), uint(0n)]
+  assert.equal(toHex(encode(array(descending))), '820100')
+  assert.equal(toHex(encodeSetArray(descending, 0)), '820001')
+  assert.doesNotThrow(() => decode(fromHex('820100')))
+  await assert.doesNotReject(
+    async () => hashEncoded(fromHex('820100') as Uint8Array<ArrayBuffer>),
+    'generic hashing proves pce/1 bytes, not a field schema declaration',
+  )
+
+  const duplicate = [text('same'), text('same')]
+  assert.throws(() => encodeSetArray(duplicate, 0), CanonicalSetError)
+  assert.throws(() => validateSetArray(duplicate, 0), CanonicalSetError)
+})
+
+test('the schema-set boundary owns malformed depth and container errors', () => {
+  for (const depth of [-1, 0.5, Number.NaN, MAX_DEPTH + 1]) {
+    assert.throws(() => encodeSetArray([], depth), CanonicalSetError)
+    assert.throws(() => validateSetArray([], depth), CanonicalSetError)
+  }
+  assert.throws(
+    () => encodeSetArray('not an array' as unknown as Value[], 0),
+    CanonicalSetError,
+  )
+  assert.throws(
+    () => encodeSetArray([{ kind: 'uint', value: 1 } as unknown as Value], 0),
+    CanonicalSetError,
+  )
+})
+
+test('set input cannot replace the internal key mapping or canonical sort through species', () => {
+  const descending = [uint(1n), uint(0n)]
+  const noSortSpecies = function (_length: number): unknown[] {
+    const result: unknown[] = []
+    Object.defineProperty(result, 'map', {
+      value: (callback: (value: Value, index: number, array: Value[]) => unknown) => {
+        const keyed = Array.prototype.map.call(result, callback) as unknown[]
+        Object.defineProperty(keyed, 'sort', { value: () => keyed })
+        return keyed
+      },
+    })
+    return result
+  }
+  Object.defineProperty(descending, 'constructor', {
+    value: { [Symbol.species]: noSortSpecies },
+  })
+
+  // `Array.prototype.slice` consults the hostile species. If the set boundary
+  // then calls methods on that result, the input can suppress sorting and make
+  // the valid-but-descending semantic Array 820100 escape as a purported set.
+  assert.equal(toHex(encodeSetArray(descending, 0)), '820001')
+
+  const reorderedForValidation = [uint(1n), uint(0n)]
+  const reorderSpecies = function (_length: number): unknown[] {
+    const result: unknown[] = []
+    Object.defineProperty(result, 'map', {
+      value: (callback: (value: Value, index: number, array: Value[]) => unknown) => {
+        const keyed = Array.prototype.map.call(result, callback) as unknown[]
+        keyed.reverse()
+        return keyed
+      },
+    })
+    return result
+  }
+  Object.defineProperty(reorderedForValidation, 'constructor', {
+    value: { [Symbol.species]: reorderSpecies },
+  })
+  assert.throws(() => validateSetArray(reorderedForValidation, 0), CanonicalSetError)
+})
+
+test('set getters cannot drop elements or poison the captured canonical sort', () => {
+  const originalPush = Array.prototype.push
+  const originalSort = Array.prototype.sort
+  const pushPoisoned = [uint(1n), uint(0n)]
+  Object.defineProperty(pushPoisoned, 0, {
+    configurable: true,
+    get: () => {
+      Array.prototype.push = (() => 0) as unknown as typeof Array.prototype.push
+      return uint(1n)
+    },
+  })
+
+  let pushedEncoding: string
+  try {
+    pushedEncoding = toHex(encodeSetArray(pushPoisoned, 0))
+  } finally {
+    Array.prototype.push = originalPush
+  }
+  assert.equal(pushedEncoding, '820001')
+
+  const sortPoisoned = [uint(1n), uint(0n)]
+  Object.defineProperty(sortPoisoned, 0, {
+    configurable: true,
+    get: () => {
+      Array.prototype.sort = (function (this: unknown[]) {
+        return this
+      }) as typeof Array.prototype.sort
+      return uint(1n)
+    },
+  })
+  let sortedEncoding: string
+  try {
+    sortedEncoding = toHex(encodeSetArray(sortPoisoned, 0))
+  } finally {
+    Array.prototype.sort = originalSort
+  }
+  assert.equal(sortedEncoding, '820001')
+})
+
+test('generic arrays cannot substitute elements through a constructor species', () => {
+  const source = [uint(1n)]
+  const substituteSpecies = function (length: number): unknown[] {
+    const target: unknown[] = new Array(length)
+    return new Proxy(target, {
+      defineProperty: (array, property, descriptor) =>
+        Reflect.defineProperty(array, property, {
+          ...descriptor,
+          ...(property === '0' ? { value: uint(2n) } : {}),
+        }),
+    })
+  }
+  Object.defineProperty(source, 'constructor', {
+    value: { [Symbol.species]: substituteSpecies },
+  })
+  assert.equal(toHex(encode(array(source))), '8101')
+})
+
+test('hashEncoded validates and hashes one species-free byte snapshot', async () => {
+  const paddedBytes = new Uint8Array([0xab])
+  const paddedSpecies = function (length: number): Uint8Array {
+    return new Uint8Array(length + 1)
+  }
+  Object.defineProperty(paddedBytes, 'constructor', {
+    value: { [Symbol.species]: paddedSpecies },
+  })
+  assert.equal(toHex(encode(bytes(paddedBytes))), '41ab')
+
+  const widerSpecies = new Uint8Array([0xf6])
+  Object.defineProperty(widerSpecies, 'constructor', {
+    value: { [Symbol.species]: Uint16Array },
+  })
+
+  assert.equal(
+    toHex(await hashEncoded(widerSpecies)),
+    toHex(await hashEncoded(new Uint8Array([0xf6]))),
+  )
+  await assert.rejects(
+    async () =>
+      hashEncoded(new Uint16Array([0xf6]) as unknown as Uint8Array<ArrayBuffer>),
+    CanonicalError,
+  )
 })
 
 test('map key ordering is length-first, not JavaScript default', () => {
@@ -431,6 +677,11 @@ test('hashEncoded validates the same bytes it hashes', () => {
   wider[1] = 0xf6 // trailing bytes: decode must reject the whole thing
   const lying = Object.defineProperty(wider, 'length', { get: () => 1 })
 
+  assert.throws(
+    () => decode(lying),
+    CanonicalError,
+    'decode must use the intrinsic byte length rather than a shadowed property',
+  )
   return assert.rejects(
     async () => hashEncoded(lying as Uint8Array<ArrayBuffer>),
     CanonicalError,

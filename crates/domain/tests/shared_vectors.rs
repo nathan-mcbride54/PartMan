@@ -121,6 +121,9 @@ fn the_shared_fixture_is_populated() {
     assert!(load().len() >= 30, "the shared fixture looks truncated");
 }
 
+// Requirements: MODEL-005
+//   Rust consumes the repository's shared cross-language fixture and reproduces every exact canonical byte string
+// Evidence: every_shared_vector_encodes_to_exactly_the_recorded_bytes
 #[test]
 fn every_shared_vector_encodes_to_exactly_the_recorded_bytes() {
     for fixture in load() {
@@ -129,6 +132,9 @@ fn every_shared_vector_encodes_to_exactly_the_recorded_bytes() {
     }
 }
 
+// Requirements: MODEL-005
+//   Rust reproduces every SHA-256 digest recorded in the fixture TypeScript also consumes
+// Evidence: every_shared_vector_hashes_to_exactly_the_recorded_digest
 #[test]
 fn every_shared_vector_hashes_to_exactly_the_recorded_digest() {
     for fixture in load() {

@@ -42,6 +42,19 @@ export class CanonicalError extends Error {
   }
 }
 
+/**
+ * Raised by schema-level set encoding and validation.
+ *
+ * This is deliberately not a {@link CanonicalError}: `pce/1` accepts arrays in
+ * any order, while only a schema can declare that one array is a set.
+ */
+export class CanonicalSetError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'CanonicalSetError'
+  }
+}
+
 const U64_MAX = (1n << 64n) - 1n
 const I64_MIN = -(1n << 63n)
 
@@ -65,18 +78,48 @@ export const nullValue: Value = { kind: 'null' }
 export function compareKeys(left: string, right: string): number {
   const a = utf8(left)
   const b = utf8(right)
-  if (a.length !== b.length) return a.length < b.length ? -1 : 1
-  for (let i = 0; i < a.length; i++) {
+  const aLength = byteLength(a)
+  const bLength = byteLength(b)
+  if (aLength !== bLength) return aLength < bLength ? -1 : 1
+  for (let i = 0; i < aLength; i++) {
     if (a[i] !== b[i]) return (a[i] as number) < (b[i] as number) ? -1 : 1
   }
   return 0
 }
 
+// Capture the intrinsics this authorization boundary needs before it evaluates
+// any caller-controlled getter. A getter can replace a shared prototype method
+// during encoding; looking up `push`, `sort`, or `Array.isArray` afterwards
+// would let the input alter the bytes that are hashed.
+const applyIntrinsic = Reflect.apply
+const definePropertyIntrinsic = Object.defineProperty
+const arrayIsArrayIntrinsic = Array.isArray
+const arrayPushIntrinsic = Array.prototype.push
+const arraySortIntrinsic = Array.prototype.sort
+const numberIsSafeIntegerIntrinsic = Number.isSafeInteger
+const numberIntrinsic = Number
+const bigintIntrinsic = BigInt
+const Uint8ArrayIntrinsic = Uint8Array
+const MapIntrinsic = Map
+const mapForEachIntrinsic = Map.prototype.forEach
+const mapSetIntrinsic = Map.prototype.set
+const textEncoderEncodeIntrinsic = TextEncoder.prototype.encode
+const textDecoderDecodeIntrinsic = TextDecoder.prototype.decode
+const stringCharCodeAtIntrinsic = String.prototype.charCodeAt
+const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype) as object
+const typedArrayLengthIntrinsic = Object.getOwnPropertyDescriptor(typedArrayPrototype, 'length')
+  ?.get as (this: Uint8Array) => number
+const typedArrayTagIntrinsic = Object.getOwnPropertyDescriptor(
+  typedArrayPrototype,
+  Symbol.toStringTag,
+)?.get as (this: Uint8Array) => string
+const subtleIntrinsic = crypto.subtle
+const subtleDigestIntrinsic = crypto.subtle.digest
 const encoder = new TextEncoder()
 const decoder = new TextDecoder('utf-8', { fatal: true })
 
 function utf8(value: string): Uint8Array {
-  return encoder.encode(value)
+  return applyIntrinsic(textEncoderEncodeIntrinsic, encoder, [value]) as Uint8Array
 }
 
 /**
@@ -88,17 +131,15 @@ function utf8(value: string): Uint8Array {
  * a hash over an artifact nobody can revalidate.
  */
 export function encode(value: Value): Uint8Array<ArrayBuffer> {
-  const out: number[] = []
-  writeValue(out, value, 0)
-  const encoded = Uint8Array.from(out)
+  const encoded = encodeAtDepth(value, 0)
 
   // Section 6.1 says everything this encoder emits, the decoder accepts. That
   // was previously a claim about the code; here it is computed. An adversarial
   // pass showed why the difference matters: a payload can lie about itself in
   // ways no per-field check anticipates — a getter returning one thing to a
-  // guard and another to the writer, an `Array` subclass whose `length`
-  // disagrees with what its iterator yields, a `Symbol.iterator` producing
-  // values outside 0..=255 that `Uint8Array.from` then truncates modulo 256.
+  // guard and another to the writer, an Array-like object whose reported shape
+  // disagrees with its indexed entries, or a byte payload whose iterator
+  // produces values outside 0..=255.
   // Each of those produces a declared head that does not match the bytes that
   // follow, and each was reachable while every field check passed.
   //
@@ -125,6 +166,241 @@ export function encode(value: Value): Uint8Array<ArrayBuffer> {
     )
   }
   return encoded
+}
+
+/**
+ * Encode a schema-declared set as a `pce/1` array.
+ *
+ * `setDepth` is the array's actual depth in the complete artifact, with the
+ * root at zero. It is mandatory because computing every element's sort key at
+ * depth zero would reset the enclosing depth budget. Elements are sorted by an
+ * unsigned lexicographic comparison of their complete canonical bytes;
+ * duplicates are rejected rather than silently removed.
+ *
+ * Ordinary semantic arrays must use {@link encode}; `pce/1` itself has no Set
+ * kind and this function does not change their order.
+ */
+export function encodeSetArray(
+  elements: readonly Value[],
+  setDepth: number,
+): Uint8Array<ArrayBuffer> {
+  requireSetDepth(setDepth)
+  const items = snapshotSetElements(elements)
+  const keyed: { originalIndex: number; bytes: Uint8Array<ArrayBuffer> }[] = []
+  for (let originalIndex = 0; originalIndex < items.length; originalIndex++) {
+    defineArrayElement(keyed, originalIndex, {
+      originalIndex,
+      bytes: encodeSetElement(items[originalIndex] as Value, originalIndex, setDepth + 1),
+    })
+  }
+  sortArray(keyed, (left, right) => compareBytes(left.bytes, right.bytes))
+
+  for (let index = 1; index < keyed.length; index++) {
+    const previous = keyed[index - 1] as (typeof keyed)[number]
+    const current = keyed[index] as (typeof keyed)[number]
+    if (compareBytes(previous.bytes, current.bytes) === 0) {
+      const previousFirst = previous.originalIndex < current.originalIndex
+      const first = previousFirst ? previous.originalIndex : current.originalIndex
+      const second = previousFirst ? current.originalIndex : previous.originalIndex
+      throw new CanonicalSetError(
+        `set elements ${first} and ${second} have identical canonical bytes`,
+      )
+    }
+  }
+
+  const out: number[] = []
+  writeHead(out, 4, bigintIntrinsic(keyed.length))
+  for (let elementIndex = 0; elementIndex < keyed.length; elementIndex++) {
+    const element = keyed[elementIndex] as (typeof keyed)[number]
+    const length = byteLength(element.bytes)
+    for (let index = 0; index < length; index++) {
+      appendArray(out, element.bytes[index] as number)
+    }
+  }
+  const encoded = bytesFromNumbers(out)
+  try {
+    decode(encoded)
+  } catch (cause) {
+    throw new CanonicalSetError(
+      `the set producer emitted bytes pce/1 rejects (${
+        cause instanceof Error ? cause.message : String(cause)
+      })`,
+    )
+  }
+  return encoded
+}
+
+/**
+ * Validate the observed order of a decoded schema-declared set array.
+ *
+ * This never sorts or repairs. The schema decoder supplies the array's actual
+ * depth after the ordinary `pce/1` decoder has produced its elements.
+ */
+export function validateSetArray(elements: readonly Value[], setDepth: number): void {
+  requireSetDepth(setDepth)
+  const items = snapshotSetElements(elements)
+  const keyed: Uint8Array<ArrayBuffer>[] = []
+  for (let index = 0; index < items.length; index++) {
+    defineArrayElement(
+      keyed,
+      index,
+      encodeSetElement(items[index] as Value, index, setDepth + 1),
+    )
+  }
+
+  for (let index = 1; index < keyed.length; index++) {
+    const order = compareBytes(
+      keyed[index - 1] as Uint8Array<ArrayBuffer>,
+      keyed[index] as Uint8Array<ArrayBuffer>,
+    )
+    if (order === 0) {
+      throw new CanonicalSetError(
+        `set elements ${index - 1} and ${index} have identical canonical bytes`,
+      )
+    }
+    if (order > 0) {
+      throw new CanonicalSetError(
+        `set element ${index} does not follow element ${index - 1} in canonical byte order`,
+      )
+    }
+  }
+}
+
+function encodeAtDepth(value: Value, depth: number): Uint8Array<ArrayBuffer> {
+  const out: number[] = []
+  writeValue(out, value, depth)
+  return bytesFromNumbers(out)
+}
+
+function requireSetDepth(setDepth: number): void {
+  if (!numberIsSafeIntegerIntrinsic(setDepth) || setDepth < 0 || setDepth > MAX_DEPTH) {
+    throw new CanonicalSetError(
+      `set array depth must be an integer in 0..=${MAX_DEPTH}, got ${String(setDepth)}`,
+    )
+  }
+}
+
+function snapshotSetElements(elements: readonly Value[]): Value[] {
+  if (!arrayIsArrayIntrinsic(elements)) {
+    throw new CanonicalSetError(`set elements must be an Array, not ${describe(elements)}`)
+  }
+
+  // Copy indexed entries into an ordinary internal Array. `slice` is not a
+  // neutral copy for an Array subclass: it consults `constructor[Symbol.species]`,
+  // and the resulting object can override `map` or `sort`. That would let input
+  // code replace the byte keys or suppress the canonical sort after every
+  // element check passed. Capture the source length once, read each entry once,
+  // and do all later work on our own plain Array.
+  try {
+    return copyArrayElements(elements)
+  } catch (cause) {
+    if (cause instanceof CanonicalSetError) throw cause
+    throw new CanonicalSetError('set elements report an array shape that cannot be snapshotted')
+  }
+}
+
+function encodeSetElement(
+  element: Value,
+  index: number,
+  elementDepth: number,
+): Uint8Array<ArrayBuffer> {
+  try {
+    return encodeAtDepth(element, elementDepth)
+  } catch (cause) {
+    if (cause instanceof CanonicalError) {
+      throw new CanonicalSetError(`set element ${index} is not encodable: ${cause.message}`)
+    }
+    throw cause
+  }
+}
+
+function compareBytes(left: Uint8Array, right: Uint8Array): number {
+  const leftLength = byteLength(left)
+  const rightLength = byteLength(right)
+  const shared = leftLength < rightLength ? leftLength : rightLength
+  for (let index = 0; index < shared; index++) {
+    if (left[index] !== right[index]) {
+      return (left[index] as number) < (right[index] as number) ? -1 : 1
+    }
+  }
+  if (leftLength === rightLength) return 0
+  return leftLength < rightLength ? -1 : 1
+}
+
+function appendArray<T>(target: T[], value: T): void {
+  applyIntrinsic(arrayPushIntrinsic, target, [value])
+}
+
+function defineArrayElement<T>(target: T[], index: number, value: T): void {
+  definePropertyIntrinsic(target, index, {
+    configurable: true,
+    enumerable: true,
+    value,
+    writable: true,
+  })
+}
+
+function sortArray<T>(target: T[], compare: (left: T, right: T) => number): void {
+  applyIntrinsic(arraySortIntrinsic, target, [compare])
+}
+
+/**
+ * Copy one real Array without consulting its constructor, species, iterator,
+ * or mutable prototype methods.
+ */
+function copyArrayElements<T>(source: readonly T[]): T[] {
+  const length: unknown = source.length
+  if (
+    !numberIsSafeIntegerIntrinsic(length) ||
+    (length as number) < 0 ||
+    (length as number) > 0xffff_ffff
+  ) {
+    throw new CanonicalError('array reports an invalid length')
+  }
+
+  const snapshot: T[] = []
+  for (let index = 0; index < (length as number); index++) {
+    // Read the caller once before touching the destination. The captured
+    // defineProperty intrinsic then creates an own data property even if that
+    // getter has just poisoned Array.prototype or its indexed setters.
+    const value = source[index] as T
+    defineArrayElement(snapshot, index, value)
+  }
+  return snapshot
+}
+
+function bytesFromNumbers(source: number[]): Uint8Array<ArrayBuffer> {
+  const output = new Uint8ArrayIntrinsic(source.length)
+  for (let index = 0; index < source.length; index++) {
+    output[index] = source[index] as number
+  }
+  return output
+}
+
+function copyBytes(source: Uint8Array): Uint8Array<ArrayBuffer> {
+  let length: number
+  try {
+    const tag = applyIntrinsic(typedArrayTagIntrinsic, source, []) as string
+    if (tag !== 'Uint8Array') {
+      throw new CanonicalError(`bytes must be a Uint8Array, not ${tag}`)
+    }
+    length = byteLength(source)
+  } catch (cause) {
+    if (cause instanceof CanonicalError) throw cause
+    throw new CanonicalError(
+      'bytes have the right prototype but not the internals of a real Uint8Array',
+    )
+  }
+
+  const output = new Uint8ArrayIntrinsic(length)
+  for (let index = 0; index < length; index++) {
+    output[index] = source[index] as number
+  }
+  return output
+}
+
+function byteLength(source: Uint8Array): number {
+  return applyIntrinsic(typedArrayLengthIntrinsic, source, []) as number
 }
 
 function writeValue(out: number[], value: Value, depth: number): void {
@@ -156,24 +432,20 @@ function writeValue(out: number[], value: Value, depth: number): void {
       return
     }
     case 'bytes': {
-      // `number[]` is narrowed by `Uint8Array.from` on the way out, which
-      // truncates modulo 256 rather than failing, so a value that is not
-      // actually a byte array must be refused before it reaches the buffer.
-      if (!(payload instanceof Uint8Array)) {
+      // TypeScript's declared Uint8Array does not prove the runtime brand. A
+      // forged or wider typed view must be refused before bytes reach output.
+      if (!(payload instanceof Uint8ArrayIntrinsic)) {
         throw new CanonicalError(`bytes must be a Uint8Array, not ${describe(payload)}`)
       }
-      // Copy through `Uint8Array.prototype.slice`, which reads the typed
-      // array's own internal length rather than a `length` property a subclass
-      // may shadow, and does not consult `Symbol.iterator`. Iterating the
-      // source let a lying iterator yield values outside 0..=255 that
-      // `Uint8Array.from` then truncated modulo 256 — bytes the head did not
-      // describe.
-      const raw = brandedCopy(
-        () => Uint8Array.prototype.slice.call(payload) as Uint8Array,
-        'bytes',
-      )
-      writeHead(out, 2, BigInt(raw.length))
-      for (const byte of raw) out.push(byte)
+      // Copy the intrinsic byte length into a fresh plain Uint8Array. Typed
+      // array `slice` consults Symbol.species, so a subclass could otherwise
+      // return a wider view whose indexed values and backing bytes disagree.
+      const raw = copyBytes(payload)
+      const length = byteLength(raw)
+      writeHead(out, 2, bigintIntrinsic(length))
+      for (let index = 0; index < length; index++) {
+        appendArray(out, raw[index] as number)
+      }
       return
     }
     case 'text': {
@@ -185,45 +457,61 @@ function writeValue(out: number[], value: Value, depth: number): void {
       }
       requireWellFormed(payload, 'text string')
       const raw = utf8(payload)
-      writeHead(out, 3, BigInt(raw.length))
-      for (const byte of raw) out.push(byte)
+      const length = byteLength(raw)
+      writeHead(out, 3, bigintIntrinsic(length))
+      for (let index = 0; index < length; index++) {
+        appendArray(out, raw[index] as number)
+      }
       return
     }
     case 'array': {
       // Without this, `.length` on a non-array is `undefined`, `BigInt(undefined)`
       // throws a native `TypeError`, and the module's contract that everything
       // it refuses is a `CanonicalError` quietly stops holding.
-      if (!Array.isArray(payload)) {
+      if (!arrayIsArrayIntrinsic(payload)) {
         throw new CanonicalError(`array must be an Array, not ${describe(payload)}`)
       }
       // Snapshot before measuring. The head declares a count and the body then
       // writes the items, so reading the source twice lets a subclass with a
       // `length` getter, or an array mutated during iteration, declare one
       // number and emit another.
-      const items: unknown[] = Array.prototype.slice.call(payload)
-      writeHead(out, 4, BigInt(items.length))
-      for (const item of items) writeValue(out, item as Value, depth + 1)
+      let items: unknown[]
+      try {
+        items = copyArrayElements(payload)
+      } catch (cause) {
+        if (cause instanceof CanonicalError) throw cause
+        throw new CanonicalError('array reports a shape that cannot be snapshotted')
+      }
+      writeHead(out, 4, bigintIntrinsic(items.length))
+      for (let index = 0; index < items.length; index++) {
+        writeValue(out, items[index] as Value, depth + 1)
+      }
       return
     }
     case 'map': {
       const source = payload
-      if (!(source instanceof Map)) {
+      if (!(source instanceof MapIntrinsic)) {
         throw new CanonicalError(`map must be a Map, not ${describe(source)}`)
       }
-      // Snapshot through `Map.prototype`, so a subclass overriding `entries`,
-      // `keys`, `get` or `size` cannot make the declared size disagree with the
-      // pairs written, or answer `get` differently the second time.
-      const pairs = brandedCopy(
-        () => [...Map.prototype.entries.call(source)] as [unknown, unknown][],
-        'map',
-      )
-      const value_ = new Map<unknown, unknown>(pairs)
-      writeHead(out, 5, BigInt(value_.size))
+      // Snapshot through a captured Map intrinsic, so a value getter that
+      // poisons Map.prototype — or a subclass overriding entries, keys, get,
+      // or size — cannot substitute pairs after validation.
+      const pairs: { key: unknown; value: unknown }[] = []
+      brandedCopy(() => {
+        let index = 0
+        applyIntrinsic(mapForEachIntrinsic, source, [
+          (value: unknown, key: unknown) => {
+            defineArrayElement(pairs, index, { key, value })
+            index++
+          },
+        ])
+      }, 'map')
+      writeHead(out, 5, bigintIntrinsic(pairs.length))
       // A JavaScript Map iterates in insertion order, which is not encoding
       // order, so the keys are sorted here. Every key is checked before the
       // sort, so a refusal does not depend on insertion order.
-      const keys = [...value_.keys()]
-      for (const key of keys) {
+      for (let index = 0; index < pairs.length; index++) {
+        const key = (pairs[index] as (typeof pairs)[number]).key
         // A non-string key is the quietest failure in this module.
         // `requireWellFormed` iterates `.length`, which is `undefined` on a
         // number, so its loop never runs and the key passes — and `utf8` then
@@ -234,17 +522,20 @@ function writeValue(out: number[], value: Value, depth: number): void {
         }
         requireWellFormed(key, 'map key')
       }
-      const sorted = keys as string[]
-      sorted.sort(compareKeys)
-      for (const key of sorted) {
+      sortArray(pairs, (left, right) => compareKeys(left.key as string, right.key as string))
+      for (let pairIndex = 0; pairIndex < pairs.length; pairIndex++) {
+        const pair = pairs[pairIndex] as (typeof pairs)[number]
+        const key = pair.key as string
         const raw = utf8(key)
-        writeHead(out, 3, BigInt(raw.length))
-        for (const byte of raw) out.push(byte)
-        const item = value_.get(key)
-        if (item === undefined) {
+        const length = byteLength(raw)
+        writeHead(out, 3, bigintIntrinsic(length))
+        for (let index = 0; index < length; index++) {
+          appendArray(out, raw[index] as number)
+        }
+        if (pair.value === undefined) {
           throw new CanonicalError(`map key ${JSON.stringify(key)} has no value`)
         }
-        writeValue(out, item as Value, depth + 1)
+        writeValue(out, pair.value as Value, depth + 1)
       }
       return
     }
@@ -263,11 +554,11 @@ function writeValue(out: number[], value: Value, depth: number): void {
       if (typeof flag !== 'boolean') {
         throw new CanonicalError(`bool must be a boolean, not ${describe(flag)}`)
       }
-      out.push(flag ? 0xf5 : 0xf4)
+      appendArray(out, flag ? 0xf5 : 0xf4)
       return
     }
     case 'null': {
-      out.push(0xf6)
+      appendArray(out, 0xf6)
       return
     }
     default: {
@@ -287,36 +578,32 @@ function writeValue(out: number[], value: Value, depth: number): void {
 }
 
 /**
- * Name a runtime value for a refusal message, without trusting its `toString`.
+ * Run a captured collection intrinsic that reads internal slots, turning its
+ * native brand failure into a `CanonicalError`.
  *
- * A forged payload is exactly the kind of object whose `toString` might throw or
- * lie, and this runs on the path that is refusing it.
- */
-/**
- * Copy a payload through a built-in that reads internal slots, turning the
- * native failure into a `CanonicalError`.
- *
- * `instanceof` only inspects the prototype chain, so
- * `Object.create(Uint8Array.prototype)` passes it while having no typed-array
- * internals at all — and `Uint8Array.prototype.slice.call` on that throws a
- * native `TypeError`. That is the right *decision* reached the wrong *way*: an
- * adversarial pass found native errors escaping `encode`, and a caller cannot
- * tell "invalid input" from "the encoder is broken" if both arrive as
- * `TypeError`.
+ * `instanceof` only inspects the prototype chain, so `Object.create(Map.prototype)`
+ * passes it without Map internals. A caller must still be able to distinguish
+ * invalid input from an encoder failure.
  */
 function brandedCopy<T>(copy: () => T, kind: string): T {
   try {
     return copy()
   } catch {
     throw new CanonicalError(
-      `${kind} has the right prototype but not the internals of a real ${kind === 'bytes' ? 'Uint8Array' : 'Map'}`,
+      `${kind} has the right prototype but not the internals of a real Map`,
     )
   }
 }
 
+/**
+ * Name a runtime value for a refusal message, without trusting its `toString`.
+ *
+ * A forged payload is exactly the kind of object whose `toString` might throw or
+ * lie, and this runs on the path that is refusing it.
+ */
 function describe(value: unknown): string {
   if (value === null) return 'null'
-  if (Array.isArray(value)) return 'an Array'
+  if (arrayIsArrayIntrinsic(value)) return 'an Array'
   const kind = typeof value
   return kind === 'object' ? (value?.constructor?.name ?? 'an object') : kind
 }
@@ -384,12 +671,15 @@ function requireRange(value: bigint, low: bigint, high: bigint, kind: string): v
  */
 function requireWellFormed(value: string, kind: string): void {
   for (let i = 0; i < value.length; i++) {
-    const unit = value.charCodeAt(i)
+    const unit = applyIntrinsic(stringCharCodeAtIntrinsic, value, [i]) as number
     if (unit < 0xd800 || unit > 0xdfff) continue
     // A trailing surrogate here has no leading partner, and a leading surrogate
     // must be followed by a trailing one.
     if (unit >= 0xdc00) throw new CanonicalError(`${kind} has an unpaired surrogate at ${i}`)
-    const next = i + 1 < value.length ? value.charCodeAt(i + 1) : -1
+    const next =
+      i + 1 < value.length
+        ? (applyIntrinsic(stringCharCodeAtIntrinsic, value, [i + 1]) as number)
+        : -1
     if (next < 0xdc00 || next > 0xdfff) {
       throw new CanonicalError(`${kind} has an unpaired surrogate at ${i}`)
     }
@@ -401,25 +691,25 @@ function requireWellFormed(value: string, kind: string): void {
 function writeHead(out: number[], major: number, argument: bigint): void {
   const majorBits = major << 5
   if (argument <= 0x17n) {
-    out.push(majorBits | Number(argument))
+    appendArray(out, majorBits | numberIntrinsic(argument))
   } else if (argument <= 0xffn) {
-    out.push(majorBits | 0x18)
+    appendArray(out, majorBits | 0x18)
     pushBytes(out, argument, 1)
   } else if (argument <= 0xffffn) {
-    out.push(majorBits | 0x19)
+    appendArray(out, majorBits | 0x19)
     pushBytes(out, argument, 2)
   } else if (argument <= 0xffffffffn) {
-    out.push(majorBits | 0x1a)
+    appendArray(out, majorBits | 0x1a)
     pushBytes(out, argument, 4)
   } else {
-    out.push(majorBits | 0x1b)
+    appendArray(out, majorBits | 0x1b)
     pushBytes(out, argument, 8)
   }
 }
 
 function pushBytes(out: number[], argument: bigint, width: number): void {
   for (let shift = (width - 1) * 8; shift >= 0; shift -= 8) {
-    out.push(Number((argument >> BigInt(shift)) & 0xffn))
+    appendArray(out, numberIntrinsic((argument >> bigintIntrinsic(shift)) & 0xffn))
   }
 }
 
@@ -428,7 +718,10 @@ function pushBytes(out: number[], argument: bigint, width: number): void {
  * encoding of the value it denotes.
  */
 export function decode(input: Uint8Array): Value {
-  const reader = new Reader(input)
+  // Snapshot the intrinsic byte length into a plain view. Besides giving the
+  // parser stable bytes, this refuses forged typed-array prototypes and avoids
+  // every Symbol.species path.
+  const reader = new Reader(copyBytes(input))
   const value = reader.readValue(0)
   const remaining = reader.remaining()
   if (remaining !== 0) {
@@ -448,15 +741,18 @@ class Reader {
   }
 
   remaining(): number {
-    return this.input.length - this.position
+    return byteLength(this.input) - this.position
   }
 
   private take(count: number): Uint8Array {
     const end = this.position + count
-    if (end > this.input.length) {
+    if (end > byteLength(this.input)) {
       throw new CanonicalError('input ended inside an item')
     }
-    const slice = this.input.subarray(this.position, end)
+    const slice = new Uint8ArrayIntrinsic(count)
+    for (let index = 0; index < count; index++) {
+      slice[index] = this.input[this.position + index] as number
+    }
     this.position = end
     return slice
   }
@@ -466,7 +762,7 @@ class Reader {
   }
 
   private peekByte(): number {
-    if (this.position >= this.input.length) {
+    if (this.position >= byteLength(this.input)) {
       throw new CanonicalError('input ended inside an item')
     }
     return this.input[this.position] as number
@@ -480,9 +776,9 @@ class Reader {
 
     let argument: bigint
     if (additional <= 23) {
-      argument = BigInt(additional)
+      argument = bigintIntrinsic(additional)
     } else if (additional === 24) {
-      argument = BigInt(this.takeByte())
+      argument = bigintIntrinsic(this.takeByte())
       if (argument < 24n) throw new CanonicalError('argument is not encoded in the shortest form')
     } else if (additional === 25) {
       argument = this.readArgument(2)
@@ -508,7 +804,11 @@ class Reader {
 
   private readArgument(width: number): bigint {
     let value = 0n
-    for (const byte of this.take(width)) value = (value << 8n) | BigInt(byte)
+    const bytes = this.take(width)
+    const length = byteLength(bytes)
+    for (let index = 0; index < length; index++) {
+      value = (value << 8n) | bigintIntrinsic(bytes[index] as number)
+    }
     return value
   }
 
@@ -517,13 +817,13 @@ class Reader {
    * length header cannot force a large allocation.
    */
   private checkedLength(declared: bigint): number {
-    const remaining = BigInt(this.remaining())
+    const remaining = bigintIntrinsic(this.remaining())
     if (declared > remaining) {
       throw new CanonicalError(
         `declared length ${declared} exceeds ${remaining} remaining byte(s)`,
       )
     }
-    return Number(declared)
+    return numberIntrinsic(declared)
   }
 
   readValue(depth: number): Value {
@@ -545,13 +845,13 @@ class Reader {
         return neg(-1n - argument)
       }
       case 2:
-        return bytes(Uint8Array.from(this.take(this.checkedLength(argument))))
+        return bytes(this.take(this.checkedLength(argument)))
       case 3:
         return text(this.readText(argument))
       case 4: {
         const length = this.checkedLength(argument)
         const items: Value[] = []
-        for (let i = 0; i < length; i++) items.push(this.readValue(depth + 1))
+        for (let i = 0; i < length; i++) appendArray(items, this.readValue(depth + 1))
         return array(items)
       }
       case 5:
@@ -588,7 +888,7 @@ class Reader {
   private readText(argument: bigint): string {
     const raw = this.take(this.checkedLength(argument))
     try {
-      return decoder.decode(raw)
+      return applyIntrinsic(textDecoderDecodeIntrinsic, decoder, [raw]) as string
     } catch {
       throw new CanonicalError('text string is not well-formed UTF-8')
     }
@@ -596,7 +896,7 @@ class Reader {
 
   private readMap(argument: bigint, depth: number): Value {
     const declared = this.checkedLength(argument)
-    const entries = new Map<string, Value>()
+    const entries = new MapIntrinsic<string, Value>()
     let previous: string | undefined
 
     for (let i = 0; i < declared; i++) {
@@ -610,7 +910,7 @@ class Reader {
         throw new CanonicalError(`map key ${JSON.stringify(key)} duplicates or precedes its predecessor`)
       }
 
-      entries.set(key, this.readValue(depth + 1))
+      applyIntrinsic(mapSetIntrinsic, entries, [key, this.readValue(depth + 1)])
       previous = key
     }
 
@@ -623,6 +923,10 @@ class Reader {
  *
  * No prefix, salt, or length framing is added. Domain separation belongs inside
  * the value, as the `schema` and `schema_version` fields.
+ *
+ * This is a generic `pce/1` primitive, not an artifact-schema verdict. Future
+ * authorization code must use a typed boundary that validates the complete
+ * schema before it reaches this digest operation.
  */
 export async function hash(value: Value): Promise<Uint8Array> {
   return digestOf(encode(value))
@@ -633,11 +937,13 @@ export async function hash(value: Value): Promise<Uint8Array> {
  *
  * The proof is {@link decode} itself, which accepts only the unique canonical
  * encoding — so bytes that survive it are canonical by construction rather than
- * by the caller's say-so. This replaced an exported `hashCanonicalBytes` whose
- * documentation said the input was "already known to be canonical", which is an
- * instruction rather than a guarantee. The plan hash is an authorization
- * boundary under SEC-001, and an exported function that hashes whatever it is
- * handed is a way around strict decoding for anyone who forgets.
+ * by the caller's say-so.
+ *
+ * This proves only `pce/1` byte canonicality. It cannot know whether an Array
+ * occupies a schema-declared set field or whether an artifact satisfies any
+ * other domain invariant. A future typed artifact boundary must complete
+ * schema validation before hashing the exact validated bytes and must not use
+ * this generic function as its authorization decision.
  *
  * The parameter is `Uint8Array<ArrayBuffer>`, not a bare `Uint8Array`. Since
  * TypeScript 5.7 the array is generic over its backing buffer, and Web Crypto's
@@ -654,9 +960,10 @@ export async function hashEncoded(input: Uint8Array<ArrayBuffer>): Promise<Uint8
   // so a view whose `length` is shadowed — a `Uint8Array` subclass, say — got
   // its prefix validated and its whole buffer hashed. The digest would then
   // cover bytes nothing proved canonical, which is the one thing this function
-  // exists to prevent. Copying through `Uint8Array.prototype.slice` reads the
-  // internal length, so the snapshot is what both steps see.
-  const snapshot: Uint8Array<ArrayBuffer> = Uint8Array.prototype.slice.call(input)
+  // exists to prevent. A species-free copy reads the intrinsic byte length
+  // into a fresh plain Uint8Array, so both steps see the same bytes even when a
+  // subclass requests a wider typed-array species.
+  const snapshot = copyBytes(input)
   decode(snapshot)
   return digestOf(snapshot)
 }
@@ -669,14 +976,22 @@ export async function hashEncoded(input: Uint8Array<ArrayBuffer>): Promise<Uint8
  * precondition is visible at the call site rather than asserted in a comment.
  */
 async function digestOf(input: Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
-  const digest = await crypto.subtle.digest('SHA-256', input)
-  return new Uint8Array(digest)
+  const digest = (await applyIntrinsic(subtleDigestIntrinsic, subtleIntrinsic, [
+    'SHA-256',
+    input,
+  ])) as ArrayBuffer
+  return new Uint8ArrayIntrinsic(digest)
 }
 
 /** Lowercase hexadecimal, matching the Rust `Hash::to_hex` output. */
 export function toHex(input: Uint8Array): string {
   let out = ''
-  for (const byte of input) out += byte.toString(16).padStart(2, '0')
+  const digits = '0123456789abcdef'
+  const length = byteLength(input)
+  for (let index = 0; index < length; index++) {
+    const byte = input[index] as number
+    out += (digits[byte >> 4] as string) + (digits[byte & 0x0f] as string)
+  }
   return out
 }
 
@@ -689,8 +1004,8 @@ export function fromHex(input: string): Uint8Array {
   if (!/^[0-9a-fA-F]*$/.test(input)) {
     throw new CanonicalError('hex contains a character outside 0-9a-fA-F')
   }
-  const out = new Uint8Array(input.length / 2)
-  for (let i = 0; i < out.length; i++) {
+  const out = new Uint8ArrayIntrinsic(input.length / 2)
+  for (let i = 0; i < byteLength(out); i++) {
     out[i] = Number.parseInt(input.slice(i * 2, i * 2 + 2), 16)
   }
   return out
