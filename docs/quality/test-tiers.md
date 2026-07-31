@@ -19,8 +19,13 @@ Tier 1 is unprivileged and safe on every developer host. It currently contains:
   layout, cursor, selection-pairing, oriented contrast-pairing, and exact
   colour-separation-roster policy; WCAG contrast; colour-vision simulation; the
   specification-derived semantic vocabulary; and the mutation table that
-  proves every static policy family can fail (WP-030). These tests inspect
-  declarations, not rendered or operating-system behavior.
+  proves every static policy family can fail. They also check byte-deterministic
+  generation of the committed typed `.slint` contract, exact Rust-catalogue
+  resolution of all 25 label IDs, lossless ASCII display of arbitrary byte and
+  WTF-16 identifiers, bounded whole-token truncation, and strict opaque
+  selection-wire/registry primitives (WP-030). These tests inspect declarations
+  and renderer-neutral Rust behavior, not Slint compilation, rendering, a real
+  view model, or operating-system behavior.
 
 Filesystem access is all of repository-controlled text, and it has grown with
 each gate: workflow and composite-action YAML plus any Dockerfile they build for
@@ -29,9 +34,10 @@ two licence texts for the licence check; the `owned-paths` blocks, every tracked
 path from `git ls-files`, and the workspace membership `cargo metadata` reports
 for the two ownership checks; both lockfiles; `.cargo/config.toml`;
 `schemas/canonical-encoding-vectors.json` for the shared vectors;
-`schemas/design-tokens.json` for the WP-030 accessibility harness; and temporary
-directories the tests create and remove themselves. Tier 1 also launches `git`
-and `cargo` as subprocesses.
+`schemas/design-tokens.json` and
+`packages/design-tokens/generated/partman-tokens.slint` for the WP-030 static
+token/generation boundary; and temporary directories the tests create and
+remove themselves. Tier 1 also launches `git` and `cargo` as subprocesses.
 
 *This paragraph previously said access was limited to `.github/workflows/`, two
 schema files and temporary directories. That stopped being true as gates were

@@ -35,20 +35,26 @@
 //! target-size, caret, and cursor tokens do not prove their rendered behavior.
 //! UI-008 also requires keyboard-only operation, screen-reader semantics, 200%
 //! zoom and reduced motion; none of those can be satisfied by a token file and
-//! none of them are inspected here. Label IDs do not prove that a later Rust
-//! catalogue resolves them. Likewise, the UI-003 and UI-011 vocabularies do not
-//! prove that entities are rendered distinctly or that a live progress surface
-//! makes the required state transitions, and UI-013's exact-byte inspector
-//! contract remains application evidence.
+//! none of them are inspected here. Token evidence alone does not prove the
+//! separately tested desktop catalogue resolves every label ID. Likewise, the
+//! UI-003 and UI-011 vocabularies do not prove that entities are rendered
+//! distinctly or that a live progress surface makes the required state
+//! transitions, and UI-013's exact-byte inspector contract remains application
+//! evidence.
 //! [`audit::Report::caveats`] carries that list into the harness output so a
 //! green run is never read as more than it is.
 //!
-//! This crate performs no privileged operation, opens no device, and launches
-//! no process. It reads one JSON file and computes numbers from it.
+//! The library and audit path perform no privileged operation, open no device,
+//! launch no process, and write no file: they read one JSON source and compute
+//! evidence from it. The developer-only `generate_slint_tokens` binary keeps
+//! the same device, privilege, and subprocess boundaries. Its `--check` mode is
+//! read-only; its explicit `--write` mode writes only the deterministic Slint
+//! contract under `packages/design-tokens/generated/`.
 
 pub mod audit;
 pub mod color;
 pub mod policy;
+pub mod slint;
 pub mod tokens;
 
 pub use audit::{Report, audit};

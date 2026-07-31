@@ -15,9 +15,17 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   contrast-pairing, and exact colour-separation vocabularies. Strict parsing
   and hostile mutations fail on legacy labels, missing contract sections,
   policy drift, duplicate pairings, and coordinated roster changes. This slice
-  adds no Slint dependency or shell and proves no operating-system signal
-  collection, catalogue resolution, rendered accessibility, or exact-byte
-  inspector behavior.
+  adds no Slint dependency or shell. A second pre-Slint slice now generates a
+  committed typed `.slint` ABI byte-for-byte from that audited source, with
+  separate text/UI contrast types, reversible language-safe identifiers, and a
+  dirty-regeneration gate. A dependency-free desktop library independently
+  resolves all 25 canonical label IDs through a closed English catalogue,
+  round-trips arbitrary byte and WTF-16 identifiers through collision-safe
+  ASCII displays, bounds list displays on whole escape tokens, and validates
+  canonical opaque selection wires. This still proves no Slint compiler
+  acceptance, wrapper/property coverage, real view-model association,
+  operating-system signal collection, rendered accessibility, readable-Unicode
+  truncation, or exact-byte inspector behavior.
 - WP-000 closes issue #39 after all four current package traceability documents
   completed package-owned, zero-loss conversions. Every document is now
   generated from validated source annotations and typed evidence; declarations

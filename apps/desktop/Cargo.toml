@@ -1,0 +1,16 @@
+[package]
+name = "partman-desktop"
+description = "Bounded native desktop presentation model for PartMan"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+
+[dev-dependencies]
+partman-tokens = { path = "../../crates/tokens" }
+
+[lints]
+workspace = true
