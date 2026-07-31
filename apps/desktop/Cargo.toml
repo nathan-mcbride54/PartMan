@@ -9,8 +9,15 @@ publish = false
 
 [dependencies]
 
-[dev-dependencies]
+[build-dependencies]
+i-slint-compiler = { version = "=1.17.1", default-features = false, features = ["display-diagnostics", "rust"] }
 partman-tokens = { path = "../../crates/tokens" }
+spin_on = "=0.1.1"
+
+[dev-dependencies]
+i-slint-compiler = { version = "=1.17.1", default-features = false, features = ["display-diagnostics", "rust"] }
+partman-tokens = { path = "../../crates/tokens" }
+spin_on = "=0.1.1"
 
 [lints]
 workspace = true

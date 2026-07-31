@@ -1,0 +1,257 @@
+{
+  "schemaVersion": 1,
+  "slintVersion": "1.17.1",
+  "entries": [
+    {
+      "name": "DEP_MCU_BOARD_SUPPORT_MCU_EMBED_TEXTURES",
+      "classification": "forbidden-auxiliary",
+      "rerunInput": true,
+      "rationale": "CompilerConfiguration::new reads this non-SLINT build-host input before PartMan applies explicit resource policy; the shared ambient guard and rerun set must reject it exactly.",
+      "occurrences": [
+        { "package": "i-slint-compiler", "path": "lib.rs", "access": "runtime-read" }
+      ]
+    },
+    {
+      "name": "SLINT_ASSET_SECTION",
+      "classification": "resolved-excluded-path",
+      "rerunInput": true,
+      "rationale": "The compiler reads it only under software-renderer resource embedding, a forbidden compiler capability.",
+      "occurrences": [
+        { "package": "i-slint-compiler", "path": "generator/rust.rs", "access": "runtime-read" }
+      ]
+    },
+    {
+      "name": "SLINT_BACKEND",
+      "classification": "runtime-rejected",
+      "rerunInput": true,
+      "rationale": "Backend selection reads this at runtime; PartMan rejects ambient selection and later chooses Winit plus one renderer programmatically.",
+      "occurrences": [
+        { "package": "i-slint-backend-selector", "path": "api.rs", "access": "runtime-read" },
+        { "package": "i-slint-backend-selector", "path": "lib.rs", "access": "runtime-read" }
+      ]
+    },
+    {
+      "name": "SLINT_BUNDLE_TRANSLATIONS",
+      "classification": "resolved-excluded-path",
+      "rerunInput": true,
+      "rationale": "The compiler reads it only when bundle-translations is enabled; that compiler feature is forbidden.",
+      "occurrences": [
+        { "package": "i-slint-compiler", "path": "lib.rs", "access": "runtime-read" }
+      ]
+    },
+    {
+      "name": "SLINT_COMPILER_DENY_WARNINGS",
+      "classification": "forbidden-package",
+      "rerunInput": true,
+      "rationale": "Only slint-build reads this; slint-build is forbidden and PartMan's owned adapter fails on diagnostics directly.",
+      "occurrences": [
+        { "package": "slint-build", "path": "lib.rs", "access": "runtime-read" }
+      ]
+    },
+    {
+      "name": "SLINT_CPP_NAMESPACE",
+      "classification": "resolved-excluded-path",
+      "rerunInput": true,
+      "rationale": "The compiler constructor reads it for C++ output; PartMan requests Rust output only.",
+      "occurrences": [
+        { "package": "i-slint-compiler", "path": "lib.rs", "access": "runtime-read" }
+      ]
+    },
+    {
+      "name": "SLINT_DEBUG_PERFORMANCE",
+      "classification": "runtime-rejected",
+      "rerunInput": true,
+      "rationale": "Core rendering metrics can read it at runtime or compile time; release-shaped PartMan rejects both ambient paths.",
+      "occurrences": [
+        { "package": "i-slint-core", "path": "graphics/rendering_metrics_collector.rs", "access": "compile-time-read" },
+        { "package": "i-slint-core", "path": "graphics/rendering_metrics_collector.rs", "access": "runtime-read" }
+      ]
+    },
+    {
+      "name": "SLINT_DEFAULT_FONT",
+      "classification": "runtime-rejected",
+      "rerunInput": true,
+      "rationale": "Shared font discovery accepts an ambient primary font; PartMan must keep font choice explicit and reproducible.",
+      "occurrences": [
+        { "package": "i-slint-common", "path": "sharedfontique.rs", "access": "runtime-read" }
+      ]
+    },
+    {
+      "name": "SLINT_DESTROY_WINDOW_ON_HIDE",
+      "classification": "runtime-rejected",
+      "rerunInput": true,
+      "rationale": "The Winit adapter changes window lifetime from this ambient value; PartMan rejects it.",
+      "occurrences": [
+        { "package": "i-slint-backend-winit", "path": "winitwindowadapter.rs", "access": "runtime-read" }
+      ]
+    },
+    {
+      "name": "SLINT_EMBED_RESOURCES",
+      "classification": "build-aot-rejected",
+      "rerunInput": true,
+      "rationale": "CompilerConfiguration::new reads it before PartMan's explicit resource choice; ambient state is rejected.",
+      "occurrences": [
+        { "package": "i-slint-compiler", "path": "lib.rs", "access": "runtime-read" }
+      ]
+    },
+    {
+      "name": "SLINT_EMBED_TEXTURES",
+      "classification": "build-aot-rejected",
+      "rerunInput": true,
+      "rationale": "CompilerConfiguration::new can enable compile-time texture embedding from this value; PartMan has no such assets and rejects it.",
+      "occurrences": [
+        { "package": "i-slint-compiler", "path": "lib.rs", "access": "runtime-read" }
+      ]
+    },
+    {
+      "name": "SLINT_EMIT_DEBUG_INFO",
+      "classification": "build-aot-rejected",
+      "rerunInput": true,
+      "rationale": "CompilerConfiguration::new changes generated debug metadata from this value; PartMan configures diagnostics explicitly.",
+      "occurrences": [
+        { "package": "i-slint-compiler", "path": "lib.rs", "access": "runtime-read" }
+      ]
+    },
+    {
+      "name": "SLINT_ENABLE_EXPERIMENTAL_FEATURES",
+      "classification": "build-aot-rejected",
+      "rerunInput": true,
+      "rationale": "CompilerConfiguration::new can enable experimental language behavior; the candidate forbids it.",
+      "occurrences": [
+        { "package": "i-slint-compiler", "path": "lib.rs", "access": "runtime-read" }
+      ]
+    },
+    {
+      "name": "SLINT_FONT_PATH",
+      "classification": "runtime-rejected",
+      "rerunInput": true,
+      "rationale": "Shared font discovery accepts ambient fallback paths; PartMan rejects host-dependent font inputs.",
+      "occurrences": [
+        { "package": "i-slint-common", "path": "sharedfontique.rs", "access": "runtime-read" }
+      ]
+    },
+    {
+      "name": "SLINT_FONT_SIZES",
+      "classification": "resolved-excluded-path",
+      "rerunInput": true,
+      "rationale": "Glyph embedding reads it only with compiler software-renderer paths, which are forbidden.",
+      "occurrences": [
+        { "package": "i-slint-compiler", "path": "passes/embed_glyphs.rs", "access": "runtime-read" }
+      ]
+    },
+    {
+      "name": "SLINT_FULLSCREEN",
+      "classification": "runtime-rejected",
+      "rerunInput": true,
+      "rationale": "Window items read it at runtime and could bypass an explicit presentation state.",
+      "occurrences": [
+        { "package": "i-slint-core", "path": "items.rs", "access": "runtime-read" }
+      ]
+    },
+    {
+      "name": "SLINT_INCLUDE_GENERATED",
+      "classification": "resolved-excluded-path",
+      "rerunInput": true,
+      "rationale": "The public include_modules macro reads it, but PartMan includes its fixed OUT_DIR file directly and never invokes that macro.",
+      "occurrences": [
+        { "package": "slint", "path": "lib.rs", "access": "compile-time-read" }
+      ]
+    },
+    {
+      "name": "SLINT_INLINING",
+      "classification": "build-aot-rejected",
+      "rerunInput": true,
+      "rationale": "CompilerConfiguration::new changes generated structure from this ambient value; PartMan's adapter chooses explicitly.",
+      "occurrences": [
+        { "package": "i-slint-compiler", "path": "lib.rs", "access": "runtime-read" }
+      ]
+    },
+    {
+      "name": "SLINT_LINE_BY_LINE",
+      "classification": "software-runtime-rejected",
+      "rerunInput": true,
+      "rationale": "The Winit software renderer changes its buffer path when set; ambient renderer debugging is forbidden.",
+      "occurrences": [
+        { "package": "i-slint-backend-winit", "path": "renderer/sw.rs", "access": "runtime-read" }
+      ]
+    },
+    {
+      "name": "SLINT_LIVE_PREVIEW",
+      "classification": "build-aot-rejected",
+      "rerunInput": true,
+      "rationale": "Both Rust and C++ generators can divert to live-preview output; PartMan forbids live preview and uses Rust AOT output.",
+      "occurrences": [
+        { "package": "i-slint-compiler", "path": "generator/cpp.rs", "access": "runtime-read" },
+        { "package": "i-slint-compiler", "path": "generator/rust.rs", "access": "runtime-read" }
+      ]
+    },
+    {
+      "name": "SLINT_MACRO_CACHE",
+      "classification": "resolved-excluded-path",
+      "rerunInput": true,
+      "rationale": "slint-macros reads it only for the slint! expansion cache; PartMan never invokes slint!.",
+      "occurrences": [
+        { "package": "slint-macros", "path": "expansion_cache.rs", "access": "runtime-read" }
+      ]
+    },
+    {
+      "name": "SLINT_SCALE_FACTOR",
+      "classification": "build-and-runtime-rejected",
+      "rerunInput": true,
+      "rationale": "The compiler and Winit runtime both read it; ambient scale must not alter generated input or runtime DPI behavior.",
+      "occurrences": [
+        { "package": "i-slint-backend-winit", "path": "event_loop.rs", "access": "runtime-read" },
+        { "package": "i-slint-backend-winit", "path": "winitwindowadapter.rs", "access": "runtime-read" },
+        { "package": "i-slint-compiler", "path": "lib.rs", "access": "runtime-read" }
+      ]
+    },
+    {
+      "name": "SLINT_SLOW_ANIMATIONS",
+      "classification": "runtime-rejected",
+      "rerunInput": true,
+      "rationale": "Core animation timing reads it at runtime; PartMan's reduced-motion behavior must be explicit instead.",
+      "occurrences": [
+        { "package": "i-slint-core", "path": "animations.rs", "access": "runtime-read" }
+      ]
+    },
+    {
+      "name": "SLINT_SOFTWARE_RENDERER_PARLEY_DISABLED",
+      "classification": "software-runtime-rejected",
+      "rerunInput": true,
+      "rationale": "The software renderer changes text layout implementation from this ambient value; renderer qualification must be reproducible.",
+      "occurrences": [
+        { "package": "i-slint-renderer-software", "path": "lib.rs", "access": "runtime-read" }
+      ]
+    },
+    {
+      "name": "SLINT_STYLE",
+      "classification": "build-aot-rejected",
+      "rerunInput": true,
+      "rationale": "The compiler and slint! macro can accept an ambient widget style; PartMan explicitly selects Fluent and never invokes slint!.",
+      "occurrences": [
+        { "package": "i-slint-compiler", "path": "lib.rs", "access": "runtime-read" },
+        { "package": "slint-macros", "path": "lib.rs", "access": "compile-time-read" }
+      ]
+    },
+    {
+      "name": "SLINT_WGPU_CPU",
+      "classification": "resolved-excluded-path",
+      "rerunInput": true,
+      "rationale": "WGPU adapter selection reads it only on forbidden WGPU/Skia paths.",
+      "occurrences": [
+        { "package": "i-slint-core", "path": "graphics/wgpu_28.rs", "access": "runtime-read" },
+        { "package": "i-slint-core", "path": "graphics/wgpu_29.rs", "access": "runtime-read" }
+      ]
+    },
+    {
+      "name": "SLINT_WIDGETS_LIBRARY",
+      "classification": "upstream-controlled",
+      "rerunInput": false,
+      "rationale": "i-slint-compiler's own build script creates this exact rustc environment value and fileaccess includes it; downstream ambient input is neither accepted nor required.",
+      "occurrences": [
+        { "package": "i-slint-compiler", "path": "build.rs", "access": "cargo-rustc-env-write" },
+        { "package": "i-slint-compiler", "path": "fileaccess.rs", "access": "compile-time-read" }
+      ]
+    }
+  ]
+}

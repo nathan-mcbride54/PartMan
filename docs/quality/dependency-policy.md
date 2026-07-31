@@ -161,6 +161,97 @@ and the follow-up audit defeated it by nesting the property under `metadata`:
 the line still read `"license": "MIT OR Apache-2.0"` while the document's root
 `license` was `undefined`. A line cannot tell you where in a document it sits.
 
+## Off-main Slint 1.17.1 compiler boundary
+
+ADR-0009's feasibility branch now has a **compiler-only** dependency phase. It
+is not Slint adoption and it is not the final runtime graph. `apps/desktop` has
+no production dependency, includes no generated Slint Rust, links no renderer,
+and creates no native window. Its exact build and fixture dependencies are:
+
+```toml
+i-slint-compiler = { version = "=1.17.1", default-features = false, features = ["display-diagnostics", "rust"] }
+spin_on = "=0.1.1"
+```
+
+The current locked build-host graph contains two Slint-family packages:
+`i-slint-compiler 1.17.1` and `i-slint-common 1.17.1`. It contains no
+`slint-build`, public `slint`, runtime backend, renderer, compiler
+`software-renderer`, compiler `bundle-translations`, or host `image` codec
+uplift. The structured metadata judge excludes development edges, follows
+build and proc-macro realm transitions, conservatively includes conditional
+edges, and refuses to turn this result into a final-runtime pass. That later
+graph still has to prove the complete Winit, accessibility, renderer, image,
+SVG and platform closures separately for every target.
+
+`cargo audit` is lockfile-wide and therefore reports `RUSTSEC-2025-0141` for
+unmaintained `bincode 2.0.1`, even though the compiler build does not activate
+it. The lock entry comes from `typed-index-collections 3.5.0`: its exact
+optional `bincode ^2.0.1` declaration is default-feature-disabled, its enabled
+features are exactly `alloc`, `default`, and `std`, and the reviewed feature
+table reaches bincode only through `bincode?/*` weak references unless the
+separate `bincode = ["dep:bincode"]` feature is enabled. The structured graph
+judge requires that exact package/version/declaration/table, rejects the
+`bincode` feature or any other declarer reachable from **any workspace member**,
+and reports the advisory as lockfile-only. Only after that all-member replay
+may the root `cargo audit` invocation ignore this one ID. Cargo-deny's
+graph-aware advisory check remains clean and the separate fuzz audit receives
+no exception. Any package, feature, edge, or version drift removes the proof
+and forces requalification; removing the optional lock entry or upgrading to a
+graph without the warning is the preferred resolution. Changes to the advisory
+record itself remain an explicit supply-chain review obligation rather than a
+property this metadata judge can infer.
+
+Both Slint-family packages offer
+`GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR
+LicenseRef-Slint-Software-3.0`. The feasibility work elects only
+`LicenseRef-Slint-Royalty-free-2.0`, through package-and-version-scoped
+`deny.toml` exceptions. GPL and the software-license arm are not globally
+allowed. The source replay gate independently checks each package's exact
+registry checksum, normalized manifest hash, licence expression, complete
+packaged `LICENSES/` roster, file lengths, and file hashes. In particular, the
+royalty-free text is 3,620 bytes with SHA-256
+`5167f5056e850419106ab6265efbdca7cba4d99c849d1445ca0bbf6a1e2315fe`.
+The compiler package also carries Apache-2.0, MIT, and CC-BY-ND-4.0 texts for
+its bundled widget/assets tree; those files remain in the inventory even though
+Cargo's package expression does not describe them individually.
+
+The compiler package itself is pinned three ways: crates.io archive checksum
+`45ea275b15a425c7f2f77481151e1f5f8f1ea83feae580273090ef6b9e192218`,
+upstream tag commit `cf62c975c311e7036d599ed8ed0b7e6a8386a934`, and published-tree
+SHA-256 `85107306da880f388216602768b62c92de8b705ff49d436e82d233235630499c`.
+Nine compiler-boundary source files have additional exact hashes. The replay
+walk rejects symbolic links and unexpected entry types, hashes raw content
+under an explicit path/length framing, and re-checks the source-derived ambient
+input inventory.
+
+Every `SLINT_*` environment name is rejected without reading its value. The
+exact non-prefix input `DEP_MCU_BOARD_SUPPORT_MCU_EMBED_TEXTURES` is rejected
+too because `CompilerConfiguration::new` reads it before PartMan applies its
+explicit resource policy. Known downstream inputs and a PartMan rerun nonce are
+Cargo invalidation inputs; the outer task, build adapter, compiler constructor,
+and Rust generator each retain a fail-closed guard at their boundary.
+`SLINT_WIDGETS_LIBRARY` is recorded separately: the compiler's own build script
+creates it for upstream compilation, while the full-prefix guard still refuses
+an ambient downstream value.
+
+`cargo xtask slint-controls` is the source, licence, environment and
+compiler-only graph replay. `cargo xtask desktop` adds the real AOT build check;
+Tier 1 executes the hostile compiler fixtures. All are unprivileged and use
+repository, Cargo-registry, Cargo-metadata and ignored build-output paths only.
+The replay CLI exposes no Cargo-path argument: live collection preserves the
+absolute Cargo proxy selected when the pinned verifier was compiled, ignores
+runtime `CARGO` and `PATH` substitution, and requires `cargo -vV` to report
+release 1.96.0, full commit
+`30a34c6821b57de0aaec83a901aca39f88f6778c`, and commit date 2026-05-25 before
+it runs fixed, locked, offline metadata arguments.
+
+Residual limitations are intentional and blocking: no public runtime feature
+graph, renderer, platform accessibility backend, generated-code type check,
+offline three-OS rebuild, distribution attribution, SBOM, installer or package
+has been qualified. Every Slint re-pin requires a source/API diff and fresh
+hashes; inability to preserve this smaller graph fails the evaluation rather
+than permitting `slint-build` as a fallback.
+
 ## Known gap: a duplicate major version will not fail CI
 
 `[bans] multiple-versions` is `"warn"`, and `cargo xtask supply-chain` does not

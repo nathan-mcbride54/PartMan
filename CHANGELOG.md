@@ -22,8 +22,20 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   resolves all 25 canonical label IDs through a closed English catalogue,
   round-trips arbitrary byte and WTF-16 identifiers through collision-safe
   ASCII displays, bounds list displays on whole escape tokens, and validates
-  canonical opaque selection wires. This still proves no Slint compiler
-  acceptance, wrapper/property coverage, real view-model association,
+  canonical opaque selection wires. The compiler-only checkpoint exact-pins
+  Slint 1.17.1's internal compiler in build/test scope, compiles the typed probe
+  deterministically with fatal diagnostics and confined imports/resources,
+  and replays the exact published source tree, packaged licence files,
+  build-host feature graph, cached crate archives, and source-derived ambient
+  input inventory. Live replay rejects caller-selected Cargo paths and
+  authenticates the compile-time-selected Cargo release and commit before
+  locked, offline metadata collection. The replay also confines
+  `RUSTSEC-2025-0141` to bincode 2.0.1's inactive optional lockfile edge from
+  every workspace member before the root-only cargo-audit ignore is permitted;
+  Cargo-deny and the fuzz audit remain unexcepted. The
+  application still has no public Slint runtime, included generated Rust,
+  renderer, native window, or shell; this proves no final
+  runtime graph, wrapper/property coverage, real view-model association,
   operating-system signal collection, rendered accessibility, readable-Unicode
   truncation, or exact-byte inspector behavior.
 - WP-000 closes issue #39 after all four current package traceability documents

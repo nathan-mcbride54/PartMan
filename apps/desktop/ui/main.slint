@@ -1,0 +1,19 @@
+import {
+    PartmanGeneratedMetrics,
+    PartmanRawGeneratedPalette,
+    PartmanSpacingId,
+    PartmanThemeId,
+} from "../../../packages/design-tokens/generated/partman-tokens.slint";
+
+// This raw generated-palette call is compiler-probe-only typed-API evidence,
+// not G-CFG-05-compliant application markup. The Rust crate deliberately does
+// not include the generated Rust yet and has no Slint runtime or native window.
+export component PartmanApp inherits Window {
+    in property <PartmanThemeId> selected-theme: PartmanThemeId.vdark;
+    out property <length> default-spacing:
+        PartmanGeneratedMetrics.spacing(PartmanSpacingId.vmd);
+
+    width: 640px;
+    height: 480px;
+    background: PartmanRawGeneratedPalette.color-vsurfacez2ebase(root.selected-theme);
+}

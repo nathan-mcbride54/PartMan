@@ -4,6 +4,7 @@ members = [
     "crates/domain",
     "crates/fixtures",
     "crates/tokens",
+    "tools/slint-feasibility",
     "tools/xtask",
 ]
 # `fuzz` needs a nightly toolchain for libFuzzer, while this workspace is pinned

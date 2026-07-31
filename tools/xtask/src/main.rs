@@ -10,7 +10,13 @@ use std::process::{Command, ExitCode};
 
 use partman_fixtures::{catalogue, interlock, prober};
 
+#[path = "../../../apps/desktop/build_support/environment.rs"]
+mod slint_environment;
+
 const PINNED_RUST_VERSION: &str = "1.96.0";
+/// Cargo-audit is lockfile-wide and reports this inactive optional Slint-host
+/// edge; `verify_slint_controls` must prove the exact boundary before ignore.
+const SLINT_LOCKFILE_ONLY_ADVISORY: &str = "RUSTSEC-2025-0141";
 const WORKFLOW_DIRECTORY: &str = ".github/workflows";
 /// Composite actions committed to this repository. Optional, unlike the
 /// workflow directory — but scanned whenever present, because a local action's
@@ -65,6 +71,7 @@ fn main() -> ExitCode {
 enum Task {
     Ci,
     CrossLanguage,
+    Desktop,
     Fixtures,
     Fuzz { seconds: u32 },
     Fmt,
@@ -72,6 +79,7 @@ enum Task {
     Help,
     Probe,
     SupplyChain,
+    SlintControls,
     Test { tier: u8, profile: Option<String> },
     Tokens,
     Traceability { write: bool },
@@ -80,6 +88,21 @@ enum Task {
     VerifyActions,
     VerifyLicenses,
     VerifyToolchain,
+}
+
+impl Task {
+    /// Whether this task can resolve, build, or execute the desktop candidate.
+    fn requires_slint_environment_guard(&self) -> bool {
+        matches!(
+            self,
+            Self::Ci
+                | Self::Desktop
+                | Self::SlintControls
+                | Self::SupplyChain
+                | Self::Test { .. }
+                | Self::Traceability { .. }
+        )
+    }
 }
 
 fn parse(args: &[OsString]) -> Result<Task, TaskError> {
@@ -96,6 +119,7 @@ fn parse(args: &[OsString]) -> Result<Task, TaskError> {
     match command {
         "ci" => nullary(Task::Ci, command, rest),
         "cross-language" => nullary(Task::CrossLanguage, command, rest),
+        "desktop" => nullary(Task::Desktop, command, rest),
         "fixtures" => nullary(Task::Fixtures, command, rest),
         "fuzz" => parse_fuzz(rest),
         "fmt" => nullary(Task::Fmt, command, rest),
@@ -103,6 +127,7 @@ fn parse(args: &[OsString]) -> Result<Task, TaskError> {
         "help" | "--help" | "-h" => nullary(Task::Help, command, rest),
         "probe" => nullary(Task::Probe, command, rest),
         "supply-chain" => nullary(Task::SupplyChain, command, rest),
+        "slint-controls" => nullary(Task::SlintControls, command, rest),
         "tokens" => nullary(Task::Tokens, command, rest),
         "traceability" => parse_traceability(command, rest),
         "verify-ownership" => nullary(Task::VerifyOwnership, command, rest),
@@ -118,6 +143,9 @@ fn parse(args: &[OsString]) -> Result<Task, TaskError> {
 }
 
 fn execute(task: &Task) -> Result<(), TaskError> {
+    if task.requires_slint_environment_guard() {
+        guard_slint_environment()?;
+    }
     match *task {
         Task::Ci => {
             verify_toolchain()?;
@@ -126,6 +154,8 @@ fn execute(task: &Task) -> Result<(), TaskError> {
             verify_workspace_lints(&repository_root())?;
             verify_path_ownership(&repository_root())?;
             audit_tokens()?;
+            check_desktop_aot()?;
+            verify_slint_controls()?;
             cargo(&["fmt", "--all", "--", "--check"])?;
             cargo(&[
                 "clippy",
@@ -143,6 +173,10 @@ fn execute(task: &Task) -> Result<(), TaskError> {
             verify_traceability(&repository_root(), false)
         }
         Task::CrossLanguage => cross_language(),
+        Task::Desktop => {
+            check_desktop_aot()?;
+            verify_slint_controls()
+        }
         Task::Fuzz { seconds } => fuzz(seconds),
         Task::Fmt => cargo(&["fmt", "--all"]),
         Task::FmtCheck => cargo(&["fmt", "--all", "--", "--check"]),
@@ -158,8 +192,16 @@ fn execute(task: &Task) -> Result<(), TaskError> {
             // prevent. The preflight is shared with `fuzz()` so neither entry
             // point can be the one that repairs the lock it audits.
             verify_fuzz_lock()?;
+            check_desktop_aot()?;
+            verify_slint_controls()?;
             cargo(&["deny", "check", "advisories", "bans", "licenses", "sources"])?;
-            cargo(&["audit", "--deny", "warnings"])?;
+            cargo(&[
+                "audit",
+                "--deny",
+                "warnings",
+                "--ignore",
+                SLINT_LOCKFILE_ONLY_ADVISORY,
+            ])?;
             // The fuzz crate is excluded from the workspace, so the two
             // commands above never see its dependency graph. Until 2026-07-29
             // nothing did: its lockfile was gitignored and its dependencies
@@ -177,6 +219,13 @@ fn execute(task: &Task) -> Result<(), TaskError> {
                 "sources",
             ])?;
             cargo(&["audit", "--deny", "warnings", "--file", "fuzz/Cargo.lock"])
+        }
+        Task::SlintControls => {
+            // Populate and validate the exact locked compiler graph first so a
+            // clean machine does not turn the intentionally offline replay
+            // into a cache-dependent command.
+            check_desktop_aot()?;
+            verify_slint_controls()
         }
         Task::Test { tier, ref profile } => run_tier(tier, profile.as_deref()),
         Task::Fixtures => generate_fixtures(),
@@ -302,6 +351,111 @@ fn parse_tier_args(args: [&OsString; 2]) -> Result<u8, TaskError> {
 /// Where generated fixtures live. Ignored by git; never committed (Section 16).
 fn fixture_root() -> PathBuf {
     repository_root().join("tests").join("generated")
+}
+
+/// Reject ambient inputs that could change Slint compilation or runtime state.
+fn guard_slint_environment() -> Result<(), TaskError> {
+    slint_environment::guard_current_environment()
+        .map_err(|error| TaskError::Safety(error.to_string()))
+}
+
+/// Compile every desktop target through the real owned AOT build script.
+fn check_desktop_aot() -> Result<(), TaskError> {
+    selected_cargo(&[
+        "check",
+        "--locked",
+        "--package",
+        "partman-desktop",
+        "--all-targets",
+    ])
+}
+
+/// Replay the exact compiler source, licence, ambient-input and host graph gates.
+fn verify_slint_controls() -> Result<(), TaskError> {
+    let cargo_path = cargo_executable()?;
+    let root = repository_root();
+    let manifest_path =
+        fs::canonicalize(root.join("Cargo.toml")).map_err(|source| TaskError::Io {
+            path: root.join("Cargo.toml"),
+            source,
+        })?;
+    let status = Command::new(&cargo_path)
+        .args([
+            OsStr::new("run"),
+            OsStr::new("--locked"),
+            OsStr::new("--package"),
+            OsStr::new("partman-slint-feasibility"),
+            OsStr::new("--"),
+            OsStr::new("verify-all"),
+            OsStr::new("--phase"),
+            OsStr::new("compiler-only"),
+        ])
+        .arg("--manifest")
+        .arg(&manifest_path)
+        .current_dir(&root)
+        .status()
+        .map_err(|source| TaskError::Launch {
+            program: "partman-slint-feasibility".to_owned(),
+            source,
+        })?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(TaskError::CommandFailed {
+            program: "partman-slint-feasibility verify-all".to_owned(),
+            code: status.code(),
+        })
+    }
+}
+
+/// Return the Cargo executable selected when this pinned xtask was compiled.
+///
+/// Runtime `CARGO` and `PATH` are deliberately irrelevant: either would let a
+/// later process substitute a same-named executable after the gate was built.
+fn cargo_executable() -> Result<PathBuf, TaskError> {
+    let selected = PathBuf::from(env!("CARGO"));
+    if valid_cargo_executable(&selected) {
+        Ok(selected)
+    } else {
+        Err(TaskError::Safety(format!(
+            "compile-time selected Cargo is not an absolute regular cargo executable: {}",
+            selected.display()
+        )))
+    }
+}
+
+fn selected_cargo(args: &[&str]) -> Result<(), TaskError> {
+    let program = cargo_executable()?;
+    let status = Command::new(&program)
+        .args(args)
+        .status()
+        .map_err(|source| TaskError::Launch {
+            program: program.display().to_string(),
+            source,
+        })?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(TaskError::CommandFailed {
+            program: format!("{} {}", program.display(), args.join(" ")),
+            code: status.code(),
+        })
+    }
+}
+
+fn valid_cargo_executable(path: &Path) -> bool {
+    if !path.is_absolute() || !fs::metadata(path).is_ok_and(|metadata| metadata.is_file()) {
+        return false;
+    }
+    path.file_name()
+        .and_then(OsStr::to_str)
+        .is_some_and(|name| {
+            if cfg!(windows) {
+                name.eq_ignore_ascii_case("cargo.exe") || name.eq_ignore_ascii_case("cargo")
+            } else {
+                name == "cargo"
+            }
+        })
 }
 
 /// Audit the canonical tokens and their committed generated Slint contract.
@@ -4062,6 +4216,7 @@ PartMan repository tasks
 
   cargo xtask ci                 Run the complete unprivileged Tier-1 gate
   cargo xtask cross-language     Prove Rust and TypeScript hash identically
+  cargo xtask desktop            Compile the Slint AOT probe and replay its controls
   cargo xtask fuzz [--seconds n] Smoke-fuzz the parsers (needs pinned nightly)
   cargo xtask fmt                Format the Rust workspace
   cargo xtask fmt-check          Verify Rust formatting
@@ -4074,6 +4229,8 @@ PartMan repository tasks
                                  No destructive suite exists yet, so this still
                                  refuses rather than reporting an empty pass.
   cargo xtask supply-chain       Run cargo-deny and cargo-audit
+  cargo xtask slint-controls     Replay pinned Slint source, graph, licence,
+                                 feature, and ambient-input controls
   cargo xtask tokens             Audit the complete static token policy and generated Slint ABI
   cargo xtask traceability [--write]
                                  Check annotations and typed evidence against the spec,
@@ -4131,9 +4288,9 @@ impl fmt::Display for TaskError {
 #[cfg(test)]
 mod tests {
     use super::{
-        Task, TaskError, claim_matches, derivation_is_plausible, inherits_workspace_lints,
-        is_pinned, parse, parse_test, relative_to_root, repository_root, run_tier,
-        validate_claim_pattern, validate_derived_pattern, verify_action_pins,
+        Task, TaskError, cargo_executable, claim_matches, derivation_is_plausible,
+        inherits_workspace_lints, is_pinned, parse, parse_test, relative_to_root, repository_root,
+        run_tier, validate_claim_pattern, validate_derived_pattern, verify_action_pins,
         verify_change_ownership, verify_manifest_licenses, verify_path_ownership,
         verify_workspace_lints, workspace_manifests,
     };
@@ -4868,6 +5025,83 @@ Mention Section 1.99 in prose.
             }
         );
         assert_eq!(parse(&[]).expect("bare invocation"), Task::Help);
+    }
+
+    // Requirements: SEC-010
+    //   Every task that can resolve, build, or execute the Slint candidate is
+    //   classified for the pre-execution full-prefix ambient-input guard, and
+    //   both dedicated candidate commands are reachable without arguments.
+    // Work-Package: WP-030
+    // Evidence: slint_tasks_parse_and_guard_all_candidate_resolvers
+    #[test]
+    fn slint_tasks_parse_and_guard_all_candidate_resolvers() {
+        assert_eq!(parse(&args(&["desktop"])).expect("desktop"), Task::Desktop);
+        assert_eq!(
+            parse(&args(&["slint-controls"])).expect("slint-controls"),
+            Task::SlintControls
+        );
+
+        for task in [
+            Task::Ci,
+            Task::Desktop,
+            Task::SlintControls,
+            Task::SupplyChain,
+            Task::Test {
+                tier: 1,
+                profile: None,
+            },
+            Task::Traceability { write: false },
+        ] {
+            assert!(
+                task.requires_slint_environment_guard(),
+                "candidate-resolving task must be guarded: {task:?}"
+            );
+        }
+        for task in [
+            Task::CrossLanguage,
+            Task::Fixtures,
+            Task::Fmt,
+            Task::FmtCheck,
+            Task::Help,
+            Task::Probe,
+            Task::Tokens,
+            Task::VerifyActions,
+            Task::VerifyLicenses,
+            Task::VerifyOwnership,
+            Task::VerifyToolchain,
+        ] {
+            assert!(
+                !task.requires_slint_environment_guard(),
+                "non-candidate task must stay independent: {task:?}"
+            );
+        }
+    }
+
+    // Requirements: SAFE-004, SEC-010
+    //   Slint gates launch only the absolute Cargo selected at xtask compile
+    //   time; runtime CARGO and PATH cannot substitute another executable.
+    // Work-Package: WP-030
+    // Evidence: slint_cargo_selection_is_compile_time_only
+    #[test]
+    fn slint_cargo_selection_is_compile_time_only() {
+        assert_eq!(
+            cargo_executable().expect("compile-time Cargo is valid"),
+            PathBuf::from(env!("CARGO"))
+        );
+
+        let source = fs::read_to_string(repository_root().join("tools/xtask/src/main.rs"))
+            .expect("read xtask source");
+        let selection = source
+            .split_once("fn cargo_executable()")
+            .expect("Cargo selector exists")
+            .1
+            .split_once("fn valid_cargo_executable")
+            .expect("Cargo selector has a bounded source region")
+            .0;
+        assert!(selection.contains("env!(\"CARGO\")"));
+        assert!(!selection.contains("var_os(\"CARGO\")"));
+        assert!(!selection.contains("var_os(\"PATH\")"));
+        assert!(!selection.contains("split_paths"));
     }
 
     // Requirements: Section 11.3
@@ -6722,6 +6956,39 @@ Mention Section 1.99 in prose.
         assert!(
             source.contains("fn verify_fuzz_lock()"),
             "the preflight is a shared function, not duplicated logic"
+        );
+    }
+
+    // Requirements: SEC-010
+    //   The one root cargo-audit ignore is evaluated only after the exact Slint
+    //   source and graph replay proves bincode remains an inactive optional
+    //   lockfile edge; the separate fuzz graph receives no such exception.
+    // Work-Package: WP-030
+    // Evidence: slint_lockfile_only_advisory_is_preflighted_and_root_scoped
+    #[test]
+    fn slint_lockfile_only_advisory_is_preflighted_and_root_scoped() {
+        let source = fs::read_to_string(repository_root().join("tools/xtask/src/main.rs"))
+            .expect("read xtask source");
+        let supply_chain = source
+            .split_once("Task::SupplyChain =>")
+            .expect("the supply-chain arm exists")
+            .1;
+        let arm = &supply_chain[..supply_chain.find("Task::").unwrap_or(supply_chain.len())];
+        let replay = arm
+            .find("verify_slint_controls()")
+            .expect("supply-chain must replay the exact Slint controls");
+        let ignore = arm
+            .find("SLINT_LOCKFILE_ONLY_ADVISORY")
+            .expect("the exact root audit ignore exists");
+        assert!(replay < ignore, "graph proof must precede the audit ignore");
+        assert_eq!(
+            arm.matches("SLINT_LOCKFILE_ONLY_ADVISORY,").count(),
+            1,
+            "the exception may appear in the root audit argument list only"
+        );
+        assert!(
+            arm.contains("\"fuzz/Cargo.lock\"") && !arm[ignore + 1..].contains("--ignore"),
+            "the separate fuzz audit must remain warning-fatal without this exception"
         );
     }
 

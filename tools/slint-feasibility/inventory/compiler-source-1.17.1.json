@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "compiler": {
+    "package": "i-slint-compiler",
+    "version": "1.17.1",
+    "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+    "crateSha256": "45ea275b15a425c7f2f77481151e1f5f8f1ea83feae580273090ef6b9e192218",
+    "tagCommit": "cf62c975c311e7036d599ed8ed0b7e6a8386a934",
+    "pathInVcs": "internal/compiler",
+    "publishedTreeSha256": "85107306da880f388216602768b62c92de8b705ff49d436e82d233235630499c",
+    "treeHashFraming": "For every regular file except root .cargo-ok, sort UTF-8 forward-slash relative-path bytes lexicographically, then hash u64be(path byte length), path bytes, u64be(content byte length), and raw content bytes; no prefix, count, or root name."
+  },
+  "spinOn": {
+    "package": "spin_on",
+    "version": "0.1.1",
+    "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+    "crateSha256": "076e103ed41b9864aa838287efe5f4e3a7a0362dd00671ae62a212e5e4612da2"
+  },
+  "licensePackages": [
+    {
+      "package": "i-slint-compiler",
+      "version": "1.17.1",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "crateSha256": "45ea275b15a425c7f2f77481151e1f5f8f1ea83feae580273090ef6b9e192218",
+      "licenseExpression": "GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0",
+      "normalizedCargoTomlSha256": "4a0c052d8d16f2071c036933c80b5d91ada90c99f7ceaebc274944f1bd7ebab1",
+      "licenseFiles": [
+        { "path": "LICENSES/Apache-2.0.txt", "length": 10280, "sha256": "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff" },
+        { "path": "LICENSES/CC-BY-ND-4.0.txt", "length": 16830, "sha256": "4a9d465e981ae6bde7f117abbfb0e24f2cc1820e99a47efbe58593fa5c43fa29" },
+        { "path": "LICENSES/GPL-3.0-only.txt", "length": 34670, "sha256": "b6a8bf63ae2c95b0aa256ee774680d7bd18f21f457da75466f7610b3b16acc4e" },
+        { "path": "LICENSES/LicenseRef-Slint-Royalty-free-2.0.md", "length": 3620, "sha256": "5167f5056e850419106ab6265efbdca7cba4d99c849d1445ca0bbf6a1e2315fe" },
+        { "path": "LICENSES/LicenseRef-Slint-Software-3.0.md", "length": 9187, "sha256": "a235744b92f4453fe18e081e54f29468a6a9db6a44e9a8f6364a48001ba4f10f" },
+        { "path": "LICENSES/MIT.txt", "length": 1078, "sha256": "b85dcd3e453d05982552c52b5fc9e0bdd6d23c6f8e844b984a88af32570b0cc0" }
+      ]
+    },
+    {
+      "package": "i-slint-common",
+      "version": "1.17.1",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "crateSha256": "52e63f8ea55ba21e44567ae67d2b01a4f5d09bb1fab693b1e6c79d96bef9e456",
+      "licenseExpression": "GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0",
+      "normalizedCargoTomlSha256": "73a95208c8d87a513c2aacfccbdf9a0c5fb128eb85c00ceb6ea5eaaa34974885",
+      "licenseFiles": [
+        { "path": "LICENSES/GPL-3.0-only.txt", "length": 34670, "sha256": "b6a8bf63ae2c95b0aa256ee774680d7bd18f21f457da75466f7610b3b16acc4e" },
+        { "path": "LICENSES/LicenseRef-Slint-Royalty-free-2.0.md", "length": 3620, "sha256": "5167f5056e850419106ab6265efbdca7cba4d99c849d1445ca0bbf6a1e2315fe" },
+        { "path": "LICENSES/LicenseRef-Slint-Software-3.0.md", "length": 9187, "sha256": "a235744b92f4453fe18e081e54f29468a6a9db6a44e9a8f6364a48001ba4f10f" }
+      ]
+    }
+  ],
+  "criticalFiles": [
+    { "path": "lib.rs", "sha256": "125c2783685f1a25e79c6ec7d06527806b8e898dc70bf39bcffeb66f9931767e" },
+    { "path": "parser.rs", "sha256": "62f411351bed731de4ccaa4455fb419fb092ad31b61cb3f62ac89319a77b5a99" },
+    { "path": "generator.rs", "sha256": "1476fa243d1d33b754515dcc8030dec37f9318d26661f8c21b468a3c21417444" },
+    { "path": "diagnostics.rs", "sha256": "3f23bb830991c8cdb8005b21716d58c31f3b730491a6344ead1436ce11bdbfe5" },
+    { "path": "typeloader.rs", "sha256": "de42396265fd41e601048fe7bd9f42807970533684b87ed08b07999e0a276302" },
+    { "path": "object_tree.rs", "sha256": "3b0649ab2d9a8fced1fe825984e90e7da2ee5fe2e00eb12d5596d02f9ea72da4" },
+    { "path": "embedded_resources.rs", "sha256": "fd817b4358f00a79f411fca55c9e55f9917c1c23de5dd91fcf9e3adba62bf6d8" },
+    { "path": "build.rs", "sha256": "be013a32e0489735f133360757341f72c26245f07a8893356bb193f2b61ba5d0" },
+    { "path": "Cargo.toml.orig", "sha256": "6e78c8b03187f4730ae220bc9716f8932323d859fa928df73932ced19a59051e" }
+  ]
+}

@@ -28,8 +28,12 @@ What does exist:
   theme signals, typography, layout, and cursor vocabularies; generates a
   committed typed `.slint` contract; and supplies a dependency-free Rust
   catalogue, lossless hostile-identifier presentation, and opaque selection
-  primitives (WP-030 increments 1 and 2S). There is still no user interface for
-  them to style and no Slint dependency or compiler evidence yet.
+  primitives (WP-030 increments 1 and 2S). The off-main feasibility branch now
+  also pins Slint 1.17.1's internal compiler in build/test scope, compiles a
+  typed probe deterministically, and replays its exact source, licence,
+  compiler-only feature graph, and environment-input inventories. There is
+  still no public Slint runtime dependency, native window, renderer, or user
+  interface for those tokens to style.
 
 The domain crate performs no I/O and launches no process. Tier 2 and Tier 3
 test suites fail closed and cannot run at all yet.
@@ -78,7 +82,7 @@ reports status only and never redefines either.
 | Schemas versioned, with cross-language hash golden tests (MODEL-005) | Partial — the golden tests exist and gate CI; MODEL-003 schema versioning is not implemented |
 | CODEOWNERS enforces ownership | Partial — `cargo xtask verify-change-ownership` now rejects a diff touching paths outside the assignment its commits declare, judged against the base revision. CODEOWNERS itself still only requires an owner's review, and sub-file grants ("this package's own status rows") stay a review obligation no path checker can express |
 | T1 fixture generator produces images | Met — `cargo xtask fixtures` produces 13 images deterministically (WP-020 increment 1) |
-| Accessibility harness runs | Partial — `cargo xtask tokens` checks the complete static UI-001/003/007/008/011/013 and PLAN-004 token policy plus the byte-exact generated `.slint` ABI from `schemas/design-tokens.json`; desktop tests independently resolve the exact 25 label IDs through the Rust catalogue (WP-030 increments 1 and 2S). Nothing compiles or renders the ABI yet, so component catalogue wiring, operating-system theme detection, keyboard, screen-reader, zoom and reduced-motion behavior remain untouched |
+| Accessibility harness runs | Partial — `cargo xtask tokens` checks the complete static UI-001/003/007/008/011/013 and PLAN-004 token policy plus the byte-exact generated `.slint` ABI from `schemas/design-tokens.json`; desktop tests independently resolve the exact 25 label IDs through the Rust catalogue, and the pinned internal Slint 1.17.1 compiler accepts a typed AOT probe under exact source, licence, feature, and ambient-input controls (WP-030 increment 2S). The generated Rust is not yet included or type-checked with a public runtime, and nothing opens a window or renders, so component catalogue wiring, operating-system theme detection, keyboard, screen-reader, zoom and reduced-motion behavior remain untouched |
 
 The three partial rows are tracked as known gaps in
 `docs/work-packages/WP-000.md`, `docs/work-packages/WP-010.md`, and
@@ -103,7 +107,7 @@ Section 14 of the specification is normative. Current state:
 | ADR-C2 … ADR-C6 | Hashed-artifact body/envelope split, identity strength, provenance shape, aggregation vocabulary, canonical set ordering and depth | Accepted |
 | WP-010 | Canonical domain model, schema versioning, encoding and hashing | In progress. SI-31 is resolved by the delivered schema-set boundary, and traceability is generated with a zero-loss migration ledger; increment 3 remains blocked by the authoritative issue register. See `docs/work-packages/WP-010.md` |
 | WP-020 | Disk-image fixture generator and destructive-test interlocks | In progress — increments 1–1g and 2a–2d delivered. Preconditions 1 and 3 are now closed on both platforms (issue #51): Unix opens a direct child relative to a held root object, Windows holds the root with a share mode the filesystem enforces, and the other-name refusal — which was a **live defect**, not a missing check — now reads the link count through the authorized handle everywhere. Windows containment is enforcement by the filesystem rather than resolution from a handle, so it is **unproven for roots that are not on a local volume**, and non-local roots are refused. WP-020 traceability is generated from validated source-local claims and typed evidence, with a source-revision/blob ledger preserving every former evidence row, correction, limitation, and residual risk. Tier 2 stays unavailable on every platform because no destructive suite exists; see `docs/work-packages/WP-020.md` |
-| WP-030 | Design tokens, dark UI shell, accessibility harness | In progress — increments 1 through 1c delivered (tokens, the static accessibility harness, and zero-loss generated traceability). ADR-0009 and the governance-only WP-030 authorization permit a bounded Slint 1.17.1 feasibility candidate. Its off-main pre-Slint slices now include the strict version-2 token contract, deterministic typed `.slint` generation, the closed English catalogue, collision-safe byte/WTF-16 display primitives, and strict opaque selection wires. No Slint dependency, compiler proof, window, or shell exists yet, so UI-002 is unimplemented and rendered UI-008 remains untested. The preserved Tauri comparison also remains off-main |
+| WP-030 | Design tokens, dark UI shell, accessibility harness | In progress — increments 1 through 1c delivered (tokens, the static accessibility harness, and zero-loss generated traceability). ADR-0009 and the governance-only WP-030 authorization permit a bounded Slint 1.17.1 feasibility candidate. Its off-main slices now include the strict version-2 token contract, deterministic typed `.slint` generation, the closed English catalogue, collision-safe byte/WTF-16 display primitives, strict opaque selection wires, and a build-only AOT compiler boundary with exact source, licence, feature-graph, and ambient-input replay. No public Slint runtime, generated-Rust inclusion, renderer, native window, or shell exists yet, so UI-002 is unimplemented and rendered UI-008 remains untested. The preserved Tauri comparison also remains off-main |
 
 WP-020 and WP-030 depend only on WP-000 and could begin in parallel. WP-040 is
 the first package gated on WP-010.
