@@ -2313,7 +2313,7 @@ fn verify_path_ownership(root: &Path) -> Result<(), TaskError> {
             // stale claim, and moving them in the same change as the files is
             // an assignment edit under a `Work-Package:` trailer, which
             // `AGENTS.md` forbids. So a reservation counts once it matches.
-            if claim.kind != ClaimKind::Derived {
+            if claim.authored() {
                 for file in matched {
                     overlaps
                         .entry(file.clone())
@@ -2379,6 +2379,18 @@ enum ClaimKind {
 }
 
 impl OwnershipClaim {
+    /// Whether a matching path is authored by this package.
+    ///
+    /// A reservation becomes an ordinary ownership claim as soon as the path
+    /// exists. Derived paths are the sole exception: they describe how a file
+    /// is produced, not which package authors it.
+    fn authored(&self) -> bool {
+        match self.kind {
+            ClaimKind::Owned | ClaimKind::Reserved => true,
+            ClaimKind::Derived => false,
+        }
+    }
+
     fn reserved(&self) -> bool {
         self.kind == ClaimKind::Reserved
     }
@@ -2690,7 +2702,7 @@ fn classify<'a>(
     for path in changed {
         let assigned = claims
             .iter()
-            .any(|claim| !claim.derived() && claim_matches(&claim.pattern, path));
+            .any(|claim| claim.authored() && claim_matches(&claim.pattern, path));
         if assigned {
             continue;
         }
@@ -4233,9 +4245,11 @@ fn validate_declared_evidence(
 
 /// Which work package an annotation's evidence belongs to.
 ///
-/// Answered from the `owned-paths` blocks rather than from anything the
-/// annotation says, so evidence lands in the document of the package that
-/// actually owns the code. Where a path is shared — `tools/xtask/**` is claimed
+/// Answered from the ownership blocks rather than from anything the annotation
+/// says, so evidence lands in the document of the package that actually owns
+/// the code. A reservation is ownership once a matching file exists, exactly as
+/// it is for `verify-ownership` and `verify-change-ownership`; derived paths do
+/// not confer authorship. Where a path is shared — `tools/xtask/**` is claimed
 /// by three packages — no inference is possible and the annotation must say,
 /// which is then checked against ownership rather than believed.
 fn owning_packages(claims: &BTreeMap<String, Vec<OwnershipClaim>>, file: &str) -> Vec<String> {
@@ -4244,7 +4258,7 @@ fn owning_packages(claims: &BTreeMap<String, Vec<OwnershipClaim>>, file: &str) -
         .filter(|(_, patterns)| {
             patterns
                 .iter()
-                .any(|claim| claim.kind == ClaimKind::Owned && claim_matches(&claim.pattern, file))
+                .any(|claim| claim.authored() && claim_matches(&claim.pattern, file))
         })
         .map(|(package, _)| package.clone())
         .collect()
@@ -5261,13 +5275,28 @@ mod tests {
             pattern: pattern.to_owned(),
             kind: super::ClaimKind::Owned,
         };
+        let reserved = |pattern: &str| super::OwnershipClaim {
+            pattern: pattern.to_owned(),
+            kind: super::ClaimKind::Reserved,
+        };
+        let derived = |pattern: &str| super::OwnershipClaim {
+            pattern: pattern.to_owned(),
+            kind: super::ClaimKind::Derived,
+        };
         let mut claims = std::collections::BTreeMap::new();
         claims.insert(
             "WP-000".to_owned(),
             vec![owned("tools/xtask/**"), owned("deny.toml")],
         );
         claims.insert("WP-020".to_owned(), vec![owned("tools/xtask/**")]);
-        claims.insert("WP-030".to_owned(), vec![owned("tools/xtask/**")]);
+        claims.insert(
+            "WP-030".to_owned(),
+            vec![
+                owned("tools/xtask/**"),
+                reserved("apps/desktop/**"),
+                derived("generated/**"),
+            ],
+        );
         claims
     }
 
@@ -5336,6 +5365,41 @@ mode: hand-maintained
         assert_eq!(
             super::route_annotation(&claims, &annotation_in("deny.toml", None)),
             Ok("WP-000".to_owned())
+        );
+    }
+
+    // Requirements: Section 1.10, Section 11.7, Section 12
+    //   traceability treats a reservation that now matches evidence as package ownership, in agreement with both ownership gates
+    // Work-Package: WP-000
+    // Evidence: evidence_in_an_activated_reservation_routes_and_validates
+    #[test]
+    fn evidence_in_an_activated_reservation_routes_and_validates() {
+        let claims = routing_claims();
+        let path = "apps/desktop/src/main.rs";
+        assert_eq!(
+            super::route_annotation(&claims, &annotation_in(path, None)),
+            Ok("WP-030".to_owned())
+        );
+
+        let vocabulary = ["Section 1.10".to_owned()].into_iter().collect();
+        let tests = ["a_real_test".to_owned()].into_iter().collect();
+        let tracked = [path.to_owned()].into_iter().collect();
+        let mut row = declared_evidence_in("WP-030");
+        row.evidence = vec![super::DeclaredEvidenceItem::Path(path.to_owned())];
+        super::validate_declared_evidence(&row, &vocabulary, &tests, &tracked, &claims)
+            .expect("an activated reservation is owned evidence");
+
+        let derived = "generated/output.rs";
+        assert!(
+            super::route_annotation(&claims, &annotation_in(derived, Some("WP-030"))).is_err(),
+            "a derived claim describes generation, not ownership"
+        );
+        let tracked = [derived.to_owned()].into_iter().collect();
+        row.evidence = vec![super::DeclaredEvidenceItem::Path(derived.to_owned())];
+        assert!(
+            super::validate_declared_evidence(&row, &vocabulary, &tests, &tracked, &claims)
+                .is_err(),
+            "derived evidence must still have an authoring owner"
         );
     }
 
