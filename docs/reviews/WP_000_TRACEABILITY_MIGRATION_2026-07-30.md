@@ -2,8 +2,9 @@
 
 This is the evidence-preservation proof for PR #65. It compares the 31 evidence
 rows in the hand-written `docs/traceability/WP-000.md` on `origin/main` at
-`b2800a57d59a20337e039a8257b7d04d56791747` with the generated document on the
-PR branch.
+`b2800a57d59a20337e039a8257b7d04d56791747`, source blob
+`9b43c41c77e2f597433b4ce2ad2023168e03ae89`, with the generated document on
+the PR branch.
 
 The old “33-row” count included the Markdown table header and separator. The
 first generator produced 13 evidence rows, so the unexplained evidence-row

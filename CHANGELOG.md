@@ -7,6 +7,13 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- WP-000 closes issue #39 after all four current package traceability documents
+  completed package-owned, zero-loss conversions. Every document is now
+  generated from validated source annotations and typed evidence; declarations
+  are checked in both directions, hand edits fail CI, and each predecessor is
+  frozen by an exact revision/blob migration ledger. WP-000 remains in progress
+  for its other documented gaps rather than being rounded up by this one
+  completion.
 - WP-020 increment 1g converts its traceability document to generated evidence.
   Source-local annotations cover deterministic fixture construction,
   purpose-binding mutations, external-prober expectations, and the
