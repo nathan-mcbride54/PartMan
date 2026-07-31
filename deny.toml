@@ -3,7 +3,23 @@ all-features = true
 
 [advisories]
 yanked = "deny"
-ignore = []
+ignore = [
+  { id = "RUSTSEC-2024-0370", reason = "WP-030: Tauri 2.11.5 reaches proc-macro-error 1.0.4 through its locked Linux GTK3 graph; exact versions and removal triggers are guarded and documented." },
+  { id = "RUSTSEC-2024-0411", reason = "WP-030: Tauri 2.11.5 reaches gdkwayland-sys 0.18.2 through its locked Linux GTK3 graph; migrate to Tauri 3/GTK4 when available." },
+  { id = "RUSTSEC-2024-0412", reason = "WP-030: Tauri 2.11.5 reaches gdk 0.18.2 through its locked Linux GTK3 graph; migrate to Tauri 3/GTK4 when available." },
+  { id = "RUSTSEC-2024-0413", reason = "WP-030: Tauri 2.11.5 reaches atk 0.18.2 through its locked Linux GTK3 graph; migrate to Tauri 3/GTK4 when available." },
+  { id = "RUSTSEC-2024-0415", reason = "WP-030: Tauri 2.11.5 reaches gtk 0.18.2 through its locked Linux GTK3 graph; migrate to Tauri 3/GTK4 when available." },
+  { id = "RUSTSEC-2024-0416", reason = "WP-030: Tauri 2.11.5 reaches atk-sys 0.18.2 through its locked Linux GTK3 graph; migrate to Tauri 3/GTK4 when available." },
+  { id = "RUSTSEC-2024-0418", reason = "WP-030: Tauri 2.11.5 reaches gdk-sys 0.18.2 through its locked Linux GTK3 graph; migrate to Tauri 3/GTK4 when available." },
+  { id = "RUSTSEC-2024-0419", reason = "WP-030: Tauri 2.11.5 reaches gtk3-macros 0.18.2 through its locked Linux GTK3 graph; migrate to Tauri 3/GTK4 when available." },
+  { id = "RUSTSEC-2024-0420", reason = "WP-030: Tauri 2.11.5 reaches gtk-sys 0.18.2 through its locked Linux GTK3 graph; migrate to Tauri 3/GTK4 when available." },
+  { id = "RUSTSEC-2024-0429", reason = "WP-030: glib 0.18.5 is constrained by GTK3; a fail-closed graph and source guard rejects affected API use or drift until a compatible patched release exists." },
+  { id = "RUSTSEC-2025-0075", reason = "WP-030: Tauri 2.11.5 reaches unic-char-range 0.9.0 through its locked utility graph; remove when Tauri replaces the unmaintained Unicode chain." },
+  { id = "RUSTSEC-2025-0080", reason = "WP-030: Tauri 2.11.5 reaches unic-common 0.9.0 through its locked utility graph; remove when Tauri replaces the unmaintained Unicode chain." },
+  { id = "RUSTSEC-2025-0081", reason = "WP-030: Tauri 2.11.5 reaches unic-char-property 0.9.0 through its locked utility graph; remove when Tauri replaces the unmaintained Unicode chain." },
+  { id = "RUSTSEC-2025-0098", reason = "WP-030: Tauri 2.11.5 reaches unic-ucd-version 0.9.0 through its locked utility graph; remove when Tauri replaces the unmaintained Unicode chain." },
+  { id = "RUSTSEC-2025-0100", reason = "WP-030: Tauri 2.11.5 reaches unic-ucd-ident 0.9.0 through its locked utility graph; remove when Tauri replaces the unmaintained Unicode chain." },
+]
 
 [licenses]
 allow = [

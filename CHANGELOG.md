@@ -7,6 +7,37 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- WP-030 increment 2 delivers the bounded, read-only Tauri 2 desktop shell on
+  Windows, macOS, and Linux: device rail, topology map, inspector, and
+  pending-plan drawer over an explicit synthetic preview. React components
+  consume generated pairing, semantic-role-variable, focus, border, and
+  non-colour-shape accessors from the canonical design-token source as the
+  primary boundary. UI-only role colours paint glyphs, borders, and shapes
+  while labels and selectable controls retain explicit audited text/surface
+  pairings; the generated API provides no meaning-as-text shortcut. A
+  defence-in-depth source scan rejects enumerated colour literals, raw palette
+  variables, and generated-class bypasses. Automated DOM interactions cover
+  theme changes, device/node selection, inspector state, bounded keyboard
+  order, and the always-mounted collapsible drawer's ARIA relationship. All
+  eight entity roles have externalized text plus generated icons/shapes,
+  illustrative risk has an externalized label/generated icon, and health is
+  localized text rather than a colour-only signal. Device/node sizes and
+  byte-valued facts remain `BigInt` until locale-aware IEC and exact-byte
+  formatting at the renderer boundary. The Tauri host exposes no command,
+  plugin, storage, or elevation capability; an exact CSP/capability test denies
+  network and object/frame embedding, form submission, and base-URL mutation, and
+  `cargo xtask desktop` now proves both the Vite assets and a native
+  `tauri build --no-bundle` release artifact from the pinned dependency graph.
+  Tauri 2's Linux GTK3 graph currently needs fifteen exact, reason-bearing
+  RustSec exceptions. The supply-chain gate keeps all other advisories fatal,
+  pins package versions/features/edges, scans every resolved non-`glib` Rust
+  source for the affected unsound iterator API, and performs a fail-closed
+  locked dry-run so a compatible `glib` patch cannot become available
+  silently. The exception is not production approval; removal or explicit
+  re-review is required before release.
+  UI-008 remains partial: computed-style, complete
+  keyboard/focus, screen-reader, 200% zoom, and reduced-motion matrices belong
+  to increment 3 and are recorded in `docs/quality/accessibility.md`.
 - WP-000 closes issue #39 after all four current package traceability documents
   completed package-owned, zero-loss conversions. Every document is now
   generated from validated source annotations and typed evidence; declarations
@@ -145,7 +176,8 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   design tokens and the accessibility harness that computes UI-001, UI-007 and
   UI-008 from them. The token file is the single source of truth and lives in
   `schemas/` for the reason `AGENTS.md` already records for the canonical
-  vectors: when the front end arrives it must read *this* file, because an
+  vectors: the front end now generates its typed accessors from *this* file,
+  because an
   implementation checked against a table it also owns proves only
   self-consistency. `cargo xtask tokens` runs the audit and is part of
   `cargo xtask ci`.
@@ -172,13 +204,13 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   but not tritanopia, and greys are untouched by all three — rather than by
   trusting transcribed digits.
 
-  What it does **not** establish is recorded in `docs/work-packages/WP-030.md`
-  and repeated in the harness output on every run: it renders nothing, so the
-  keyboard, screen-reader, zoom and reduced-motion halves of UI-008 are
-  untouched; only declared pairings are checked, so a combination the front end
-  invents is invisible to it; and the colour-vision check is a model, not a
-  proof — UI-007's redundant channels are the guarantee. M0's "accessibility
-  harness runs" criterion is therefore **partially** met.
+  What increment 1 did **not** establish is recorded in
+  `docs/work-packages/WP-030.md` and repeated in the harness output on every
+  run: it rendered nothing at that point; it checked only declared pairings;
+  and its colour-vision check is a model, not a proof. Increment 2 now supplies
+  the bounded shell and typed renderer boundary, but the complete keyboard,
+  screen-reader, zoom, reduced-motion, and computed-style evidence still makes
+  M0's “accessibility harness runs” criterion **partially** met.
 - `cargo xtask verify-ownership`, closing the mechanically decidable half of
   Section 1.10. Every `docs/work-packages/WP-*.md` now carries an `owned-paths`
   block, which is the same text a reviewer reads, so the prose and the enforced

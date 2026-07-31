@@ -45,6 +45,148 @@ const FUZZ_MALLOC_LIMIT_MB: u32 = 256;
 /// Four GiB leaves headroom for sanitizer bookkeeping while remaining far below
 /// the hosted runner's capacity and preserving a finite failure boundary.
 const FUZZ_RSS_LIMIT_MB: u32 = 4_096;
+const CRATES_IO_SOURCE: &str = "registry+https://github.com/rust-lang/crates.io-index";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct AdvisoryException {
+    id: &'static str,
+    package: &'static str,
+    version: &'static str,
+}
+
+/// The complete WP-030 exception set. Both policy tools receive these IDs;
+/// every other advisory remains fatal.
+const TAURI_ADVISORY_EXCEPTIONS: &[AdvisoryException] = &[
+    AdvisoryException {
+        id: "RUSTSEC-2024-0370",
+        package: "proc-macro-error",
+        version: "1.0.4",
+    },
+    AdvisoryException {
+        id: "RUSTSEC-2024-0411",
+        package: "gdkwayland-sys",
+        version: "0.18.2",
+    },
+    AdvisoryException {
+        id: "RUSTSEC-2024-0412",
+        package: "gdk",
+        version: "0.18.2",
+    },
+    AdvisoryException {
+        id: "RUSTSEC-2024-0413",
+        package: "atk",
+        version: "0.18.2",
+    },
+    AdvisoryException {
+        id: "RUSTSEC-2024-0415",
+        package: "gtk",
+        version: "0.18.2",
+    },
+    AdvisoryException {
+        id: "RUSTSEC-2024-0416",
+        package: "atk-sys",
+        version: "0.18.2",
+    },
+    AdvisoryException {
+        id: "RUSTSEC-2024-0418",
+        package: "gdk-sys",
+        version: "0.18.2",
+    },
+    AdvisoryException {
+        id: "RUSTSEC-2024-0419",
+        package: "gtk3-macros",
+        version: "0.18.2",
+    },
+    AdvisoryException {
+        id: "RUSTSEC-2024-0420",
+        package: "gtk-sys",
+        version: "0.18.2",
+    },
+    AdvisoryException {
+        id: "RUSTSEC-2024-0429",
+        package: "glib",
+        version: "0.18.5",
+    },
+    AdvisoryException {
+        id: "RUSTSEC-2025-0075",
+        package: "unic-char-range",
+        version: "0.9.0",
+    },
+    AdvisoryException {
+        id: "RUSTSEC-2025-0080",
+        package: "unic-common",
+        version: "0.9.0",
+    },
+    AdvisoryException {
+        id: "RUSTSEC-2025-0081",
+        package: "unic-char-property",
+        version: "0.9.0",
+    },
+    AdvisoryException {
+        id: "RUSTSEC-2025-0098",
+        package: "unic-ucd-version",
+        version: "0.9.0",
+    },
+    AdvisoryException {
+        id: "RUSTSEC-2025-0100",
+        package: "unic-ucd-ident",
+        version: "0.9.0",
+    },
+];
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct LockedBoundaryPackage {
+    name: &'static str,
+    version: &'static str,
+    source: Option<&'static str>,
+}
+
+/// Packages that tie the advisory exceptions to WP-030's exact desktop
+/// runtime. A second version of any named package is drift, not a match.
+const TAURI_RUNTIME_BOUNDARY: &[LockedBoundaryPackage] = &[
+    LockedBoundaryPackage {
+        name: "partman-desktop",
+        version: "0.0.0",
+        source: None,
+    },
+    LockedBoundaryPackage {
+        name: "tauri",
+        version: "2.11.5",
+        source: Some(CRATES_IO_SOURCE),
+    },
+    LockedBoundaryPackage {
+        name: "tauri-runtime-wry",
+        version: "2.11.4",
+        source: Some(CRATES_IO_SOURCE),
+    },
+    LockedBoundaryPackage {
+        name: "wry",
+        version: "0.55.1",
+        source: Some(CRATES_IO_SOURCE),
+    },
+    LockedBoundaryPackage {
+        name: "webkit2gtk",
+        version: "2.0.2",
+        source: Some(CRATES_IO_SOURCE),
+    },
+];
+
+const TAURI_RUNTIME_EDGES: &[(&str, &str)] = &[
+    ("partman-desktop", "tauri"),
+    ("tauri", "tauri-runtime-wry"),
+    ("tauri-runtime-wry", "wry"),
+    ("wry", "webkit2gtk"),
+    ("webkit2gtk", "gtk"),
+    ("webkit2gtk", "glib"),
+];
+
+const TAURI_SELECTED_FEATURES: &[&str] = &[
+    "compression",
+    "tauri-runtime-wry",
+    "webkit2gtk",
+    "webview2-com",
+    "wry",
+];
 
 fn main() -> ExitCode {
     let args = env::args_os().skip(1).collect::<Vec<_>>();
@@ -65,6 +207,7 @@ fn main() -> ExitCode {
 enum Task {
     Ci,
     CrossLanguage,
+    Desktop,
     Fixtures,
     Fuzz { seconds: u32 },
     Fmt,
@@ -96,6 +239,7 @@ fn parse(args: &[OsString]) -> Result<Task, TaskError> {
     match command {
         "ci" => nullary(Task::Ci, command, rest),
         "cross-language" => nullary(Task::CrossLanguage, command, rest),
+        "desktop" => nullary(Task::Desktop, command, rest),
         "fixtures" => nullary(Task::Fixtures, command, rest),
         "fuzz" => parse_fuzz(rest),
         "fmt" => nullary(Task::Fmt, command, rest),
@@ -143,6 +287,7 @@ fn execute(task: &Task) -> Result<(), TaskError> {
             verify_traceability(&repository_root(), false)
         }
         Task::CrossLanguage => cross_language(),
+        Task::Desktop => desktop(),
         Task::Fuzz { seconds } => fuzz(seconds),
         Task::Fmt => cargo(&["fmt", "--all"]),
         Task::FmtCheck => cargo(&["fmt", "--all", "--", "--check"]),
@@ -159,7 +304,8 @@ fn execute(task: &Task) -> Result<(), TaskError> {
             // point can be the one that repairs the lock it audits.
             verify_fuzz_lock()?;
             cargo(&["deny", "check", "advisories", "bans", "licenses", "sources"])?;
-            cargo(&["audit", "--deny", "warnings"])?;
+            verify_tauri_advisory_boundary(&repository_root())?;
+            cargo(&root_cargo_audit_args())?;
             // The fuzz crate is excluded from the workspace, so the two
             // commands above never see its dependency graph. Until 2026-07-29
             // nothing did: its lockfile was gitignored and its dependencies
@@ -631,6 +777,653 @@ fn cross_language() -> Result<(), TaskError> {
     // requirement for npm dependencies is enforced here rather than in
     // `supply-chain`, which runs without Node.
     audit_npm_packages(&repository_root())
+}
+
+/// Verify the WP-030 desktop shell with the pinned Node dependency graph.
+///
+/// Kept separate from [`Task::Ci`] for the same reason as the cross-language
+/// proof: a Rust-only contributor does not need Node. CI calls this command as
+/// a step inside the existing required Tier-1 job on all three platforms.
+fn desktop() -> Result<(), TaskError> {
+    let package = repository_root().join("apps/desktop");
+    if !package.join("package.json").is_file() {
+        return Err(TaskError::Policy(format!(
+            "{} is missing; the WP-030 desktop gate cannot run",
+            package.join("package.json").display()
+        )));
+    }
+
+    npm(&package, &["ci"])?;
+    for script in [
+        "tokens:check",
+        "lint",
+        "policy:colors",
+        "typecheck",
+        "test",
+        "build",
+        "native:build",
+    ] {
+        npm(&package, &["run", script])?;
+    }
+
+    println!(
+        "desktop: generated tokens, lint, color policy, typecheck, tests, web build, and native \
+         no-bundle production build passed"
+    );
+    Ok(())
+}
+
+fn root_cargo_audit_args() -> Vec<&'static str> {
+    let mut args = vec!["audit", "--deny", "warnings"];
+    for exception in TAURI_ADVISORY_EXCEPTIONS {
+        args.extend(["--ignore", exception.id]);
+    }
+    args
+}
+
+fn glib_update_probe_args(version: &str) -> Vec<String> {
+    vec![
+        "update".to_owned(),
+        "--package".to_owned(),
+        format!("glib@{version}"),
+        "--dry-run".to_owned(),
+        "--locked".to_owned(),
+        "--color".to_owned(),
+        "never".to_owned(),
+    ]
+}
+
+fn unchanged_dependencies_note(line: &str) -> bool {
+    line.strip_prefix("note: pass `--verbose` to see ")
+        .and_then(|remainder| remainder.strip_suffix(" unchanged dependencies behind latest"))
+        .and_then(|count| count.parse::<usize>().ok())
+        .is_some_and(|count| count > 0)
+}
+
+fn validate_glib_update_probe(
+    succeeded: bool,
+    resolver_output: &str,
+    version: &str,
+) -> Result<(), TaskError> {
+    if !succeeded {
+        return Err(TaskError::Policy(format!(
+            "cannot prove whether glib@{version} has a compatible update; the fail-closed \
+             resolver probe failed:\n{}",
+            resolver_output.trim()
+        )));
+    }
+
+    let resolver_rust_version = PINNED_RUST_VERSION.strip_suffix(".0").ok_or_else(|| {
+        TaskError::Policy(format!(
+            "pinned Rust version {PINNED_RUST_VERSION:?} no longer has Cargo's expected `.0` \
+             release shape; review the resolver-output protocol"
+        ))
+    })?;
+    let expected_lock =
+        format!("Locking 0 packages to latest Rust {resolver_rust_version} compatible versions");
+    let mut index_lines = 0;
+    let mut lock_lines = 0;
+    let mut note_lines = 0;
+    let mut dry_run_lines = 0;
+    for line in resolver_output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        if line == "Updating crates.io index" {
+            index_lines += 1;
+        } else if line == expected_lock {
+            lock_lines += 1;
+        } else if unchanged_dependencies_note(line) {
+            note_lines += 1;
+        } else if line == "warning: not updating lockfile due to dry run" {
+            dry_run_lines += 1;
+        } else {
+            return Err(TaskError::Policy(format!(
+                "cargo update succeeded but reported an unrecognized or changing resolver line \
+                 {line:?}; refusing to treat the glib@{version} exception as current"
+            )));
+        }
+    }
+    if index_lines > 1 || lock_lines != 1 || note_lines > 1 || dry_run_lines != 1 {
+        return Err(TaskError::Policy(format!(
+            "cargo update succeeded but did not return the one pinned zero-change shape for \
+             glib@{version}: expected exactly one {expected_lock:?} and one dry-run warning, at \
+             most one index line and one unchanged-dependency note; observed index={index_lines}, \
+             lock={lock_lines}, note={note_lines}, dry-run={dry_run_lines}"
+        )));
+    }
+    Ok(())
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ResolvedPackage {
+    id: String,
+    name: String,
+    version: String,
+    source: Option<String>,
+    manifest_path: PathBuf,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct ResolvedGraph {
+    packages: Vec<ResolvedPackage>,
+    dependencies: BTreeMap<String, BTreeSet<String>>,
+    features: BTreeMap<String, BTreeSet<String>>,
+}
+
+fn verify_tauri_advisory_boundary(root: &Path) -> Result<(), TaskError> {
+    let output = Command::new("cargo")
+        .args([
+            "metadata",
+            "--locked",
+            "--all-features",
+            "--format-version",
+            "1",
+        ])
+        .current_dir(root)
+        .output()
+        .map_err(|source| TaskError::Launch {
+            program: "cargo".to_owned(),
+            source,
+        })?;
+    if !output.status.success() {
+        return Err(TaskError::Policy(format!(
+            "cannot verify the WP-030 Tauri advisory boundary: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+
+    let document: serde_json::Value = serde_json::from_slice(&output.stdout).map_err(|error| {
+        TaskError::Policy(format!(
+            "cargo metadata for the WP-030 Tauri advisory boundary was not JSON: {error}"
+        ))
+    })?;
+    let graph = parse_resolved_graph(&document)?;
+    validate_tauri_advisory_graph(&graph)?;
+    verify_no_resolvable_glib_update(root)?;
+    let (packages, rust_sources) = scan_resolved_non_glib_sources(&graph.packages)?;
+
+    println!(
+        "supply-chain: WP-030 Tauri boundary and {rust_sources} Rust source file(s) across \
+         {packages} non-glib resolved package(s) verified"
+    );
+    Ok(())
+}
+
+fn verify_no_resolvable_glib_update(root: &Path) -> Result<(), TaskError> {
+    let exception = TAURI_ADVISORY_EXCEPTIONS
+        .iter()
+        .find(|exception| exception.package == "glib")
+        .ok_or_else(|| {
+            TaskError::Policy("the exact advisory list has no glib boundary".to_owned())
+        })?;
+    let args = glib_update_probe_args(exception.version);
+    let output = Command::new("cargo")
+        .args(&args)
+        .current_dir(root)
+        .output()
+        .map_err(|source| TaskError::Launch {
+            program: "cargo".to_owned(),
+            source,
+        })?;
+    let stdout = String::from_utf8(output.stdout).map_err(|_| {
+        TaskError::Policy("cargo update dry-run returned non-UTF-8 standard output".to_owned())
+    })?;
+    let stderr = String::from_utf8(output.stderr).map_err(|_| {
+        TaskError::Policy("cargo update dry-run returned non-UTF-8 error output".to_owned())
+    })?;
+    let resolver_output = format!("{stdout}\n{stderr}");
+    validate_glib_update_probe(output.status.success(), &resolver_output, exception.version)
+}
+
+fn metadata_string<'a>(
+    value: &'a serde_json::Value,
+    field: &str,
+    context: &str,
+) -> Result<&'a str, TaskError> {
+    value
+        .get(field)
+        .and_then(serde_json::Value::as_str)
+        .filter(|text| !text.is_empty())
+        .ok_or_else(|| {
+            TaskError::Policy(format!(
+                "cargo metadata {context} has no non-empty string `{field}`"
+            ))
+        })
+}
+
+fn parse_metadata_packages(
+    document: &serde_json::Value,
+) -> Result<(Vec<ResolvedPackage>, BTreeSet<String>), TaskError> {
+    let package_values = document
+        .get("packages")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| TaskError::Policy("cargo metadata listed no packages".to_owned()))?;
+    if package_values.is_empty() {
+        return Err(TaskError::Policy(
+            "cargo metadata listed an empty package graph".to_owned(),
+        ));
+    }
+
+    let mut package_ids = BTreeSet::new();
+    let mut packages = Vec::with_capacity(package_values.len());
+    for (index, package) in package_values.iter().enumerate() {
+        let context = format!("package at index {index}");
+        let id = metadata_string(package, "id", &context)?.to_owned();
+        if !package_ids.insert(id.clone()) {
+            return Err(TaskError::Policy(format!(
+                "cargo metadata listed duplicate package ID {id:?}"
+            )));
+        }
+        let source = match package.get("source") {
+            None | Some(serde_json::Value::Null) => None,
+            Some(value) => Some(
+                value
+                    .as_str()
+                    .filter(|text| !text.is_empty())
+                    .ok_or_else(|| {
+                        TaskError::Policy(format!(
+                            "cargo metadata {context} has a non-string or empty `source`"
+                        ))
+                    })?
+                    .to_owned(),
+            ),
+        };
+        packages.push(ResolvedPackage {
+            id,
+            name: metadata_string(package, "name", &context)?.to_owned(),
+            version: metadata_string(package, "version", &context)?.to_owned(),
+            source,
+            manifest_path: PathBuf::from(metadata_string(package, "manifest_path", &context)?),
+        });
+    }
+    Ok((packages, package_ids))
+}
+
+type ResolvedNodeMaps = (
+    BTreeMap<String, BTreeSet<String>>,
+    BTreeMap<String, BTreeSet<String>>,
+);
+
+fn parse_metadata_nodes(document: &serde_json::Value) -> Result<ResolvedNodeMaps, TaskError> {
+    let node_values = document
+        .get("resolve")
+        .and_then(|resolve| resolve.get("nodes"))
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| {
+            TaskError::Policy("cargo metadata listed no resolved dependency nodes".to_owned())
+        })?;
+    let mut dependencies = BTreeMap::new();
+    let mut features = BTreeMap::new();
+    for (index, node) in node_values.iter().enumerate() {
+        let context = format!("resolve node at index {index}");
+        let id = metadata_string(node, "id", &context)?.to_owned();
+        let dependency_values = node
+            .get("dependencies")
+            .and_then(serde_json::Value::as_array)
+            .ok_or_else(|| {
+                TaskError::Policy(format!("cargo metadata {context} has no dependency array"))
+            })?;
+        let mut node_dependencies = BTreeSet::new();
+        for dependency in dependency_values {
+            let dependency = dependency
+                .as_str()
+                .filter(|text| !text.is_empty())
+                .ok_or_else(|| {
+                    TaskError::Policy(format!(
+                        "cargo metadata {context} has a non-string or empty dependency ID"
+                    ))
+                })?;
+            node_dependencies.insert(dependency.to_owned());
+        }
+        if dependencies.insert(id.clone(), node_dependencies).is_some() {
+            return Err(TaskError::Policy(format!(
+                "cargo metadata listed duplicate resolve node {id:?}"
+            )));
+        }
+
+        let feature_values = node
+            .get("features")
+            .and_then(serde_json::Value::as_array)
+            .ok_or_else(|| {
+                TaskError::Policy(format!("cargo metadata {context} has no feature array"))
+            })?;
+        let mut node_features = BTreeSet::new();
+        for feature in feature_values {
+            let feature = feature
+                .as_str()
+                .filter(|text| !text.is_empty())
+                .ok_or_else(|| {
+                    TaskError::Policy(format!(
+                        "cargo metadata {context} has a non-string or empty feature"
+                    ))
+                })?;
+            node_features.insert(feature.to_owned());
+        }
+        features.insert(id, node_features);
+    }
+    Ok((dependencies, features))
+}
+
+fn parse_resolved_graph(document: &serde_json::Value) -> Result<ResolvedGraph, TaskError> {
+    if document.get("version").and_then(serde_json::Value::as_u64) != Some(1) {
+        return Err(TaskError::Policy(
+            "cargo metadata did not return format version 1".to_owned(),
+        ));
+    }
+
+    let (packages, package_ids) = parse_metadata_packages(document)?;
+    let (dependencies, features) = parse_metadata_nodes(document)?;
+
+    for package_id in &package_ids {
+        if !dependencies.contains_key(package_id) {
+            return Err(TaskError::Policy(format!(
+                "cargo metadata package {package_id:?} has no resolved node"
+            )));
+        }
+    }
+    for (package_id, package_dependencies) in &dependencies {
+        if !package_ids.contains(package_id) {
+            return Err(TaskError::Policy(format!(
+                "cargo metadata resolve node {package_id:?} names no package"
+            )));
+        }
+        if let Some(unknown) = package_dependencies
+            .iter()
+            .find(|dependency| !package_ids.contains(*dependency))
+        {
+            return Err(TaskError::Policy(format!(
+                "cargo metadata resolve node {package_id:?} depends on unknown package {unknown:?}"
+            )));
+        }
+    }
+
+    Ok(ResolvedGraph {
+        packages,
+        dependencies,
+        features,
+    })
+}
+
+fn locked_package<'a>(
+    graph: &'a ResolvedGraph,
+    name: &str,
+    version: &str,
+    source: Option<&str>,
+) -> Result<&'a ResolvedPackage, TaskError> {
+    let candidates: Vec<&ResolvedPackage> = graph
+        .packages
+        .iter()
+        .filter(|package| package.name == name)
+        .collect();
+    let observed = if candidates.is_empty() {
+        "<absent>".to_owned()
+    } else {
+        candidates
+            .iter()
+            .map(|package| {
+                format!(
+                    "{} from {}",
+                    package.version,
+                    package.source.as_deref().unwrap_or("<workspace>")
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    if candidates.len() != 1 || candidates[0].version != version {
+        return Err(TaskError::Policy(format!(
+            "WP-030's Tauri advisory boundary requires exactly one {name} {version}; observed \
+             {observed}. Review and remove or re-authorize the exception before changing the graph"
+        )));
+    }
+    let package = candidates[0];
+    if package.source.as_deref() != source {
+        return Err(TaskError::Policy(format!(
+            "WP-030's Tauri advisory boundary requires {name} {version} from {}; observed {}",
+            source.unwrap_or("<this workspace>"),
+            package.source.as_deref().unwrap_or("<this workspace>")
+        )));
+    }
+    Ok(package)
+}
+
+fn reachable_packages(graph: &ResolvedGraph, start: &str) -> BTreeSet<String> {
+    let mut reachable = BTreeSet::new();
+    let mut pending = vec![start.to_owned()];
+    while let Some(package) = pending.pop() {
+        if !reachable.insert(package.clone()) {
+            continue;
+        }
+        if let Some(dependencies) = graph.dependencies.get(&package) {
+            pending.extend(dependencies.iter().cloned());
+        }
+    }
+    reachable
+}
+
+fn validate_tauri_advisory_graph(graph: &ResolvedGraph) -> Result<(), TaskError> {
+    let mut locked_ids = BTreeMap::new();
+    for expected in TAURI_RUNTIME_BOUNDARY {
+        let package = locked_package(graph, expected.name, expected.version, expected.source)?;
+        locked_ids.insert(expected.name, package.id.as_str());
+    }
+    for exception in TAURI_ADVISORY_EXCEPTIONS {
+        let package = locked_package(
+            graph,
+            exception.package,
+            exception.version,
+            Some(CRATES_IO_SOURCE),
+        )?;
+        if locked_ids
+            .insert(exception.package, package.id.as_str())
+            .is_some()
+        {
+            return Err(TaskError::Policy(format!(
+                "WP-030's Tauri advisory boundary lists package {} more than once",
+                exception.package
+            )));
+        }
+    }
+
+    let desktop_id = *locked_ids.get("partman-desktop").ok_or_else(|| {
+        TaskError::Policy("WP-030's Tauri advisory boundary has no desktop root".to_owned())
+    })?;
+    let reachable = reachable_packages(graph, desktop_id);
+    for (name, id) in &locked_ids {
+        if !reachable.contains(*id) {
+            return Err(TaskError::Policy(format!(
+                "locked package {name} is not reachable from partman-desktop; the WP-030 \
+                 exception no longer describes the graph"
+            )));
+        }
+    }
+
+    for (from, to) in TAURI_RUNTIME_EDGES {
+        let from_id = *locked_ids.get(from).ok_or_else(|| {
+            TaskError::Policy(format!("Tauri boundary edge names unknown package {from}"))
+        })?;
+        let to_id = *locked_ids.get(to).ok_or_else(|| {
+            TaskError::Policy(format!("Tauri boundary edge names unknown package {to}"))
+        })?;
+        if !graph
+            .dependencies
+            .get(from_id)
+            .is_some_and(|dependencies| dependencies.contains(to_id))
+        {
+            return Err(TaskError::Policy(format!(
+                "required Tauri advisory boundary edge {from} -> {to} is absent"
+            )));
+        }
+    }
+
+    let tauri_id = *locked_ids.get("tauri").ok_or_else(|| {
+        TaskError::Policy("WP-030's Tauri advisory boundary has no Tauri package".to_owned())
+    })?;
+    let expected_features: BTreeSet<String> = TAURI_SELECTED_FEATURES
+        .iter()
+        .map(|feature| (*feature).to_owned())
+        .collect();
+    let observed_features = graph
+        .features
+        .get(tauri_id)
+        .ok_or_else(|| TaskError::Policy("Tauri's resolved feature set is missing".to_owned()))?;
+    if observed_features != &expected_features {
+        return Err(TaskError::Policy(format!(
+            "Tauri 2.11.5 feature drift changes the audited boundary: expected \
+             {expected_features:?}, observed {observed_features:?}"
+        )));
+    }
+
+    Ok(())
+}
+
+fn affected_glib_api_names() -> [String; 2] {
+    [
+        ["Variant", "Str", "Iter"].concat(),
+        ["array", "_iter", "_str"].concat(),
+    ]
+}
+
+fn scan_rust_sources_under(
+    package: &ResolvedPackage,
+    root: &Path,
+    forbidden: &[String],
+) -> Result<usize, TaskError> {
+    let mut scanned = 0;
+    let mut pending = vec![root.to_owned()];
+    while let Some(directory) = pending.pop() {
+        let metadata = fs::symlink_metadata(&directory).map_err(|source| TaskError::Io {
+            path: directory.clone(),
+            source,
+        })?;
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return Err(TaskError::Policy(format!(
+                "{} {} source directory {} is not a real directory; refusing an incomplete \
+                 advisory scan",
+                package.name,
+                package.version,
+                directory.display()
+            )));
+        }
+
+        let entries = fs::read_dir(&directory).map_err(|source| TaskError::Io {
+            path: directory.clone(),
+            source,
+        })?;
+        let mut paths = Vec::new();
+        for entry in entries {
+            paths.push(
+                entry
+                    .map_err(|source| TaskError::Io {
+                        path: directory.clone(),
+                        source,
+                    })?
+                    .path(),
+            );
+        }
+        paths.sort();
+
+        for path in paths {
+            let metadata = fs::symlink_metadata(&path).map_err(|source| TaskError::Io {
+                path: path.clone(),
+                source,
+            })?;
+            if metadata.file_type().is_symlink() {
+                return Err(TaskError::Policy(format!(
+                    "{} {} source tree contains symlink {}; refusing a scan that could skip or \
+                     escape source",
+                    package.name,
+                    package.version,
+                    path.display()
+                )));
+            }
+            if metadata.is_dir() {
+                pending.push(path);
+                continue;
+            }
+            if path.extension() != Some(OsStr::new("rs")) {
+                continue;
+            }
+            if !metadata.is_file() {
+                return Err(TaskError::Policy(format!(
+                    "{} {} Rust source {} is not a regular file",
+                    package.name,
+                    package.version,
+                    path.display()
+                )));
+            }
+
+            let source_text = fs::read_to_string(&path).map_err(|source| TaskError::Io {
+                path: path.clone(),
+                source,
+            })?;
+            scanned += 1;
+            if let Some(api) = forbidden
+                .iter()
+                .find(|api| source_text.contains(api.as_str()))
+            {
+                return Err(TaskError::Policy(format!(
+                    "{} {} uses affected glib API {api} in {}; the unsoundness exception is no \
+                     longer authorized",
+                    package.name,
+                    package.version,
+                    path.display()
+                )));
+            }
+        }
+    }
+    Ok(scanned)
+}
+
+fn scan_resolved_non_glib_sources(
+    packages: &[ResolvedPackage],
+) -> Result<(usize, usize), TaskError> {
+    let forbidden = affected_glib_api_names();
+    let mut scanned_packages = 0;
+    let mut scanned_sources = 0;
+    for package in packages {
+        if package.name == "glib" {
+            continue;
+        }
+
+        let manifest_metadata =
+            fs::symlink_metadata(&package.manifest_path).map_err(|source| TaskError::Io {
+                path: package.manifest_path.clone(),
+                source,
+            })?;
+        if manifest_metadata.file_type().is_symlink() || !manifest_metadata.is_file() {
+            return Err(TaskError::Policy(format!(
+                "{} {} manifest {} is not a real file; resolved source is missing",
+                package.name,
+                package.version,
+                package.manifest_path.display()
+            )));
+        }
+        let package_root = package.manifest_path.parent().ok_or_else(|| {
+            TaskError::Policy(format!(
+                "{} {} manifest {} has no source directory",
+                package.name,
+                package.version,
+                package.manifest_path.display()
+            ))
+        })?;
+        let package_sources = scan_rust_sources_under(package, package_root, &forbidden)?;
+        if package_sources == 0 {
+            return Err(TaskError::Policy(format!(
+                "{} {} at {} contains no readable Rust source; refusing an incomplete advisory \
+                 scan",
+                package.name,
+                package.version,
+                package_root.display()
+            )));
+        }
+        scanned_packages += 1;
+        scanned_sources += package_sources;
+    }
+
+    Ok((scanned_packages, scanned_sources))
 }
 
 /// Audit **every** npm package in the repository, not one named directory.
@@ -4025,6 +4818,9 @@ PartMan repository tasks
 
   cargo xtask ci                 Run the complete unprivileged Tier-1 gate
   cargo xtask cross-language     Prove Rust and TypeScript hash identically
+  cargo xtask desktop            Verify the Tauri shell's generated tokens,
+                                 lint, color policy, types, tests, web build,
+                                 and native no-bundle production build
   cargo xtask fuzz [--seconds n] Smoke-fuzz the parsers (needs pinned nightly)
   cargo xtask fmt                Format the Rust workspace
   cargo xtask fmt-check          Verify Rust formatting
@@ -4094,13 +4890,16 @@ impl fmt::Display for TaskError {
 #[cfg(test)]
 mod tests {
     use super::{
-        Task, TaskError, claim_matches, derivation_is_plausible, inherits_workspace_lints,
-        is_pinned, parse, parse_test, relative_to_root, repository_root, run_tier,
-        validate_claim_pattern, validate_derived_pattern, verify_action_pins,
+        CRATES_IO_SOURCE, ResolvedGraph, ResolvedPackage, TAURI_ADVISORY_EXCEPTIONS,
+        TAURI_RUNTIME_BOUNDARY, TAURI_RUNTIME_EDGES, TAURI_SELECTED_FEATURES, Task, TaskError,
+        claim_matches, derivation_is_plausible, glib_update_probe_args, inherits_workspace_lints,
+        is_pinned, parse, parse_test, relative_to_root, repository_root, root_cargo_audit_args,
+        run_tier, scan_resolved_non_glib_sources, validate_claim_pattern, validate_derived_pattern,
+        validate_glib_update_probe, validate_tauri_advisory_graph, verify_action_pins,
         verify_change_ownership, verify_manifest_licenses, verify_path_ownership,
         verify_workspace_lints, workspace_manifests,
     };
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeMap, BTreeSet};
     use std::ffi::{OsStr, OsString};
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -4109,6 +4908,300 @@ mod tests {
 
     fn args(values: &[&str]) -> Vec<OsString> {
         values.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn tauri_advisory_exception_list_is_exact() {
+        let ids: Vec<&str> = TAURI_ADVISORY_EXCEPTIONS
+            .iter()
+            .map(|exception| exception.id)
+            .collect();
+        assert_eq!(
+            ids,
+            [
+                "RUSTSEC-2024-0370",
+                "RUSTSEC-2024-0411",
+                "RUSTSEC-2024-0412",
+                "RUSTSEC-2024-0413",
+                "RUSTSEC-2024-0415",
+                "RUSTSEC-2024-0416",
+                "RUSTSEC-2024-0418",
+                "RUSTSEC-2024-0419",
+                "RUSTSEC-2024-0420",
+                "RUSTSEC-2024-0429",
+                "RUSTSEC-2025-0075",
+                "RUSTSEC-2025-0080",
+                "RUSTSEC-2025-0081",
+                "RUSTSEC-2025-0098",
+                "RUSTSEC-2025-0100",
+            ]
+        );
+        assert_eq!(ids.iter().copied().collect::<BTreeSet<_>>().len(), 15);
+    }
+
+    #[test]
+    fn root_cargo_audit_keeps_warnings_fatal_and_ignores_only_the_exact_list() {
+        let args = root_cargo_audit_args();
+        assert_eq!(&args[..3], ["audit", "--deny", "warnings"]);
+        assert_eq!(args.len(), 3 + TAURI_ADVISORY_EXCEPTIONS.len() * 2);
+
+        let mut ignored = Vec::new();
+        for pair in args[3..].chunks_exact(2) {
+            assert_eq!(pair[0], "--ignore");
+            ignored.push(pair[1]);
+        }
+        assert_eq!(
+            ignored,
+            TAURI_ADVISORY_EXCEPTIONS
+                .iter()
+                .map(|exception| exception.id)
+                .collect::<Vec<_>>()
+        );
+        assert!(!args.contains(&"--file"));
+    }
+
+    #[test]
+    fn glib_compatible_update_probe_accepts_only_the_pinned_zero_change_shape() {
+        assert_eq!(
+            glib_update_probe_args("0.18.5"),
+            [
+                "update",
+                "--package",
+                "glib@0.18.5",
+                "--dry-run",
+                "--locked",
+                "--color",
+                "never",
+            ]
+        );
+        validate_glib_update_probe(
+            true,
+            "Updating crates.io index\n\
+             Locking 0 packages to latest Rust 1.96 compatible versions\n\
+             note: pass `--verbose` to see 5 unchanged dependencies behind latest\n\
+             warning: not updating lockfile due to dry run\n",
+            "0.18.5",
+        )
+        .expect("the pinned Cargo zero-change protocol is accepted");
+    }
+
+    #[test]
+    fn glib_compatible_update_probe_rejects_success_that_reports_an_update() {
+        let update = validate_glib_update_probe(
+            true,
+            "Updating crates.io index\n\
+             Locking 1 package to latest Rust 1.96 compatible version\n\
+             Updating glib v0.18.5 -> v0.18.6\n\
+             warning: not updating lockfile due to dry run\n",
+            "0.18.5",
+        )
+        .expect_err("Cargo can exit successfully while its dry-run reports a compatible update");
+        assert!(
+            update.to_string().contains("unrecognized or changing"),
+            "the successful update is refused explicitly: {update}"
+        );
+    }
+
+    #[test]
+    fn glib_compatible_update_probe_rejects_malformed_success_and_command_failure() {
+        let malformed = validate_glib_update_probe(
+            true,
+            "Locking 0 packages\nwarning: not updating lockfile due to dry run\n",
+            "0.18.5",
+        )
+        .expect_err("a shortened success line must not satisfy the pinned protocol");
+        assert!(
+            malformed.to_string().contains("unrecognized or changing"),
+            "unknown successful output fails closed: {malformed}"
+        );
+
+        let missing_confirmation = validate_glib_update_probe(
+            true,
+            "Locking 0 packages to latest Rust 1.96 compatible versions\n",
+            "0.18.5",
+        )
+        .expect_err("success without Cargo's dry-run confirmation is ambiguous");
+        assert!(
+            missing_confirmation
+                .to_string()
+                .contains("zero-change shape"),
+            "the incomplete success is refused: {missing_confirmation}"
+        );
+
+        let network = validate_glib_update_probe(false, "failed to download config.json", "0.18.5")
+            .expect_err("network failure must not be interpreted as no compatible release");
+        assert!(
+            network.to_string().contains("cannot prove"),
+            "the unavailable check fails closed: {network}"
+        );
+    }
+
+    fn synthetic_guard_graph() -> ResolvedGraph {
+        let mut packages = Vec::new();
+        for package in TAURI_RUNTIME_BOUNDARY {
+            packages.push(ResolvedPackage {
+                id: format!("{} {}", package.name, package.version),
+                name: package.name.to_owned(),
+                version: package.version.to_owned(),
+                source: package.source.map(str::to_owned),
+                manifest_path: PathBuf::from(format!("{}/Cargo.toml", package.name)),
+            });
+        }
+        for exception in TAURI_ADVISORY_EXCEPTIONS {
+            packages.push(ResolvedPackage {
+                id: format!("{} {}", exception.package, exception.version),
+                name: exception.package.to_owned(),
+                version: exception.version.to_owned(),
+                source: Some(CRATES_IO_SOURCE.to_owned()),
+                manifest_path: PathBuf::from(format!("{}/Cargo.toml", exception.package)),
+            });
+        }
+
+        let ids: BTreeMap<&str, &str> = packages
+            .iter()
+            .map(|package| (package.name.as_str(), package.id.as_str()))
+            .collect();
+        let mut dependencies: BTreeMap<String, BTreeSet<String>> = packages
+            .iter()
+            .map(|package| (package.id.clone(), BTreeSet::new()))
+            .collect();
+        for (from, to) in TAURI_RUNTIME_EDGES {
+            dependencies
+                .get_mut(ids[from])
+                .expect("synthetic source node")
+                .insert(ids[to].to_owned());
+        }
+        let webkit = ids["webkit2gtk"];
+        for exception in TAURI_ADVISORY_EXCEPTIONS {
+            dependencies
+                .get_mut(webkit)
+                .expect("synthetic WebKitGTK node")
+                .insert(ids[exception.package].to_owned());
+        }
+
+        let tauri = ids["tauri"];
+        let mut features: BTreeMap<String, BTreeSet<String>> = packages
+            .iter()
+            .map(|package| (package.id.clone(), BTreeSet::new()))
+            .collect();
+        features.insert(
+            tauri.to_owned(),
+            TAURI_SELECTED_FEATURES
+                .iter()
+                .map(|feature| (*feature).to_owned())
+                .collect(),
+        );
+
+        ResolvedGraph {
+            packages,
+            dependencies,
+            features,
+        }
+    }
+
+    #[test]
+    fn tauri_advisory_graph_rejects_version_drift() {
+        let mut graph = synthetic_guard_graph();
+        validate_tauri_advisory_graph(&graph).expect("the exact synthetic graph passes");
+
+        graph
+            .packages
+            .iter_mut()
+            .find(|package| package.name == "glib")
+            .expect("synthetic glib package")
+            .version = "0.18.6".to_owned();
+        let error = validate_tauri_advisory_graph(&graph)
+            .expect_err("a compatible patch still requires exception removal and review");
+        assert!(
+            error.to_string().contains("glib 0.18.5"),
+            "the failure names the exact boundary: {error}"
+        );
+    }
+
+    fn advisory_scan_root(label: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "partman-xtask-tauri-advisory-{label}-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        root
+    }
+
+    fn write_scan_package(root: &Path, name: &str, rust_source: &str) -> ResolvedPackage {
+        let package_root = root.join(name);
+        fs::create_dir_all(package_root.join("src")).expect("create advisory scan fixture");
+        fs::write(
+            package_root.join("Cargo.toml"),
+            format!("[package]\nname = {name:?}\nversion = \"0.0.0\"\n"),
+        )
+        .expect("write fixture manifest");
+        fs::write(package_root.join("src/lib.rs"), rust_source).expect("write fixture Rust source");
+        ResolvedPackage {
+            id: format!("{name} 0.0.0"),
+            name: name.to_owned(),
+            version: "0.0.0".to_owned(),
+            source: None,
+            manifest_path: package_root.join("Cargo.toml"),
+        }
+    }
+
+    #[test]
+    fn glib_source_guard_scans_non_glib_and_excludes_only_glib() {
+        let root = advisory_scan_root("pass");
+        let safe = write_scan_package(&root, "safe-package", "pub fn safe() {}\n");
+        let affected_name = super::affected_glib_api_names()
+            .into_iter()
+            .next()
+            .expect("affected API name");
+        let glib = write_scan_package(&root, "glib", &format!("pub struct {affected_name};\n"));
+
+        assert_eq!(
+            scan_resolved_non_glib_sources(&[safe, glib])
+                .expect("only the implementation crate itself is excluded"),
+            (1, 1)
+        );
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn glib_source_guard_rejects_affected_api_use() {
+        let root = advisory_scan_root("affected");
+        let affected_name = super::affected_glib_api_names()
+            .into_iter()
+            .next()
+            .expect("affected API name");
+        let consumer = write_scan_package(
+            &root,
+            "consumer",
+            &format!("pub fn consume(_: glib::{affected_name}) {{}}\n"),
+        );
+
+        let error = scan_resolved_non_glib_sources(&[consumer])
+            .expect_err("consumer use of the affected API must fail closed");
+        assert!(
+            error.to_string().contains(&affected_name),
+            "the failure names the affected API: {error}"
+        );
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn glib_source_guard_rejects_missing_source() {
+        let root = advisory_scan_root("missing");
+        let package = ResolvedPackage {
+            id: "missing 0.0.0".to_owned(),
+            name: "missing".to_owned(),
+            version: "0.0.0".to_owned(),
+            source: None,
+            manifest_path: root.join("Cargo.toml"),
+        };
+
+        let error = scan_resolved_non_glib_sources(&[package])
+            .expect_err("missing resolved source must fail closed");
+        assert!(
+            matches!(error, TaskError::Io { .. }),
+            "missing source is an I/O refusal: {error}"
+        );
     }
 
     #[test]
@@ -4728,6 +5821,7 @@ Mention Section 1.99 in prose.
             parse(&args(&["cross-language"])).expect("cross-language"),
             Task::CrossLanguage
         );
+        assert_eq!(parse(&args(&["desktop"])).expect("desktop"), Task::Desktop);
         assert_eq!(
             parse(&args(&["fuzz"])).expect("fuzz"),
             Task::Fuzz {

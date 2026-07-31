@@ -85,6 +85,152 @@ by digest. Runner image provenance is recorded by GitHub in each job.
   crate declares its own license, not that of the C library it links — so it is
   a review obligation at the integration commit, not an automated check.
 
+## Bounded WP-030 Tauri 2 Linux advisory exception
+
+This is an exception for one exact locked desktop graph, not a project-wide
+warning mode. WP-030 requires Tauri 2.11.5 with its `wry` runtime. On Linux that
+runtime still reaches the archived gtk-rs GTK3 bindings and `glib` 0.18.5; the
+complete Tauri utility graph also reaches an unmaintained Unicode chain. Tauri
+2 has no maintained GTK4 feature alternative in this graph. Removing the Linux
+webview would also remove the required cross-platform desktop runtime, so the
+bounded read-only shell carries the following exact exceptions while its
+replacement is pursued.
+
+The audited boundary is:
+
+| Package | Locked version | Role in the boundary |
+| --- | --- | --- |
+| `partman-desktop` | 0.0.0 | Workspace root that must reach every excepted package |
+| `tauri` | 2.11.5 | Required desktop host; selected features must remain exactly `compression`, `tauri-runtime-wry`, `webkit2gtk`, `webview2-com`, and `wry` |
+| `tauri-runtime-wry` | 2.11.4 | Tauri's native webview runtime |
+| `wry` | 0.55.1 | Cross-platform webview abstraction with the GTK3 Linux backend |
+| `webkit2gtk` | 2.0.2 | Linux webview bindings that reach GTK3 and `glib` 0.18 |
+
+The supply-chain guard also requires the direct resolved edges
+`partman-desktop → tauri → tauri-runtime-wry → wry → webkit2gtk`, plus
+`webkit2gtk → gtk` and `webkit2gtk → glib`. Every registry package below must
+appear exactly once, at the listed version, from crates.io, and remain reachable
+from `partman-desktop`.
+
+| Advisory | Locked package | Classification and bounded reason |
+| --- | --- | --- |
+| `RUSTSEC-2024-0370` | `proc-macro-error` 1.0.4 | Unmaintained transitive dependency in the GTK3 macro graph |
+| `RUSTSEC-2024-0411` | `gdkwayland-sys` 0.18.2 | Archived gtk-rs GTK3 binding |
+| `RUSTSEC-2024-0412` | `gdk` 0.18.2 | Archived gtk-rs GTK3 binding |
+| `RUSTSEC-2024-0413` | `atk` 0.18.2 | Archived gtk-rs GTK3 binding |
+| `RUSTSEC-2024-0415` | `gtk` 0.18.2 | Archived gtk-rs GTK3 binding |
+| `RUSTSEC-2024-0416` | `atk-sys` 0.18.2 | Archived gtk-rs GTK3 binding |
+| `RUSTSEC-2024-0418` | `gdk-sys` 0.18.2 | Archived gtk-rs GTK3 binding |
+| `RUSTSEC-2024-0419` | `gtk3-macros` 0.18.2 | Archived gtk-rs GTK3 binding |
+| `RUSTSEC-2024-0420` | `gtk-sys` 0.18.2 | Archived gtk-rs GTK3 binding |
+| `RUSTSEC-2024-0429` | `glib` 0.18.5 | Unsound string-variant iterator implementation; separately constrained below |
+| `RUSTSEC-2025-0075` | `unic-char-range` 0.9.0 | Unmaintained Unicode dependency in Tauri's locked utility graph |
+| `RUSTSEC-2025-0080` | `unic-common` 0.9.0 | Unmaintained Unicode dependency in Tauri's locked utility graph |
+| `RUSTSEC-2025-0081` | `unic-char-property` 0.9.0 | Unmaintained Unicode dependency in Tauri's locked utility graph |
+| `RUSTSEC-2025-0098` | `unic-ucd-version` 0.9.0 | Unmaintained Unicode dependency in Tauri's locked utility graph |
+| `RUSTSEC-2025-0100` | `unic-ucd-ident` 0.9.0 | Unmaintained Unicode dependency in Tauri's locked utility graph |
+
+Each ID is a separate reason-bearing `[advisories].ignore` entry in
+`deny.toml`. The root `cargo audit` command retains `--deny warnings` and adds
+only these fifteen `--ignore` arguments. The excluded fuzz graph's
+`cargo audit --deny warnings --file fuzz/Cargo.lock` invocation is unchanged
+and receives no ignore argument. No category-wide advisory, source, licence, or
+ban setting is weakened; an advisory outside the table still fails the root
+gate.
+
+### Additional boundary for `RUSTSEC-2024-0429`
+
+The affected `glib` implementation is present in the dependency graph, so this
+exception is not a claim that the vulnerable code was removed. RustSec identifies
+the iterator operations on `glib::VariantStrIter`; the affected implementation
+also exposes the `array_iter_str` identifier. The published fix is in
+`glib >=0.20.0`, which GTK3's `glib ^0.18` requirement cannot resolve. As of
+2026-07-31, gtk-rs is reviewing a
+[0.18 backport](https://github.com/gtk-rs/gtk-rs-core/pull/2009) and tracking a
+[0.18.6 release](https://github.com/gtk-rs/gtk-rs-core/issues/2010). The
+[RustSec advisory](https://rustsec.org/advisories/RUSTSEC-2024-0429.html) is
+the authority for affected functions and patched ranges.
+
+`cargo xtask supply-chain` therefore adds three independent checks after
+`cargo deny` has resolved and fetched the graph, and before root
+`cargo audit`:
+
+1. It parses `cargo metadata --locked --all-features --format-version 1`,
+   verifies the exact package versions, crates.io sources, selected Tauri
+   features, reachability, and dependency edges above, and rejects a second
+   version of any boundary package. Missing metadata or any drift fails rather
+   than widening the exception.
+2. It runs
+   `cargo update --package glib@0.18.5 --dry-run --locked --color never`.
+   Pinned Cargo 1.96 can exit successfully under `--dry-run --locked` even when
+   its output reports that it would update a package, so exit status is not the
+   verdict. The guard accepts successful UTF-8 output only when it contains
+   exactly one
+   `Locking 0 packages to latest Rust 1.96 compatible versions` line and one
+   dry-run/no-write warning. It permits at most one exact crates.io-index line
+   and one strictly parsed numeric “unchanged dependencies” note. An
+   `Updating`, `Adding`, `Removing`, or `Downgrading` package line, a nonzero
+   lock count, a duplicate, malformed, missing, or unknown line, and any
+   non-success status all fail closed. Thus a newly available compatible patch,
+   including 0.18.6, is refused even if Cargo returns success. Network, index,
+   or resolver failure is never interpreted as “no update available.”
+   `--dry-run` prevents this availability check from editing the lockfile;
+   `--locked` remains defence in depth rather than the sole decision.
+3. It walks every Rust source file under every resolved package root except the
+   one exact `glib` package and refuses either affected identifier. Missing or
+   unreadable manifests, directories, or source files; non-UTF-8 Rust source;
+   symlinks that could escape or hide source; and a resolved package with no
+   Rust source all fail closed. The exact-version check runs first, so the name
+   exclusion cannot silently cover a second or changed `glib`.
+
+The 2026-07-31 implementation run checked 14,929 Rust source files across 426
+non-`glib` packages and found neither affected identifier outside `glib`
+itself. Those counts are recorded evidence, not thresholds: every run prints
+the current counts, and the guard always scans the complete resolved graph.
+Unit tests prove the exact advisory and audit-argument lists, exact locked
+availability-probe arguments, its one accepted zero-change shape,
+success-with-update and malformed-success refusal, non-success probe refusal,
+version-drift refusal, successful source scan, affected-identifier refusal, and
+missing-source refusal.
+
+### Residual risk and removal triggers
+
+The source check is deliberately conservative but lexical. It does not prove a
+semantic call graph, and generated code, a future macro expansion, an indirect
+re-export, or use through a generic interface could reach the vulnerable
+iterator without spelling either identifier in a non-`glib` source file. The
+unsound implementation is still compiled into the Linux graph. Separately, the
+fourteen unmaintained packages have reduced prospects for prompt fixes if a new
+defect is found. The shell's absence of storage commands, plugins, discovery,
+execution, or elevation limits product scope; it does not make memory
+unsoundness harmless.
+
+The compatible-release probe has no structured Cargo output mode. Its parser is
+therefore deliberately tied to pinned Cargo 1.96's human-readable protocol and
+accepts one narrow zero-change shape instead of searching for selected change
+words. A harmless Cargo wording change will fail the gate until the parser and
+its regressions are reviewed; this availability cost is preferred to silently
+accepting an unfamiliar shape as “no update.” Pinning the toolchain and forcing
+`--color never` bound, but do not eliminate, that protocol risk.
+
+Review and remove exceptions immediately when any of these occurs:
+
+- a compatible patched `glib` release resolves, which the strict zero-change
+  probe makes the gate fail even before `Cargo.lock` changes;
+- Tauri/Wry changes version, feature selection, source, or dependency edges;
+- Tauri 3/GTK4 or another maintained webview graph can replace GTK3;
+- either affected identifier appears outside `glib`, any resolved source cannot
+  be scanned completely, or a new advisory appears;
+- RustSec changes the advisory's affected or patched range; or
+- the desktop approaches a production release.
+
+Dependabot and the Monday maintenance workflow continue to supply independent
+update and newly published-advisory signals. A reachable unsound path is not
+authorized for production: if the lexical guard ever finds one, the gate fails
+and the shell must be disabled or the dependency fixed. The required long-term
+resolution is a compatible patched `glib` or migration to Tauri 3/GTK4, not a
+permanent exception.
+
 ## Enforced automatically
 
 `cargo xtask verify-actions` scans `.github/workflows/` — and, when present,

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "PartMan",
+  "version": "0.0.0",
+  "identifier": "dev.partman.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "PartMan",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 980,
+        "minHeight": 680,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "capabilities": ["main-ui"],
+      "csp": {
+        "default-src": "'self'",
+        "script-src": "'self'",
+        "font-src": "'self'",
+        "style-src": "'self'",
+        "connect-src": "'none'",
+        "img-src": "'self'",
+        "object-src": "'none'",
+        "base-uri": "'none'",
+        "frame-src": "'none'",
+        "form-action": "'none'"
+      }
+    }
+  },
+  "bundle": {
+    "active": false
+  }
+}

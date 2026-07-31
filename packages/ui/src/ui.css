@@ -1,0 +1,647 @@
+.shell {
+  min-height: 100vh;
+  padding-bottom: 8.5rem;
+}
+
+.shell[data-plan-open="true"] {
+  padding-bottom: 17rem;
+}
+
+.app-header {
+  display: grid;
+  grid-template-columns: minmax(13rem, 1fr) auto minmax(13rem, 1fr);
+  gap: 1.5rem;
+  align-items: center;
+  min-height: 4.75rem;
+  padding: 0.75rem 1.5rem;
+  border-bottom-style: solid;
+  border-bottom-width: 1px;
+}
+
+.brand,
+.brand > div,
+.source-status,
+.theme-control,
+.device-card__topline,
+.semantic-mark,
+.inspector__entity,
+.severity-chip {
+  display: flex;
+  align-items: center;
+}
+
+.brand {
+  gap: 0.75rem;
+}
+
+.brand > div {
+  align-items: flex-start;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.brand > div > strong {
+  font-size: 1.15rem;
+  letter-spacing: -0.02em;
+}
+
+.brand > div > span {
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.brand__mark {
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  place-items: center;
+  border-radius: 0.55rem;
+  font-weight: 800;
+}
+
+.source-status {
+  gap: 0.55rem;
+  justify-self: center;
+  font-size: 0.85rem;
+}
+
+.source-status__dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-color: var(--pm-role-color);
+}
+
+.theme-control {
+  gap: 0.65rem;
+  justify-self: end;
+  font-size: 0.85rem;
+}
+
+.theme-control select {
+  min-height: 2.5rem;
+  padding: 0.4rem 2.25rem 0.4rem 0.75rem;
+  border-style: solid;
+  border-width: 1px;
+  border-radius: 0.5rem;
+}
+
+.preview-banner {
+  display: flex;
+  gap: 0.75rem 1rem;
+  align-items: baseline;
+  padding: 0.65rem 1.5rem;
+  font-size: 0.85rem;
+}
+
+.preview-banner strong {
+  white-space: nowrap;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(15rem, 19rem) minmax(28rem, 1fr) minmax(
+      17rem,
+      21rem
+    );
+  gap: 1rem;
+  width: min(100%, 112rem);
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.workspace__center {
+  min-width: 0;
+}
+
+.panel {
+  min-width: 0;
+  border-style: solid;
+  border-width: 1px;
+  border-radius: 0.85rem;
+}
+
+.panel__heading {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.1rem 1.15rem;
+  border-bottom-style: solid;
+  border-bottom-width: 1px;
+}
+
+.panel__heading h2 {
+  margin-bottom: 0;
+  font-size: 1rem;
+}
+
+.eyebrow {
+  margin-bottom: 0.2rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.count-badge {
+  display: grid;
+  min-width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border-style: solid;
+  border-width: 1px;
+  border-radius: 50%;
+  font-size: 0.75rem;
+}
+
+.device-list {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.75rem;
+}
+
+.device-card {
+  display: grid;
+  gap: 0.3rem;
+  width: 100%;
+  padding: 0.85rem;
+  border-color: var(--pm-role-color);
+  text-align: left;
+}
+
+.device-card[aria-current="true"] {
+  box-shadow: inset 0.2rem 0 0 var(--pm-role-color);
+}
+
+.device-card__topline {
+  gap: 0.45rem;
+}
+
+.device-card__name {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selected-pill {
+  margin-left: auto;
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--pm-role-color);
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.device-card__size {
+  font-size: 0.88rem;
+}
+
+.device-card__meta {
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topology {
+  min-height: 31rem;
+}
+
+.topology__heading {
+  min-height: 5.2rem;
+}
+
+.topology__capacity {
+  display: grid;
+  justify-items: end;
+  line-height: 1.25;
+}
+
+.topology__capacity span {
+  font-size: 0.75rem;
+}
+
+.topology__hint {
+  margin: 1rem 1.15rem 0;
+  font-size: 0.82rem;
+}
+
+.topology-tracks {
+  display: grid;
+  gap: 1rem;
+  margin: 1.25rem 1.15rem;
+}
+
+.topology-track h3 {
+  margin-bottom: 0.45rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.topology-strip {
+  display: flex;
+  gap: 0.35rem;
+  min-height: 8.5rem;
+}
+
+.topology-node {
+  position: relative;
+  display: flex;
+  min-width: 5.25rem;
+  padding: 0.85rem 0.7rem;
+  overflow: hidden;
+  align-items: flex-start;
+  flex-basis: 0;
+  flex-direction: column;
+  border-color: var(--pm-role-color);
+  text-align: left;
+}
+
+.topology-node[data-weight="1"] {
+  flex-grow: 1;
+}
+
+.topology-node[data-weight="2"] {
+  flex-grow: 2;
+}
+
+.topology-node[data-weight="3"] {
+  flex-grow: 3;
+}
+
+.topology-node[data-weight="4"] {
+  flex-grow: 4;
+}
+
+.topology-node[data-weight="5"] {
+  flex-grow: 5;
+}
+
+.topology-node[data-weight="6"] {
+  flex-grow: 6;
+}
+
+.topology-node[data-weight="7"] {
+  flex-grow: 7;
+}
+
+.topology-node[data-weight="8"] {
+  flex-grow: 8;
+}
+
+.topology-node[data-weight="9"] {
+  flex-grow: 9;
+}
+
+.topology-node[data-weight="10"] {
+  flex-grow: 10;
+}
+
+.topology-node[data-weight="11"] {
+  flex-grow: 11;
+}
+
+.topology-node[data-weight="12"] {
+  flex-grow: 12;
+}
+
+.topology-node[data-weight="13"] {
+  flex-grow: 13;
+}
+
+.topology-node[data-weight="14"] {
+  flex-grow: 14;
+}
+
+.topology-node[data-weight="15"] {
+  flex-grow: 15;
+}
+
+.topology-node[data-weight="16"] {
+  flex-grow: 16;
+}
+
+.topology-node[data-weight="17"] {
+  flex-grow: 17;
+}
+
+.topology-node[data-weight="18"] {
+  flex-grow: 18;
+}
+
+.topology-node[data-weight="19"] {
+  flex-grow: 19;
+}
+
+.topology-node[data-weight="20"] {
+  flex-grow: 20;
+}
+
+.topology-node[data-weight="21"] {
+  flex-grow: 21;
+}
+
+.topology-node[data-weight="22"] {
+  flex-grow: 22;
+}
+
+.topology-node[data-weight="23"] {
+  flex-grow: 23;
+}
+
+.topology-node[data-weight="24"] {
+  flex-grow: 24;
+}
+
+.topology-node[aria-pressed="true"] {
+  box-shadow: inset 0 0 0 3px var(--pm-role-color);
+}
+
+.topology-node__kind {
+  color: var(--pm-role-color);
+  font-size: 0.72rem;
+}
+
+.topology-node__label {
+  width: 100%;
+  margin-top: auto;
+  overflow: hidden;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topology-node__size {
+  width: 100%;
+  overflow: hidden;
+  font-size: 0.77rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topology-node__selected {
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.topology-legend {
+  display: flex;
+  gap: 0.75rem 1rem;
+  flex-wrap: wrap;
+  margin: 0 1.15rem 1.15rem;
+  padding-top: 1rem;
+  border-top-style: solid;
+  border-top-width: 1px;
+  font-size: 0.75rem;
+}
+
+.semantic-mark {
+  gap: 0.35rem;
+}
+
+.semantic-mark__glyph {
+  display: inline-grid;
+  width: 1.25rem;
+  height: 1.25rem;
+  place-items: center;
+  border: 1px solid var(--pm-role-color);
+  border-radius: 0.25rem;
+  color: var(--pm-role-color);
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.plan-drawer__content[hidden] {
+  display: none;
+}
+
+.inspector {
+  align-self: start;
+}
+
+.inspector__entity {
+  gap: 0.75rem;
+  padding: 1.15rem;
+}
+
+.inspector__entity strong {
+  display: block;
+}
+
+.inspector__entity p {
+  margin-bottom: 0;
+  font-size: 0.8rem;
+}
+
+.facts {
+  display: grid;
+  margin: 0;
+  padding: 0 1.15rem 1.15rem;
+}
+
+.fact {
+  display: grid;
+  grid-template-columns: minmax(6rem, 0.8fr) minmax(0, 1fr);
+  gap: 0.75rem;
+  padding: 0.65rem 0;
+  border-top-style: solid;
+  border-top-width: 1px;
+}
+
+.fact dt {
+  font-size: 0.75rem;
+}
+
+.fact dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.75rem;
+  text-align: right;
+}
+
+.plan-drawer {
+  position: fixed;
+  z-index: 10;
+  right: 1rem;
+  bottom: 1rem;
+  left: 1rem;
+  width: min(calc(100% - 2rem), 110rem);
+  max-height: min(26rem, calc(100vh - 8rem));
+  margin: 0 auto;
+  overflow: auto;
+  border-style: solid;
+  border-width: 1px;
+  border-radius: 0.85rem;
+}
+
+.plan-drawer__toggle {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 4.5rem;
+  padding: 0.8rem 1rem;
+  border: 0;
+  text-align: left;
+}
+
+.plan-drawer__toggle > span:first-child {
+  display: grid;
+}
+
+.plan-drawer__toggle > span:last-child {
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.plan-drawer__content {
+  display: grid;
+  grid-template-columns: minmax(18rem, 1fr) minmax(18rem, 1fr) minmax(
+      13rem,
+      0.7fr
+  );
+  gap: 1rem;
+  padding: 1rem;
+  border-top-style: solid;
+  border-top-width: 1px;
+}
+
+.plan-drawer__summary {
+  display: grid;
+  gap: 0.75rem;
+  align-content: start;
+}
+
+.plan-drawer__summary h3,
+.plan-drawer__content h3 {
+  margin-bottom: 0.35rem;
+  font-size: 0.9rem;
+}
+
+.plan-drawer__summary p,
+.plan-drawer__empty {
+  margin-bottom: 0;
+  font-size: 0.8rem;
+}
+
+.severity-chip {
+  gap: 0.35rem;
+  width: fit-content;
+  padding: 0.25rem 0.55rem;
+  border: 1px solid var(--pm-role-color);
+  border-radius: 999px;
+  color: var(--pm-role-color);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.plan-steps {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+  padding-left: 1.25rem;
+  font-size: 0.8rem;
+}
+
+.plan-drawer__empty {
+  padding: 0.75rem;
+  border-style: dashed;
+  border-width: 1px;
+  border-radius: 0.55rem;
+}
+
+@media (max-width: 78rem) {
+  .workspace {
+    grid-template-columns: minmax(14rem, 17rem) minmax(24rem, 1fr);
+  }
+
+  .inspector {
+    grid-column: 1 / -1;
+  }
+
+  .facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 1.25rem;
+  }
+}
+
+@media (max-width: 62rem) {
+  .shell[data-plan-open="true"] {
+    padding-bottom: 27rem;
+  }
+
+  .app-header {
+    grid-template-columns: 1fr auto;
+  }
+
+  .source-status {
+    display: none;
+  }
+
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .device-list {
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  }
+
+  .topology-strip {
+    min-height: 8rem;
+    overflow-x: auto;
+  }
+
+  .topology-node {
+    min-width: 8rem;
+  }
+
+  .plan-drawer__content {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 40rem) {
+  .app-header {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+
+  .theme-control {
+    width: 100%;
+    justify-self: stretch;
+  }
+
+  .theme-control select {
+    flex: 1;
+  }
+
+  .preview-banner {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .facts {
+    grid-template-columns: 1fr;
+  }
+
+  .fact {
+    grid-template-columns: 1fr;
+    gap: 0.2rem;
+  }
+
+  .fact dd {
+    text-align: left;
+  }
+}

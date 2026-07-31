@@ -1,0 +1,77 @@
+import type { UiStrings } from "@partman/ui";
+
+import { formatByteSize } from "./format-bytes";
+
+export const strings: UiStrings = {
+  appName: "PartMan",
+  productQualifier: "Storage workspace",
+  previewNotice: "Synthetic layout preview",
+  previewExplanation:
+    "No disk, volume, mount, or operating-system inventory has been queried.",
+  deviceRailHeading: "Devices",
+  topologyHeading: "Topology map",
+  topologyLegendLabel: "Topology entity legend",
+  layoutTrackLabel: "Physical layout",
+  layersTrackLabel: "Logical layers",
+  inspectorHeading: "Inspector",
+  planHeading: "Pending plan",
+  planEmptyLabel:
+    "Apply is intentionally unavailable. Planning and storage execution are outside this foundation increment.",
+  planPreviewLabel: "Illustrative only",
+  planStepsHeading: "Proposed order",
+  themeLabel: "Theme",
+  themeOptions: {
+    system: "System",
+    dark: "Dark",
+    light: "Light",
+    "high-contrast": "High contrast",
+  },
+  sizeLabel: "Display size",
+  exactBytesLabel: "Exact bytes",
+  deviceSizeLabel: "Device display size",
+  deviceExactBytesLabel: "Device exact bytes",
+  pathLabel: "Path",
+  busLabel: "Bus",
+  identityLabel: "Identity",
+  healthLabel: "Health",
+  healthOptions: {
+    healthy: "Healthy",
+    attention: "Needs attention",
+    unknown: "Unknown",
+  },
+  meaningLabels: {
+    "entity.device": "Device",
+    "entity.partition": "Partition",
+    "entity.container": "Container",
+    "entity.volume": "Volume",
+    "entity.encryption": "Encrypted",
+    "entity.filesystem": "File system",
+    "entity.mount": "Mounted",
+    "entity.freeSpace": "Free space",
+    "severity.informational": "Informational",
+    "severity.reversible": "Reversible",
+    "severity.disruptive": "Disruptive",
+    "severity.dataMoving": "Data-moving",
+    "severity.destructive": "Destructive",
+    "progress.planning": "Planning",
+    "progress.awaitingAuthorization": "Waiting for authorization",
+    "progress.executing": "Executing",
+    "progress.verifying": "Verifying",
+    "progress.rebootPending": "Reboot pending",
+    "progress.recovering": "Recovering",
+    "progress.failed": "Failed",
+    "progress.complete": "Complete",
+  },
+  formatByteSize: (bytes) => formatByteSize(bytes, "en-US"),
+  exactFactLabel: (label) => `${label}, exact bytes`,
+  readOnlyLabel: "Read-only",
+  inspectionHint:
+    "Select a physical extent or logical layer to inspect its exact values.",
+  selectedLabel: "Selected",
+  deviceCountLabel: (count) =>
+    `${count} synthetic ${count === 1 ? "device" : "devices"}`,
+  topologyItemCountLabel: (count) =>
+    `${count} topology ${count === 1 ? "item" : "items"}`,
+  openPlanLabel: "Open drawer",
+  closePlanLabel: "Collapse drawer",
+};

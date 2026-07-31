@@ -1,5 +1,11 @@
 [workspace]
-members = ["crates/domain", "crates/fixtures", "crates/tokens", "tools/xtask"]
+members = [
+  "apps/desktop/src-tauri",
+  "crates/domain",
+  "crates/fixtures",
+  "crates/tokens",
+  "tools/xtask",
+]
 # `fuzz` needs a nightly toolchain for libFuzzer, while this workspace is pinned
 # to one stable release. Excluding it keeps `cargo xtask ci` from attempting to
 # build it on stable. See docs/quality/fuzzing.md.
@@ -23,4 +29,3 @@ unsafe_code = "deny"
 [workspace.lints.clippy]
 all = "deny"
 pedantic = "warn"
-

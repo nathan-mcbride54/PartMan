@@ -1,0 +1,45 @@
+{
+  "name": "@partman/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT OR Apache-2.0",
+  "description": "PartMan's read-only Tauri desktop shell",
+  "type": "module",
+  "engines": {
+    "node": ">=24.18.0"
+  },
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite",
+    "lint": "node scripts/lint.mjs",
+    "native:build": "tauri build --no-bundle -- --locked",
+    "policy:colors": "node scripts/check-colors.mjs",
+    "test": "vitest run",
+    "tokens:check": "node ../../packages/design-tokens/generate.mjs --check",
+    "tokens:write": "node ../../packages/design-tokens/generate.mjs --write",
+    "typecheck": "tsc -b",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@tauri-apps/cli": "2.11.4",
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.1",
+    "@types/node": "24.13.3",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "@vitejs/plugin-react": "6.0.5",
+    "eslint": "10.8.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "globals": "17.8.0",
+    "happy-dom": "20.11.1",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.65.0",
+    "vite": "8.2.0",
+    "vitest": "4.1.10"
+  }
+}

@@ -39,8 +39,21 @@ jobs:
           # check would have to be skipped -- which for an ownership gate means
           # passing vacuously.
           fetch-depth: 0
+      - name: Install Tauri Linux build prerequisites
+        if: matrix.os == 'ubuntu-24.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      - name: Install pinned Node for the desktop gate
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24.18.0'
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
       - name: Run the unprivileged Tier-1 gate
         run: cargo xtask ci
+      - name: Verify the desktop shell
+        run: cargo xtask desktop
       # Section 1.10: a change belongs to the work package its commits declare.
       # Added as a *step* inside this job on purpose -- a new job would need a
       # new required-status-check name, and renaming or adding required checks
@@ -172,4 +185,3 @@ jobs:
           cargo install cargo-audit --version 0.22.2 --locked
       - name: Enforce advisory, license, and source policy
         run: cargo xtask supply-chain
-

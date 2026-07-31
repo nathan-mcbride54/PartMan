@@ -17,6 +17,12 @@ Tier 1 is unprivileged and safe on every developer host. It currently contains:
 - Design-token and accessibility tests: WCAG contrast, colour-vision
   simulation, the specification-derived role vocabulary, and the mutation table
   that proves each check can fail (WP-030).
+- Desktop-shell tests: generated-token drift, typed colour-boundary policy,
+  TypeScript and React lint/type checks, synthetic server-rendered UI semantics,
+  browser-like theme/selection/keyboard/drawer interactions, locale-aware
+  BigInt-backed IEC and exact-byte formatting, the Tauri CSP/capability
+  boundary, a Vite production build, and a native Tauri release build without
+  packaging (WP-030).
 
 Filesystem access is all of repository-controlled text, and it has grown with
 each gate: workflow and composite-action YAML plus any Dockerfile they build for
@@ -26,8 +32,16 @@ path from `git ls-files`, and the workspace membership `cargo metadata` reports
 for the two ownership checks; both lockfiles; `.cargo/config.toml`;
 `schemas/canonical-encoding-vectors.json` for the shared vectors;
 `schemas/design-tokens.json` for the WP-030 accessibility harness; and temporary
-directories the tests create and remove themselves. Tier 1 also launches `git`
-and `cargo` as subprocesses.
+directories the tests create and remove themselves. The separate
+Node-dependent desktop entry point also reads the committed desktop lockfile,
+application and shared-UI sources, Tauri configuration, capability manifest,
+and generated token sources. Within the repository it writes only ignored build
+state under `apps/desktop/node_modules/`, `apps/desktop/dist/`,
+`apps/desktop/src-tauri/gen/`, `apps/desktop/tsconfig.tsbuildinfo`, and the
+workspace `target/`. npm and Cargo may also populate their configured package
+caches outside the repository; those are dependency caches, not device access.
+Tier 1 launches `git`, `cargo`, `npm`, Node, Vite, and the Tauri CLI as
+structured subprocesses.
 
 *This paragraph previously said access was limited to `.github/workflows/`, two
 schema files and temporary directories. That stopped being true as gates were
@@ -50,6 +64,18 @@ toolchain, so it has its own entry point and its own CI job:
 ```text
 cargo xtask cross-language
 ```
+
+The WP-030 desktop proof follows the same Node-dependent pattern and remains a
+step in the existing required Tier-1 matrix on Windows, macOS, and Linux:
+
+```text
+cargo xtask desktop
+```
+
+It runs `npm ci` from the committed lockfile and ends with
+`tauri build --no-bundle` with Cargo's `--locked` forwarded. The native host
+registers no commands or plugins, its main-window capability grants no
+permissions, and the command neither requests elevation nor opens a device.
 
 ## Tier 2 and Tier 3
 
@@ -98,4 +124,3 @@ of nothing (Section 12, Section 16).
 No command in this repository enumerates, opens, or writes a block device, at
 any tier. Filesystem access is limited to repository-controlled files and to the
 generated fixture tree under `tests/generated/`, which `.gitignore` excludes.
-

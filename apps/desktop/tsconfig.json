@@ -1,0 +1,39 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "types": ["node", "react", "react-dom"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "paths": {
+      "@partman/design-tokens": [
+        "../../packages/design-tokens/src/generated.ts"
+      ],
+      "@partman/ui": ["../../packages/ui/src/index.ts"],
+      "react": ["./node_modules/@types/react/index.d.ts"],
+      "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime.d.ts"],
+      "react/jsx-dev-runtime": [
+        "./node_modules/@types/react/jsx-dev-runtime.d.ts"
+      ]
+    }
+  },
+  "include": [
+    "src",
+    "vite.config.ts",
+    "../../packages/ui/src",
+    "../../packages/design-tokens/src"
+  ]
+}

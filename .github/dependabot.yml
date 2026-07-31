@@ -5,6 +5,8 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -17,6 +19,13 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+  # WP-030 keeps its app-local Node configuration and lockfile under the
+  # desktop shell, so its exact pins need their own update directory.
+  - package-ecosystem: npm
+    directory: /apps/desktop
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
   # The fuzz crate is excluded from the workspace, so the root Cargo entry
   # above never updates its graph. Its lockfile is committed and gated
   # (2026-07-29 audit); without this entry it would also never be updated.
@@ -25,4 +34,3 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
-

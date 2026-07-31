@@ -1,7 +1,7 @@
 {
   "tokenSetVersion": "1.0.0",
   "specVersion": "4.0.0",
-  "note": "Single source of truth for PartMan's visual language. The accessibility harness in crates/tokens reads this file; a future Tauri front end MUST read this same file rather than keeping its own copy. An implementation checked against a table it also owns proves only self-consistency.",
+  "note": "Single source of truth for PartMan's visual language. The accessibility harness in crates/tokens reads this file, and the Tauri front end generates its typed accessors from the same file rather than keeping its own copy. An implementation checked against a table it also owns proves only self-consistency.",
 
   "themes": {
     "dark": {
