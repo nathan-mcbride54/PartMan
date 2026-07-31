@@ -52,6 +52,16 @@ PartMan directly:
 - FemtoVG requires OpenGL and documents sometimes sub-optimal
   text and path quality. Skia has broader rendering support but is explicitly
   described as having a heavy disk footprint.
+- Disabling Slint's public default features does not make its internal graph
+  codec-free. The target graph still enables `image` JPEG/PNG support through
+  `i-slint-core` and resolves the `resvg` SVG stack and its own transitive
+  decoders. Slint's convenience
+  `slint-build` crate would additionally pull the full default `image` codec
+  set into the build-host graph even when an application uses no image asset.
+  A bounded PartMan-owned AOT adapter can call the already-resolved pinned
+  compiler without that feature uplift, but it creates an explicit internal-API
+  maintenance obligation. Both dependency surfaces still need inventory,
+  audit, and footprint evidence.
 - Upstream warns that Rust applications can exhaust the smaller default MSVC
   main-thread stack on Windows, especially in debug builds, and recommends a
   linker stack increase. A partitioning UI must prove deep synthetic topology
@@ -88,10 +98,18 @@ are:
 - <https://github.com/slint-ui/slint/blob/v1.17.1/docs/astro/src/content/docs/reference/std-widgets/style.mdx>
 - <https://github.com/slint-ui/slint/blob/v1.17.1/docs/astro/src/content/docs/reference/common.mdx>
 - <https://github.com/slint-ui/slint/blob/v1.17.1/api/rs/build/lib.rs>
+- <https://github.com/slint-ui/slint/blob/v1.17.1/api/rs/build/Cargo.toml>
+- <https://github.com/slint-ui/slint/blob/v1.17.1/api/rs/macros/Cargo.toml>
+- <https://github.com/slint-ui/slint/blob/v1.17.1/internal/compiler/lib.rs>
+- <https://github.com/slint-ui/slint/blob/v1.17.1/internal/compiler/Cargo.toml>
+- <https://github.com/slint-ui/slint/blob/v1.17.1/internal/core/Cargo.toml>
 - <https://github.com/slint-ui/slint/blob/v1.17.1/internal/backends/selector/api.rs>
 - <https://github.com/slint-ui/slint/blob/v1.17.1/internal/backends/winit/lib.rs>
 - <https://github.com/slint-ui/slint/blob/v1.17.1/Cargo.lock>
+- <https://github.com/image-rs/image/blob/v0.25.10/Cargo.toml>
 - <https://github.com/rust-skia/rust-skia/tree/0.99.0>
+- <https://doc.rust-lang.org/cargo/reference/build-scripts.html#rustc-env>
+- <https://doc.rust-lang.org/cargo/reference/build-scripts.html#rerun-if-env-changed>
 - <https://github.com/slint-ui/slint/issues/6607>
 - <https://github.com/slint-ui/slint/issues/1143>
 - <https://github.com/slint-ui/slint/issues/505>
@@ -198,6 +216,13 @@ this evaluation must detect. Forking would also make upstream security fixes a
 manual merge obligation. PartMan will own its view model, components, token
 generator, and tests; it will not vendor or fork Slint.
 
+This rejection does not prohibit a small build adapter. Such an adapter owns
+only Cargo integration around the pinned compiler: configuration, diagnostics,
+dependency tracking, generated-file output, and environment rejection. It
+does not copy or replace parser, compiler, renderer, platform, or accessibility
+code. Its bounded surface and compile-time failure on an incompatible exact
+re-pin are materially different from maintaining a toolkit fork.
+
 ### Option D — Carry Tauri and Slint as permanent desktop implementations
 
 This would preserve a fallback and let platforms choose independently.
@@ -260,15 +285,51 @@ slint = {
   default-features = false,
   features = ["std", "backend-winit", "accessibility", "compat-1-2"],
 }
+unicode-segmentation = "=1.13.3"
 
 [build-dependencies]
-slint-build = "=1.17.1"
+i-slint-compiler = {
+  version = "=1.17.1",
+  default-features = false,
+  features = ["rust", "display-diagnostics"],
+}
+partman-tokens = { path = "../../crates/tokens" }
+spin_on = "=0.1.1"
 ```
 
-Slint 1.17.1's `slint-build` crate deliberately emits a compile error when its
-empty Cargo `default` feature is disabled, so that one build-time default stays
-enabled. It selects no runtime backend, renderer, interpreter, or control
-feature; the release-graph gate verifies that fact rather than assuming it.
+Slint 1.17.1's `slint-build` crate unconditionally enables
+`i-slint-compiler`'s build-host `software-renderer` and `bundle-translations`
+features. In the evaluated graph, `software-renderer` enables `image` 0.25.10
+with its `default` feature, Rayon, and the default
+AVIF/BMP/DDS/EXR/Farbfeld/GIF/HDR/ICO/JPEG/PNG/PNM/QOI/TGA/TIFF/WebP codec set.
+That capability is unnecessary because this candidate embeds no PartMan image
+or font, performs no compile-time texture rendering, and uses no Slint
+translation bundle.
+
+The evaluation therefore does not resolve `slint-build`. Its PartMan-owned AOT
+adapter directly uses exact `i-slint-compiler` 1.17.1 with only `rust` and
+`display-diagnostics`, plus exact `spin_on` 0.1.1. The public `slint` crate
+already unconditionally resolves `slint-macros`, whose host graph resolves the
+same compiler and `spin_on` with `rust`, `display-diagnostics`, and
+`proc_macro_span`; the direct build dependencies introduce neither a second
+compiler nor a broader compiler capability. The compiler's empty `default`
+feature may remain enabled through `slint-macros`, but
+`software-renderer`, `bundle-translations`, and their codec uplift must remain
+absent. A paired Windows probe generated, type-checked, and linked a multi-file
+component through default FemtoVG, software-only, and combined configurations;
+each adapter feature tree had 58 fewer reachable packages than its equivalent
+`slint-build` control. Platform lock graphs remain authoritative; the probe
+delta is rationale, not a cross-platform prediction. The probe observed no
+executable-size change, so the improvement is credited only to build-time
+supply-chain and compilation exposure, never to a runtime-footprint gate.
+
+`i-slint-compiler` is explicitly internal and not semver-stable. Exact pinning,
+the owned adapter's fixture suite, and a mandatory source/API review on every
+Slint re-pin contain that risk. An incompatible release must fail compilation
+until the adapter and its evidence are consciously updated; floating the
+compiler or falling back to `slint-build` is prohibited. This is a small,
+reviewable maintenance burden in exchange for avoiding an unused build-time
+renderer, translation bundler, and codec graph.
 
 FemtoVG is the explicit default evaluation candidate so ordinary locked
 workspace and all-target test commands always have a renderer. The software
@@ -277,8 +338,13 @@ The `comparison-combined` marker exists only so the repository's mandatory
 `--all-features` lint graph can compile the deliberate two-renderer control;
 that graph is never adoption-eligible.
 
-`backend-default`, Qt, system tray, default image formats, live preview, MCP,
-system testing, the interpreter, Skia, and every unstable feature are excluded.
+`backend-default`, Qt, system tray, the target-runtime
+`image-default-formats` feature, live preview, MCP, system testing, the
+interpreter, Skia, and every unstable feature are excluded. PartMan markup
+imports no raster/SVG asset or custom font. The runtime's unavoidable `image`
+JPEG/PNG feature path and complete `resvg` closure are inventoried honestly,
+while the build-host compiler's software-renderer, translation bundler, Rayon,
+and default image-codec uplift remain absent.
 Slint 1.17.1 resolves `skia-safe` 0.99.0 for its Skia renderer; rust-skia's
 normal build can download prebuilt archives and its source-build fallback has a
 large separate toolchain and source-fetch boundary. That conflicts with this
@@ -289,27 +355,73 @@ separately scoped decision may study Skia with externally hash-verified inputs.
 The release-graph gate must inspect resolved features rather than trusting this
 prose.
 
-The UI is compiled ahead of time. `build.rs` uses
-`slint_build::compile_with_config` and
-`CompilerConfiguration::with_style("fluent".into())`; it does not accept Slint's
-host-dependent `native` widget style. Clean release builds with and without Qt
-installed produce identical generated-input hashes and remain Fluent and
-Qt-free. Hostile `SLINT_STYLE` builds are expected to stop at the ambient-input
-guard before invoking the Slint compiler; they are not compared as successful
-artifacts.
+The graph evaluator consumes locked Cargo metadata and manifest feature/target
+edges directly, classifying runtime, build, and proc-macro reachability for each
+evaluated host/target pair. It does not parse `cargo tree` presentation text or
+reject a crate merely because Cargo lists it for another target or an inactive
+edge. Human-readable trees remain review evidence, not the policy parser.
 
-Exact Cargo features are not a complete configuration boundary. The pinned
-compiler and runtime also inspect `SLINT_EMBED_RESOURCES`, `SLINT_SCALE_FACTOR`,
-`SLINT_INLINING`, `SLINT_EMIT_DEBUG_INFO`, `SLINT_FONT_SIZES`,
-`SLINT_ASSET_SECTION`, `SLINT_LIVE_PREVIEW`, and `SLINT_FULLSCREEN`. The
-evaluation derives and commits an exhaustive `SLINT_*` inventory from pinned
-source. Its build script rejects every such ambient input and sets resource and
-style configuration explicitly; its release entry point fails closed before UI
-creation if any runtime `SLINT_*` input is present. The content-addressed build
-harness starts Cargo with a minimal allow-listed environment. Hostile tests
-enumerate with `vars_os`, match the prefix ASCII-case-insensitively on Windows
-and byte-exactly on Unix, and cover lowercase/mixed-case names, non-Unicode Unix
-names, every inventoried name, and an unknown future-style `SLINT_*` name.
+The UI is compiled ahead of time. `build.rs` calls the pinned compiler's
+`parser::parse_file`, `compile_syntax_node`, and
+`generator::generate(OutputFormat::Rust, ...)` APIs through PartMan-owned code.
+It explicitly selects Rust output, embedded
+resources, accessibility, and the Fluent style; disables experimental/debug
+behavior, translations, native menus, and compile-time scaling; fails on every
+compiler diagnostic; records the root, every loaded import, and every external
+resource as Cargo dependencies; writes only beneath `OUT_DIR`; and uses no
+`cargo:rustc-env` handoff. PartMan includes the fixed generated path with
+`include!(concat!(env!("OUT_DIR"), "/partman_ui.rs"))`; it does not invoke
+`slint::include_modules!` or the `slint!` procedural macro. This prevents Cargo
+from propagating an internally created `SLINT_INCLUDE_GENERATED` value into
+`cargo run` or `cargo test`, where the runtime prefix guard would correctly
+reject it. A fixture suite proves nested import tracking, deterministic
+generation, syntax and semantic failure, warnings-as-errors, missing-input
+failure, and the prohibition on PartMan image, font, translation, and
+native-style input. It does not attempt to reproduce unused `slint-build` APIs.
+
+The adapter does not accept Slint's host-dependent `native` widget style. Clean
+release builds with and without Qt installed produce identical generated-input
+hashes and remain Fluent and Qt-free. Hostile `SLINT_STYLE` builds are expected
+to stop at the ambient-input guard before invoking any compiler constructor;
+they are not compared as successful artifacts.
+
+Exact Cargo features are not a complete configuration boundary. The 1.17.1
+source-derived inventory for this candidate is:
+
+- build/AOT: `SLINT_EMBED_TEXTURES`, `SLINT_EMBED_RESOURCES`,
+  `SLINT_INLINING`, `SLINT_SCALE_FACTOR`,
+  `SLINT_ENABLE_EXPERIMENTAL_FEATURES`, `SLINT_EMIT_DEBUG_INFO`, `SLINT_STYLE`,
+  and `SLINT_LIVE_PREVIEW`;
+- runtime under both renderers: `SLINT_BACKEND`, `SLINT_DEBUG_PERFORMANCE`,
+  `SLINT_DEFAULT_FONT`, `SLINT_DESTROY_WINDOW_ON_HIDE`, `SLINT_FONT_PATH`,
+  `SLINT_FULLSCREEN`, `SLINT_SCALE_FACTOR`, and `SLINT_SLOW_ANIMATIONS`;
+- software-renderer runtime only: `SLINT_LINE_BY_LINE` and
+  `SLINT_SOFTWARE_RENDERER_PARLEY_DISABLED`; and
+- resolved-source but excluded call/feature paths: `SLINT_MACRO_CACHE` because
+  PartMan never invokes `slint!`; `SLINT_INCLUDE_GENERATED` because PartMan
+  never invokes `include_modules!`; `SLINT_ASSET_SECTION` and
+  `SLINT_FONT_SIZES` because compiler `software-renderer` is absent;
+  `SLINT_BUNDLE_TRANSLATIONS` because translation bundling is absent;
+  `SLINT_CPP_NAMESPACE` because C++ output is absent;
+  `SLINT_COMPILER_DENY_WARNINGS` because `slint-build` is absent; and
+  `SLINT_WGPU_CPU` because every WGPU feature is absent. The compiler's own
+  build script creates `SLINT_WIDGETS_LIBRARY` for upstream compilation; it is
+  recorded separately as an upstream-controlled value, not accepted as a
+  downstream ambient input.
+
+The committed inventory retains active and excluded names with source
+locations and feature/call-path proof. A shared guard runs in the outer
+`cargo xtask desktop` process before Cargo, again in `build.rs` before any
+compiler constructor, and at the release entry point before UI creation. This
+layering matters because Cargo may reuse a cached build-script result when an
+unknown future variable changes. Every known name and a PartMan-only test nonce
+are declared with `rerun-if-env-changed`; hostile direct Cargo tests vary the
+nonce to force the defense-in-depth build guard to execute. The authoritative
+per-invocation outer guard and content-addressed harness start Cargo with a
+minimal allow-listed environment. All guards enumerate with `vars_os`, reject
+the entire prefix ASCII-case-insensitively on Windows and byte-exactly on Unix,
+and cover lowercase/mixed-case names, non-Unicode Unix names, every inventoried
+name, and an unknown future-style `SLINT_*` name.
 
 Backend choice is fixed to Winit with `BackendSelector` before any component is
 created. A closed Rust enum maps only `femtovg` and `software` to exact renderer
@@ -441,12 +553,12 @@ attestation is inconclusive.
 | ID | Objective assertion and required evidence |
 | --- | --- |
 | G-CFG-01 | At the final decision, the exact Slint pin is still the latest stable release supported by upstream's current security policy. If not, re-pin and rerun every gate. Archive the release/API response, pinned `SECURITY.md`, upstream GitHub advisories, RustSec results, and `cargo deny` results. |
-| G-CFG-02 | The release feature graph contains only the approved Slint features and exactly one candidate renderer; the marked all-features control is non-shipping. No Qt, system tray, default image formats, Skia, live preview, MCP, system testing, interpreter, unstable API, or unreviewed build-time downloader is resolved. |
-| G-CFG-03 | `.slint` input is compiled AOT with explicitly configured resources and the pinned Fluent style. The source-derived inventory covers every supported `SLINT_*` build/runtime input; build and entry-point guards enumerate `vars_os` and reject the entire ambient prefix with Windows' ASCII-case-insensitive name semantics and Unix byte semantics. Clean builds under the minimal environment, with Qt availability varied, have identical generated-input hashes and remain Qt-free. Hostile build/launch tests cover lowercase, mixed case, Unix non-Unicode, every known name, and an unknown future-style name and are deterministically refused before Slint compilation or component creation, so ambient state cannot enable fullscreen, scaling, externalized resources, debug metadata, inlining changes, or live preview. |
+| G-CFG-02 | Resolver-3 evidence separates host/build and target/runtime graphs. The target graph contains only approved Slint features and exactly one candidate renderer; its unavoidable `image` JPEG/PNG path and complete `resvg` closure are inventoried, while the marked all-features control is non-shipping and no Qt, system tray, Slint `image-default-formats`, Skia, live preview, MCP, system testing, interpreter, or unstable API is target-reachable. The host graph resolves no `slint-build`; its `i-slint-compiler` capability roots are exactly the empty `default`, `rust`, `display-diagnostics`, and `proc_macro_span` features required by the owned adapter and `slint-macros`, with their dependency-feature closure. Compiler `software-renderer`, `bundle-translations`, default `image` codecs, compile-time texture/font rendering, and any unreviewed downloader are absent. PartMan `.slint` input contains no image/font/translation asset; every host-only package remains subject to licence/advisory/source policy; and any locked feature, codec, or compiler-version drift requires source review and rerunning this gate. The evaluator traverses locked Cargo metadata, manifest features, dependency kinds, and target predicates for each host/target pair; it neither parses `cargo tree` text nor rejects an inactive package-list entry. |
+| G-CFG-03 | `.slint` input is compiled AOT by the PartMan-owned pinned-compiler adapter with explicitly configured resources, diagnostics, accessibility, and Fluent style. Its fixture suite proves deterministic generation, nested-import and fixture-only resource dependency tracking, syntax/semantic/warning failure, output containment beneath `OUT_DIR`, and production-source rejection of PartMan image/font/translation/native-style input. The source-derived inventory covers every supported `SLINT_*` build/runtime input; the outer xtask preflight, build guard, and entry-point guard enumerate `vars_os` and reject the entire ambient prefix with Windows' ASCII-case-insensitive name semantics and Unix byte semantics before constructing the compiler or component. Clean builds under the minimal environment, with Qt availability varied, have identical generated-input hashes and remain Qt-free. Hostile build/launch tests cover lowercase, mixed case, Unix non-Unicode, every known name, an unknown future-style name, a cached build-script result, and a PartMan-only rerun nonce; they prove ambient state cannot enable fullscreen, scaling, externalized resources, debug metadata, inlining changes, or live preview. Every Slint re-pin includes an explicit adapter API/source diff and compile proof; no automatic `slint-build` fallback is permitted. |
 | G-CFG-04 | A closed enum selects Winit and an exact renderer in code before component creation. Hostile `SLINT_BACKEND` values fail at the G-CFG-03 guard. Every adoption-eligible artifact has exactly one renderer feature, which prevents cross-renderer fallback; a presented frame and accessibility root prove successful initialization while internal same-graph retry may still occur. The combined graph is never eligible, reports its request and the possibility of fallback, and does not treat either as runtime-renderer attestation because Slint exposes no stable public getter. No late FemtoVG-to-software recovery is claimed. |
 | G-CFG-05 | The committed Slint token interface is generated from `schemas/design-tokens.json`; regeneration is clean and enumerates every current canonical role, mark, shape, label ID, theme, and contrast pairing without embedding a display label. Rust catalogue tests resolve every label ID. A pinned inventory of every compiler Palette/StyleMetrics reference—not only `apply_default_properties_from_style`—drives generated wrappers plus AST/lowered-IR checks that explicitly bind every affected visual, layout, and window property. Static checks reject raw generated-color access, Palette brushes, StyleMetrics, and unapproved styled widgets; the sole import exception is the generated theme adapter's read of `Palette.color-scheme`. Separate evidence supplies high-contrast state. |
 | G-CFG-06 | Raw identifiers remain authoritative Rust values. The full collision-safe escape representation round-trips the hostile UTF-8/WTF-16, control, bidi, literal-backslash, and escape-lookalike corpus. The separately bounded visual representation truncates only on original-grapheme or whole-escape-token boundaries, marks truncation unambiguously, and preserves stable-ID selection. |
-| G-CFG-07 | Static and runtime probes show an offline, synthetic-only application with no storage discovery or command bridge, no helper/elevation path, no telemetry/network access, no interpreter/control server, and no successful-operation simulation. |
+| G-CFG-07 | Static and runtime probes show an offline, synthetic-only application with no storage discovery or command bridge, no helper/elevation path, no telemetry/network access, no interpreter/control server, and no successful-operation simulation. The resolved `webbrowser` helper and every URL-launch API have no PartMan import/call site; runtime tracing confirms no external process or socket action. Required local accessibility IPC is inventoried separately and is not relabelled network access. |
 | G-CFG-08 | Every new Rust workspace member inherits workspace lints, contains crate-level documentation, has no `unsafe`, and passes the existing offline, supply-chain, and release-profile policy checks. |
 
 ### Platform floors
@@ -506,7 +618,7 @@ packaging directory.
 | G-PKG-04 | Every installer VM starts from and returns to a named snapshot. OS-native causal audit tracing records the application, installer, package-manager service, process/service identity, transaction ID, and every attributed filesystem/registry/configuration write. Three same-duration no-install runs from the same snapshot define ambient actor/path classes: an unattributed event may be classified ambient only when the identical normalized class appears in all three controls and no candidate transaction reaches it; candidate-attributed events are never subtracted, and any other unclassified event makes the gate inconclusive. Attributed writes must match a platform-specific predeclared allow-list containing the evaluation prefix and exact installer metadata. Separately captured cryptographic pre/post inventories of partition tables, boot configuration, and named synthetic block devices must be identical; any change there fails regardless of actor or ambient controls. |
 | G-INT-01 | Primary performance thresholds use feature-equivalent, dialog-free Tauri and Slint shells. Separate immutable Tauri and Slint dialog-control commits then implement the same bounded native file-open/save behavior. The dialog may browse, but the application performs no read or write until OS-appropriate held-handle/object-identity checks prove containment beneath the test-owned temporary root. Open accepts only manifested regular synthetic files with the expected object identity/hash and link count; save creates a new file relative to a verified parent handle without following links or overwriting. Symlinks, hard links, junctions/reparse points, root/parent renames, cancellation, and path-race escapes are tested on every required OS. Evidence records each stack's accessibility, dependency, license, portal/runtime, package, and footprint delta and also compares the two equivalent-feature totals; Slint alone cannot carry a dialog cost absent from its baseline. |
 | G-SC-01 | `cargo xtask supply-chain` passes on Windows, macOS, and Linux. Every Slint license allowance is exact-package and exact-version scoped; GPL is not added to the global allow-list. |
-| G-SC-02 | Lockfiles and the complete release feature graph match G-CFG-02, no build script downloads an unpinned binary, and the SBOM/license inventory accounts for renderer- and platform-specific dependencies. Skia and `skia-bindings` are absent. |
+| G-SC-02 | Lockfiles and resolver-3 host/target feature graphs match G-CFG-02. No build script downloads an unpinned binary; the SBOM/license inventory includes the pinned internal compiler, owned AOT adapter, unavoidable runtime `image` JPEG/PNG path and complete `resvg` closure, and renderer- and platform-specific dependencies. `slint-build`, compiler `software-renderer`/`bundle-translations`, the full `image/default` codec uplift, Skia, and `skia-bindings` are absent. Artifact inspection and clean offline rebuilds agree with that graph. |
 | G-LIC-01 | Before any linked candidate binary is uploaded, artifact inspection finds all applicable packaged licenses/notices and a captured, hashed readback of the public PartMan download page proves that Slint's official attribution badge is easy to find, has useful accessible text, and targets the required Slint page. Publication ordering prevents a binary from becoming downloadable before this check passes. |
 
 Slint does not satisfy PKG-001 through PKG-004 by producing an executable. The
@@ -652,6 +764,8 @@ Positive:
   baseline without retaining its web runtime permanently.
 - A single generated token boundary prevents Slint from growing an independent
   palette.
+- A bounded owned AOT adapter avoids `slint-build`'s unused build-time renderer,
+  translation bundler, and default image-codec graph without forking Slint.
 - Renderer, license, debug-feature, and OS-floor risks are explicit before
   dependencies enter the production graph.
 
@@ -662,6 +776,9 @@ Negative and accepted:
   hosted CI.
 - Slint's custom license adds an attribution obligation and an exact
   cargo-deny policy decision even if the technical evaluation succeeds.
+- The AOT adapter calls an exact-version internal compiler API. Each Slint
+  upgrade therefore requires a deliberate API/source diff, fixture proof, and
+  full gate rerun instead of relying on semver compatibility.
 - The lightweight software renderer is unlikely to be a complete fallback for
   arbitrary user text without upstream work or a different renderer.
 - Slint provides no packaging/updater shortcut; PartMan still owns that work.
@@ -704,10 +821,12 @@ cargo xtask verify-change-ownership --base origin/main
 ```
 
 `cargo xtask desktop` must compile `.slint` sources, verify generated-token
-drift, run Rust view-model and interaction tests, inspect resolved Slint
-features, source-derived environment inventory, and style, test hostile Slint
-environment overrides, build every adoption-eligible single-renderer variant,
-validate the complete gate inventory/report inputs, and produce the
+drift, run the owned AOT adapter fixtures plus Rust view-model and interaction
+tests, separately inspect resolver-3 host/build and target/runtime Slint
+features, source-derived environment inventory, linked artifact contents, and
+style, test hostile Slint environment overrides, build every adoption-eligible
+single-renderer variant, validate the complete gate inventory/report inputs,
+and produce the
 non-privileged native application. Mandatory all-features linting compiles the
 marked combined graph for code quality, but neither `cargo xtask desktop` nor
 Tier 1 turns its comparative runtime or thresholds into a hard gate. A separate
