@@ -7,6 +7,17 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- WP-030 increment 2S begins ADR-0009's bounded, off-main Slint feasibility
+  work with a Slint-free version-2 design-token contract. The canonical
+  source replaces embedded theme and semantic English labels with stable label
+  IDs and adds independently audited theme-signal, complete colour-role,
+  measurement-unit, typography, layout, cursor, text-selection, exact oriented
+  contrast-pairing, and exact colour-separation vocabularies. Strict parsing
+  and hostile mutations fail on legacy labels, missing contract sections,
+  policy drift, duplicate pairings, and coordinated roster changes. This slice
+  adds no Slint dependency or shell and proves no operating-system signal
+  collection, catalogue resolution, rendered accessibility, or exact-byte
+  inspector behavior.
 - WP-000 closes issue #39 after all four current package traceability documents
   completed package-owned, zero-loss conversions. Every document is now
   generated from validated source annotations and typed evidence; declarations
@@ -162,10 +173,11 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   axis does not, and the light theme's `reversible` is teal-leaning so it keeps
   a blue component deuteranopia preserves. Closest surviving pair is 21.9.
 
-  Every check is paired with a mutation it must reject, and each was confirmed
-  by deleting the check it targets and watching the table go red — the deletion
-  sweep WP-020 established after finding a gate that was load-bearing on
-  nothing. The colour maths is anchored outside the repository (black on white
+  Every independently pinned policy family has a hostile mutation it must
+  reject. The narrower original checks also received targeted deletion probes
+  after WP-020 found a gate that was load-bearing on nothing; the aggregate
+  family test is not evidence that every later internal branch is independently
+  load-bearing. The colour maths is anchored outside the repository (black on white
   is WCAG's published 21:1; black against white is delta-E 100 because CIELAB
   lightness runs 0..=100), and the colour-vision matrices are checked by their
   defining property — red and green converge under protanopia and deuteranopia
@@ -175,8 +187,8 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   What it does **not** establish is recorded in `docs/work-packages/WP-030.md`
   and repeated in the harness output on every run: it renders nothing, so the
   keyboard, screen-reader, zoom and reduced-motion halves of UI-008 are
-  untouched; only declared pairings are checked, so a combination the front end
-  invents is invisible to it; and the colour-vision check is a model, not a
+  untouched; only the exact canonical pairing roster is checked, so a
+  combination the front end invents is invisible to it; and the colour-vision check is a model, not a
   proof — UI-007's redundant channels are the guarantee. M0's "accessibility
   harness runs" criterion is therefore **partially** met.
 - `cargo xtask verify-ownership`, closing the mechanically decidable half of

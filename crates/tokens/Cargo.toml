@@ -1,6 +1,6 @@
 [package]
 name = "partman-tokens"
-description = "Design tokens and the WP-030 accessibility harness that computes UI-001, UI-007 and UI-008 from them"
+description = "Versioned design tokens and the WP-030 static accessibility-policy harness"
 edition.workspace = true
 rust-version.workspace = true
 version.workspace = true

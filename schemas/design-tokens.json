@@ -1,12 +1,17 @@
 {
-  "tokenSetVersion": "1.0.0",
+  "tokenSetVersion": "2.0.0",
   "specVersion": "4.0.0",
-  "note": "Single source of truth for PartMan's visual language. The accessibility harness in crates/tokens reads this file; a future Tauri front end MUST read this same file rather than keeping its own copy. An implementation checked against a table it also owns proves only self-consistency.",
+  "note": "Single source of truth for PartMan's renderer-neutral visual language. The accessibility harness in crates/tokens reads this file; every front end MUST consume this same contract rather than keeping its own copy. An implementation checked against a table it also owns proves only self-consistency.",
+
+  "measurementUnits": {
+    "px": "logical-pixel",
+    "letterSpacingMilliPx": "thousandths-of-logical-pixel",
+    "lineHeightPermille": "thousandths-of-font-size"
+  },
 
   "themes": {
     "dark": {
-      "label": "Dark (default)",
-      "requirement": "UI-001 default dark charcoal",
+      "labelId": "theme.dark",
       "colors": {
         "surface.sunken": "#101216",
         "surface.base": "#16181C",
@@ -43,8 +48,7 @@
     },
 
     "high-contrast": {
-      "label": "High contrast",
-      "requirement": "UI-001 accessible high contrast",
+      "labelId": "theme.highContrast",
       "colors": {
         "surface.sunken": "#000000",
         "surface.base": "#000000",
@@ -81,8 +85,7 @@
     },
 
     "light": {
-      "label": "Light (system)",
-      "requirement": "UI-001 system theme support",
+      "labelId": "theme.light",
       "colors": {
         "surface.sunken": "#E8EAEE",
         "surface.base": "#FFFFFF",
@@ -119,6 +122,143 @@
     }
   },
 
+  "themeSignals": {
+    "defaultTheme": "dark",
+    "systemSelectionLabelId": "theme.system",
+    "systemColorScheme": {
+      "unknown": "dark",
+      "light": "light",
+      "dark": "dark"
+    },
+    "highContrastTheme": "high-contrast"
+  },
+
+  "typography": {
+    "families": {
+      "platform-ui": {
+        "strategy": "platform-default"
+      }
+    },
+    "styles": {
+      "body": {
+        "family": "platform-ui",
+        "sizePx": 16,
+        "weight": 400,
+        "italic": false,
+        "letterSpacingMilliPx": 0,
+        "lineHeightPermille": 1500
+      },
+      "body-small": {
+        "family": "platform-ui",
+        "sizePx": 14,
+        "weight": 400,
+        "italic": false,
+        "letterSpacingMilliPx": 0,
+        "lineHeightPermille": 1500
+      },
+      "caption": {
+        "family": "platform-ui",
+        "sizePx": 12,
+        "weight": 400,
+        "italic": false,
+        "letterSpacingMilliPx": 0,
+        "lineHeightPermille": 1500
+      },
+      "heading": {
+        "family": "platform-ui",
+        "sizePx": 16,
+        "weight": 700,
+        "italic": false,
+        "letterSpacingMilliPx": 0,
+        "lineHeightPermille": 1250
+      },
+      "title": {
+        "family": "platform-ui",
+        "sizePx": 18,
+        "weight": 700,
+        "italic": false,
+        "letterSpacingMilliPx": -360,
+        "lineHeightPermille": 1200
+      },
+      "eyebrow": {
+        "family": "platform-ui",
+        "sizePx": 11,
+        "weight": 700,
+        "italic": false,
+        "letterSpacingMilliPx": 1000,
+        "lineHeightPermille": 1200
+      },
+      "exact-value": {
+        "family": "platform-ui",
+        "sizePx": 12,
+        "weight": 400,
+        "italic": false,
+        "letterSpacingMilliPx": 0,
+        "lineHeightPermille": 1500
+      }
+    },
+    "flows": {
+      "single-line": {
+        "wrap": "no-wrap",
+        "overflow": "elide",
+        "horizontalAlignment": "left",
+        "verticalAlignment": "center"
+      },
+      "multi-line": {
+        "wrap": "word-wrap",
+        "overflow": "clip",
+        "horizontalAlignment": "left",
+        "verticalAlignment": "top"
+      }
+    },
+    "textInput": {
+      "style": "body",
+      "flow": "single-line",
+      "selectionPair": {
+        "foreground": "surface.sunken",
+        "background": "focus.ring"
+      }
+    }
+  },
+
+  "layout": {
+    "spacingPx": {
+      "none": 0,
+      "xs": 4,
+      "sm": 8,
+      "md": 12,
+      "lg": 16,
+      "xl": 24,
+      "xxl": 32
+    },
+    "radiusPx": {
+      "none": 0,
+      "sm": 4,
+      "md": 8,
+      "lg": 14,
+      "pill": 999
+    },
+    "strokePx": {
+      "hairline": 1,
+      "strong": 2,
+      "focus": 3
+    },
+    "defaultLayoutPadding": "md",
+    "defaultLayoutSpacing": "sm",
+    "focusRingOffsetPx": 3,
+    "minimumTargetSizePx": 44
+  },
+
+  "cursors": {
+    "textCaretWidthPx": 2,
+    "roles": {
+      "default": "default",
+      "action": "pointer",
+      "disabled": "not-allowed",
+      "text": "text"
+    }
+  },
+
   "contrastRules": {
     "note": "WCAG 2.2. 'text' is Success Criterion 1.4.3 Contrast (Minimum) at AA: 4.5:1 for normal text. 'ui' is 1.4.11 Non-text Contrast: 3:1 for user-interface components and graphical objects. A role listed as 'ui' MUST NOT be used to render normal-size text, and that restriction is the reason its threshold is lower.",
     "thresholds": { "text": 4.5, "ui": 3.0 },
@@ -136,6 +276,7 @@
       { "foreground": "border.strong", "background": "surface.base", "kind": "ui" },
       { "foreground": "focus.ring", "background": "surface.base", "kind": "ui" },
       { "foreground": "focus.ring", "background": "surface.raised", "kind": "ui" },
+      { "foreground": "surface.sunken", "background": "focus.ring", "kind": "text" },
 
       { "foreground": "entity.device", "background": "surface.base", "kind": "text" },
       { "foreground": "entity.partition", "background": "surface.base", "kind": "text" },
@@ -165,31 +306,31 @@
   },
 
   "nonColorChannels": {
-    "note": "UI-007: colour is never the only carrier of identity, selection, file system, health, or risk. Every role below declares the redundant channels that must accompany it wherever it is rendered. This table -- not the colour-vision simulation -- is the actual guarantee that a colour-blind user reads the same information a colour-sighted one does.",
+    "note": "UI-007: colour is never the only carrier for the 21 declared entity, risk-severity, and progress-state roles. Every role below declares the redundant channels that a front end must resolve and render together. Selection and health still require separate shell evidence. This table is the canonical requirement, not proof that a catalogue or renderer fulfilled it; the colour-vision simulation remains only a smell test.",
     "roles": {
-      "entity.device": { "icon": "drive", "label": "Device", "shape": "rect-square" },
-      "entity.partition": { "icon": "slice", "label": "Partition", "shape": "rect-notched" },
-      "entity.container": { "icon": "box", "label": "Container", "shape": "rect-double" },
-      "entity.volume": { "icon": "layers", "label": "Volume", "shape": "rect-rounded" },
-      "entity.encryption": { "icon": "lock", "label": "Encrypted", "shape": "badge-lock" },
-      "entity.filesystem": { "icon": "file-tree", "label": "File system", "shape": "rect-plain" },
-      "entity.mount": { "icon": "link", "label": "Mounted", "shape": "badge-link" },
-      "entity.freeSpace": { "icon": "dashed", "label": "Free space", "shape": "rect-dashed" },
+      "entity.device": { "icon": "drive", "labelId": "meaning.entity.device", "shape": "rect-square" },
+      "entity.partition": { "icon": "slice", "labelId": "meaning.entity.partition", "shape": "rect-notched" },
+      "entity.container": { "icon": "box", "labelId": "meaning.entity.container", "shape": "rect-double" },
+      "entity.volume": { "icon": "layers", "labelId": "meaning.entity.volume", "shape": "rect-rounded" },
+      "entity.encryption": { "icon": "lock", "labelId": "meaning.entity.encryption", "shape": "badge-lock" },
+      "entity.filesystem": { "icon": "file-tree", "labelId": "meaning.entity.filesystem", "shape": "rect-plain" },
+      "entity.mount": { "icon": "link", "labelId": "meaning.entity.mount", "shape": "badge-link" },
+      "entity.freeSpace": { "icon": "dashed", "labelId": "meaning.entity.freeSpace", "shape": "rect-dashed" },
 
-      "severity.informational": { "icon": "info", "label": "Informational", "shape": "dot" },
-      "severity.reversible": { "icon": "undo", "label": "Reversible", "shape": "dot" },
-      "severity.disruptive": { "icon": "pause-octagon", "label": "Disruptive", "shape": "chevron" },
-      "severity.dataMoving": { "icon": "arrows-shuffle", "label": "Data-moving", "shape": "chevron-double" },
-      "severity.destructive": { "icon": "triangle-exclamation", "label": "Destructive", "shape": "triangle" },
+      "severity.informational": { "icon": "info", "labelId": "meaning.severity.informational", "shape": "dot" },
+      "severity.reversible": { "icon": "undo", "labelId": "meaning.severity.reversible", "shape": "dot" },
+      "severity.disruptive": { "icon": "pause-octagon", "labelId": "meaning.severity.disruptive", "shape": "chevron" },
+      "severity.dataMoving": { "icon": "arrows-shuffle", "labelId": "meaning.severity.dataMoving", "shape": "chevron-double" },
+      "severity.destructive": { "icon": "triangle-exclamation", "labelId": "meaning.severity.destructive", "shape": "triangle" },
 
-      "progress.planning": { "icon": "compass", "label": "Planning", "shape": "dot" },
-      "progress.awaitingAuthorization": { "icon": "shield-question", "label": "Waiting for authorization", "shape": "dot-hollow" },
-      "progress.executing": { "icon": "play", "label": "Executing", "shape": "bar-active" },
-      "progress.verifying": { "icon": "magnifier-check", "label": "Verifying", "shape": "bar-check" },
-      "progress.rebootPending": { "icon": "power-cycle", "label": "Reboot pending", "shape": "dot-hollow" },
-      "progress.recovering": { "icon": "life-ring", "label": "Recovering", "shape": "bar-warn" },
-      "progress.failed": { "icon": "circle-cross", "label": "Failed", "shape": "cross" },
-      "progress.complete": { "icon": "circle-check", "label": "Complete", "shape": "check" }
+      "progress.planning": { "icon": "compass", "labelId": "meaning.progress.planning", "shape": "dot" },
+      "progress.awaitingAuthorization": { "icon": "shield-question", "labelId": "meaning.progress.awaitingAuthorization", "shape": "dot-hollow" },
+      "progress.executing": { "icon": "play", "labelId": "meaning.progress.executing", "shape": "bar-active" },
+      "progress.verifying": { "icon": "magnifier-check", "labelId": "meaning.progress.verifying", "shape": "bar-check" },
+      "progress.rebootPending": { "icon": "power-cycle", "labelId": "meaning.progress.rebootPending", "shape": "dot-hollow" },
+      "progress.recovering": { "icon": "life-ring", "labelId": "meaning.progress.recovering", "shape": "bar-warn" },
+      "progress.failed": { "icon": "circle-cross", "labelId": "meaning.progress.failed", "shape": "cross" },
+      "progress.complete": { "icon": "circle-check", "labelId": "meaning.progress.complete", "shape": "check" }
     }
   },
 

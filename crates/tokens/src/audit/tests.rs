@@ -1,22 +1,21 @@
-//! Tests for the accessibility harness.
+//! Mutation tests for the renderer-neutral visual-contract harness.
 //!
-//! The repository's own token set passing proves very little on its own: it is
-//! the input the checks were written alongside, so it passes by construction.
-//! What the mutation table below establishes is that each check is *capable* of
-//! failing, and names the requirement it would fail under. WP-020 learned this
-//! the expensive way — a gate in `generate` was load-bearing on nothing, and
-//! deleting it kept every test green, because every test fed it the real
-//! catalogue.
+//! The repository token file passing is necessary but weak evidence because it
+//! was authored alongside the checks. Each policy family below therefore has a
+//! hostile mutation that must produce a finding owned by the requirement that
+//! makes the declaration mandatory.
 
 use crate::audit::audit;
-use crate::tokens::{Channels, TokenSet};
+use crate::tokens::{
+    Channels, CursorKind, Pairing, TextOverflow, TextWrap, ThemeId, TokenSet, VerticalAlignment,
+};
 
 fn repository_tokens() -> TokenSet {
     TokenSet::load_repository_tokens().expect("the repository token file loads")
 }
 
-// Requirements: UI-001, UI-003, UI-007, UI-008, UI-011, PLAN-004
-//   The shipped token set passes a non-vacuous audit over the required themes, semantic roles, redundant channels, contrast pairings, and risk vocabulary
+// Requirements: UI-001, UI-003, UI-007, UI-008, UI-011, UI-013, PLAN-004, Section 12
+//   The shipped v2 token contract passes a non-vacuous audit over every independently pinned policy family without coupling evidence to a check count
 // Evidence: the_repository_token_set_satisfies_every_rule
 #[test]
 fn the_repository_token_set_satisfies_every_rule() {
@@ -26,12 +25,9 @@ fn the_repository_token_set_satisfies_every_rule() {
         "shipped tokens must pass the harness:\n{}",
         report.summary()
     );
-    // A run that evaluated nothing would also report no findings, which is the
-    // shape of fake success Section 12 forbids.
     assert!(
-        report.checks > 100,
-        "expected a substantial number of checks, ran {}",
-        report.checks
+        report.checks > 0,
+        "a clean audit that evaluated nothing would be the fake success Section 12 forbids"
     );
 }
 
@@ -40,8 +36,6 @@ fn the_repository_token_set_satisfies_every_rule() {
 // Evidence: every_theme_is_audited_not_just_the_default
 #[test]
 fn every_theme_is_audited_not_just_the_default() {
-    // If the harness only ever looked at `dark`, a high-contrast theme could
-    // fail WCAG unnoticed -- the theme whose entire purpose is contrast.
     let mut set = repository_tokens();
     set.themes
         .get_mut("high-contrast")
@@ -66,343 +60,646 @@ struct Mutation {
     apply: fn(&mut TokenSet),
 }
 
-/// Each row: a mutation, and the requirement whose check must reject it.
-///
-/// Every entry was confirmed to fail *before* being added, by deleting the
-/// check it targets and observing this table go red. A mutation the harness
-/// accepts is a check that does not exist.
-#[expect(
-    clippy::too_many_lines,
-    reason = "an exhaustive data table, not control flow. Splitting it across \
-              functions would hide that it is one list, which is the property \
-              that makes it reviewable."
-)]
-fn mutations() -> Vec<Mutation> {
+fn mutation(name: &'static str, requirement: &'static str, apply: fn(&mut TokenSet)) -> Mutation {
+    Mutation {
+        name,
+        requirement,
+        apply,
+    }
+}
+
+fn selected_text_pairing(set: &mut TokenSet) -> &mut Pairing {
+    set.contrast_rules
+        .pairings
+        .iter_mut()
+        .find(|pairing| {
+            pairing.foreground == "surface.sunken" && pairing.background == "focus.ring"
+        })
+        .expect("repository tokens declare the selected-text pairing")
+}
+
+fn contrast_mutations() -> Vec<Mutation> {
     vec![
-        Mutation {
-            name: "body text drops below AA against its own surface",
-            requirement: "UI-008",
-            apply: |set| {
+        mutation("body text drops below AA", "UI-008", |set| {
+            set.themes
+                .get_mut("dark")
+                .expect("dark")
+                .colors
+                .insert("text.secondary".to_owned(), "#3A3F47".to_owned());
+        }),
+        mutation("a UI-component colour falls under 3:1", "UI-008", |set| {
+            set.themes
+                .get_mut("dark")
+                .expect("dark")
+                .colors
+                .insert("border.default".to_owned(), "#1A1C21".to_owned());
+        }),
+        mutation("a pairing names an unknown threshold", "UI-008", |set| {
+            set.contrast_rules.pairings[0].kind = "whatever".to_owned();
+        }),
+        mutation("a pairing names an unknown role", "UI-008", |set| {
+            set.contrast_rules.pairings[0].foreground = "text.invented".to_owned();
+        }),
+        mutation("the file lowers the WCAG text floor", "UI-008", |set| {
+            set.contrast_rules.thresholds.insert("text".to_owned(), 3.0);
+        }),
+        mutation("the file lowers the WCAG UI floor", "UI-008", |set| {
+            set.contrast_rules.thresholds.insert("ui".to_owned(), 1.5);
+        }),
+        mutation("the file removes a WCAG threshold", "UI-008", |set| {
+            set.contrast_rules.thresholds.remove("text");
+        }),
+        mutation(
+            "normal text is reclassified as a UI component while its colour is dimmed",
+            "UI-008",
+            |set| {
+                for pairing in &mut set.contrast_rules.pairings {
+                    if pairing.foreground == "text.secondary" {
+                        pairing.kind = "ui".to_owned();
+                    }
+                }
                 set.themes
                     .get_mut("dark")
                     .expect("dark")
                     .colors
-                    .insert("text.secondary".to_owned(), "#3A3F47".to_owned());
+                    .insert("text.secondary".to_owned(), "#6B6B6B".to_owned());
             },
-        },
-        Mutation {
-            name: "a UI-component colour falls under 3:1",
-            requirement: "UI-008",
-            apply: |set| {
-                set.themes
-                    .get_mut("dark")
-                    .expect("dark")
-                    .colors
-                    .insert("border.default".to_owned(), "#1A1C21".to_owned());
-            },
-        },
-        Mutation {
-            name: "the high-contrast theme loses a role the dark theme defines",
-            requirement: "UI-001",
-            apply: |set| {
-                set.themes
-                    .get_mut("high-contrast")
-                    .expect("high-contrast")
-                    .colors
-                    .remove("severity.destructive");
-            },
-        },
-        Mutation {
-            name: "the accessible high-contrast theme is removed entirely",
-            requirement: "UI-001",
-            apply: |set| {
-                set.themes.remove("high-contrast");
-            },
-        },
-        Mutation {
-            name: "a risk-bearing role loses its non-colour channel",
-            requirement: "UI-007",
-            apply: |set| {
-                set.non_color_channels.roles.remove("severity.destructive");
-            },
-        },
-        Mutation {
-            name: "a role keeps its entry but empties the visible label",
-            requirement: "UI-007",
-            apply: |set| {
-                set.non_color_channels.roles.insert(
-                    "severity.destructive".to_owned(),
-                    Channels {
-                        icon: "triangle-exclamation".to_owned(),
-                        label: "   ".to_owned(),
-                        shape: "triangle".to_owned(),
-                    },
-                );
-            },
-        },
-        Mutation {
-            name: "two roles share an icon and a label, making redundancy non-redundant",
-            requirement: "UI-007",
-            apply: |set| {
-                let reversible = set
-                    .non_color_channels
-                    .roles
-                    .get("severity.reversible")
-                    .expect("severity.reversible")
+        ),
+        mutation(
+            "a non-selection contrast pairing is duplicated",
+            "UI-008",
+            |set| {
+                let duplicate = set
+                    .contrast_rules
+                    .pairings
+                    .iter()
+                    .find(|pairing| {
+                        pairing.foreground == "text.primary" && pairing.background == "surface.base"
+                    })
+                    .expect("canonical primary-text pairing")
                     .clone();
-                set.non_color_channels
-                    .roles
-                    .insert("severity.destructive".to_owned(), reversible);
+                set.contrast_rules.pairings.push(duplicate);
             },
-        },
-        Mutation {
-            name: "channels are declared for a role that does not exist",
-            requirement: "UI-007",
-            apply: |set| {
-                set.non_color_channels.roles.insert(
-                    "severity.catastrophic".to_owned(),
-                    Channels {
-                        icon: "skull".to_owned(),
-                        label: "Catastrophic".to_owned(),
-                        shape: "triangle".to_owned(),
-                    },
-                );
+        ),
+        mutation(
+            "a non-selection contrast pairing has a conflicting class",
+            "UI-008",
+            |set| {
+                set.contrast_rules.pairings.push(Pairing {
+                    foreground: "text.primary".to_owned(),
+                    background: "surface.base".to_owned(),
+                    kind: "ui".to_owned(),
+                });
             },
-        },
-        Mutation {
-            name: "'reversible' and 'destructive' become the same colour",
-            requirement: "UI-007",
-            apply: |set| {
-                let destructive = set
-                    .themes
-                    .get("dark")
-                    .expect("dark")
-                    .colors
-                    .get("severity.destructive")
-                    .expect("severity.destructive")
-                    .clone();
+        ),
+    ]
+}
+
+fn color_vision_mutations() -> Vec<Mutation> {
+    vec![
+        mutation(
+            "reversible and destructive share a colour",
+            "UI-007",
+            |set| {
+                let destructive = set.themes["dark"].colors["severity.destructive"].clone();
                 set.themes
                     .get_mut("dark")
                     .expect("dark")
                     .colors
                     .insert("severity.reversible".to_owned(), destructive);
             },
-        },
-        Mutation {
-            name: "'complete' and 'failed' converge under colour-vision deficiency",
-            requirement: "UI-007",
-            apply: |set| {
-                // Distinct in sRGB, but a red/green pair chosen so protanopia
-                // and deuteranopia collapse them. This is the mutation that
-                // makes the simulation worth running at all: no contrast check
-                // and no channel check would notice it.
-                let dark = set.themes.get_mut("dark").expect("dark");
-                dark.colors
-                    .insert("progress.complete".to_owned(), "#4CAF50".to_owned());
-                dark.colors
-                    .insert("progress.failed".to_owned(), "#B8860B".to_owned());
-            },
-        },
-        Mutation {
-            name: "a pairing names a threshold that does not exist",
-            requirement: "UI-008",
-            apply: |set| {
-                set.contrast_rules.pairings[0].kind = "whatever".to_owned();
-            },
-        },
-        Mutation {
-            name: "a pairing names a role no theme defines",
-            requirement: "UI-008",
-            apply: |set| {
-                set.contrast_rules.pairings[0].foreground = "text.invented".to_owned();
-            },
-        },
-        // ------------------------------------------------------------------
-        // Everything below was demonstrated as a *live bypass* by the
-        // 2026-07-29 project audit. Each one passed the entire Tier-1 gate
-        // before the policy was moved out of the audited file.
-        // ------------------------------------------------------------------
-        Mutation {
-            name: "the file lowers the WCAG text floor to 3.0 so a dim colour fits under it",
-            requirement: "UI-008",
-            apply: |set| {
-                // The audit's exact reproduction: this pairing plus a dimmed
-                // colour passed all 160 tests, reporting 3.33:1 on normal text.
-                set.contrast_rules.thresholds.insert("text".to_owned(), 3.0);
-                set.themes
-                    .get_mut("light")
-                    .expect("light")
-                    .colors
-                    .insert("text.secondary".to_owned(), "#7F8899".to_owned());
-            },
-        },
-        Mutation {
-            name: "the file lowers only the threshold, leaving every colour compliant",
-            requirement: "UI-008",
-            apply: |set| {
-                // Weakening the standard is a finding even when nothing
-                // currently violates it, because the next palette edit would
-                // land against the lowered bar.
-                set.contrast_rules.thresholds.insert("ui".to_owned(), 1.5);
-            },
-        },
-        Mutation {
-            name: "the file stops restating a WCAG threshold entirely",
-            requirement: "UI-008",
-            apply: |set| {
-                set.contrast_rules.thresholds.remove("text");
-            },
-        },
-        Mutation {
-            name: "the file lowers the colour-separation floor instead of fixing the palette",
-            requirement: "UI-007",
-            apply: |set| {
+        ),
+        mutation("complete and failed converge under CVD", "UI-007", |set| {
+            let dark = set.themes.get_mut("dark").expect("dark");
+            dark.colors
+                .insert("progress.complete".to_owned(), "#4CAF50".to_owned());
+            dark.colors
+                .insert("progress.failed".to_owned(), "#B8860B".to_owned());
+        }),
+        mutation(
+            "the file lowers the colour-separation floor",
+            "UI-007",
+            |set| {
                 set.color_vision_separation.minimum_delta_e = 1.0;
             },
-        },
-        Mutation {
-            name: "a required entity role is deleted from every theme, pairing and channel table",
-            requirement: "UI-003",
-            apply: |set| {
-                // The audit's second reproduction. Consistent deletion made a
-                // coordinated omission indistinguishable from a smaller
-                // product: 234 checks became 228 and the gate stayed green.
+        ),
+        mutation("the critical risk pair is removed", "UI-007", |set| {
+            set.color_vision_separation
+                .must_remain_distinct
+                .retain(|pair| {
+                    !(pair.contains(&"severity.reversible".to_owned())
+                        && pair.contains(&"severity.destructive".to_owned()))
+                });
+        }),
+        mutation("the distinct-pair list is emptied", "UI-007", |set| {
+            set.color_vision_separation.must_remain_distinct.clear();
+        }),
+        mutation(
+            "an unsupported distinct pair is invented",
+            "UI-007",
+            |set| {
+                set.color_vision_separation.must_remain_distinct.push([
+                    "severity.informational".to_owned(),
+                    "severity.reversible".to_owned(),
+                ]);
+            },
+        ),
+        mutation(
+            "a reversed distinct pair duplicates an existing pair",
+            "UI-007",
+            |set| {
+                set.color_vision_separation.must_remain_distinct.push([
+                    "severity.destructive".to_owned(),
+                    "severity.reversible".to_owned(),
+                ]);
+            },
+        ),
+    ]
+}
+
+fn measurement_unit_mutations() -> Vec<Mutation> {
+    vec![
+        mutation("Px stops meaning logical pixels", "UI-008", |set| {
+            set.measurement_units.px = "device-pixel".to_owned();
+        }),
+        mutation(
+            "letter-spacing scale loses its logical-pixel base",
+            "UI-008",
+            |set| {
+                set.measurement_units.letter_spacing_milli_px =
+                    "thousandths-of-device-pixel".to_owned();
+            },
+        ),
+        mutation("line height loses its font-size base", "UI-008", |set| {
+            set.measurement_units.line_height_permille = "thousandths-of-logical-pixel".to_owned();
+        }),
+    ]
+}
+
+fn color_roster_mutations() -> Vec<Mutation> {
+    vec![
+        mutation(
+            "a foundational colour is removed everywhere",
+            "UI-008",
+            |set| {
                 for theme in set.themes.values_mut() {
-                    theme.colors.remove("entity.container");
+                    theme.colors.remove("surface.overlay");
                 }
                 set.contrast_rules.pairings.retain(|pairing| {
-                    pairing.foreground != "entity.container"
-                        && pairing.background != "entity.container"
+                    pairing.foreground != "surface.overlay"
+                        && pairing.background != "surface.overlay"
                 });
-                set.non_color_channels.roles.remove("entity.container");
             },
-        },
-        Mutation {
-            name: "a PLAN-004 severity is deleted from the vocabulary",
-            requirement: "PLAN-004",
-            apply: |set| {
+        ),
+        mutation(
+            "an unsupported foundational colour is invented",
+            "UI-008",
+            |set| {
                 for theme in set.themes.values_mut() {
-                    theme.colors.remove("severity.dataMoving");
+                    theme
+                        .colors
+                        .insert("surface.highlight".to_owned(), "#123456".to_owned());
                 }
-                set.contrast_rules.pairings.retain(|pairing| {
-                    pairing.foreground != "severity.dataMoving"
-                        && pairing.background != "severity.dataMoving"
-                });
-                set.non_color_channels.roles.remove("severity.dataMoving");
-                set.color_vision_separation
-                    .must_remain_distinct
-                    .retain(|pair| {
-                        pair[0] != "severity.dataMoving" && pair[1] != "severity.dataMoving"
-                    });
             },
-        },
-        Mutation {
-            name: "a UI-011 progress state is deleted from the vocabulary",
-            requirement: "UI-011",
-            apply: |set| {
-                for theme in set.themes.values_mut() {
-                    theme.colors.remove("progress.recovering");
-                }
-                set.contrast_rules.pairings.retain(|pairing| {
-                    pairing.foreground != "progress.recovering"
-                        && pairing.background != "progress.recovering"
-                });
-                set.non_color_channels.roles.remove("progress.recovering");
-                set.color_vision_separation
-                    .must_remain_distinct
-                    .retain(|pair| {
-                        pair[0] != "progress.recovering" && pair[1] != "progress.recovering"
-                    });
-            },
-        },
-        Mutation {
-            name: "a role keeps its colour but is dropped from every contrast pairing",
-            requirement: "UI-008",
-            apply: |set| {
-                // Present in the file, checked by nothing. Before the roster
-                // contract this was invisible, because coverage was defined by
-                // whatever the pairing list happened to contain.
+        ),
+        mutation("an entity role is removed everywhere", "UI-003", |set| {
+            remove_semantic_role(set, "entity.container");
+        }),
+        mutation("a severity role is removed everywhere", "PLAN-004", |set| {
+            remove_semantic_role(set, "severity.dataMoving");
+        }),
+        mutation("a progress role is removed everywhere", "UI-011", |set| {
+            remove_semantic_role(set, "progress.recovering");
+        }),
+        mutation("an unsupported severity is invented", "PLAN-004", |set| {
+            for theme in set.themes.values_mut() {
+                theme
+                    .colors
+                    .insert("severity.catastrophic".to_owned(), "#FF0000".to_owned());
+            }
+        }),
+        mutation(
+            "a semantic role loses all contrast coverage",
+            "UI-008",
+            |set| {
                 set.contrast_rules.pairings.retain(|pairing| {
                     pairing.foreground != "severity.destructive"
                         && pairing.background != "severity.destructive"
                 });
             },
-        },
-        Mutation {
-            name: "the reversible/destructive risk pair is quietly removed from the distinct list",
-            requirement: "UI-007",
-            apply: |set| {
-                // The single most important pair in the product: "fully
-                // undoable" against "data is intentionally destroyed".
-                set.color_vision_separation
-                    .must_remain_distinct
-                    .retain(|pair| {
-                        !(pair.contains(&"severity.reversible".to_owned())
-                            && pair.contains(&"severity.destructive".to_owned()))
-                    });
-            },
-        },
-        Mutation {
-            name: "the whole distinct-pair list is emptied",
-            requirement: "UI-007",
-            apply: |set| {
-                set.color_vision_separation.must_remain_distinct.clear();
-            },
-        },
-        Mutation {
-            name: "a meaningful role is invented without going through the specification",
-            requirement: "PLAN-004",
-            apply: |set| {
-                for theme in set.themes.values_mut() {
-                    theme
-                        .colors
-                        .insert("severity.catastrophic".to_owned(), "#FF0000".to_owned());
-                }
-            },
-        },
-        Mutation {
-            name: "the token set claims a specification version the vocabulary was not derived from",
-            requirement: "UI-008",
-            apply: |set| {
-                set.spec_version = "5.0.0".to_owned();
-            },
-        },
-        Mutation {
-            name: "the token set loses its own version",
-            requirement: "UI-008",
-            apply: |set| {
-                set.token_set_version = String::new();
-            },
-        },
-        Mutation {
-            // The 2026-07-29 follow-up audit's exact reproduction. The old
-            // check only required a non-empty string, so this passed while
-            // WP-030 described parsing as "versioned".
-            name: "tokenSetVersion is a non-empty string that is not a version",
-            requirement: "UI-008",
-            apply: |set| {
-                set.token_set_version = "not-a-version".to_owned();
-            },
-        },
-        Mutation {
-            name: "tokenSetVersion is a plausible but unsupported vocabulary",
-            requirement: "UI-008",
-            apply: |set| {
-                set.token_set_version = "2.0.0".to_owned();
-            },
-        },
+        ),
     ]
 }
 
-// Requirements: UI-001, UI-003, UI-007, UI-008, UI-011, PLAN-004, Section 12
-//   Twenty-seven named hostile mutations prove the static policy checks can fail for theme, vocabulary, channel, contrast, version, and progress-state regressions
-// Evidence: every_check_rejects_a_mutation_that_defeats_it
+fn remove_semantic_role(set: &mut TokenSet, role: &str) {
+    for theme in set.themes.values_mut() {
+        theme.colors.remove(role);
+    }
+    set.contrast_rules
+        .pairings
+        .retain(|pairing| pairing.foreground != role && pairing.background != role);
+    set.non_color_channels.roles.remove(role);
+    set.color_vision_separation
+        .must_remain_distinct
+        .retain(|pair| pair[0] != role && pair[1] != role);
+}
+
+fn channel_mutations() -> Vec<Mutation> {
+    vec![
+        mutation("a semantic role loses its channel entry", "UI-007", |set| {
+            set.non_color_channels.roles.remove("severity.destructive");
+        }),
+        mutation("a channel icon is blank", "UI-007", |set| {
+            set.non_color_channels
+                .roles
+                .get_mut("severity.destructive")
+                .expect("severity.destructive")
+                .icon = "   ".to_owned();
+        }),
+        mutation("two roles share icon and labelId", "UI-007", |set| {
+            let reversible = set.non_color_channels.roles["severity.reversible"].clone();
+            set.non_color_channels
+                .roles
+                .insert("severity.destructive".to_owned(), reversible);
+        }),
+        mutation("channels name an unsupported role", "UI-007", |set| {
+            set.non_color_channels.roles.insert(
+                "severity.catastrophic".to_owned(),
+                Channels {
+                    icon: "skull".to_owned(),
+                    label_id: "meaning.severity.catastrophic".to_owned(),
+                    shape: "triangle".to_owned(),
+                },
+            );
+        }),
+    ]
+}
+
+fn theme_mutations() -> Vec<Mutation> {
+    vec![
+        mutation("the high-contrast theme loses a colour", "UI-001", |set| {
+            set.themes
+                .get_mut("high-contrast")
+                .expect("high-contrast")
+                .colors
+                .remove("severity.destructive");
+        }),
+        mutation("the high-contrast theme is removed", "UI-001", |set| {
+            set.themes.remove("high-contrast");
+        }),
+        mutation("an extra theme is invented", "UI-001", |set| {
+            let extra = set.themes["dark"].clone();
+            set.themes.insert("sepia".to_owned(), extra);
+        }),
+        mutation("default theme signal drifts", "UI-001", |set| {
+            set.theme_signals.default_theme = ThemeId::Light;
+        }),
+        mutation("system selection label mapping drifts", "UI-001", |set| {
+            set.theme_signals.system_selection_label_id = "theme.auto".to_owned();
+        }),
+        mutation(
+            "unknown system scheme stops falling back dark",
+            "UI-001",
+            |set| {
+                set.theme_signals.system_color_scheme.unknown = ThemeId::Light;
+            },
+        ),
+        mutation("dark system scheme maps to light", "UI-001", |set| {
+            set.theme_signals.system_color_scheme.dark = ThemeId::Light;
+        }),
+        mutation("light system scheme maps to dark", "UI-001", |set| {
+            set.theme_signals.system_color_scheme.light = ThemeId::Dark;
+        }),
+        mutation(
+            "high contrast stops using a separate theme",
+            "UI-001",
+            |set| {
+                set.theme_signals.high_contrast_theme = ThemeId::Dark;
+            },
+        ),
+    ]
+}
+
+fn label_mutations() -> Vec<Mutation> {
+    vec![
+        mutation("a theme labelId is blank", "UI-013", |set| {
+            set.themes.get_mut("dark").expect("dark").label_id = "   ".to_owned();
+        }),
+        mutation("a theme embeds an English label", "UI-013", |set| {
+            set.themes.get_mut("light").expect("light").label_id = "Light".to_owned();
+        }),
+        mutation("two themes reuse a labelId", "UI-013", |set| {
+            set.themes
+                .get_mut("high-contrast")
+                .expect("high-contrast")
+                .label_id = "theme.dark".to_owned();
+        }),
+        mutation("a semantic labelId is wrong", "UI-013", |set| {
+            set.non_color_channels
+                .roles
+                .get_mut("entity.device")
+                .expect("entity.device")
+                .label_id = "meaning.entity.disk".to_owned();
+        }),
+        mutation("a semantic labelId is blank", "UI-013", |set| {
+            set.non_color_channels
+                .roles
+                .get_mut("progress.failed")
+                .expect("progress.failed")
+                .label_id = String::new();
+        }),
+        mutation("a semantic channel embeds English", "UI-013", |set| {
+            set.non_color_channels
+                .roles
+                .get_mut("severity.destructive")
+                .expect("severity.destructive")
+                .label_id = "Destructive".to_owned();
+        }),
+        mutation("two semantic roles reuse a labelId", "UI-013", |set| {
+            set.non_color_channels
+                .roles
+                .get_mut("progress.failed")
+                .expect("progress.failed")
+                .label_id = "meaning.progress.complete".to_owned();
+        }),
+    ]
+}
+
+fn typography_roster_mutations() -> Vec<Mutation> {
+    vec![
+        mutation("the platform font family is removed", "UI-008", |set| {
+            set.typography.families.remove("platform-ui");
+        }),
+        mutation("an extra font family is invented", "UI-008", |set| {
+            let family = set.typography.families["platform-ui"].clone();
+            set.typography.families.insert("brand".to_owned(), family);
+        }),
+        mutation("a required text style is removed", "UI-008", |set| {
+            set.typography.styles.remove("exact-value");
+        }),
+        mutation("an extra text style is invented", "UI-008", |set| {
+            let style = set.typography.styles["body"].clone();
+            set.typography.styles.insert("marketing".to_owned(), style);
+        }),
+        mutation(
+            "a text style references an unknown family",
+            "UI-008",
+            |set| {
+                set.typography.styles.get_mut("body").expect("body").family = "missing".to_owned();
+            },
+        ),
+    ]
+}
+
+fn typography_value_mutations() -> Vec<Mutation> {
+    vec![
+        mutation("body size drifts", "UI-008", |set| {
+            set.typography.styles.get_mut("body").expect("body").size_px = 15;
+        }),
+        mutation("heading weight drifts", "UI-008", |set| {
+            set.typography
+                .styles
+                .get_mut("heading")
+                .expect("heading")
+                .weight = 600;
+        }),
+        mutation("caption italic flag drifts", "UI-008", |set| {
+            set.typography
+                .styles
+                .get_mut("caption")
+                .expect("caption")
+                .italic = true;
+        }),
+        mutation("title letter spacing drifts", "UI-008", |set| {
+            set.typography
+                .styles
+                .get_mut("title")
+                .expect("title")
+                .letter_spacing_milli_px = 0;
+        }),
+        mutation("eyebrow line height drifts", "UI-008", |set| {
+            set.typography
+                .styles
+                .get_mut("eyebrow")
+                .expect("eyebrow")
+                .line_height_permille = 1_500;
+        }),
+    ]
+}
+
+fn text_flow_mutations() -> Vec<Mutation> {
+    vec![
+        mutation("a required text flow is removed", "UI-008", |set| {
+            set.typography.flows.remove("multi-line");
+        }),
+        mutation("an extra text flow is invented", "UI-008", |set| {
+            let flow = set.typography.flows["single-line"].clone();
+            set.typography.flows.insert("ticker".to_owned(), flow);
+        }),
+        mutation("single-line wrapping drifts", "UI-008", |set| {
+            set.typography
+                .flows
+                .get_mut("single-line")
+                .expect("single-line")
+                .wrap = TextWrap::WordWrap;
+        }),
+        mutation("single-line overflow drifts", "UI-008", |set| {
+            set.typography
+                .flows
+                .get_mut("single-line")
+                .expect("single-line")
+                .overflow = TextOverflow::Clip;
+        }),
+        mutation("single-line vertical alignment drifts", "UI-008", |set| {
+            set.typography
+                .flows
+                .get_mut("single-line")
+                .expect("single-line")
+                .vertical_alignment = VerticalAlignment::Top;
+        }),
+        mutation("text input selects the wrong style", "UI-008", |set| {
+            set.typography.text_input.style = "caption".to_owned();
+        }),
+        mutation("text input selects the wrong flow", "UI-008", |set| {
+            set.typography.text_input.flow = "multi-line".to_owned();
+        }),
+        mutation("text input references an unknown style", "UI-008", |set| {
+            set.typography.text_input.style = "missing".to_owned();
+        }),
+        mutation("text input references an unknown flow", "UI-008", |set| {
+            set.typography.text_input.flow = "missing".to_owned();
+        }),
+    ]
+}
+
+fn selection_mutations() -> Vec<Mutation> {
+    vec![
+        mutation(
+            "the text-input selection roles are reversed",
+            "UI-008",
+            |set| {
+                set.typography.text_input.selection_pair.foreground = "focus.ring".to_owned();
+                set.typography.text_input.selection_pair.background = "surface.sunken".to_owned();
+            },
+        ),
+        mutation(
+            "the selected-text contrast pair is removed",
+            "UI-008",
+            |set| {
+                set.contrast_rules.pairings.retain(|pairing| {
+                    !(pairing.foreground == "surface.sunken" && pairing.background == "focus.ring")
+                });
+            },
+        ),
+        mutation(
+            "the selected-text pair uses the UI floor",
+            "UI-008",
+            |set| {
+                selected_text_pairing(set).kind = "ui".to_owned();
+            },
+        ),
+        mutation(
+            "the selected-text contrast orientation reverses",
+            "UI-008",
+            |set| {
+                let pairing = selected_text_pairing(set);
+                std::mem::swap(&mut pairing.foreground, &mut pairing.background);
+            },
+        ),
+        mutation(
+            "the selected-text contrast pair is duplicated",
+            "UI-008",
+            |set| {
+                let pairing = selected_text_pairing(set).clone();
+                set.contrast_rules.pairings.push(pairing);
+            },
+        ),
+    ]
+}
+
+fn spacing_and_radius_mutations() -> Vec<Mutation> {
+    vec![
+        mutation("a spacing token is removed", "UI-008", |set| {
+            set.layout.spacing_px.remove("xxl");
+        }),
+        mutation("an extra spacing token is invented", "UI-008", |set| {
+            set.layout.spacing_px.insert("huge".to_owned(), 64);
+        }),
+        mutation("a spacing value drifts", "UI-008", |set| {
+            set.layout.spacing_px.insert("md".to_owned(), 13);
+        }),
+        mutation("a radius token is removed", "UI-008", |set| {
+            set.layout.radius_px.remove("pill");
+        }),
+        mutation("an extra radius token is invented", "UI-008", |set| {
+            set.layout.radius_px.insert("round".to_owned(), 20);
+        }),
+        mutation("a radius value drifts", "UI-008", |set| {
+            set.layout.radius_px.insert("lg".to_owned(), 12);
+        }),
+    ]
+}
+
+fn stroke_and_layout_mutations() -> Vec<Mutation> {
+    vec![
+        mutation("a stroke token is removed", "UI-008", |set| {
+            set.layout.stroke_px.remove("focus");
+        }),
+        mutation("an extra stroke token is invented", "UI-008", |set| {
+            set.layout.stroke_px.insert("heavy".to_owned(), 4);
+        }),
+        mutation("a stroke value drifts", "UI-008", |set| {
+            set.layout.stroke_px.insert("strong".to_owned(), 3);
+        }),
+        mutation("default padding selects the wrong token", "UI-008", |set| {
+            set.layout.default_layout_padding = "lg".to_owned();
+        }),
+        mutation("default spacing reference is unresolved", "UI-008", |set| {
+            set.layout.default_layout_spacing = "missing".to_owned();
+        }),
+        mutation("focus-ring offset drifts", "UI-008", |set| {
+            set.layout.focus_ring_offset_px = 0;
+        }),
+        mutation("minimum target size shrinks", "UI-008", |set| {
+            set.layout.minimum_target_size_px = 43;
+        }),
+    ]
+}
+
+fn cursor_and_version_mutations() -> Vec<Mutation> {
+    vec![
+        mutation("a cursor role is removed", "UI-008", |set| {
+            set.cursors.roles.remove("disabled");
+        }),
+        mutation("an extra cursor role is invented", "UI-008", |set| {
+            set.cursors
+                .roles
+                .insert("help".to_owned(), CursorKind::Pointer);
+        }),
+        mutation("the action cursor mapping drifts", "UI-008", |set| {
+            set.cursors
+                .roles
+                .insert("action".to_owned(), CursorKind::Default);
+        }),
+        mutation("the text caret width drifts", "UI-008", |set| {
+            set.cursors.text_caret_width_px = 1;
+        }),
+        mutation("the specification version drifts", "UI-008", |set| {
+            set.spec_version = "5.0.0".to_owned();
+        }),
+        mutation("the token version is blank", "UI-008", |set| {
+            set.token_set_version = String::new();
+        }),
+        mutation("the token version is not a version", "UI-008", |set| {
+            set.token_set_version = "not-a-version".to_owned();
+        }),
+        mutation("the token version is unsupported v3", "UI-008", |set| {
+            set.token_set_version = "3.0.0".to_owned();
+        }),
+    ]
+}
+
+fn mutations() -> Vec<Mutation> {
+    [
+        contrast_mutations(),
+        color_vision_mutations(),
+        measurement_unit_mutations(),
+        color_roster_mutations(),
+        channel_mutations(),
+        theme_mutations(),
+        label_mutations(),
+        typography_roster_mutations(),
+        typography_value_mutations(),
+        text_flow_mutations(),
+        selection_mutations(),
+        spacing_and_radius_mutations(),
+        stroke_and_layout_mutations(),
+        cursor_and_version_mutations(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
+}
+
+// Requirements: UI-001, UI-003, UI-007, UI-008, UI-011, UI-013, PLAN-004, Section 12
+//   Named hostile mutations prove every independently pinned v2 policy family can fail while the evidence remains independent of the table's changing row count
+// Evidence: every_policy_family_rejects_a_hostile_mutation
 #[test]
-fn every_check_rejects_a_mutation_that_defeats_it() {
-    for mutation in mutations() {
+fn every_policy_family_rejects_a_hostile_mutation() {
+    let mutations = mutations();
+    assert!(
+        !mutations.is_empty(),
+        "mutation evidence must be non-vacuous under Section 12"
+    );
+    for mutation in mutations {
         let mut set = repository_tokens();
         (mutation.apply)(&mut set);
         let report = audit(&set);
+        assert!(
+            report.checks > 0,
+            "mutation {:?} reached a vacuous audit",
+            mutation.name
+        );
         assert!(
             !report.is_clean(),
             "mutation {:?} was accepted; the {} check does not exist",
@@ -431,8 +728,6 @@ fn every_check_rejects_a_mutation_that_defeats_it() {
 // Evidence: the_summary_reports_the_tightest_pairing_it_saw
 #[test]
 fn the_summary_reports_the_tightest_pairing_it_saw() {
-    // Reporting how close a passing set came to failing is the difference
-    // between "green" and "green with 0.03 to spare". The latter is actionable.
     let report = audit(&repository_tokens());
     let (ratio, described) = report
         .tightest_contrast
@@ -448,19 +743,25 @@ fn the_summary_reports_the_tightest_pairing_it_saw() {
     assert!(*difference > 0.0);
 }
 
-// Requirements: UI-008
-//   Audit output names the keyboard, screen-reader, zoom, and other rendered behavior that a static token harness does not establish
+// Requirements: UI-001, UI-007, UI-008, UI-013
+//   Audit output names the operating-system, rendering, non-colour selection, absent health-state vocabulary, catalogue, and wider accessibility behavior that static tokens do not establish
 // Evidence: the_caveats_are_carried_into_the_output
 #[test]
 fn the_caveats_are_carried_into_the_output() {
-    // A green harness that does not say what it failed to check invites being
-    // read as an accessibility guarantee. UI-008 is far wider than contrast.
     let caveats = crate::audit::Report::caveats();
-    assert!(caveats.len() >= 3);
-    assert!(
-        caveats
-            .iter()
-            .any(|caveat| caveat.contains("screen-reader") || caveat.contains("zoom")),
-        "the caveats must name the parts of UI-008 this harness cannot see"
-    );
+    for required_boundary in [
+        "operating-system",
+        "minimum-target",
+        "without colour",
+        "health-state",
+        "catalogue",
+        "screen-reader",
+    ] {
+        assert!(
+            caveats
+                .iter()
+                .any(|caveat| caveat.contains(required_boundary)),
+            "caveats must name the boundary {required_boundary:?}"
+        );
+    }
 }

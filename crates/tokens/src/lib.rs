@@ -5,31 +5,41 @@
 //! specification requires of it, rather than recording that someone once
 //! checked:
 //!
-//! - **UI-001** — a dark charcoal default, a system theme, and an accessible
-//!   high-contrast theme, all three defining the same set of roles.
+//! - **UI-001** — a dark charcoal default, a canonical system-theme mapping,
+//!   and a separate accessible high-contrast theme, all three defining the same
+//!   set of roles.
 //! - **UI-003** — the exact eight-role storage-entity vocabulary exists.
 //! - **PLAN-004** — the exact five-role ordinal risk vocabulary exists.
-//! - **UI-007** — colour is never the only carrier of identity, selection, file
-//!   system, health, or risk. Every role that means something declares an icon,
-//!   a label and a shape, and no two roles share an icon *and* a label.
-//! - **UI-008** — every declared foreground/background pairing meets its WCAG
-//!   2.2 AA threshold, in every theme.
+//! - **UI-007** — each of the 21 declared entity, risk-severity, and
+//!   progress-state roles has redundant icon, label-ID, and shape channels, and
+//!   no two roles share an icon *and* a label ID. Selection and health remain
+//!   separate shell-evidence obligations.
+//! - **UI-008** — every independently pinned foreground/background use meets
+//!   its exact text-or-UI WCAG 2.2 AA threshold in every theme; independent
+//!   policy also pins measurement semantics and the token vocabularies later
+//!   generated into typography, layout, and cursor bindings.
 //! - **UI-011** — the exact eight-role progress-state vocabulary exists.
+//! - **UI-013** — theme and semantic display text is represented by stable
+//!   label IDs instead of English strings embedded in the token contract.
 //!
 //! The token file lives in `schemas/` for the same reason
-//! `canonical-encoding-vectors.json` does: when the Tauri front end arrives it
-//! must read *this* file. An implementation checked against a table it also
-//! owns proves only self-consistency, and `AGENTS.md` already records that
-//! lesson for the canonical codec.
+//! `canonical-encoding-vectors.json` does: every front end must consume *this*
+//! file. An implementation checked against a table it also owns proves only
+//! self-consistency, and `AGENTS.md` already records that lesson for the
+//! canonical codec.
 //!
 //! # What this crate does not establish
 //!
-//! It renders nothing and opens no window. UI-008 also requires keyboard-only
-//! operation, screen-reader semantics, 200% zoom and reduced motion; none of
-//! those can be satisfied by a token file and none of them are inspected here.
-//! Likewise, the UI-003 and UI-011 vocabularies do not prove that entities are
-//! rendered distinctly or that a live progress surface makes the required
-//! state transitions.
+//! It renders nothing and opens no window. A declared system-theme mapping does
+//! not prove that an operating-system signal was detected. Typography, layout,
+//! target-size, caret, and cursor tokens do not prove their rendered behavior.
+//! UI-008 also requires keyboard-only operation, screen-reader semantics, 200%
+//! zoom and reduced motion; none of those can be satisfied by a token file and
+//! none of them are inspected here. Label IDs do not prove that a later Rust
+//! catalogue resolves them. Likewise, the UI-003 and UI-011 vocabularies do not
+//! prove that entities are rendered distinctly or that a live progress surface
+//! makes the required state transitions, and UI-013's exact-byte inspector
+//! contract remains application evidence.
 //! [`audit::Report::caveats`] carries that list into the harness output so a
 //! green run is never read as more than it is.
 //!

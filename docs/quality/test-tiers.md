@@ -14,9 +14,13 @@ Tier 1 is unprivileged and safe on every developer host. It currently contains:
 - Fixture and interlock tests: deterministic image synthesis, partition-table
   state classification, signature layout, and the SAFE-007 refusal cases
   (WP-020).
-- Design-token and accessibility tests: WCAG contrast, colour-vision
-  simulation, the specification-derived role vocabulary, and the mutation table
-  that proves each check can fail (WP-030).
+- Design-token and accessibility tests: strict version-2 parsing; independent
+  theme-signal, complete colour-role, label-ID, measurement-unit, typography,
+  layout, cursor, selection-pairing, oriented contrast-pairing, and exact
+  colour-separation-roster policy; WCAG contrast; colour-vision simulation; the
+  specification-derived semantic vocabulary; and the mutation table that
+  proves every static policy family can fail (WP-030). These tests inspect
+  declarations, not rendered or operating-system behavior.
 
 Filesystem access is all of repository-controlled text, and it has grown with
 each gate: workflow and composite-action YAML plus any Dockerfile they build for
@@ -98,4 +102,3 @@ of nothing (Section 12, Section 16).
 No command in this repository enumerates, opens, or writes a block device, at
 any tier. Filesystem access is limited to repository-controlled files and to the
 generated fixture tree under `tests/generated/`, which `.gitignore` excludes.
-

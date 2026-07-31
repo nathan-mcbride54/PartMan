@@ -22,10 +22,11 @@ What does exist:
   validator: full element encodings sort by unsigned byte order, duplicates
   fail closed, and element sort keys inherit their enclosing depth (increment
   2a, MODEL-006). Ordinary arrays and all existing `pce/1` hashes are unchanged.
-- The design tokens and the accessibility harness that computes WCAG 2.2 AA
-  contrast, redundant non-colour channels, and colour-vision separation from
-  them (WP-030 increment 1). There is still no user interface for them to
-  style.
+- The versioned design tokens and static accessibility harness. In addition to
+  WCAG 2.2 AA contrast, redundant non-colour channels, and colour-vision
+  separation, the off-main Slint feasibility work defines canonical label IDs,
+  theme signals, typography, layout, and cursor vocabularies (WP-030 increments
+  1 and 2S). There is still no user interface for them to style.
 
 The domain crate performs no I/O and launches no process. Tier 2 and Tier 3
 test suites fail closed and cannot run at all yet.
@@ -74,7 +75,7 @@ reports status only and never redefines either.
 | Schemas versioned, with cross-language hash golden tests (MODEL-005) | Partial — the golden tests exist and gate CI; MODEL-003 schema versioning is not implemented |
 | CODEOWNERS enforces ownership | Partial — `cargo xtask verify-change-ownership` now rejects a diff touching paths outside the assignment its commits declare, judged against the base revision. CODEOWNERS itself still only requires an owner's review, and sub-file grants ("this package's own status rows") stay a review obligation no path checker can express |
 | T1 fixture generator produces images | Met — `cargo xtask fixtures` produces 13 images deterministically (WP-020 increment 1) |
-| Accessibility harness runs | Partial — `cargo xtask tokens` computes UI-001/007/008 from `schemas/design-tokens.json` and gates CI (WP-030 increment 1). It renders nothing, so the keyboard, screen-reader, zoom and reduced-motion halves of UI-008 are untouched |
+| Accessibility harness runs | Partial — `cargo xtask tokens` checks the versioned static UI-001/007/008/013 token boundary from `schemas/design-tokens.json` and gates CI (WP-030 increments 1 and 2S). It renders nothing, so operating-system theme detection, catalogue resolution, keyboard, screen-reader, zoom and reduced-motion behavior remain untouched |
 
 The three partial rows are tracked as known gaps in
 `docs/work-packages/WP-000.md`, `docs/work-packages/WP-010.md`, and
@@ -99,7 +100,7 @@ Section 14 of the specification is normative. Current state:
 | ADR-C2 … ADR-C6 | Hashed-artifact body/envelope split, identity strength, provenance shape, aggregation vocabulary, canonical set ordering and depth | Accepted |
 | WP-010 | Canonical domain model, schema versioning, encoding and hashing | In progress. SI-31 is resolved by the delivered schema-set boundary, and traceability is generated with a zero-loss migration ledger; increment 3 remains blocked by the authoritative issue register. See `docs/work-packages/WP-010.md` |
 | WP-020 | Disk-image fixture generator and destructive-test interlocks | In progress — increments 1–1g and 2a–2d delivered. Preconditions 1 and 3 are now closed on both platforms (issue #51): Unix opens a direct child relative to a held root object, Windows holds the root with a share mode the filesystem enforces, and the other-name refusal — which was a **live defect**, not a missing check — now reads the link count through the authorized handle everywhere. Windows containment is enforcement by the filesystem rather than resolution from a handle, so it is **unproven for roots that are not on a local volume**, and non-local roots are refused. WP-020 traceability is generated from validated source-local claims and typed evidence, with a source-revision/blob ledger preserving every former evidence row, correction, limitation, and residual risk. Tier 2 stays unavailable on every platform because no destructive suite exists; see `docs/work-packages/WP-020.md` |
-| WP-030 | Design tokens, dark UI shell, accessibility harness | In progress — increments 1 through 1c delivered (tokens, the static accessibility harness, and zero-loss generated traceability). No shell exists, so UI-002 is unimplemented and the rendered half of UI-008 is untested. **Increment 2 is dependency-ready as of 2026-07-30**: the integration decisions are recorded, and the two ownership deadlocks that made the first crate uncommittable are closed — proved by scaffolding it and running both gates, not by asserting it |
+| WP-030 | Design tokens, dark UI shell, accessibility harness | In progress — increments 1 through 1c delivered (tokens, the static accessibility harness, and zero-loss generated traceability). ADR-0009 and the governance-only WP-030 authorization now permit a bounded Slint 1.17.1 feasibility candidate, and increment 2S has begun off-main with the Slint-free version-2 token contract. No shell exists yet, so UI-002 is unimplemented and the rendered half of UI-008 remains untested. The preserved Tauri comparison also remains off-main |
 
 WP-020 and WP-030 depend only on WP-000 and could begin in parallel. WP-040 is
 the first package gated on WP-010.
