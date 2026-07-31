@@ -29,6 +29,9 @@ impl Drop for Sandbox {
     }
 }
 
+// Requirements: Section 11.7
+//   Every generated fixture has a unique image name and a substantive rationale instead of existing without a requirement-facing purpose
+// Evidence: every_fixture_has_a_unique_name_and_a_stated_reason
 #[test]
 fn every_fixture_has_a_unique_name_and_a_stated_reason() {
     // Section 11.7 fails a work package that claims a requirement without linked
@@ -118,6 +121,9 @@ fn header_is_valid(bytes: &[u8], offset: usize) -> bool {
     crate::layout::crc32(&header) == stored
 }
 
+// Requirements: INV-003, SAFE-005
+//   Independent byte classification distinguishes absent, present, recoverable, and genuinely ambiguous partition-table fixtures
+// Evidence: the_fixtures_actually_classify_as_the_states_adr_c3_distinguishes
 #[test]
 fn the_fixtures_actually_classify_as_the_states_adr_c3_distinguishes() {
     // Blank, present, and indeterminate are three states, not two, and ADR-C3
@@ -148,6 +154,9 @@ fn the_fixtures_actually_classify_as_the_states_adr_c3_distinguishes() {
     }
 }
 
+// Requirements: INV-003, SAFE-005
+//   The recoverable GPT fixture retains one trustworthy header while the indeterminate fixture retains two valid but conflicting tables
+// Evidence: the_recoverable_and_indeterminate_fixtures_are_genuinely_different
 #[test]
 fn the_recoverable_and_indeterminate_fixtures_are_genuinely_different() {
     // The distinction the previous test could not see, stated directly: one has
@@ -183,6 +192,9 @@ fn build(name: &str) -> Vec<u8> {
     (fixture.build)().into_bytes()
 }
 
+// Requirements: Section 11.3
+//   Generation writes every catalogue image plus a reloadable manifest whose lengths and token match the emitted bytes
+// Evidence: generation_writes_every_fixture_and_a_manifest
 #[test]
 fn generation_writes_every_fixture_and_a_manifest() {
     let sandbox = Sandbox::new("write");
@@ -208,6 +220,9 @@ fn generation_writes_every_fixture_and_a_manifest() {
     assert_eq!(reloaded.token(), manifest.token());
 }
 
+// Requirements: Section 11.3
+//   Two independent generation directories receive identical tokens and byte-identical copies of every catalogue fixture
+// Evidence: regenerating_reproduces_identical_bytes
 #[test]
 fn regenerating_reproduces_identical_bytes() {
     // Section 11.3 requires fixtures be deterministic and cached, and Section 16
@@ -225,6 +240,9 @@ fn regenerating_reproduces_identical_bytes() {
     }
 }
 
+// Requirements: SAFE-005
+//   Loading a fixture root without a manifest fails closed instead of returning an empty authorization catalogue
+// Evidence: a_missing_manifest_is_an_error_not_an_empty_manifest
 #[test]
 fn a_missing_manifest_is_an_error_not_an_empty_manifest() {
     let sandbox = Sandbox::new("no-manifest");
@@ -235,6 +253,9 @@ fn a_missing_manifest_is_an_error_not_an_empty_manifest() {
     );
 }
 
+// Requirements: SAFE-005, SAFE-007
+//   A corrupt generated manifest is rejected rather than supplying partial or defaulted interlock expectations
+// Evidence: a_corrupt_manifest_is_rejected
 #[test]
 fn a_corrupt_manifest_is_rejected() {
     let sandbox = Sandbox::new("bad-manifest");
@@ -243,6 +264,9 @@ fn a_corrupt_manifest_is_rejected() {
     assert!(load_manifest(&sandbox.0).is_err());
 }
 
+// Requirements: Section 11.3
+//   Regeneration removes withdrawn images and leaves exactly the current catalogue plus its manifest
+// Evidence: regeneration_removes_a_withdrawn_fixture
 #[test]
 fn regeneration_removes_a_withdrawn_fixture() {
     // Withdrawing the ZFS fixture left its image behind in the working tree,
@@ -277,6 +301,9 @@ fn regeneration_removes_a_withdrawn_fixture() {
     assert_eq!(present, expected);
 }
 
+// Requirements: SAFE-005, Section 12
+//   The generator's evidence gate is load-bearing: a known fixture name with hollow bytes is refused before any partial output is written
+// Evidence: generation_refuses_a_fixture_that_no_longer_supports_its_rationale
 #[test]
 fn generation_refuses_a_fixture_that_no_longer_supports_its_rationale() {
     // Until this existed, the evidence gate inside `generate` was load-bearing
@@ -312,6 +339,9 @@ fn generation_refuses_a_fixture_that_no_longer_supports_its_rationale() {
     assert!(!sandbox.0.join(MANIFEST_FILE).exists());
 }
 
+// Requirements: SAFE-001, SAFE-005
+//   Unrelated, truncated, and forged files named MANIFEST never authorize pruning other files from a directory
+// Evidence: a_foreign_file_named_manifest_does_not_authorize_deletion
 #[test]
 fn a_foreign_file_named_manifest_does_not_authorize_deletion() {
     // The guard used to be `root.join(MANIFEST_FILE).is_file()`, which
@@ -345,6 +375,9 @@ fn a_foreign_file_named_manifest_does_not_authorize_deletion() {
     }
 }
 
+// Requirements: SAFE-001, SAFE-005
+//   A symlink named MANIFEST does not transfer ownership of its containing directory or authorize pruning it
+// Evidence: a_manifest_symlink_does_not_authorize_deletion
 #[cfg(unix)]
 #[test]
 fn a_manifest_symlink_does_not_authorize_deletion() {
@@ -368,6 +401,9 @@ fn a_manifest_symlink_does_not_authorize_deletion() {
     );
 }
 
+// Requirements: SAFE-001, SAFE-005
+//   Generation preserves bystander files when the target directory has no valid PartMan manifest proving ownership
+// Evidence: generation_does_not_prune_a_directory_that_is_not_ours
 #[test]
 fn generation_does_not_prune_a_directory_that_is_not_ours() {
     // The guard on the pruning above: a mistyped root must not delete a user's

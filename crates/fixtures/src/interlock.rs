@@ -152,8 +152,9 @@ pub const TOKEN_VARIABLE: &str = "PARTMAN_DISPOSABLE_TOKEN";
 #[derive(Clone, Debug)]
 pub struct Request {
     /// The profile named on the command line. Deliberately not read from the
-    /// environment: SAFE-007 rules out proving intent with one variable, and an
-    /// argument cannot be inherited by accident from a parent shell.
+    /// environment: SAFE-007 rules out treating one variable as sufficient
+    /// proof, and an argument cannot be inherited by accident from a parent
+    /// shell.
     pub profile: Option<String>,
     /// The token supplied out of band, normally through [`TOKEN_VARIABLE`].
     pub token: Option<String>,

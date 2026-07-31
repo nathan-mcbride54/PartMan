@@ -3,6 +3,9 @@ use super::{
 };
 use crate::layout::{Image, SectorSize};
 
+// Requirements: Section 11.3
+//   Signature writers produce byte-identical images for identical inputs.
+// Evidence: every_writer_is_deterministic
 #[test]
 fn every_writer_is_deterministic() {
     let one = whole_disk(8192, |image| ext4(image, "seed")).into_bytes();
@@ -10,6 +13,9 @@ fn every_writer_is_deterministic() {
     assert_eq!(one, two);
 }
 
+// Requirements: FS-004
+//   The ext4 fixture places its magic at the offset consumed by external probers.
+// Evidence: the_ext4_magic_lands_where_a_prober_looks
 #[test]
 fn the_ext4_magic_lands_where_a_prober_looks() {
     let image = whole_disk(8192, |image| ext4(image, "seed"));
@@ -17,6 +23,9 @@ fn the_ext4_magic_lands_where_a_prober_looks() {
     assert_eq!(&bytes[1024 + 56..1024 + 58], &0xef53_u16.to_le_bytes());
 }
 
+// Requirements: FS-004, LIN-003
+//   The LUKS2 fixture encodes its version using the format's required byte order.
+// Evidence: the_luks2_version_is_big_endian
 #[test]
 fn the_luks2_version_is_big_endian() {
     // The one field in this module that is not little-endian.
@@ -25,6 +34,9 @@ fn the_luks2_version_is_big_endian() {
     assert_eq!(&image.bytes()[6..8], &2_u16.to_be_bytes());
 }
 
+// Requirements: FS-004
+//   The LVM2 fixture carries both strings required for prober recognition.
+// Evidence: the_lvm2_label_carries_both_strings_a_prober_requires
 #[test]
 fn the_lvm2_label_carries_both_strings_a_prober_requires() {
     // Writing LABELONE alone detects nothing; the type string is required too.
@@ -33,6 +45,9 @@ fn the_lvm2_label_carries_both_strings_a_prober_requires() {
     assert_eq!(&image.bytes()[536..544], b"LVM2 001");
 }
 
+// Requirements: FS-004
+//   The mdraid 0.90 fixture preserves a trailing signature beyond a start-only rewrite.
+// Evidence: the_090_superblock_sits_near_the_end_not_the_start
 #[test]
 fn the_090_superblock_sits_near_the_end_not_the_start() {
     // The whole point of the stale-signature fixture: formatting the start of a
@@ -45,6 +60,9 @@ fn the_090_superblock_sits_near_the_end_not_the_start() {
     assert_eq!(offset % (64 * 1024), 0, "aligned to 64 KiB");
 }
 
+// Requirements: FS-004, INV-004
+//   One fixture can carry both a live file-system signature and stale array membership.
+// Evidence: a_device_can_carry_a_file_system_and_a_stale_array_membership
 #[test]
 fn a_device_can_carry_a_file_system_and_a_stale_array_membership() {
     let image = whole_disk(8192, |image| {
@@ -57,12 +75,18 @@ fn a_device_can_carry_a_file_system_and_a_stale_array_membership() {
     assert_eq!(&bytes[offset..offset + 4], &0xa92b_4efc_u32.to_le_bytes());
 }
 
+// Requirements: FS-004, LIN-005
+//   The mdraid 1.2 fixture places its superblock at the format-defined offset.
+// Evidence: mdraid_12_sits_four_kibibytes_in
 #[test]
 fn mdraid_12_sits_four_kibibytes_in() {
     let image = whole_disk(8192, |image| mdraid_12(image, "array"));
     assert_eq!(&image.bytes()[4096..4100], &0xa92b_4efc_u32.to_le_bytes());
 }
 
+// Requirements: FS-004
+//   The synthetic ZFS writer preserves both label locations; this does not establish prober recognition.
+// Evidence: zfs_labels_are_written_at_both_ends
 #[test]
 fn zfs_labels_are_written_at_both_ends() {
     // Round two's observation: repurposing clears the leading pair only.
@@ -78,6 +102,9 @@ fn zfs_labels_are_written_at_both_ends() {
     );
 }
 
+// Requirements: FS-004, Section 11.3
+//   The LVM2 checksum implementation is deterministic and distinct from ordinary CRC32.
+// Evidence: the_lvm2_checksum_is_not_an_ordinary_crc32
 #[test]
 fn the_lvm2_checksum_is_not_an_ordinary_crc32() {
     // libblkid verifies this before reporting LVM2_member, so getting it wrong
@@ -91,6 +118,9 @@ fn the_lvm2_checksum_is_not_an_ordinary_crc32() {
     assert_eq!(super::lvm2_crc(b"123456789"), super::lvm2_crc(b"123456789"));
 }
 
+// Requirements: FS-004, Section 11.3
+//   The mdraid checksum excludes its checksum field and remains reproducible.
+// Evidence: the_mdraid_checksum_zeroes_its_own_field_before_summing
 #[test]
 fn the_mdraid_checksum_zeroes_its_own_field_before_summing() {
     // Otherwise the checksum would depend on whatever happened to be in the
@@ -102,6 +132,9 @@ fn the_mdraid_checksum_zeroes_its_own_field_before_summing() {
     assert_eq!(super::mdraid_1x_checksum(&sb), first);
 }
 
+// Requirements: FS-004, INV-004
+//   The multi-signature fixture carries both signatures at independently probed offsets.
+// Evidence: the_multi_signature_fixture_carries_both_at_the_offsets_a_prober_reads
 #[test]
 fn the_multi_signature_fixture_carries_both_at_the_offsets_a_prober_reads() {
     // The fixture that answered a question two earlier attempts could not: a
@@ -122,6 +155,9 @@ fn the_multi_signature_fixture_carries_both_at_the_offsets_a_prober_reads() {
     );
 }
 
+// Requirements: FS-004, LIN-005
+//   The mdraid 0.90 set identity occupies all four non-adjacent UUID words.
+// Evidence: the_090_set_uuid_occupies_its_four_non_adjacent_words
 #[test]
 fn the_090_set_uuid_occupies_its_four_non_adjacent_words() {
     // The defect an audit found: words 13, 14 and 15 were written at bytes 128,
@@ -146,6 +182,9 @@ fn the_090_set_uuid_occupies_its_four_non_adjacent_words() {
     );
 }
 
+// Requirements: FS-004, LIN-003
+//   LUKS2 checksum and UUID fields occupy their specified fields, outside the label.
+// Evidence: the_luks2_fields_do_not_land_inside_the_label
 #[test]
 fn the_luks2_fields_do_not_land_inside_the_label() {
     // `checksum_alg` was written at 24 and the UUID at 32, both inside the
@@ -167,6 +206,9 @@ fn the_luks2_fields_do_not_land_inside_the_label() {
     );
 }
 
+// Requirements: FS-004, SAFE-005
+//   Ext4 fixture geometry never declares more blocks than its containing image.
+// Evidence: the_ext4_block_count_matches_the_device_it_is_written_to
 #[test]
 fn the_ext4_block_count_matches_the_device_it_is_written_to() {
     // The first version declared 8192 one-kibibyte blocks -- 8 MiB -- on a 4 MiB

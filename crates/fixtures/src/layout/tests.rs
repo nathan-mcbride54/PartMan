@@ -22,6 +22,9 @@ fn sample_partitions() -> Vec<GptPartition> {
     ]
 }
 
+// Requirements: INV-003
+//   The fixture CRC-32 implementation reproduces the published IEEE check value instead of validating GPT checksums only against itself
+// Evidence: crc32_matches_the_published_check_value
 #[test]
 fn crc32_matches_the_published_check_value() {
     // The IEEE check value every CRC-32 implementation is expected to reproduce.
@@ -31,6 +34,9 @@ fn crc32_matches_the_published_check_value() {
     assert_eq!(crc32(b""), 0);
 }
 
+// Requirements: Section 11.3
+//   Rebuilding one GPT fixture from the same inputs produces byte-identical output that can be generated and cached instead of committed
+// Evidence: generation_is_deterministic
 #[test]
 fn generation_is_deterministic() {
     // The property that lets a fixture be pinned by digest instead of committed
@@ -40,6 +46,9 @@ fn generation_is_deterministic() {
     assert_eq!(first, second);
 }
 
+// Requirements: Section 11.3
+//   Derived fixture identifiers are stable, input-sensitive, and carry the expected UUID version and variant bits
+// Evidence: a_derived_guid_is_stable_and_well_formed
 #[test]
 fn a_derived_guid_is_stable_and_well_formed() {
     let a = Guid::derived("label");
@@ -52,6 +61,9 @@ fn a_derived_guid_is_stable_and_well_formed() {
     assert_eq!(raw[8] & 0xc0, 0x80, "variant bits must be RFC 4122");
 }
 
+// Requirements: INV-003
+//   A GPT fixture contains a protective MBR plus primary and backup GPT headers at their required locations
+// Evidence: a_gpt_image_carries_both_headers_and_a_protective_mbr
 #[test]
 fn a_gpt_image_carries_both_headers_and_a_protective_mbr() {
     let image = gpt(SectorSize::B512, 8192, "basic", &sample_partitions());
@@ -69,6 +81,9 @@ fn a_gpt_image_carries_both_headers_and_a_protective_mbr() {
     );
 }
 
+// Requirements: INV-003
+//   A conforming independent recomputation accepts the primary GPT header checksum emitted by the fixture writer
+// Evidence: the_gpt_header_crc_validates
 #[test]
 fn the_gpt_header_crc_validates() {
     let image = gpt(SectorSize::B512, 8192, "crc", &sample_partitions());
@@ -78,6 +93,9 @@ fn the_gpt_header_crc_validates() {
     );
 }
 
+// Requirements: INV-003
+//   The damaged-primary fixture retains GPT magic while invalidating its primary checksum, representing recoverable damage rather than blank or ambiguous media
+// Evidence: the_corrupt_fixture_keeps_its_signature_but_fails_its_crc
 #[test]
 fn the_corrupt_fixture_keeps_its_signature_but_fails_its_crc() {
     // A damaged table has to stay distinguishable from blank media, so the
@@ -109,6 +127,9 @@ fn header_crc_is_valid(bytes: &[u8]) -> bool {
     crc32(&recomputed) == stored
 }
 
+// Requirements: IMG-011
+//   The 4Kn fixture has 4096-byte sectors and places its GPT header at byte 4096 instead of reusing a 512-byte layout
+// Evidence: a_4kn_image_has_4096_byte_sectors
 #[test]
 fn a_4kn_image_has_4096_byte_sectors() {
     let image = gpt(SectorSize::B4096, 1024, "4kn", &[]);
@@ -119,6 +140,9 @@ fn a_4kn_image_has_4096_byte_sectors() {
     assert_eq!(&image.bytes()[4096..4104], b"EFI PART");
 }
 
+// Requirements: INV-003
+//   The MBR fixture records its active flag, partition kind, extent, and boot signature in the on-disk table
+// Evidence: an_mbr_image_records_its_entries
 #[test]
 fn an_mbr_image_records_its_entries() {
     let image = mbr(
@@ -139,6 +163,9 @@ fn an_mbr_image_records_its_entries() {
     assert_eq!(&bytes[510..512], &[0x55, 0xaa]);
 }
 
+// Requirements: INV-003
+//   The APM fixture encodes its driver descriptor and partition-map fields in big-endian form
+// Evidence: an_apm_image_is_big_endian
 #[test]
 fn an_apm_image_is_big_endian() {
     // The reason APM is in the catalogue at all: a reader that assumes
@@ -155,6 +182,9 @@ fn an_apm_image_is_big_endian() {
     assert_eq!(&bytes[520..524], &1_u32.to_be_bytes(), "start, big-endian");
 }
 
+// Requirements: PART-001, INV-003
+//   A blank-media fixture is positively empty across its full declared size rather than merely lacking a filename or table entry
+// Evidence: a_blank_image_is_entirely_zero
 #[test]
 fn a_blank_image_is_entirely_zero() {
     // PART-001's target, and ADR-C3's positively-observed-absent state.
@@ -163,6 +193,9 @@ fn a_blank_image_is_entirely_zero() {
     assert_eq!(image.bytes().len(), 64 * 512);
 }
 
+// Requirements: Section 11.3, Section 12
+//   A fixture writer panics on an out-of-bounds write instead of silently truncating malformed evidence and reporting success
+// Evidence: writing_past_the_end_panics_rather_than_truncating
 #[test]
 #[should_panic(expected = "fixture write past end of image")]
 fn writing_past_the_end_panics_rather_than_truncating() {

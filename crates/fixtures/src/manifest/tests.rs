@@ -7,6 +7,9 @@ fn sample() -> Manifest {
     ])
 }
 
+// Requirements: SAFE-007, Section 11.3
+//   A generated fixture manifest round-trips without losing entries, lengths, digests, or its build-derived token
+// Evidence: a_manifest_round_trips
 #[test]
 fn a_manifest_round_trips() {
     let original = sample();
@@ -14,6 +17,9 @@ fn a_manifest_round_trips() {
     assert_eq!(parsed, original);
 }
 
+// Requirements: SAFE-007
+//   Manifest entry ordering is canonical, so caller insertion order cannot change the build-derived disposable token
+// Evidence: entries_are_recorded_in_sorted_order
 #[test]
 fn entries_are_recorded_in_sorted_order() {
     // The token is derived from the entries, so iteration order must not be able
@@ -29,6 +35,9 @@ fn entries_are_recorded_in_sorted_order() {
     assert_eq!(reordered.token(), sample().token());
 }
 
+// Requirements: SAFE-007
+//   The disposable token changes when a fixture is added or when any fixture bytes change
+// Evidence: the_token_changes_when_the_fixture_set_changes
 #[test]
 fn the_token_changes_when_the_fixture_set_changes() {
     let base = sample();
@@ -46,6 +55,9 @@ fn the_token_changes_when_the_fixture_set_changes() {
     assert_ne!(base.token(), altered.token());
 }
 
+// Requirements: SAFE-007
+//   Manifest membership binds a fixture name and length to the SHA-256 digest of its exact bytes
+// Evidence: a_digest_identifies_its_bytes
 #[test]
 fn a_digest_identifies_its_bytes() {
     let manifest = sample();
@@ -55,6 +67,9 @@ fn a_digest_identifies_its_bytes() {
     assert_eq!(manifest.entry("b.img").expect("entry exists").length, 3);
 }
 
+// Requirements: SAFE-005, SAFE-007
+//   Missing or foreign manifest headers are rejected instead of being interpreted as an empty fixture set
+// Evidence: a_missing_or_wrong_header_is_rejected
 #[test]
 fn a_missing_or_wrong_header_is_rejected() {
     assert_eq!(Manifest::parse("").unwrap_err(), ManifestError::Header);
@@ -64,6 +79,9 @@ fn a_missing_or_wrong_header_is_rejected() {
     );
 }
 
+// Requirements: SAFE-005, SAFE-007
+//   Malformed, incomplete, unknown, and non-canonical manifest rows are rejected rather than skipped on the interlock path
+// Evidence: malformed_lines_are_rejected_rather_than_skipped
 #[test]
 fn malformed_lines_are_rejected_rather_than_skipped() {
     // The interlock reads this file before deciding whether a destructive suite
@@ -86,6 +104,9 @@ fn malformed_lines_are_rejected_rather_than_skipped() {
     }
 }
 
+// Requirements: SAFE-005, SAFE-007
+//   A manifest must contain exactly one disposable token; absence and duplication both fail closed
+// Evidence: a_missing_or_duplicated_token_is_rejected
 #[test]
 fn a_missing_or_duplicated_token_is_rejected() {
     let digest = "a".repeat(64);
@@ -102,6 +123,9 @@ fn a_missing_or_duplicated_token_is_rejected() {
     );
 }
 
+// Requirements: SAFE-005, SAFE-007
+//   Duplicate fixture names are rejected so two different expectations cannot compete for one destructive target path
+// Evidence: a_duplicate_name_is_rejected
 #[test]
 fn a_duplicate_name_is_rejected() {
     let digest = "a".repeat(64);
@@ -114,6 +138,9 @@ fn a_duplicate_name_is_rejected() {
     ));
 }
 
+// Requirements: Section 11.3
+//   Binary digests render as fixed-width lowercase hexadecimal for deterministic manifests
+// Evidence: hex_is_lowercase_and_padded
 #[test]
 fn hex_is_lowercase_and_padded() {
     assert_eq!(hex(&[0x00, 0x0f, 0xff]), "000fff");

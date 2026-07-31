@@ -7,6 +7,17 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- WP-020 increment 1g converts its traceability document to generated evidence.
+  Source-local annotations cover deterministic fixture construction,
+  purpose-binding mutations, external-prober expectations, and the
+  disposable-target interlock, while typed package evidence covers the shared
+  runner, Linux-only prober command, workspace lint boundary, and zero-loss
+  migration. A frozen source-revision/blob ledger accounts for every former
+  row, correction, limitation, and residual risk. The conversion also removes
+  a stale operator-provenance claim: the public, build-derived token proves only
+  exact value presentation and supplies accident friction; it does not prove
+  that an operator ran the generator or intended an operation. Tier 2 and Tier
+  3 remain unavailable.
 - WP-000 scheduled maintenance: every Monday and on manual request, dependency
   policy is re-evaluated on Windows, Linux, and macOS even when the repository
   has not changed, while both current fuzz targets receive 15 minutes each and

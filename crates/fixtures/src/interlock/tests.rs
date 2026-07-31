@@ -151,6 +151,9 @@ fn identity_of(path: &Path) -> std::io::Result<(u64, u64)> {
     super::object_identity(&file)
 }
 
+// Requirements: SAFE-007
+//   Authorization succeeds when all three disposable-target factors agree.
+// Evidence: all_three_factors_together_authorize
 #[test]
 fn all_three_factors_together_authorize() {
     let sandbox = Sandbox::new("happy");
@@ -162,6 +165,9 @@ fn all_three_factors_together_authorize() {
     assert!(authorization.targets()[0].path().ends_with("blank-512.img"));
 }
 
+// Requirements: SAFE-001, SAFE-005, SAFE-007
+//   Authorization retains the verified object so a later path replacement cannot redirect use.
+// Evidence: authorization_holds_the_object_it_verified_not_the_name
 #[test]
 fn authorization_holds_the_object_it_verified_not_the_name() {
     // The replace-after-authorization test the WP-020 preconditions demand,
@@ -234,6 +240,9 @@ fn authorization_holds_the_object_it_verified_not_the_name() {
     }
 }
 
+// Requirements: SAFE-001, SAFE-005, SAFE-007
+//   Unix refuses a target-name symlink substituted between path checks and open.
+// Evidence: a_symlink_swapped_in_before_open_is_refused
 #[cfg(unix)]
 #[test]
 fn a_symlink_swapped_in_before_open_is_refused() {
@@ -280,6 +289,9 @@ fn a_symlink_swapped_in_before_open_is_refused() {
     );
 }
 
+// Requirements: SAFE-001, SAFE-005, SAFE-007
+//   Every platform refuses an object substituted after path checks but before open.
+// Evidence: an_object_swapped_in_before_open_is_refused_on_every_platform
 #[test]
 fn an_object_swapped_in_before_open_is_refused_on_every_platform() {
     // The symlink test above is Unix-only, because creating a symlink on
@@ -311,6 +323,9 @@ fn an_object_swapped_in_before_open_is_refused_on_every_platform() {
     );
 }
 
+// Requirements: SAFE-005, SAFE-007
+//   The verified handle delivered to a future consumer starts at offset zero.
+// Evidence: the_handle_handed_over_starts_at_offset_zero
 #[test]
 fn the_handle_handed_over_starts_at_offset_zero() {
     // `verify_object` hashes the contents, so the cursor sat at EOF and the
@@ -345,6 +360,9 @@ fn the_handle_handed_over_starts_at_offset_zero() {
     let _ = file.seek(SeekFrom::Start(0));
 }
 
+// Requirements: SAFE-001, SAFE-005, SAFE-007
+//   Unix opens relative to the held root object so a root-directory swap cannot redirect use.
+// Evidence: swapping_the_fixture_root_directory_before_open_cannot_redirect_the_write
 #[cfg(unix)]
 #[test]
 fn swapping_the_fixture_root_directory_before_open_cannot_redirect_the_write() {
@@ -453,6 +471,9 @@ fn swapping_the_fixture_root_directory_before_open_cannot_redirect_the_write() {
     }
 }
 
+// Requirements: SAFE-001, SAFE-005, SAFE-007
+//   A locally served Windows root held without delete sharing refuses a redirecting root swap.
+// Evidence: swapping_the_fixture_root_directory_before_open_cannot_redirect_the_write
 #[cfg(windows)]
 #[test]
 fn swapping_the_fixture_root_directory_before_open_cannot_redirect_the_write() {
@@ -567,6 +588,9 @@ fn swapping_the_fixture_root_directory_before_open_cannot_redirect_the_write() {
     let _ = fs::remove_dir_all(&decoy_root);
 }
 
+// Requirements: SAFE-001, SAFE-007
+//   On a locally served Windows volume, the held root alone refuses renaming the root.
+// Evidence: the_root_handle_alone_refuses_renaming_the_root
 #[cfg(windows)]
 #[test]
 fn the_root_handle_alone_refuses_renaming_the_root() {
@@ -593,6 +617,9 @@ fn the_root_handle_alone_refuses_renaming_the_root() {
     fs::rename(&moved, &sandbox.root).expect("put it back so the sandbox can clean up");
 }
 
+// Requirements: SAFE-001, SAFE-005, SAFE-007
+//   Windows refuses an entry replaced by a junction instead of authorizing its destination.
+// Evidence: an_entry_replaced_by_a_junction_is_refused
 #[cfg(windows)]
 #[test]
 fn an_entry_replaced_by_a_junction_is_refused() {
@@ -640,6 +667,9 @@ fn an_entry_replaced_by_a_junction_is_refused() {
     let _ = fs::remove_dir_all(&outside);
 }
 
+// Requirements: SAFE-001, SAFE-005, SAFE-007
+//   Windows treats a substituted file symlink as irregular and refuses it when creation is available.
+// Evidence: a_file_symlink_swapped_in_before_open_is_refused_as_an_irregular_object
 #[cfg(windows)]
 #[test]
 fn a_file_symlink_swapped_in_before_open_is_refused_as_an_irregular_object() {
@@ -703,6 +733,9 @@ fn a_file_symlink_swapped_in_before_open_is_refused_as_an_irregular_object() {
     let _ = fs::remove_file(&outside);
 }
 
+// Requirements: SAFE-001, SAFE-005, SAFE-007
+//   Windows refuses a root classified as nonlocal because its rename semantics are untrusted.
+// Evidence: a_root_that_is_not_locally_served_is_refused_rather_than_trusted
 #[cfg(windows)]
 #[test]
 fn a_root_that_is_not_locally_served_is_refused_rather_than_trusted() {
@@ -754,6 +787,9 @@ fn a_root_that_is_not_locally_served_is_refused_rather_than_trusted() {
     )));
 }
 
+// Requirements: SAFE-001, SAFE-007
+//   Records the residual that a new hard link created after authorization is not prevented.
+// Evidence: a_new_hard_link_after_authorization_is_not_prevented
 #[test]
 fn a_new_hard_link_after_authorization_is_not_prevented() {
     // A boundary, recorded as a test so it cannot be quietly upgraded into a
@@ -788,6 +824,9 @@ fn a_new_hard_link_after_authorization_is_not_prevented() {
     let _ = fs::remove_file(&alias);
 }
 
+// Requirements: SAFE-009
+//   The lifetime-free Windows handle wrapper remains confined to one reviewed call site.
+// Evidence: the_windows_handle_wrapper_is_confined_to_one_call_site
 #[test]
 fn the_windows_handle_wrapper_is_confined_to_one_call_site() {
     // `winapi_util::HandleRef` has no lifetime parameter and is constructible
@@ -837,6 +876,9 @@ fn the_windows_handle_wrapper_is_confined_to_one_call_site() {
     );
 }
 
+// Requirements: SAFE-001, SAFE-007
+//   Records that object shape alone cannot prove containment beneath the held fixture root.
+// Evidence: object_verification_alone_cannot_prove_root_membership
 #[test]
 fn object_verification_alone_cannot_prove_root_membership() {
     // The 2026-07-29 follow-up audit's finding 2, established directly rather
@@ -882,6 +924,9 @@ fn object_verification_alone_cannot_prove_root_membership() {
     );
 }
 
+// Requirements: SAFE-005, SAFE-007
+//   Object verification uses the open handle and survives the path ceasing to exist.
+// Evidence: object_verification_survives_the_path_ceasing_to_exist
 #[test]
 fn object_verification_survives_the_path_ceasing_to_exist() {
     // The deterministic proof that `verify_object` is handle-pure. A deletion
@@ -925,6 +970,9 @@ fn object_verification_survives_the_path_ceasing_to_exist() {
         .expect("verification must succeed through the handle alone");
 }
 
+// Requirements: SAFE-005, SAFE-007
+//   The authorization proof is consumed into the exact verified handle.
+// Evidence: the_verified_handle_is_what_the_consumer_receives
 #[test]
 fn the_verified_handle_is_what_the_consumer_receives() {
     // `into_targets` consumes the authorization, and each target yields the
@@ -955,6 +1003,9 @@ fn the_verified_handle_is_what_the_consumer_receives() {
     );
 }
 
+// Requirements: SAFE-007
+//   No one of the three disposable-target factors authorizes by itself.
+// Evidence: no_single_factor_is_sufficient
 #[test]
 fn no_single_factor_is_sufficient() {
     let sandbox = Sandbox::new("single-factor");
@@ -993,6 +1044,9 @@ fn no_single_factor_is_sufficient() {
     ));
 }
 
+// Requirements: SAFE-007
+//   Every two-of-three disposable-target combination is refused.
+// Evidence: two_of_three_factors_are_still_refused
 #[test]
 fn two_of_three_factors_are_still_refused() {
     let sandbox = Sandbox::new("two-factor");
@@ -1025,6 +1079,9 @@ fn two_of_three_factors_are_still_refused() {
     ));
 }
 
+// Requirements: SAFE-005, SAFE-007
+//   An empty target list is refused instead of satisfying verification vacuously.
+// Evidence: an_empty_target_list_is_refused_rather_than_vacuously_accepted
 #[test]
 fn an_empty_target_list_is_refused_rather_than_vacuously_accepted() {
     // "Every target was verified" is trivially true of no targets. A suite that
@@ -1037,6 +1094,9 @@ fn an_empty_target_list_is_refused_rather_than_vacuously_accepted() {
     ));
 }
 
+// Requirements: SAFE-007
+//   The destructive profile factor requires an exact literal match.
+// Evidence: a_wrong_profile_word_is_refused
 #[test]
 fn a_wrong_profile_word_is_refused() {
     let sandbox = Sandbox::new("profile-word");
@@ -1050,6 +1110,9 @@ fn a_wrong_profile_word_is_refused() {
     }
 }
 
+// Requirements: SAFE-007
+//   The build-derived disposable-target token requires an exact match.
+// Evidence: a_wrong_token_is_refused
 #[test]
 fn a_wrong_token_is_refused() {
     let sandbox = Sandbox::new("token");
@@ -1070,6 +1133,9 @@ fn a_wrong_token_is_refused() {
     }
 }
 
+// Requirements: SAFE-001, SAFE-005, SAFE-007
+//   A matching file outside the fixture root cannot be authorized.
+// Evidence: a_file_outside_the_fixture_root_is_refused
 #[test]
 fn a_file_outside_the_fixture_root_is_refused() {
     let sandbox = Sandbox::new("outside");
@@ -1086,6 +1152,9 @@ fn a_file_outside_the_fixture_root_is_refused() {
     let _ = fs::remove_file(&outside);
 }
 
+// Requirements: SAFE-001, SAFE-005, SAFE-007
+//   Traversal outside the fixture root is refused.
+// Evidence: traversal_out_of_the_fixture_root_is_refused
 #[test]
 fn traversal_out_of_the_fixture_root_is_refused() {
     let sandbox = Sandbox::new("traversal");
@@ -1101,6 +1170,9 @@ fn traversal_out_of_the_fixture_root_is_refused() {
     let _ = fs::remove_file(&escaped);
 }
 
+// Requirements: SAFE-005, SAFE-007
+//   A missing target is an authorization refusal and is never ignored.
+// Evidence: a_missing_target_is_refused_rather_than_ignored
 #[test]
 fn a_missing_target_is_refused_rather_than_ignored() {
     let sandbox = Sandbox::new("missing");
@@ -1110,6 +1182,9 @@ fn a_missing_target_is_refused_rather_than_ignored() {
     assert!(matches!(refusal, Refusal::TargetUnresolvable { .. }));
 }
 
+// Requirements: SAFE-001, SAFE-007
+//   A directory cannot be accepted as a disposable fixture target.
+// Evidence: a_directory_is_refused
 #[test]
 fn a_directory_is_refused() {
     let sandbox = Sandbox::new("directory");
@@ -1119,6 +1194,9 @@ fn a_directory_is_refused() {
     assert!(matches!(refusal, Refusal::TargetNotRegularFile { .. }));
 }
 
+// Requirements: SAFE-005, SAFE-007
+//   An ungenerated file beneath the fixture root is refused.
+// Evidence: an_ungenerated_file_inside_the_root_is_refused
 #[test]
 fn an_ungenerated_file_inside_the_root_is_refused() {
     // The decisive property: being in the right directory is not enough. Only
@@ -1133,6 +1211,9 @@ fn an_ungenerated_file_inside_the_root_is_refused() {
     assert!(matches!(refusal, Refusal::TargetNotGenerated { .. }));
 }
 
+// Requirements: SAFE-005, SAFE-007
+//   A generated fixture whose bytes changed is refused.
+// Evidence: a_modified_fixture_is_refused
 #[test]
 fn a_modified_fixture_is_refused() {
     let sandbox = Sandbox::new("modified");
@@ -1147,6 +1228,9 @@ fn a_modified_fixture_is_refused() {
     assert!(matches!(refusal, Refusal::TargetNotGenerated { .. }));
 }
 
+// Requirements: SAFE-005, SAFE-007
+//   One invalid target refuses the entire authorization request.
+// Evidence: one_bad_target_refuses_the_whole_request
 #[test]
 fn one_bad_target_refuses_the_whole_request() {
     // Partial authorization would be worse than none: the caller would have a
@@ -1162,6 +1246,9 @@ fn one_bad_target_refuses_the_whole_request() {
     assert!(matches!(refusal, Refusal::TargetNotGenerated { .. }));
 }
 
+// Requirements: SAFE-007
+//   Every current generated fixture can satisfy all three factors in the unprivileged harness.
+// Evidence: every_generated_fixture_authorizes
 #[test]
 fn every_generated_fixture_authorizes() {
     let sandbox = Sandbox::new("all");
@@ -1184,6 +1271,9 @@ fn every_generated_fixture_authorizes() {
     assert_eq!(authorization.targets().len(), targets.len());
 }
 
+// Requirements: SAFE-001, SAFE-007
+//   Unix refuses a symlink even when it resolves to a generated fixture.
+// Evidence: a_symlink_is_refused_even_when_it_points_at_a_fixture
 #[cfg(unix)]
 #[test]
 fn a_symlink_is_refused_even_when_it_points_at_a_fixture() {
@@ -1201,6 +1291,9 @@ fn a_symlink_is_refused_even_when_it_points_at_a_fixture() {
     assert!(matches!(refusal, Refusal::TargetNotRegularFile { .. }));
 }
 
+// Requirements: UI-010
+//   Interlock refusal messages identify an actionable next step.
+// Evidence: refusals_say_what_to_do_next
 #[test]
 fn refusals_say_what_to_do_next() {
     // UI-010's standard applied to the runner: a refusal a developer cannot act
@@ -1226,6 +1319,9 @@ fn refusals_say_what_to_do_next() {
     assert!(token_refusal.to_string().contains("MANIFEST"));
 }
 
+// Requirements: SAFE-007
+//   The authorization witness cannot be constructed outside the interlock module.
+// Evidence: authorization_cannot_be_forged_outside_this_module
 #[test]
 fn authorization_cannot_be_forged_outside_this_module() {
     // A compile-time property stated as a comment because it cannot be a test:
@@ -1243,6 +1339,9 @@ fn authorization_cannot_be_forged_outside_this_module() {
     assert_eq!(takes_proof(&authorization), 1);
 }
 
+// Requirements: SAFE-005, SAFE-007
+//   A missing fixture root is an authorization refusal.
+// Evidence: the_fixture_root_must_exist
 #[test]
 fn the_fixture_root_must_exist() {
     let sandbox = Sandbox::new("no-root");
@@ -1257,6 +1356,9 @@ fn the_fixture_root_must_exist() {
     assert!(matches!(refusal, Refusal::ManifestUnreadable(_)));
 }
 
+// Requirements: SAFE-005, SAFE-007
+//   A forged manifest cannot expand the compiled fixture catalogue.
+// Evidence: a_forged_manifest_cannot_authorize_a_file_the_generator_never_produced
 #[test]
 fn a_forged_manifest_cannot_authorize_a_file_the_generator_never_produced() {
     // The defect a project review found, reproduced as a test. Previously the
@@ -1293,6 +1395,9 @@ fn a_forged_manifest_cannot_authorize_a_file_the_generator_never_produced() {
     assert!(matches!(refusal, Refusal::TokenMismatch), "{refusal}");
 }
 
+// Requirements: SAFE-005, SAFE-007
+//   A genuine fixture at the wrong catalogue name is refused.
+// Evidence: a_real_fixture_under_the_wrong_name_is_refused
 #[test]
 fn a_real_fixture_under_the_wrong_name_is_refused() {
     // Membership by digest alone was too weak: any file passed so long as some
@@ -1312,6 +1417,9 @@ fn a_real_fixture_under_the_wrong_name_is_refused() {
     );
 }
 
+// Requirements: SAFE-005, SAFE-007
+//   A fixture name cannot authorize bytes generated for a different fixture.
+// Evidence: a_fixture_whose_bytes_belong_to_a_different_fixture_is_refused
 #[test]
 fn a_fixture_whose_bytes_belong_to_a_different_fixture_is_refused() {
     // The other half of the same defect: right directory, right catalogue name,
@@ -1329,6 +1437,9 @@ fn a_fixture_whose_bytes_belong_to_a_different_fixture_is_refused() {
     );
 }
 
+// Requirements: SAFE-001, SAFE-005, SAFE-007
+//   A fixture hard-linked to an outside file is refused because the target has another name.
+// Evidence: a_hard_link_to_a_file_outside_the_root_is_refused
 #[test]
 fn a_hard_link_to_a_file_outside_the_root_is_refused() {
     // F-03, and the reason this test is not `#[cfg(unix)]` any more: until
@@ -1384,6 +1495,9 @@ fn a_hard_link_to_a_file_outside_the_root_is_refused() {
     drop(authorization);
 }
 
+// Requirements: SAFE-005, SAFE-007
+//   A hard link shared between two fixture names is refused.
+// Evidence: a_hard_link_between_two_fixture_names_is_refused
 #[test]
 fn a_hard_link_between_two_fixture_names_is_refused() {
     // The narrower in-root case the previous version of this test covered.
@@ -1410,6 +1524,9 @@ fn a_hard_link_between_two_fixture_names_is_refused() {
 
 use sha2::Digest as _;
 
+// Requirements: SAFE-005, SAFE-007
+//   A copied fixture in a subdirectory is not accepted as its generated location.
+// Evidence: a_fixture_copy_in_a_subdirectory_is_refused
 #[test]
 fn a_fixture_copy_in_a_subdirectory_is_refused() {
     // The hole the first attempt at this fix left open, and which its own new
