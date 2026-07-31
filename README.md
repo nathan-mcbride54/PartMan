@@ -77,8 +77,8 @@ reports status only and never redefines either.
 | Accessibility harness runs | Partial — `cargo xtask tokens` computes UI-001/007/008 from `schemas/design-tokens.json` and gates CI (WP-030 increment 1). It renders nothing, so the keyboard, screen-reader, zoom and reduced-motion halves of UI-008 are untouched |
 
 The three partial rows are tracked as known gaps in
-`docs/traceability/WP-000.md`, `docs/work-packages/WP-010.md`, and
-`docs/traceability/WP-030.md`. They are recorded rather than rounded up: a
+`docs/work-packages/WP-000.md`, `docs/work-packages/WP-010.md`, and
+`docs/work-packages/WP-030.md`. They are recorded rather than rounded up: a
 milestone that exits on a criterion nobody verified is worse than one that exits
 late.
 
@@ -94,7 +94,7 @@ Section 14 of the specification is normative. Current state:
 
 | Package | Scope | Status |
 | --- | --- | --- |
-| WP-000 | Repository, CI, `xtask`, CODEOWNERS, dependency policy | In progress. Lock boundary, licence, fuzz-graph and ownership-inventory gates delivered; action discovery is now a structural YAML parse after three text-based attempts were each defeated, and the Dockerfile scanner behind it fails closed after nine further bypasses were found and made regressions. Ownership is enforced against a change, not only inventoried, and a generated lockfile may travel with the manifest it follows. `unsafe_code = "deny"` is no longer opt-in per crate. `docs/traceability/WP-000.md` is generated from source-local test annotations and typed evidence declarations, anchored to real requirement definitions and numeric specification sections, and cross-checked against live tests, tracked/owned paths, and xtask's parser. Its 31-row hand-written predecessor has a zero-loss migration ledger, and a hand edit fails CI. WP-010 now uses the same generated, zero-loss-checked model; WP-020 and WP-030 remain hand-written, with their package-owned rollout dependency-ready (issue #39) |
+| WP-000 | Repository, CI, `xtask`, CODEOWNERS, dependency policy | In progress. Lock boundary, licence, fuzz-graph and ownership-inventory gates delivered; action discovery is now a structural YAML parse after three text-based attempts were each defeated, and the Dockerfile scanner behind it fails closed after nine further bypasses were found and made regressions. Ownership is enforced against a change, not only inventoried, and a generated lockfile may travel with the manifest it follows. `unsafe_code = "deny"` is no longer opt-in per crate. `docs/traceability/WP-000.md` is generated from source-local test annotations and typed evidence declarations, anchored to real requirement definitions and numeric specification sections, and cross-checked against live tests, tracked/owned paths, and xtask's parser. Its 31-row hand-written predecessor has a zero-loss migration ledger, and a hand edit fails CI. WP-010 and WP-030 now use the same generated, zero-loss-checked model; WP-020 is the only hand-maintained document left, with its package-owned conversion dependency-ready (issue #39) |
 | ADR-C1 | Canonical encoding and hash strategy | Accepted |
 | ADR-C2 … ADR-C6 | Hashed-artifact body/envelope split, identity strength, provenance shape, aggregation vocabulary, canonical set ordering and depth | Accepted |
 | WP-010 | Canonical domain model, schema versioning, encoding and hashing | In progress. SI-31 is resolved by the delivered schema-set boundary, and traceability is generated with a zero-loss migration ledger; increment 3 remains blocked by the authoritative issue register. See `docs/work-packages/WP-010.md` |
