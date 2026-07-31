@@ -5,8 +5,8 @@ use std::process::ExitCode;
 use std::str::FromStr;
 
 use partman_slint_feasibility::{
-    CheckError, GraphPhase, load_or_collect_metadata, verify_environment_inventory, verify_graph,
-    verify_source,
+    CheckError, GraphConfiguration, GraphPhase, load_or_collect_metadata,
+    verify_environment_inventory, verify_graph, verify_source,
 };
 
 fn main() -> ExitCode {
@@ -32,14 +32,16 @@ struct Options {
     metadata: Option<PathBuf>,
     manifest: Option<PathBuf>,
     phase: GraphPhase,
+    configuration: GraphConfiguration,
 }
 
 fn run(arguments: Vec<std::ffi::OsString>) -> Result<(), CheckError> {
     let options = parse_arguments(arguments)?;
-    let metadata = load_or_collect_metadata(
+    let (metadata, target) = load_or_collect_metadata(
         options.metadata.as_deref(),
         options.manifest.as_deref(),
         options.phase,
+        options.configuration,
     )?;
     if matches!(options.command, Command::Source | Command::All) {
         let report = verify_source(&metadata)?;
@@ -51,15 +53,31 @@ fn run(arguments: Vec<std::ffi::OsString>) -> Result<(), CheckError> {
             report.file_count
         );
     }
+    let graph_report = if matches!(
+        options.command,
+        Command::Graph | Command::EnvironmentInventory | Command::All
+    ) {
+        Some(verify_graph(
+            &metadata,
+            &target,
+            options.phase,
+            options.configuration,
+        )?)
+    } else {
+        None
+    };
     if matches!(options.command, Command::Graph | Command::All) {
-        let report = verify_graph(&metadata, options.phase)?;
+        let report = graph_report
+            .as_ref()
+            .ok_or_else(|| CheckError::new("graph report was not produced"))?;
         println!(
-            "graph verified: phase={} host-packages={} target-packages={} final-runtime-proven={} conditional-edges-conservatively-included={} lockfile-only-advisories={:?}",
+            "graph verified: phase={} configuration={} host-packages={} target-packages={} final-runtime-proven={} evaluated-target-predicates={} lockfile-only-advisories={:?}",
             report.phase,
+            report.configuration,
             report.host_package_count,
             report.target_package_count,
             report.final_runtime_proven,
-            report.conservatively_included_predicates,
+            report.evaluated_target_predicates,
             report.lockfile_only_advisories
         );
     }
@@ -67,7 +85,10 @@ fn run(arguments: Vec<std::ffi::OsString>) -> Result<(), CheckError> {
         options.command,
         Command::EnvironmentInventory | Command::All
     ) {
-        let report = verify_environment_inventory(&metadata)?;
+        let graph = graph_report
+            .as_ref()
+            .ok_or_else(|| CheckError::new("environment inventory has no graph scope"))?;
+        let report = verify_environment_inventory(&metadata, &graph.reachable_slint_packages)?;
         println!(
             "environment inventory verified: resolved-names={} rejected-rerun-names={} upstream-controlled-names={}",
             report.resolved_names.len(),
@@ -94,12 +115,23 @@ fn parse_arguments(arguments: Vec<std::ffi::OsString>) -> Result<Options, CheckE
     let mut metadata = None;
     let mut manifest = None;
     let mut phase = None;
+    let mut configuration = None;
     while let Some(option) = arguments.next() {
         let option = option.into_string().map_err(|_| usage())?;
         let value = arguments.next().ok_or_else(usage)?;
         match option.as_str() {
             "--metadata" => set_once(&mut metadata, PathBuf::from(value), "--metadata")?,
             "--manifest" => set_once(&mut manifest, PathBuf::from(value), "--manifest")?,
+            "--configuration" => {
+                let value = value
+                    .into_string()
+                    .map_err(|_| CheckError::new("--configuration is not Unicode"))?;
+                set_once(
+                    &mut configuration,
+                    GraphConfiguration::from_str(&value)?,
+                    "--configuration",
+                )?;
+            }
             "--phase" => {
                 let value = value
                     .into_string()
@@ -110,6 +142,22 @@ fn parse_arguments(arguments: Vec<std::ffi::OsString>) -> Result<Options, CheckE
         }
     }
     let phase = phase.ok_or_else(|| CheckError::new("--phase is required"))?;
+    let configuration =
+        configuration.ok_or_else(|| CheckError::new("--configuration is required"))?;
+    match (phase, configuration) {
+        (GraphPhase::CompilerOnly, GraphConfiguration::CompilerOnly)
+        | (
+            GraphPhase::FinalRuntime,
+            GraphConfiguration::RendererFemtoVg
+            | GraphConfiguration::RendererSoftware
+            | GraphConfiguration::ComparisonCombined,
+        ) => {}
+        _ => {
+            return Err(CheckError::new(format!(
+                "graph phase {phase} is incompatible with configuration {configuration}"
+            )));
+        }
+    }
     match (&metadata, &manifest) {
         (Some(_), None) | (None, Some(_)) => {}
         _ => return Err(usage()),
@@ -119,6 +167,7 @@ fn parse_arguments(arguments: Vec<std::ffi::OsString>) -> Result<Options, CheckE
         metadata,
         manifest,
         phase,
+        configuration,
     })
 }
 
@@ -131,7 +180,7 @@ fn set_once<T>(slot: &mut Option<T>, value: T, name: &str) -> Result<(), CheckEr
 
 fn usage() -> CheckError {
     CheckError::new(
-        "usage: partman-slint-feasibility <verify-source|verify-graph|verify-environment-inventory|verify-all> --phase <compiler-only|final-runtime> (--metadata FILE | --manifest ABSOLUTE)",
+        "usage: partman-slint-feasibility <verify-source|verify-graph|verify-environment-inventory|verify-all> --phase <compiler-only|final-runtime> --configuration <compiler-only|renderer-femtovg|renderer-software|comparison-combined> (--metadata FILE | --manifest ABSOLUTE)",
     )
 }
 
@@ -149,6 +198,8 @@ mod tests {
                 "verify-all",
                 "--phase",
                 "compiler-only",
+                "--configuration",
+                "compiler-only",
                 "--metadata",
                 "metadata.json",
             ]
@@ -164,6 +215,8 @@ mod tests {
                 "verify-all",
                 "--phase",
                 "compiler-only",
+                "--configuration",
+                "compiler-only",
                 "--metadata",
                 "a",
                 "--manifest",
@@ -173,12 +226,31 @@ mod tests {
                 "verify-all",
                 "--phase",
                 "compiler-only",
+                "--configuration",
+                "compiler-only",
                 "--cargo",
                 "C:/substituted/cargo.exe",
                 "--manifest",
                 "C:/workspace/Cargo.toml",
             ],
-            vec!["unknown", "--phase", "compiler-only", "--metadata", "a"],
+            vec![
+                "verify-all",
+                "--phase",
+                "final-runtime",
+                "--configuration",
+                "compiler-only",
+                "--metadata",
+                "a",
+            ],
+            vec![
+                "unknown",
+                "--phase",
+                "compiler-only",
+                "--configuration",
+                "compiler-only",
+                "--metadata",
+                "a",
+            ],
         ] {
             assert!(
                 parse_arguments(rejected.into_iter().map(std::ffi::OsString::from).collect())

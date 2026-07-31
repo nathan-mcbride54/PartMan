@@ -15,7 +15,8 @@ use std::rc::Rc;
 
 use i_slint_compiler::diagnostics::BuildDiagnostics;
 use i_slint_compiler::generator::OutputFormat;
-use i_slint_compiler::parser::{self, SyntaxKind, SyntaxNode};
+use i_slint_compiler::object_tree::{Document, recurse_elem_including_sub_components};
+use i_slint_compiler::parser::{self, NodeOrToken, SyntaxKind, SyntaxNode, SyntaxToken};
 use i_slint_compiler::{
     CompilerConfiguration, ComponentSelection, DefaultTranslationContext, EmbedResourcesKind,
 };
@@ -86,6 +87,18 @@ pub enum ForbiddenSyntax {
     ImageUrl,
     /// A file-only import, which Slint interprets as a custom-font import.
     FontImport,
+    /// Direct access to the generated raw palette outside its generated file.
+    RawGeneratedPalette,
+    /// Slint's upstream palette singleton.
+    UpstreamPalette,
+    /// Slint's upstream style-metrics singleton.
+    UpstreamStyleMetrics,
+    /// The general-purpose standard widget library.
+    StandardWidgets,
+    /// A style-sensitive Slint builtin outside the generated wrapper contract.
+    UngovernedStyleBuiltin,
+    /// PartMan-authored display text embedded in application markup.
+    EmbeddedDisplayString,
 }
 
 impl fmt::Display for ForbiddenSyntax {
@@ -94,6 +107,14 @@ impl fmt::Display for ForbiddenSyntax {
             Self::Translation => "@tr translation",
             Self::ImageUrl => "@image-url resource",
             Self::FontImport => "custom-font import",
+            Self::RawGeneratedPalette => "raw generated-palette access",
+            Self::UpstreamPalette => "upstream Palette access",
+            Self::UpstreamStyleMetrics => "upstream StyleMetrics access",
+            Self::StandardWidgets => "standard widget import",
+            Self::UngovernedStyleBuiltin => {
+                "style-sensitive builtin outside the generated wrapper contract"
+            }
+            Self::EmbeddedDisplayString => "PartMan display string embedded in Slint markup",
         })
     }
 }
@@ -130,6 +151,15 @@ pub enum AotError {
     Diagnostics(String),
     /// The compiler resolved a style other than the pinned Fluent style.
     Style(String),
+    /// A compiler-sensitive property was not explicitly authored.
+    ImplicitStyleBinding {
+        /// PartMan-owned source containing the element.
+        path: PathBuf,
+        /// Slint builtin whose default would otherwise be injected.
+        element: &'static str,
+        /// Required explicit property.
+        property: &'static str,
+    },
     /// The compiler discovered a file or in-memory resource.
     Resources(Vec<String>),
     /// Loaded-file reporting disagreed with the controlled import callback.
@@ -168,6 +198,15 @@ impl fmt::Display for AotError {
                 write!(formatter, "Slint compiler emitted diagnostics:\n{report}")
             }
             Self::Style(style) => write!(formatter, "Slint resolved unpinned style {style:?}"),
+            Self::ImplicitStyleBinding {
+                path,
+                element,
+                property,
+            } => write!(
+                formatter,
+                "{} has {element} without an explicit {property} binding",
+                path.display()
+            ),
             Self::Resources(resources) => {
                 write!(
                     formatter,
@@ -198,6 +237,7 @@ impl std::error::Error for AotError {
             | Self::Policy { .. }
             | Self::Diagnostics(_)
             | Self::Style(_)
+            | Self::ImplicitStyleBinding { .. }
             | Self::Resources(_)
             | Self::ImportAccounting { .. } => None,
         }
@@ -219,7 +259,7 @@ pub fn compile_to_memory(request: CompileRequest<'_>) -> Result<CompiledUi, AotE
     let mut diagnostics = BuildDiagnostics::default();
     let root_syntax = parser::parse_file(&paths.root, &mut diagnostics)
         .ok_or_else(|| AotError::Diagnostics(diagnostics.to_string_vec().join("\n")))?;
-    reject_forbidden_syntax(&root_syntax, &paths.root)?;
+    reject_forbidden_syntax(&root_syntax, &paths.root, false)?;
 
     let import_state = Rc::new(RefCell::new(ImportState::default()));
     let callback = controlled_import_callback(paths.clone(), Rc::clone(&import_state));
@@ -239,6 +279,7 @@ pub fn compile_to_memory(request: CompileRequest<'_>) -> Result<CompiledUi, AotE
     if loader.resolved_style != "fluent" {
         return Err(AotError::Style(loader.resolved_style));
     }
+    verify_explicit_style_bindings(&document, &paths.root)?;
 
     let (resource_files, resource_labels) = collect_resources(&document, &loader)?;
     if !resource_labels.is_empty() {
@@ -457,7 +498,9 @@ fn load_controlled_import(
     };
     let mut policy_diagnostics = BuildDiagnostics::default();
     let syntax = parser::parse(source.clone(), Some(&canonical), &mut policy_diagnostics);
-    if let Err(error) = reject_forbidden_syntax(&syntax, &canonical) {
+    if let Err(error) =
+        reject_forbidden_syntax(&syntax, &canonical, canonical == paths.token_contract)
+    {
         state.borrow_mut().policy_error = Some(error);
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
@@ -469,7 +512,11 @@ fn load_controlled_import(
     Ok(source)
 }
 
-fn reject_forbidden_syntax(syntax: &SyntaxNode, path: &Path) -> Result<(), AotError> {
+fn reject_forbidden_syntax(
+    syntax: &SyntaxNode,
+    path: &Path,
+    is_generated_token_contract: bool,
+) -> Result<(), AotError> {
     for node in std::iter::once(syntax.clone()).chain(syntax.descendants()) {
         let forbidden = match node.kind() {
             SyntaxKind::AtTr => Some(ForbiddenSyntax::Translation),
@@ -481,6 +528,12 @@ fn reject_forbidden_syntax(syntax: &SyntaxNode, path: &Path) -> Result<(), AotEr
             {
                 Some(ForbiddenSyntax::FontImport)
             }
+            SyntaxKind::ImportSpecifier
+                if node.text().to_string().contains("\"std-widgets.slint\"") =>
+            {
+                (!is_generated_token_contract || !is_approved_theme_import(&node))
+                    .then_some(ForbiddenSyntax::StandardWidgets)
+            }
             _ => None,
         };
         if let Some(syntax) = forbidden {
@@ -490,7 +543,230 @@ fn reject_forbidden_syntax(syntax: &SyntaxNode, path: &Path) -> Result<(), AotEr
             });
         }
     }
+    let mut palette_color_scheme_reads = 0;
+    reject_forbidden_identifiers(
+        syntax,
+        path,
+        is_generated_token_contract,
+        &mut palette_color_scheme_reads,
+    )?;
+    if is_generated_token_contract && palette_color_scheme_reads != 2 {
+        return Err(AotError::Policy {
+            path: path.to_path_buf(),
+            syntax: ForbiddenSyntax::UpstreamPalette,
+        });
+    }
     Ok(())
+}
+
+fn reject_forbidden_identifiers(
+    node: &SyntaxNode,
+    path: &Path,
+    is_generated_token_contract: bool,
+    palette_color_scheme_reads: &mut usize,
+) -> Result<(), AotError> {
+    for child in node.children_with_tokens() {
+        match child {
+            NodeOrToken::Node(child) => {
+                reject_forbidden_identifiers(
+                    &child,
+                    path,
+                    is_generated_token_contract,
+                    palette_color_scheme_reads,
+                )?;
+            }
+            NodeOrToken::Token(token) if token.kind() == SyntaxKind::Identifier => {
+                let forbidden = match token.text() {
+                    "PartmanRawGeneratedPalette" if !is_generated_token_contract => {
+                        Some(ForbiddenSyntax::RawGeneratedPalette)
+                    }
+                    "Palette"
+                        if is_generated_token_contract && is_palette_import_identifier(&token) =>
+                    {
+                        None
+                    }
+                    "Palette"
+                        if is_generated_token_contract
+                            && is_approved_palette_color_scheme_read(&token) =>
+                    {
+                        *palette_color_scheme_reads += 1;
+                        None
+                    }
+                    "Palette" => Some(ForbiddenSyntax::UpstreamPalette),
+                    "StyleMetrics" => Some(ForbiddenSyntax::UpstreamStyleMetrics),
+                    "Window" | "Dialog" | "Text" | "StyledText" | "TextInput"
+                        if !is_generated_token_contract =>
+                    {
+                        Some(ForbiddenSyntax::UngovernedStyleBuiltin)
+                    }
+                    _ => None,
+                };
+                if let Some(syntax) = forbidden {
+                    return Err(AotError::Policy {
+                        path: path.to_path_buf(),
+                        syntax,
+                    });
+                }
+            }
+            NodeOrToken::Token(token)
+                if token.kind() == SyntaxKind::StringLiteral
+                    && !is_generated_token_contract
+                    && !is_approved_application_string(&token) =>
+            {
+                return Err(AotError::Policy {
+                    path: path.to_path_buf(),
+                    syntax: ForbiddenSyntax::EmbeddedDisplayString,
+                });
+            }
+            NodeOrToken::Token(_) => {}
+        }
+    }
+    Ok(())
+}
+
+fn is_approved_application_string(token: &SyntaxToken) -> bool {
+    let is_import = token
+        .parent_ancestors()
+        .any(|ancestor| ancestor.kind() == SyntaxKind::ImportSpecifier);
+    is_import || matches!(token.text(), "\" \"" | "\"\\n\"")
+}
+
+fn is_approved_theme_import(node: &SyntaxNode) -> bool {
+    let compact = node
+        .text()
+        .to_string()
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect::<String>();
+    matches!(
+        compact.as_str(),
+        "import{Palette}from\"std-widgets.slint\";"
+            | "{Palette}from\"std-widgets.slint\";"
+            | "{Palette}from\"std-widgets.slint\""
+    )
+}
+
+fn is_palette_import_identifier(token: &SyntaxToken) -> bool {
+    token
+        .parent_ancestors()
+        .any(|ancestor| ancestor.kind() == SyntaxKind::ImportIdentifierList)
+}
+
+fn is_approved_palette_color_scheme_read(token: &SyntaxToken) -> bool {
+    let in_adapter = token.parent_ancestors().any(|ancestor| {
+        ancestor.kind() == SyntaxKind::Component
+            && ancestor
+                .text()
+                .to_string()
+                .contains("PartmanGeneratedThemeAdapter")
+    });
+    if !in_adapter {
+        return false;
+    }
+    let Some(dot) = next_non_trivia_token(token.clone()) else {
+        return false;
+    };
+    let Some(member) = next_non_trivia_token(dot.clone()) else {
+        return false;
+    };
+    dot.kind() == SyntaxKind::Dot
+        && member.kind() == SyntaxKind::Identifier
+        && member.text() == "color-scheme"
+}
+
+fn next_non_trivia_token(mut token: SyntaxToken) -> Option<SyntaxToken> {
+    loop {
+        token = token.next_token()?;
+        if !matches!(token.kind(), SyntaxKind::Whitespace | SyntaxKind::Comment) {
+            return Some(token);
+        }
+    }
+}
+
+fn verify_explicit_style_bindings(document: &Document, root_path: &Path) -> Result<(), AotError> {
+    let mut violation = None;
+    for component in document.exported_roots() {
+        if violation.is_some() {
+            break;
+        }
+        recurse_elem_including_sub_components(&component, &(), &mut |element, ()| {
+            if violation.is_some() {
+                return;
+            }
+            let element = element.borrow();
+            let type_name = element
+                .builtin_type()
+                .map(|builtin| builtin.name.clone())
+                .or_else(|| {
+                    element
+                        .native_class()
+                        .map(|native| native.class_name.clone())
+                });
+            let Some(type_name) = type_name else { return };
+            let (name, required): (&'static str, &[&'static str]) = match type_name.as_str() {
+                "Window" | "WindowItem" => ("Window", &["background", "default-font-family"]),
+                "Dialog" => ("Dialog", &["background", "default-font-family"]),
+                "Text" | "SimpleText" | "ComplexText" => (
+                    "Text",
+                    &[
+                        "color",
+                        "font-family",
+                        "font-size",
+                        "font-weight",
+                        "font-italic",
+                        "letter-spacing",
+                        "wrap",
+                        "overflow",
+                        "horizontal-alignment",
+                        "vertical-alignment",
+                    ],
+                ),
+                "StyledText" | "StyledTextItem" => (
+                    "StyledText",
+                    &[
+                        "default-color",
+                        "default-font-family",
+                        "default-font-size",
+                        "horizontal-alignment",
+                        "vertical-alignment",
+                    ],
+                ),
+                "TextInput" => (
+                    "TextInput",
+                    &[
+                        "color",
+                        "selection-background-color",
+                        "selection-foreground-color",
+                        "text-cursor-width",
+                        "font-family",
+                        "font-size",
+                        "font-weight",
+                        "font-italic",
+                        "letter-spacing",
+                        "wrap",
+                        "horizontal-alignment",
+                        "vertical-alignment",
+                    ],
+                ),
+                _ => return,
+            };
+            for property in required {
+                let compiler_supplied = element
+                    .bindings
+                    .get(*property)
+                    .is_some_and(|binding| binding.borrow().span.is_none());
+                if compiler_supplied {
+                    violation = Some(AotError::ImplicitStyleBinding {
+                        path: root_path.to_path_buf(),
+                        element: name,
+                        property,
+                    });
+                    return;
+                }
+            }
+        });
+    }
+    violation.map_or(Ok(()), Err)
 }
 
 /// Construct the fully explicit compiler configuration after re-checking the

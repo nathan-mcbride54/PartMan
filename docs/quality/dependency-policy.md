@@ -161,27 +161,46 @@ and the follow-up audit defeated it by nesting the property under `metadata`:
 the line still read `"license": "MIT OR Apache-2.0"` while the document's root
 `license` was `undefined`. A line cannot tell you where in a document it sits.
 
-## Off-main Slint 1.17.1 compiler boundary
+## Off-main Slint 1.17.1 runtime and compiler boundary
 
-ADR-0009's feasibility branch now has a **compiler-only** dependency phase. It
-is not Slint adoption and it is not the final runtime graph. `apps/desktop` has
-no production dependency, includes no generated Slint Rust, links no renderer,
-and creates no native window. Its exact build and fixture dependencies are:
+ADR-0009's draft feasibility branch now contains the final candidate dependency
+shape. It remains off-main evaluation code, not Slint adoption or a production
+desktop. Its exact direct boundary is:
 
 ```toml
+[features]
+default = ["renderer-femtovg"]
+renderer-femtovg = ["slint/renderer-femtovg"]
+renderer-software = ["slint/renderer-software"]
+comparison-combined = ["renderer-femtovg", "renderer-software"]
+
+[dependencies]
+slint = { version = "=1.17.1", default-features = false, features = ["std", "backend-winit", "accessibility", "compat-1-2"] }
+unicode-segmentation = "=1.13.3"
+
+[build-dependencies]
 i-slint-compiler = { version = "=1.17.1", default-features = false, features = ["display-diagnostics", "rust"] }
 spin_on = "=0.1.1"
 ```
 
-The current locked build-host graph contains two Slint-family packages:
-`i-slint-compiler 1.17.1` and `i-slint-common 1.17.1`. It contains no
-`slint-build`, public `slint`, runtime backend, renderer, compiler
-`software-renderer`, compiler `bundle-translations`, or host `image` codec
-uplift. The structured metadata judge excludes development edges, follows
-build and proc-macro realm transitions, conservatively includes conditional
-edges, and refuses to turn this result into a final-runtime pass. That later
-graph still has to prove the complete Winit, accessibility, renderer, image,
-SVG and platform closures separately for every target.
+The structured resolver-3 judge keeps build/proc-macro and target realms
+separate and evaluates native target predicates. The FemtoVG configuration has
+114 host and 196 target packages across 32 evaluated predicates; software has
+110/188 across 24; the comparison control has 114/199 across 33. Each single-
+renderer graph proves exact Winit/accessibility plus one renderer and is marked
+final-runtime. The combined graph is deliberately non-shipping and cannot
+produce that proof. Reachable LinuxKMS, Qt, testing, live preview, MCP, Skia,
+interpreter, system-testing, or unstable runtime features fail the judge.
+
+The runtime boundary requires `slint`, `slint-macros`, `i-slint-common`,
+`i-slint-core`, `i-slint-core-macros`, `i-slint-backend-selector`,
+`i-slint-backend-winit`, and exactly one of `i-slint-renderer-femtovg` or
+`i-slint-renderer-software`, all at 1.17.1. Target `image 0.25.10` is limited to
+JPEG/PNG, and the complete target `resvg 0.47.0` feature closure is pinned. The
+host graph contains no `slint-build`; the owned AOT adapter keeps compiler
+`software-renderer`, `bundle-translations`, default image codecs, and host image
+uplift absent. Metadata mutations cover realm, feature, package, target, and
+forbidden-reachability drift.
 
 `cargo audit` is lockfile-wide and therefore reports `RUSTSEC-2025-0141` for
 unmaintained `bincode 2.0.1`, even though the compiler build does not activate
@@ -193,15 +212,15 @@ separate `bincode = ["dep:bincode"]` feature is enabled. The structured graph
 judge requires that exact package/version/declaration/table, rejects the
 `bincode` feature or any other declarer reachable from **any workspace member**,
 and reports the advisory as lockfile-only. Only after that all-member replay
-may the root `cargo audit` invocation ignore this one ID. Cargo-deny's
-graph-aware advisory check remains clean and the separate fuzz audit receives
-no exception. Any package, feature, edge, or version drift removes the proof
+may the root `cargo audit` invocation ignore this one ID. The separate fuzz
+audit receives no exception. Any package, feature, edge, or version drift removes the proof
 and forces requalification; removing the optional lock entry or upgrading to a
 graph without the warning is the preferred resolution. Changes to the advisory
 record itself remain an explicit supply-chain review obligation rather than a
 property this metadata judge can infer.
 
-Both Slint-family packages offer
+All ten Slint-family packages reachable from the two shipping candidates or AOT
+host graph offer
 `GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR
 LicenseRef-Slint-Software-3.0`. The feasibility work elects only
 `LicenseRef-Slint-Royalty-free-2.0`, through package-and-version-scoped
@@ -234,8 +253,8 @@ and Rust generator each retain a fail-closed guard at their boundary.
 creates it for upstream compilation, while the full-prefix guard still refuses
 an ambient downstream value.
 
-`cargo xtask slint-controls` is the source, licence, environment and
-compiler-only graph replay. `cargo xtask desktop` adds the real AOT build check;
+`cargo xtask slint-controls` is the source, licence, environment, and three-
+configuration graph replay. `cargo xtask desktop` adds the real AOT build check;
 Tier 1 executes the hostile compiler fixtures. All are unprivileged and use
 repository, Cargo-registry, Cargo-metadata and ignored build-output paths only.
 The replay CLI exposes no Cargo-path argument: live collection preserves the
@@ -245,12 +264,34 @@ release 1.96.0, full commit
 `30a34c6821b57de0aaec83a901aca39f88f6778c`, and commit date 2026-05-25 before
 it runs fixed, locked, offline metadata arguments.
 
-Residual limitations are intentional and blocking: no public runtime feature
-graph, renderer, platform accessibility backend, generated-code type check,
-offline three-OS rebuild, distribution attribution, SBOM, installer or package
-has been qualified. Every Slint re-pin requires a source/API diff and fresh
-hashes; inability to preserve this smaller graph fails the evaluation rather
-than permitting `slint-build` as a fallback.
+### Current hard failure, 2026-07-31
+
+The source and exact runtime-graph replays pass, and GitHub's release API plus
+crates.io both identify 1.17.1 as the latest stable Slint release. The complete
+`cargo xtask supply-chain` gate does **not** pass:
+
+- `RUSTSEC-2026-0206` marks reachable `rustybuzz 0.20.1` unmaintained, with no
+  safe upgrade. It arrives through `resvg 0.47.0`/`usvg`.
+- `RUSTSEC-2026-0192` marks reachable `ttf-parser 0.25.1` unmaintained, also
+  with no safe upgrade. It is used through both text and SVG paths.
+- Cargo-deny's all-features licence audit reaches inactive
+  `i-slint-renderer-skia 1.17.1`, which intentionally has no royalty-free
+  exception because every candidate shipping graph forbids it.
+- The native Winit clipboard closure reaches `clipboard-win 5.4.1` and
+  `error-code 3.3.2`, whose BSL-1.0 licence is not in PartMan's allow-list and
+  is outside WP-030's authority to change.
+
+No advisory ignore, global licence expansion, Skia exception, or supply-chain
+warning downgrade was added. Under ADR-0009 any failed hard gate rejects the
+candidate; these are therefore decision evidence, not waived residual risk.
+Upstream issue #8805 still tracks making SVG optional, so the current candidate
+cannot remove the affected closure through supported Slint features.
+
+Remaining uncollected qualification includes interactive renderer/platform
+evidence, accessibility trees and assistive-technology transcripts, clean-cache
+offline builds on all three operating-system families, attribution inside a
+distribution, SBOMs, installers, and packages. Every Slint re-pin requires a
+source/API diff and fresh hashes; `slint-build` is never a fallback.
 
 ## Known gap: a duplicate major version will not fail CI
 

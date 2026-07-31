@@ -57,7 +57,7 @@ enum Access {
     CargoRerunInput,
 }
 
-/// Verify exact environment accesses in every currently resolved Slint source package.
+/// Verify exact environment accesses in every graph-reachable Slint source package.
 ///
 /// Production Rust source includes package-root modules and build scripts but
 /// excludes `tests/`, `benches/`, and `examples/`. Actual environment accesses
@@ -74,6 +74,7 @@ enum Access {
 /// inventoried access that disappeared.
 pub fn verify_environment_inventory(
     metadata: &CargoMetadata,
+    reachable_slint_packages: &BTreeSet<String>,
 ) -> Result<EnvironmentInventory, CheckError> {
     let inventory = parse_inventory(ENVIRONMENT_INVENTORY.as_bytes())?;
     if inventory
@@ -90,20 +91,28 @@ pub fn verify_environment_inventory(
         .iter()
         .map(|entry| (entry.name.as_str(), entry))
         .collect::<BTreeMap<_, _>>();
+    if reachable_slint_packages.is_empty()
+        || reachable_slint_packages
+            .iter()
+            .any(|name| !is_slint_source_package(name))
+    {
+        return Err(CheckError::new(
+            "environment inventory received an empty or non-Slint graph scope",
+        ));
+    }
     let mut resolved_packages = BTreeSet::new();
     let mut actual = BTreeSet::new();
-    for package in metadata.packages.values() {
-        if metadata.nodes.contains_key(&package.id) && is_slint_source_package(&package.name) {
-            if package.version != "1.17.1" {
-                return Err(CheckError::new(format!(
-                    "resolved Slint source package {} has unreviewed version {}",
-                    package.name, package.version
-                )));
-            }
-            resolved_packages.insert(package.name.clone());
-            let root = package_root(package)?;
-            actual.extend(scan_package(&package.name, root)?);
+    for name in reachable_slint_packages {
+        let package = metadata.exact_package(name)?;
+        if !metadata.nodes.contains_key(&package.id) || package.version != "1.17.1" {
+            return Err(CheckError::new(format!(
+                "graph-reachable Slint source package {} is unresolved or has unreviewed version {}",
+                package.name, package.version
+            )));
         }
+        resolved_packages.insert(package.name.clone());
+        let root = package_root(package)?;
+        actual.extend(scan_package(&package.name, root)?);
     }
 
     let expected = inventory

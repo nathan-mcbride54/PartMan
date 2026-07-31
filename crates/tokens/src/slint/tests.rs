@@ -317,10 +317,10 @@ fn generated_function_api_is_explicitly_public_and_pure() {
 }
 
 // Requirements: UI-001, UI-003, UI-007, UI-008, UI-011, UI-013, PLAN-004
-//   The generated contract carries every version-2 token family but no widget palette, style metric, asset, translation, or English display-label channel
-// Evidence: generated_contract_is_complete_but_renderer_and_catalogue_neutral
+//   The generated contract carries every version-2 token family and the complete style-sensitive builtin wrappers, but no upstream palette brush, style metric, asset, translation, or English display-label channel
+// Evidence: generated_contract_is_complete_and_catalogue_neutral
 #[test]
-fn generated_contract_is_complete_but_renderer_and_catalogue_neutral() {
+fn generated_contract_is_complete_and_catalogue_neutral() {
     let output = render(&repository_tokens()).expect("clean contract renders");
     for declaration in [
         "PartmanMeasurementUnits",
@@ -334,32 +334,70 @@ fn generated_contract_is_complete_but_renderer_and_catalogue_neutral() {
         "PartmanCursorSpec",
         "PartmanDistinctRolePair",
         "PartmanRawGeneratedPalette",
+        "PartmanGeneratedThemeAdapter",
         "PartmanGeneratedMetrics",
         "PartmanGeneratedContrast",
+        "PartmanWindow",
+        "PartmanText",
+        "PartmanStyledText",
+        "PartmanTextInput",
+        "PartmanDialog",
     ] {
         assert!(output.contains(declaration), "missing {declaration}");
     }
-    for forbidden in [
-        "StyleMetrics",
-        "std-widgets.slint",
-        "@image-url",
-        "@font-face",
-        "@tr(",
-        "import {",
-    ] {
+    for forbidden in ["StyleMetrics", "@image-url", "@font-face", "@tr("] {
         assert!(!output.contains(forbidden), "found forbidden {forbidden}");
     }
-    assert!(
-        output.match_indices("Palette.").all(|(index, _)| {
-            index > 0 && output.as_bytes()[index - 1].is_ascii_alphanumeric()
-        }),
-        "a bare upstream Palette member access is forbidden"
+    assert_eq!(
+        output
+            .matches("import { Palette } from \"std-widgets.slint\";")
+            .count(),
+        1
+    );
+    assert_eq!(
+        output.matches("Palette.color-scheme").count(),
+        2,
+        "the adapter may read only the system color scheme"
     );
     let quotes = output.matches('"').count();
     assert_eq!(
-        quotes, 4,
-        "only the two version metadata strings are allowed"
+        quotes, 6,
+        "only version metadata and the fixed widget-library import are allowed"
     );
+}
+
+// Requirements: UI-008
+//   Generated wrappers explicitly bind every compiler-style-sensitive Window, text, input, and Dialog property to a typed token or the documented platform-font-family strategy
+// Evidence: generated_style_wrappers_are_complete
+#[test]
+fn generated_style_wrappers_are_complete() {
+    let output = render(&repository_tokens()).expect("clean contract renders");
+    for binding in [
+        "background: PartmanGeneratedContrast.text-colors",
+        "default-font-family: PartmanGeneratedMetrics.platform-font-family",
+        "color: PartmanGeneratedContrast.text-colors",
+        "font-family: PartmanGeneratedMetrics.platform-font-family",
+        "font-size: root.resolved-style.font-size",
+        "font-weight: root.resolved-style.font-weight",
+        "font-italic: root.resolved-style.font-italic",
+        "letter-spacing: root.resolved-style.letter-spacing",
+        "wrap: root.resolved-flow.wrap",
+        "overflow: root.resolved-flow.overflow",
+        "horizontal-alignment: root.resolved-flow.horizontal-alignment",
+        "vertical-alignment: root.resolved-flow.vertical-alignment",
+        "default-color: PartmanGeneratedContrast.text-colors",
+        "default-font-size: root.resolved-style.font-size",
+        "selection-background-color: root.resolved-selection.background",
+        "selection-foreground-color: root.resolved-selection.foreground",
+        "text-cursor-width: PartmanGeneratedMetrics.text-caret-width",
+        "padding: PartmanGeneratedMetrics.spacing",
+        "property <length> spacing: PartmanGeneratedMetrics.spacing",
+    ] {
+        assert!(
+            output.contains(binding),
+            "missing wrapper binding {binding}"
+        );
+    }
 }
 
 // Requirements: UI-001, UI-003, UI-007, UI-008, UI-011, UI-013, PLAN-004

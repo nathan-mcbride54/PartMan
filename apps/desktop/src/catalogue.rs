@@ -229,7 +229,9 @@ pub enum ExactByteFactId {
 }
 
 impl ExactByteFactId {
-    const fn text_id(self) -> TextId {
+    /// Static catalogue label for this exact byte-valued fact.
+    #[must_use]
+    pub const fn text_id(self) -> TextId {
         match self {
             Self::Size => TextId::SizeLabel,
             Self::StartOffset => TextId::StartOffsetLabel,

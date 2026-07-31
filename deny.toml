@@ -31,15 +31,26 @@ allow = [
   "Unicode-3.0",
   "Zlib",
 ]
-# Slint's compiler is a build-host input to ADR-0009's off-main feasibility
-# candidate. Elect only the royalty-free arm, and only for the two exact 1.17.1
-# packages in the current compiler-only graph. `cargo xtask desktop` separately
-# verifies the package source, manifest, selected license text and resolved
-# feature graph; these exceptions alone are deliberately insufficient evidence.
+# Slint is ADR-0009's bounded off-main native feasibility candidate. Elect only
+# the royalty-free arm, and only for the exact 1.17.1 packages reachable in the
+# two single-renderer runtime graphs or the AOT build-host graph. `cargo xtask
+# desktop` separately verifies every package's source archive, normalized
+# manifest, selected licence files, and resolved feature graph; these exceptions
+# alone are deliberately insufficient evidence. Inactive LinuxKMS and Skia
+# packages in Cargo.lock are not excepted and are forbidden if they become
+# reachable. The combined two-renderer graph is comparison-only.
 # GPL and Slint's software-license arm remain absent from the global allow-list.
 exceptions = [
+  { allow = ["LicenseRef-Slint-Royalty-free-2.0"], crate = "i-slint-backend-selector@1.17.1" },
+  { allow = ["LicenseRef-Slint-Royalty-free-2.0"], crate = "i-slint-backend-winit@1.17.1" },
   { allow = ["LicenseRef-Slint-Royalty-free-2.0"], crate = "i-slint-common@1.17.1" },
   { allow = ["LicenseRef-Slint-Royalty-free-2.0"], crate = "i-slint-compiler@1.17.1" },
+  { allow = ["LicenseRef-Slint-Royalty-free-2.0"], crate = "i-slint-core@1.17.1" },
+  { allow = ["LicenseRef-Slint-Royalty-free-2.0"], crate = "i-slint-core-macros@1.17.1" },
+  { allow = ["LicenseRef-Slint-Royalty-free-2.0"], crate = "i-slint-renderer-femtovg@1.17.1" },
+  { allow = ["LicenseRef-Slint-Royalty-free-2.0"], crate = "i-slint-renderer-software@1.17.1" },
+  { allow = ["LicenseRef-Slint-Royalty-free-2.0"], crate = "slint@1.17.1" },
+  { allow = ["LicenseRef-Slint-Royalty-free-2.0"], crate = "slint-macros@1.17.1" },
 ]
 confidence-threshold = 0.93
 unused-allowed-license = "allow"

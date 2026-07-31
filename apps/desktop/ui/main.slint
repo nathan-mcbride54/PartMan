@@ -1,19 +1,692 @@
+import { PartmanChoiceCard, PartmanFactRow, PartmanHeading, PartmanPanel } from "components.slint";
 import {
+    PartmanGeneratedContrast,
     PartmanGeneratedMetrics,
-    PartmanRawGeneratedPalette,
+    PartmanGeneratedThemeAdapter,
+    PartmanRadiusId,
     PartmanSpacingId,
+    PartmanStrokeId,
+    PartmanText,
+    PartmanTextContrastPairId,
+    PartmanTextFlowId,
+    PartmanTextStyleId,
     PartmanThemeId,
+    PartmanUiContrastPairId,
+    PartmanWindow,
 } from "../../../packages/design-tokens/generated/partman-tokens.slint";
 
-// This raw generated-palette call is compiler-probe-only typed-API evidence,
-// not G-CFG-05-compliant application markup. The Rust crate deliberately does
-// not include the generated Rust yet and has no Slint runtime or native window.
-export component PartmanApp inherits Window {
-    in property <PartmanThemeId> selected-theme: PartmanThemeId.vdark;
-    out property <length> default-spacing:
-        PartmanGeneratedMetrics.spacing(PartmanSpacingId.vmd);
+export struct DeviceRow {
+    id: string,
+    accessibility-id: string,
+    accessibility-label: string,
+    label: string,
+    detail: string,
+}
 
-    width: 640px;
-    height: 480px;
-    background: PartmanRawGeneratedPalette.color-vsurfacez2ebase(root.selected-theme);
+export struct TopologyRow {
+    id: string,
+    accessibility-id: string,
+    accessibility-label: string,
+    label: string,
+    size: string,
+    track: int,
+    track-index: int,
+    track-count: int,
+    accent-pair: PartmanTextContrastPairId,
+    accent-uses-ui-pair: bool,
+    ui-accent-pair: PartmanUiContrastPairId,
+}
+
+export struct FactRow {
+    label: string,
+    value: string,
+}
+
+component ThemeChoice inherits Rectangle {
+    in property <PartmanThemeId> theme;
+    in property <PartmanThemeId> choice;
+    in property <string> label;
+    in property <bool> checked: root.theme == root.choice;
+    callback selected();
+
+    accessible-role: radio-button;
+    accessible-label: root.label;
+    accessible-checkable: true;
+    accessible-checked: root.checked;
+    accessible-action-default => { root.selected(); }
+    forward-focus: focus-scope;
+    background: root.checked
+        ? PartmanGeneratedContrast.text-colors(
+            root.theme,
+            PartmanTextContrastPairId.vtextz2eprimary-to-vsurfacez2eraised,
+        ).background
+        : transparent;
+    border-color: focus-scope.has-focus
+        ? PartmanGeneratedContrast.ui-colors(
+            root.theme,
+            PartmanUiContrastPairId.vfocusz2ering-to-vsurfacez2ebase,
+        ).foreground
+        : PartmanGeneratedContrast.ui-colors(
+            root.theme,
+            PartmanUiContrastPairId.vborderz2edefault-to-vsurfacez2ebase,
+        ).foreground;
+    border-width: focus-scope.has-focus
+        ? PartmanGeneratedMetrics.stroke(PartmanStrokeId.vfocus)
+        : PartmanGeneratedMetrics.stroke(PartmanStrokeId.vhairline);
+    border-radius: PartmanGeneratedMetrics.radius(PartmanRadiusId.vsm);
+
+    PartmanText {
+        x: 8px;
+        y: 4px;
+        width: parent.width - 16px;
+        height: parent.height - 8px;
+        theme: root.theme;
+        text: root.label;
+        style-id: PartmanTextStyleId.vcaption;
+        flow-id: PartmanTextFlowId.vsinglez2dline;
+        contrast-pair: PartmanTextContrastPairId.vtextz2eprimary-to-vsurfacez2ebase;
+        horizontal-alignment: center;
+    }
+    TouchArea { clicked => { root.selected(); } }
+    focus-scope := FocusScope {
+        key-pressed(event) => {
+            if (event.text == " " || event.text == "\n") {
+                root.selected();
+                return accept;
+            }
+            return reject;
+        }
+    }
+}
+
+component DrawerToggle inherits Rectangle {
+    in property <PartmanThemeId> theme;
+    in property <string> label;
+    in property <string> action-label;
+    in property <bool> open;
+    callback toggled();
+
+    accessible-role: button;
+    accessible-label: root.action-label;
+    accessible-expandable: true;
+    accessible-expanded: root.open;
+    accessible-action-default => { root.toggled(); }
+    forward-focus: focus-scope;
+    background: PartmanGeneratedContrast.text-colors(
+        root.theme,
+        PartmanTextContrastPairId.vtextz2eprimary-to-vsurfacez2eraised,
+    ).background;
+    border-color: focus-scope.has-focus
+        ? PartmanGeneratedContrast.ui-colors(
+            root.theme,
+            PartmanUiContrastPairId.vfocusz2ering-to-vsurfacez2eraised,
+        ).foreground
+        : PartmanGeneratedContrast.ui-colors(
+            root.theme,
+            PartmanUiContrastPairId.vborderz2estrong-to-vsurfacez2ebase,
+        ).foreground;
+    border-width: focus-scope.has-focus
+        ? PartmanGeneratedMetrics.stroke(PartmanStrokeId.vfocus)
+        : PartmanGeneratedMetrics.stroke(PartmanStrokeId.vstrong);
+
+    PartmanText {
+        x: 20px;
+        y: 10px;
+        width: parent.width - 200px;
+        height: parent.height - 20px;
+        theme: root.theme;
+        text: root.label;
+        style-id: PartmanTextStyleId.vheading;
+        flow-id: PartmanTextFlowId.vsinglez2dline;
+        contrast-pair: PartmanTextContrastPairId.vtextz2eprimary-to-vsurfacez2eraised;
+    }
+    PartmanText {
+        x: parent.width - 180px;
+        y: 10px;
+        width: 160px;
+        height: parent.height - 20px;
+        theme: root.theme;
+        text: root.action-label;
+        style-id: PartmanTextStyleId.vbodyz2dsmall;
+        flow-id: PartmanTextFlowId.vsinglez2dline;
+        contrast-pair: PartmanTextContrastPairId.vtextz2esecondary-to-vsurfacez2eraised;
+        horizontal-alignment: right;
+    }
+    TouchArea { clicked => { root.toggled(); } }
+    focus-scope := FocusScope {
+        key-pressed(event) => {
+            if (event.text == " " || event.text == "\n") {
+                root.toggled();
+                return accept;
+            }
+            return reject;
+        }
+    }
+}
+
+export component PartmanApp inherits PartmanWindow {
+    in property <string> window-title;
+    in-out property <bool> follow-system-theme: true;
+    in-out property <PartmanThemeId> explicit-theme: PartmanThemeId.vdark;
+    in-out property <bool> plan-open: true;
+    in property <[DeviceRow]> devices;
+    in property <[TopologyRow]> topology-items;
+    in property <[FactRow]> inspector-facts;
+    in property <[string]> plan-steps;
+    in property <string> selected-device-id;
+    in property <string> selected-topology-id;
+
+    in property <string> app-name;
+    in property <string> product-qualifier;
+    in property <string> source-label;
+    in property <string> preview-notice;
+    in property <string> preview-explanation;
+    in property <string> read-only-label;
+    in property <string> device-heading;
+    in property <string> device-count-label;
+    in property <string> topology-heading;
+    in property <string> topology-item-count-label;
+    in property <string> inspection-hint;
+    in property <string> layout-track-label;
+    in property <string> layers-track-label;
+    in property <string> inspector-heading;
+    in property <string> selected-label;
+    in property <string> plan-heading;
+    in property <string> plan-preview-label;
+    in property <string> plan-title;
+    in property <string> plan-summary;
+    in property <string> plan-severity-label;
+    in property <string> plan-steps-heading;
+    in property <string> plan-empty-label;
+    in property <string> open-plan-label;
+    in property <string> close-plan-label;
+    in property <string> theme-label;
+    in property <string> theme-system-label;
+    in property <string> theme-dark-label;
+    in property <string> theme-light-label;
+    in property <string> theme-high-contrast-label;
+
+    callback select-device(string);
+    callback select-topology(string);
+
+    private property <length> gap: PartmanGeneratedMetrics.spacing(PartmanSpacingId.vmd);
+    private property <PartmanThemeId> selected-theme: root.follow-system-theme
+        ? PartmanGeneratedThemeAdapter.system-theme
+        : root.explicit-theme;
+    private property <length> header-height: 72px;
+    private property <length> preview-height: 62px;
+    private property <length> drawer-height: root.plan-open ? 236px : 62px;
+    private property <length> workspace-top: root.header-height + root.preview-height + root.gap;
+    private property <length> workspace-height: root.height - root.workspace-top - root.drawer-height - root.gap;
+    private property <bool> compact: root.width < 960px;
+    private property <length> rail-width: root.compact ? 200px : 240px;
+    private property <length> inspector-width: root.compact ? 0px : 300px;
+    private property <length> center-x: root.gap + root.rail-width + root.gap;
+    private property <length> center-width: root.width - root.center-x - root.gap - root.inspector-width - (root.compact ? 0px : root.gap);
+    private property <length> compact-inspector-height: root.compact ? max(180px, root.workspace-height * 0.40) : root.workspace-height;
+    private property <length> compact-topology-height: root.compact ? root.workspace-height - root.compact-inspector-height - root.gap : root.workspace-height;
+
+    min-width: 720px;
+    min-height: 640px;
+    preferred-width: 1280px;
+    preferred-height: 800px;
+    title: root.window-title;
+    theme: root.selected-theme;
+    accessible-role: main;
+    accessible-label: root.window-title;
+
+    Rectangle {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: root.header-height;
+        accessible-role: banner;
+        accessible-label: root.app-name;
+        background: PartmanGeneratedContrast.text-colors(
+            root.selected-theme,
+            PartmanTextContrastPairId.vtextz2eprimary-to-vsurfacez2ebase,
+        ).background;
+        border-color: PartmanGeneratedContrast.ui-colors(
+            root.selected-theme,
+            PartmanUiContrastPairId.vborderz2edefault-to-vsurfacez2ebase,
+        ).foreground;
+        border-width: PartmanGeneratedMetrics.stroke(PartmanStrokeId.vhairline);
+
+        Rectangle {
+            x: root.gap;
+            y: 14px;
+            width: 42px;
+            height: 42px;
+            background: PartmanGeneratedContrast.text-colors(
+                root.selected-theme,
+                PartmanTextContrastPairId.ventityz2edevice-to-vsurfacez2ebase,
+            ).foreground;
+            border-radius: PartmanGeneratedMetrics.radius(PartmanRadiusId.vsm);
+            PartmanText {
+                width: parent.width;
+                height: parent.height;
+                theme: root.selected-theme;
+                text: root.app-name;
+                style-id: PartmanTextStyleId.vtitle;
+                flow-id: PartmanTextFlowId.vsinglez2dline;
+                contrast-pair: PartmanTextContrastPairId.vsurfacez2esunken-to-vfocusz2ering;
+                horizontal-alignment: center;
+            }
+        }
+        PartmanText {
+            x: root.gap + 54px;
+            y: 13px;
+            width: 170px;
+            height: 24px;
+            theme: root.selected-theme;
+            text: root.app-name;
+            style-id: PartmanTextStyleId.vtitle;
+            flow-id: PartmanTextFlowId.vsinglez2dline;
+            contrast-pair: PartmanTextContrastPairId.vtextz2eprimary-to-vsurfacez2ebase;
+        }
+        PartmanText {
+            x: root.gap + 54px;
+            y: 38px;
+            width: 190px;
+            height: 20px;
+            theme: root.selected-theme;
+            text: root.product-qualifier;
+            style-id: PartmanTextStyleId.vbodyz2dsmall;
+            flow-id: PartmanTextFlowId.vsinglez2dline;
+            contrast-pair: PartmanTextContrastPairId.vtextz2emuted-to-vsurfacez2ebase;
+        }
+        PartmanText {
+            x: root.width * 0.34;
+            y: 24px;
+            width: root.width * 0.28;
+            height: 24px;
+            theme: root.selected-theme;
+            text: root.source-label;
+            style-id: PartmanTextStyleId.vbodyz2dsmall;
+            flow-id: PartmanTextFlowId.vsinglez2dline;
+            contrast-pair: PartmanTextContrastPairId.vseverityz2einformational-to-vsurfacez2ebase;
+            horizontal-alignment: center;
+            accessible-live-region: polite;
+            visible: root.width >= 1200px;
+        }
+        PartmanText {
+            x: root.width - 456px;
+            y: 8px;
+            width: 440px;
+            height: 18px;
+            theme: root.selected-theme;
+            text: root.theme-label;
+            style-id: PartmanTextStyleId.veyebrow;
+            flow-id: PartmanTextFlowId.vsinglez2dline;
+            contrast-pair: PartmanTextContrastPairId.vtextz2emuted-to-vsurfacez2ebase;
+        }
+        ThemeChoice {
+            x: root.width - 456px;
+            y: 30px;
+            width: 92px;
+            height: 32px;
+            theme: root.selected-theme;
+            choice: PartmanGeneratedThemeAdapter.system-theme;
+            label: root.theme-system-label;
+            checked: root.follow-system-theme;
+            selected => { root.follow-system-theme = true; }
+        }
+        ThemeChoice {
+            x: root.width - 356px;
+            y: 30px;
+            width: 82px;
+            height: 32px;
+            theme: root.selected-theme;
+            choice: PartmanThemeId.vdark;
+            label: root.theme-dark-label;
+            checked: !root.follow-system-theme && root.explicit-theme == PartmanThemeId.vdark;
+            selected => {
+                root.explicit-theme = PartmanThemeId.vdark;
+                root.follow-system-theme = false;
+            }
+        }
+        ThemeChoice {
+            x: root.width - 266px;
+            y: 30px;
+            width: 82px;
+            height: 32px;
+            theme: root.selected-theme;
+            choice: PartmanThemeId.vlight;
+            label: root.theme-light-label;
+            checked: !root.follow-system-theme && root.explicit-theme == PartmanThemeId.vlight;
+            selected => {
+                root.explicit-theme = PartmanThemeId.vlight;
+                root.follow-system-theme = false;
+            }
+        }
+        ThemeChoice {
+            x: root.width - 176px;
+            y: 30px;
+            width: 140px;
+            height: 32px;
+            theme: root.selected-theme;
+            choice: PartmanThemeId.vhighz2dcontrast;
+            label: root.theme-high-contrast-label;
+            checked: !root.follow-system-theme && root.explicit-theme == PartmanThemeId.vhighz2dcontrast;
+            selected => {
+                root.explicit-theme = PartmanThemeId.vhighz2dcontrast;
+                root.follow-system-theme = false;
+            }
+        }
+    }
+
+    Rectangle {
+        x: root.gap;
+        y: root.header-height + root.gap;
+        width: parent.width - 2 * root.gap;
+        height: root.preview-height - root.gap;
+        accessible-role: region;
+        accessible-label: root.preview-notice;
+        accessible-live-region: polite;
+        background: PartmanGeneratedContrast.text-colors(
+            root.selected-theme,
+            PartmanTextContrastPairId.vtextz2eprimary-to-vsurfacez2eoverlay,
+        ).background;
+        border-radius: PartmanGeneratedMetrics.radius(PartmanRadiusId.vsm);
+        PartmanText {
+            x: root.gap;
+            y: 7px;
+            width: parent.width - 2 * root.gap;
+            height: 22px;
+            theme: root.selected-theme;
+            text: root.preview-notice;
+            style-id: PartmanTextStyleId.vheading;
+            flow-id: PartmanTextFlowId.vsinglez2dline;
+            contrast-pair: PartmanTextContrastPairId.vtextz2eprimary-to-vsurfacez2eoverlay;
+        }
+        PartmanText {
+            x: root.gap;
+            y: 28px;
+            width: parent.width - 2 * root.gap;
+            height: 20px;
+            theme: root.selected-theme;
+            text: root.preview-explanation;
+            style-id: PartmanTextStyleId.vbodyz2dsmall;
+            flow-id: PartmanTextFlowId.vsinglez2dline;
+            contrast-pair: PartmanTextContrastPairId.vtextz2eprimary-to-vsurfacez2eoverlay;
+        }
+    }
+
+    PartmanPanel {
+        x: root.gap;
+        y: root.workspace-top;
+        width: root.rail-width;
+        height: root.workspace-height;
+        theme: root.selected-theme;
+        accessible-role: navigation;
+        accessible-label: root.device-heading;
+        PartmanHeading {
+            width: parent.width;
+            height: 58px;
+            theme: root.selected-theme;
+            eyebrow: root.read-only-label;
+            heading: root.device-heading;
+            trailing: root.device-count-label;
+        }
+        Rectangle {
+            x: root.gap;
+            y: 62px;
+            width: parent.width - 2 * root.gap;
+            height: parent.height - 70px;
+            background: transparent;
+            accessible-role: list;
+            accessible-label: root.device-heading;
+            for device[index] in root.devices: PartmanChoiceCard {
+                y: index * 74px;
+                width: parent.width;
+                height: 66px;
+                theme: root.selected-theme;
+                accessibility-id: device.accessibility-id;
+                accessibility-label: device.accessibility-label;
+                label: device.label;
+                detail: device.detail;
+                selected-label: root.selected-label;
+                selected: device.id == root.selected-device-id;
+                item-index: index;
+                item-count: root.devices.length;
+                activated => { root.select-device(device.id); }
+            }
+        }
+    }
+
+    PartmanPanel {
+        x: root.center-x;
+        y: root.workspace-top;
+        width: root.center-width;
+        height: root.compact-topology-height;
+        theme: root.selected-theme;
+        accessible-role: region;
+        accessible-label: root.topology-heading;
+        PartmanHeading {
+            width: parent.width;
+            height: 58px;
+            theme: root.selected-theme;
+            eyebrow: root.inspection-hint;
+            heading: root.topology-heading;
+            trailing: root.topology-item-count-label;
+        }
+        PartmanText {
+            x: root.gap;
+            y: 62px;
+            width: parent.width - 2 * root.gap;
+            height: 18px;
+            theme: root.selected-theme;
+            text: root.layout-track-label;
+            style-id: PartmanTextStyleId.veyebrow;
+            flow-id: PartmanTextFlowId.vsinglez2dline;
+            contrast-pair: PartmanTextContrastPairId.vtextz2emuted-to-vsurfacez2eraised;
+        }
+        Rectangle {
+            x: root.gap;
+            y: 84px;
+            width: parent.width - 2 * root.gap;
+            height: max(74px, parent.height * 0.32);
+            background: transparent;
+            accessible-role: list;
+            accessible-label: root.layout-track-label;
+            for node in root.topology-items: PartmanChoiceCard {
+                visible: node.track == 0;
+                y: node.track-index * 72px;
+                width: parent.width;
+                height: 64px;
+                theme: root.selected-theme;
+                accessibility-id: node.accessibility-id;
+                accessibility-label: node.accessibility-label;
+                label: node.label;
+                detail: node.size;
+                selected-label: root.selected-label;
+                selected: node.id == root.selected-topology-id;
+                item-index: node.track-index;
+                item-count: node.track-count;
+                accent-pair: node.accent-pair;
+                accent-uses-ui-pair: node.accent-uses-ui-pair;
+                ui-accent-pair: node.ui-accent-pair;
+                activated => { root.select-topology(node.id); }
+            }
+        }
+        PartmanText {
+            x: root.gap;
+            y: max(170px, parent.height * 0.42);
+            width: parent.width - 2 * root.gap;
+            height: 18px;
+            theme: root.selected-theme;
+            text: root.layers-track-label;
+            style-id: PartmanTextStyleId.veyebrow;
+            flow-id: PartmanTextFlowId.vsinglez2dline;
+            contrast-pair: PartmanTextContrastPairId.vtextz2emuted-to-vsurfacez2eraised;
+        }
+        Rectangle {
+            x: root.gap;
+            y: max(192px, parent.height * 0.42 + 22px);
+            width: parent.width - 2 * root.gap;
+            height: parent.height - self.y - root.gap;
+            background: transparent;
+            accessible-role: list;
+            accessible-label: root.layers-track-label;
+            for node in root.topology-items: PartmanChoiceCard {
+                visible: node.track == 1;
+                y: node.track-index * 72px;
+                width: parent.width;
+                height: 64px;
+                theme: root.selected-theme;
+                accessibility-id: node.accessibility-id;
+                accessibility-label: node.accessibility-label;
+                label: node.label;
+                detail: node.size;
+                selected-label: root.selected-label;
+                selected: node.id == root.selected-topology-id;
+                item-index: node.track-index;
+                item-count: node.track-count;
+                accent-pair: node.accent-pair;
+                accent-uses-ui-pair: node.accent-uses-ui-pair;
+                ui-accent-pair: node.ui-accent-pair;
+                activated => { root.select-topology(node.id); }
+            }
+        }
+    }
+
+    PartmanPanel {
+        x: root.compact ? root.center-x : root.width - root.gap - root.inspector-width;
+        y: root.compact
+            ? root.workspace-top + root.compact-topology-height + root.gap
+            : root.workspace-top;
+        width: root.compact ? root.center-width : root.inspector-width;
+        height: root.compact-inspector-height;
+        theme: root.selected-theme;
+        accessible-role: complementary;
+        accessible-label: root.inspector-heading;
+        PartmanHeading {
+            width: parent.width;
+            height: 58px;
+            theme: root.selected-theme;
+            eyebrow: root.read-only-label;
+            heading: root.inspector-heading;
+        }
+        Rectangle {
+            x: root.gap;
+            y: 62px;
+            width: parent.width - 2 * root.gap;
+            height: parent.height - 70px;
+            background: transparent;
+            for fact[index] in root.inspector-facts: PartmanFactRow {
+                y: index * 38px;
+                width: parent.width;
+                height: 34px;
+                theme: root.selected-theme;
+                label: fact.label;
+                value: fact.value;
+            }
+        }
+    }
+
+    Rectangle {
+        x: 0px;
+        y: root.height - root.drawer-height;
+        width: parent.width;
+        height: root.drawer-height;
+        accessible-role: complementary;
+        accessible-label: root.plan-heading;
+        background: PartmanGeneratedContrast.text-colors(
+            root.selected-theme,
+            PartmanTextContrastPairId.vtextz2eprimary-to-vsurfacez2eraised,
+        ).background;
+        DrawerToggle {
+            width: parent.width;
+            height: 62px;
+            theme: root.selected-theme;
+            label: root.plan-heading;
+            action-label: root.plan-open ? root.close-plan-label : root.open-plan-label;
+            open: root.plan-open;
+            toggled => { root.plan-open = !root.plan-open; }
+        }
+        if root.plan-open: Rectangle {
+            x: root.gap;
+            y: 72px;
+            width: parent.width - 2 * root.gap;
+            height: parent.height - 80px;
+            background: transparent;
+            PartmanText {
+                x: 0px;
+                y: 0px;
+                width: 180px;
+                height: 18px;
+                theme: root.selected-theme;
+                text: root.plan-preview-label;
+                style-id: PartmanTextStyleId.veyebrow;
+                flow-id: PartmanTextFlowId.vsinglez2dline;
+                contrast-pair: PartmanTextContrastPairId.vtextz2emuted-to-vsurfacez2eraised;
+            }
+            PartmanText {
+                x: 0px;
+                y: 24px;
+                width: parent.width * 0.35;
+                height: 26px;
+                theme: root.selected-theme;
+                text: root.plan-title;
+                style-id: PartmanTextStyleId.vheading;
+                flow-id: PartmanTextFlowId.vsinglez2dline;
+                contrast-pair: PartmanTextContrastPairId.vtextz2eprimary-to-vsurfacez2eraised;
+            }
+            PartmanText {
+                x: 0px;
+                y: 54px;
+                width: parent.width * 0.35;
+                height: 70px;
+                theme: root.selected-theme;
+                text: root.plan-summary;
+                style-id: PartmanTextStyleId.vbodyz2dsmall;
+                flow-id: PartmanTextFlowId.vmultiz2dline;
+                contrast-pair: PartmanTextContrastPairId.vtextz2esecondary-to-vsurfacez2eraised;
+            }
+            PartmanText {
+                x: parent.width * 0.38;
+                y: 0px;
+                width: 220px;
+                height: 24px;
+                theme: root.selected-theme;
+                text: root.plan-severity-label;
+                style-id: PartmanTextStyleId.vbody;
+                flow-id: PartmanTextFlowId.vsinglez2dline;
+                contrast-pair: PartmanTextContrastPairId.vseverityz2edataz4doving-to-vsurfacez2ebase;
+            }
+            PartmanText {
+                x: parent.width * 0.38;
+                y: 30px;
+                width: 220px;
+                height: 18px;
+                theme: root.selected-theme;
+                text: root.plan-steps-heading;
+                style-id: PartmanTextStyleId.veyebrow;
+                flow-id: PartmanTextFlowId.vsinglez2dline;
+                contrast-pair: PartmanTextContrastPairId.vtextz2emuted-to-vsurfacez2eraised;
+            }
+            for step[index] in root.plan-steps: PartmanText {
+                x: parent.width * 0.38;
+                y: 52px + index * 24px;
+                width: parent.width * 0.30;
+                height: 22px;
+                theme: root.selected-theme;
+                text: step;
+                style-id: PartmanTextStyleId.vbodyz2dsmall;
+                flow-id: PartmanTextFlowId.vsinglez2dline;
+                contrast-pair: PartmanTextContrastPairId.vtextz2esecondary-to-vsurfacez2eraised;
+            }
+            PartmanText {
+                x: parent.width * 0.70;
+                y: 12px;
+                width: parent.width * 0.30;
+                height: 112px;
+                theme: root.selected-theme;
+                text: root.plan-empty-label;
+                style-id: PartmanTextStyleId.vbodyz2dsmall;
+                flow-id: PartmanTextFlowId.vmultiz2dline;
+                contrast-pair: PartmanTextContrastPairId.vtextz2esecondary-to-vsurfacez2eraised;
+            }
+        }
+    }
 }

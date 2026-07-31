@@ -18,13 +18,13 @@ fn temporary_directory(name: &str) -> std::path::PathBuf {
 }
 
 // Requirements: SEC-010
-//   The compiler source inventory is strict, exact, and carries the reviewed nine-file boundary rather than accepting implementation-owned additions
+//   The compiler source inventory is strict, exact, carries the reviewed nine-file compiler boundary, and enumerates every reachable runtime licence package rather than accepting implementation-owned additions
 // Evidence: committed_source_inventory_is_strict_and_complete
 #[test]
 fn committed_source_inventory_is_strict_and_complete() {
     let inventory = parse_inventory(SOURCE_INVENTORY.as_bytes()).expect("inventory is valid");
     assert_eq!(inventory.critical_files.len(), 9);
-    assert_eq!(inventory.license_packages.len(), 2);
+    assert_eq!(inventory.license_packages.len(), 10);
     assert_eq!(
         inventory.tree_hash,
         "85107306da880f388216602768b62c92de8b705ff49d436e82d233235630499c"

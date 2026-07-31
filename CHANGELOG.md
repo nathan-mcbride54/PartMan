@@ -33,11 +33,18 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   `RUSTSEC-2025-0141` to bincode 2.0.1's inactive optional lockfile edge from
   every workspace member before the root-only cargo-audit ignore is permitted;
   Cargo-deny and the fuzz audit remain unexcepted. The
-  application still has no public Slint runtime, included generated Rust,
-  renderer, native window, or shell; this proves no final
-  runtime graph, wrapper/property coverage, real view-model association,
-  operating-system signal collection, rendered accessibility, readable-Unicode
-  truncation, or exact-byte inspector behavior.
+  The next checkpoints add the public Slint runtime and AOT-generated Rust,
+  generated style wrappers with AST/lowered-IR enforcement, exact Winit plus
+  FemtoVG/software graphs, programmatic backend selection, system light/dark
+  theme mapping, and a Rust-owned synthetic four-region shell. Its view model
+  preserves exact byte facts and stable opaque selection across device changes,
+  and rejects malformed, forged, or stale callbacks. No storage discovery,
+  planning, mutation, helper, elevation, or network path was added. The latest
+  stable 1.17.1 graph currently fails ADR-0009's supply-chain hard gate:
+  `rustybuzz 0.20.1` and `ttf-parser 0.25.1` are newly reported unmaintained
+  with no safe upgrade, while the all-features audit also exposes unresolved
+  BSL-1.0 and inactive-Skia licence-policy gaps. These failures are recorded,
+  not ignored or presented as adoption-ready.
 - WP-000 closes issue #39 after all four current package traceability documents
   completed package-owned, zero-loss conversions. Every document is now
   generated from validated source annotations and typed evidence; declarations

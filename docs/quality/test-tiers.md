@@ -23,18 +23,24 @@ Tier 1 is unprivileged and safe on every developer host. It currently contains:
   generation of the committed typed `.slint` contract, exact Rust-catalogue
   resolution of all 25 label IDs, lossless ASCII display of arbitrary byte and
   WTF-16 identifiers, bounded whole-token truncation, and strict opaque
-  selection-wire/registry primitives (WP-030).
+  selection-wire/registry primitives, integer-only IEC/exact-byte formatting,
+  synthetic device/topology registries, selection retention, and rejection of
+  malformed, forged, or stale UI callbacks (WP-030).
 - Slint compiler-boundary tests: exact explicit compiler configuration;
   byte-deterministic AOT generation; canonical nested-import and resource
   accounting; fatal syntax, semantic and warning diagnostics; forbidden image,
   font and translation inputs; hostile environment names; path and symbolic-
   link confinement; fixed exclusive output; generated-token freshness; and a
-  real compile of the temporary compiler probe against the committed typed ABI
-  (WP-030). The companion replay tool checks the exact compiler source, licence
-  files, source-derived environment inventory, and structured compiler-only
-  Cargo graph. These tests still render nothing, include no generated Rust in
-  the application crate, open no native window, and prove no final runtime
-  graph, real view model, renderer or operating-system behavior.
+  real AOT compile and direct inclusion of the generated native shell Rust
+  against the committed typed ABI (WP-030). Lowered-IR mutations prove that
+  compiler-injected visual defaults cannot bypass the generated wrappers. The
+  companion replay tool checks exact compiler source, the ten reachable
+  Slint-family package archives/manifests/licence rosters, the source-derived
+  environment inventory, and separate FemtoVG, software, and marked combined
+  Cargo graphs. The tests construct the renderer-neutral view model but do not
+  present a window or inspect pixels/platform accessibility APIs; interactive
+  renderer, operating-system, assistive-technology, and packaging behavior
+  remains external qualification evidence.
 
 Filesystem access is all of repository-controlled text, and it has grown with
 each gate: workflow and composite-action YAML plus any Dockerfile they build for
@@ -46,7 +52,7 @@ for the two ownership checks; both lockfiles; `.cargo/config.toml`;
 `schemas/design-tokens.json` and
 `packages/design-tokens/generated/partman-tokens.slint` for the WP-030 static
 token/generation boundary; the bounded `.slint` source tree; exact pinned Slint
-compiler/common registry source and licence files; structured `cargo metadata`;
+compiler and reachable runtime registry sources and licence files; structured `cargo metadata`;
 the ignored generated Rust file beneath Cargo's `OUT_DIR`; and temporary
 directories the tests create and remove themselves. Tier 1 also launches `git`
 and `cargo` as structured subprocesses. The candidate UI and build adapter do

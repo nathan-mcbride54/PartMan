@@ -359,7 +359,7 @@ fn guard_slint_environment() -> Result<(), TaskError> {
         .map_err(|error| TaskError::Safety(error.to_string()))
 }
 
-/// Compile every desktop target through the real owned AOT build script.
+/// Compile every desktop target in each exact AOT/runtime configuration.
 fn check_desktop_aot() -> Result<(), TaskError> {
     selected_cargo(&[
         "check",
@@ -367,18 +367,64 @@ fn check_desktop_aot() -> Result<(), TaskError> {
         "--package",
         "partman-desktop",
         "--all-targets",
+    ])?;
+    selected_cargo(&[
+        "check",
+        "--locked",
+        "--package",
+        "partman-desktop",
+        "--all-targets",
+        "--no-default-features",
+        "--features",
+        "renderer-software",
+    ])?;
+    selected_cargo(&[
+        "check",
+        "--locked",
+        "--package",
+        "partman-desktop",
+        "--all-targets",
+        "--no-default-features",
+        "--features",
+        "comparison-combined",
     ])
 }
 
-/// Replay the exact compiler source, licence, ambient-input and host graph gates.
+/// Replay the compiler controls and all exact final-runtime feature graphs.
 fn verify_slint_controls() -> Result<(), TaskError> {
-    let cargo_path = cargo_executable()?;
     let root = repository_root();
     let manifest_path =
         fs::canonicalize(root.join("Cargo.toml")).map_err(|source| TaskError::Io {
             path: root.join("Cargo.toml"),
             source,
         })?;
+    run_slint_feasibility(
+        &root,
+        &manifest_path,
+        "verify-all",
+        "final-runtime",
+        "renderer-femtovg",
+    )?;
+    for configuration in ["renderer-software", "comparison-combined"] {
+        run_slint_feasibility(
+            &root,
+            &manifest_path,
+            "verify-graph",
+            "final-runtime",
+            configuration,
+        )?;
+    }
+    Ok(())
+}
+
+fn run_slint_feasibility(
+    root: &Path,
+    manifest_path: &Path,
+    command: &str,
+    phase: &str,
+    configuration: &str,
+) -> Result<(), TaskError> {
+    let cargo_path = cargo_executable()?;
     let status = Command::new(&cargo_path)
         .args([
             OsStr::new("run"),
@@ -386,13 +432,15 @@ fn verify_slint_controls() -> Result<(), TaskError> {
             OsStr::new("--package"),
             OsStr::new("partman-slint-feasibility"),
             OsStr::new("--"),
-            OsStr::new("verify-all"),
+            OsStr::new(command),
             OsStr::new("--phase"),
-            OsStr::new("compiler-only"),
+            OsStr::new(phase),
+            OsStr::new("--configuration"),
+            OsStr::new(configuration),
         ])
         .arg("--manifest")
-        .arg(&manifest_path)
-        .current_dir(&root)
+        .arg(manifest_path)
+        .current_dir(root)
         .status()
         .map_err(|source| TaskError::Launch {
             program: "partman-slint-feasibility".to_owned(),
@@ -402,7 +450,9 @@ fn verify_slint_controls() -> Result<(), TaskError> {
         Ok(())
     } else {
         Err(TaskError::CommandFailed {
-            program: "partman-slint-feasibility verify-all".to_owned(),
+            program: format!(
+                "partman-slint-feasibility {command} --phase {phase} --configuration {configuration}"
+            ),
             code: status.code(),
         })
     }
@@ -4216,7 +4266,7 @@ PartMan repository tasks
 
   cargo xtask ci                 Run the complete unprivileged Tier-1 gate
   cargo xtask cross-language     Prove Rust and TypeScript hash identically
-  cargo xtask desktop            Compile the Slint AOT probe and replay its controls
+  cargo xtask desktop            Compile all Slint AOT/runtime configurations and replay controls
   cargo xtask fuzz [--seconds n] Smoke-fuzz the parsers (needs pinned nightly)
   cargo xtask fmt                Format the Rust workspace
   cargo xtask fmt-check          Verify Rust formatting

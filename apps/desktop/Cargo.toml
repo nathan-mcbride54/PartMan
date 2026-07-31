@@ -7,7 +7,15 @@ version.workspace = true
 license.workspace = true
 publish = false
 
+[features]
+default = ["renderer-femtovg"]
+renderer-femtovg = ["slint/renderer-femtovg"]
+renderer-software = ["slint/renderer-software"]
+comparison-combined = ["renderer-femtovg", "renderer-software"]
+
 [dependencies]
+slint = { version = "=1.17.1", default-features = false, features = ["std", "backend-winit", "accessibility", "compat-1-2"] }
+unicode-segmentation = "=1.13.3"
 
 [build-dependencies]
 i-slint-compiler = { version = "=1.17.1", default-features = false, features = ["display-diagnostics", "rust"] }

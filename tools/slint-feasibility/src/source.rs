@@ -553,10 +553,21 @@ fn parse_license_packages(value: &Value) -> Result<Vec<LicensePackage>, CheckErr
             files,
         });
     }
-    let expected = ["i-slint-common", "i-slint-compiler"]
-        .into_iter()
-        .map(str::to_owned)
-        .collect::<BTreeSet<_>>();
+    let expected = [
+        "i-slint-backend-selector",
+        "i-slint-backend-winit",
+        "i-slint-common",
+        "i-slint-compiler",
+        "i-slint-core",
+        "i-slint-core-macros",
+        "i-slint-renderer-femtovg",
+        "i-slint-renderer-software",
+        "slint",
+        "slint-macros",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect::<BTreeSet<_>>();
     if seen != expected {
         return Err(CheckError::new(format!(
             "license package roster drifted: expected {expected:?}, found {seen:?}"

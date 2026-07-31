@@ -1,4 +1,9 @@
-use super::{GraphPhase, verify_graph};
+use std::collections::BTreeSet;
+use std::str::FromStr;
+
+use cargo_platform::Cfg;
+
+use super::{GraphConfiguration, GraphPhase, Realm, TargetContext, reachable_states, verify_graph};
 use crate::CargoMetadata;
 
 fn metadata(
@@ -37,6 +42,66 @@ fn metadata(
     CargoMetadata::parse(input.as_bytes()).expect("fixture metadata parses")
 }
 
+fn target_context() -> TargetContext {
+    TargetContext::new("test-target".to_owned(), Vec::new()).expect("test target is valid")
+}
+
+// Requirements: SEC-010
+//   Resolver-3 host and target capabilities are propagated independently, and foreign target predicates cannot make a package reachable
+// Work-Package: WP-030
+// Evidence: realm_features_and_target_predicates_are_independent
+#[test]
+fn realm_features_and_target_predicates_are_independent() {
+    let input = br#"{
+      "version":1,
+      "workspace_members":["root"],
+      "packages":[
+        {"name":"root","version":"0.0.0","id":"root","license":"MIT","source":null,"checksum":null,"manifest_path":"/root/Cargo.toml","targets":[{"kind":["lib"]}],"features":{},"dependencies":[
+          {"name":"shared","source":"registry+https://github.com/rust-lang/crates.io-index","req":"=1.0.0","kind":"build","rename":null,"optional":false,"uses_default_features":false,"features":["host"],"target":null},
+          {"name":"shared","source":"registry+https://github.com/rust-lang/crates.io-index","req":"=1.0.0","kind":null,"rename":null,"optional":false,"uses_default_features":false,"features":["target"],"target":null},
+          {"name":"foreign","source":"registry+https://github.com/rust-lang/crates.io-index","req":"=1.0.0","kind":null,"rename":null,"optional":false,"uses_default_features":false,"features":[],"target":"cfg(target_os = \"linux\")"}
+        ]},
+        {"name":"shared","version":"1.0.0","id":"shared","license":"MIT","source":"registry+https://github.com/rust-lang/crates.io-index","checksum":"x","manifest_path":"/shared/Cargo.toml","targets":[{"kind":["lib"]}],"features":{"host":[],"target":[]},"dependencies":[]},
+        {"name":"foreign","version":"1.0.0","id":"foreign","license":"MIT","source":"registry+https://github.com/rust-lang/crates.io-index","checksum":"x","manifest_path":"/foreign/Cargo.toml","targets":[{"kind":["lib"]}],"features":{},"dependencies":[]}
+      ],
+      "resolve":{"nodes":[
+        {"id":"root","features":[],"deps":[
+          {"name":"shared","pkg":"shared","dep_kinds":[{"kind":"build","target":null},{"kind":null,"target":null}]},
+          {"name":"foreign","pkg":"foreign","dep_kinds":[{"kind":null,"target":"cfg(target_os = \"linux\")"}]}
+        ]},
+        {"id":"shared","features":["host","target"],"deps":[]},
+        {"id":"foreign","features":[],"deps":[]}
+      ]}
+    }"#;
+    let metadata = CargoMetadata::parse(input).expect("realm fixture parses");
+    let target = TargetContext::new(
+        "x86_64-pc-windows-msvc".to_owned(),
+        vec![Cfg::from_str("target_os=\"windows\"").expect("cfg parses")],
+    )
+    .expect("target context is valid");
+    let reachability = reachable_states(&metadata, "root", &target, &BTreeSet::new())
+        .expect("feature graph resolves");
+
+    assert_eq!(
+        reachability
+            .features
+            .get(&("shared".to_owned(), Realm::Host)),
+        Some(&BTreeSet::from(["host".to_owned()]))
+    );
+    assert_eq!(
+        reachability
+            .features
+            .get(&("shared".to_owned(), Realm::Target)),
+        Some(&BTreeSet::from(["target".to_owned()]))
+    );
+    assert!(
+        !reachability
+            .states
+            .contains(&("foreign".to_owned(), Realm::Target))
+    );
+    assert_eq!(reachability.evaluated_target_predicates.len(), 1);
+}
+
 // Requirements: SEC-010
 //   Compiler-only metadata proves only exact build-host compiler capabilities and explicitly cannot become final runtime evidence
 // Evidence: compiler_only_graph_is_host_separated_and_scope_limited
@@ -47,15 +112,29 @@ fn compiler_only_graph_is_host_separated_and_scope_limited() {
         "",
         "",
     );
-    let report = verify_graph(&metadata, GraphPhase::CompilerOnly).expect("clean graph passes");
+    let report = verify_graph(
+        &metadata,
+        &target_context(),
+        GraphPhase::CompilerOnly,
+        GraphConfiguration::CompilerOnly,
+    )
+    .expect("clean graph passes");
     assert!(!report.final_runtime_proven);
-    assert_eq!(report.host_package_count, 4);
+    assert_eq!(report.host_package_count, 3);
     assert_eq!(report.target_package_count, 1);
     assert_eq!(
         report.lockfile_only_advisories,
         ["RUSTSEC-2025-0141".to_owned()].into_iter().collect()
     );
-    assert!(verify_graph(&metadata, GraphPhase::FinalRuntime).is_err());
+    assert!(
+        verify_graph(
+            &metadata,
+            &target_context(),
+            GraphPhase::FinalRuntime,
+            GraphConfiguration::CompilerOnly,
+        )
+        .is_err()
+    );
 }
 
 // Requirements: SEC-010
@@ -76,7 +155,15 @@ fn lockfile_only_bincode_advisory_fails_on_feature_or_declaration_drift() {
         .expect("typed index node exists")
         .features
         .insert("bincode".to_owned());
-    assert!(verify_graph(&enabled, GraphPhase::CompilerOnly).is_err());
+    assert!(
+        verify_graph(
+            &enabled,
+            &target_context(),
+            GraphPhase::CompilerOnly,
+            GraphConfiguration::CompilerOnly,
+        )
+        .is_err()
+    );
 
     let mut required = clean;
     required
@@ -85,7 +172,15 @@ fn lockfile_only_bincode_advisory_fails_on_feature_or_declaration_drift() {
         .expect("typed index package exists")
         .dependencies[0]
         .optional = false;
-    assert!(verify_graph(&required, GraphPhase::CompilerOnly).is_err());
+    assert!(
+        verify_graph(
+            &required,
+            &target_context(),
+            GraphPhase::CompilerOnly,
+            GraphConfiguration::CompilerOnly,
+        )
+        .is_err()
+    );
 }
 
 // Requirements: SEC-010
@@ -139,7 +234,13 @@ fn lockfile_only_advisory_is_proven_from_every_workspace_member() {
     metadata.nodes.insert(other_id, other_node);
 
     assert!(
-        verify_graph(&metadata, GraphPhase::CompilerOnly).is_err(),
+        verify_graph(
+            &metadata,
+            &target_context(),
+            GraphPhase::CompilerOnly,
+            GraphConfiguration::CompilerOnly,
+        )
+        .is_err(),
         "a second workspace root that reaches bincode must invalidate the root-wide audit exception"
     );
 }
@@ -154,7 +255,15 @@ fn compiler_capability_uplift_fails_closed() {
         "\"bundle-translations\",\"display-diagnostics\",\"proc-macro2\",\"quote\",\"rust\"",
     ] {
         let metadata = metadata(features, "", "");
-        assert!(verify_graph(&metadata, GraphPhase::CompilerOnly).is_err());
+        assert!(
+            verify_graph(
+                &metadata,
+                &target_context(),
+                GraphPhase::CompilerOnly,
+                GraphConfiguration::CompilerOnly,
+            )
+            .is_err()
+        );
     }
 }
 
@@ -171,7 +280,15 @@ fn forbidden_reachability_fails_closed() {
         extra,
         edge,
     );
-    assert!(verify_graph(&metadata, GraphPhase::CompilerOnly).is_err());
+    assert!(
+        verify_graph(
+            &metadata,
+            &target_context(),
+            GraphPhase::CompilerOnly,
+            GraphConfiguration::CompilerOnly,
+        )
+        .is_err()
+    );
 }
 
 // Requirements: SEC-010
@@ -184,7 +301,15 @@ fn dependency_name_normalization_preserves_alias_strictness() {
         "",
         "",
     );
-    assert!(verify_graph(&clean, GraphPhase::CompilerOnly).is_ok());
+    assert!(
+        verify_graph(
+            &clean,
+            &target_context(),
+            GraphPhase::CompilerOnly,
+            GraphConfiguration::CompilerOnly,
+        )
+        .is_ok()
+    );
 
     let mut wrong = clean.clone();
     let desktop = wrong
@@ -192,7 +317,15 @@ fn dependency_name_normalization_preserves_alias_strictness() {
         .get_mut("desktop 0.0.0 (path+file:///desktop)")
         .expect("desktop package exists");
     desktop.dependencies[0].rename = Some("wrong_alias".to_owned());
-    assert!(verify_graph(&wrong, GraphPhase::CompilerOnly).is_err());
+    assert!(
+        verify_graph(
+            &wrong,
+            &target_context(),
+            GraphPhase::CompilerOnly,
+            GraphConfiguration::CompilerOnly,
+        )
+        .is_err()
+    );
 
     let mut ambiguous = clean;
     let desktop = ambiguous
@@ -200,7 +333,15 @@ fn dependency_name_normalization_preserves_alias_strictness() {
         .get_mut("desktop 0.0.0 (path+file:///desktop)")
         .expect("desktop package exists");
     desktop.dependencies.push(desktop.dependencies[0].clone());
-    assert!(verify_graph(&ambiguous, GraphPhase::CompilerOnly).is_err());
+    assert!(
+        verify_graph(
+            &ambiguous,
+            &target_context(),
+            GraphPhase::CompilerOnly,
+            GraphConfiguration::CompilerOnly,
+        )
+        .is_err()
+    );
 }
 
 // Requirements: SEC-010
@@ -220,7 +361,15 @@ fn compiler_and_executor_identity_drift_fails_closed() {
         .get_mut("compiler 1.17.1")
         .expect("compiler package exists")
         .version = "1.17.2".to_owned();
-    assert!(verify_graph(&wrong_version, GraphPhase::CompilerOnly).is_err());
+    assert!(
+        verify_graph(
+            &wrong_version,
+            &target_context(),
+            GraphPhase::CompilerOnly,
+            GraphConfiguration::CompilerOnly,
+        )
+        .is_err()
+    );
 
     let mut widened_requirement = clean;
     widened_requirement
@@ -229,5 +378,13 @@ fn compiler_and_executor_identity_drift_fails_closed() {
         .expect("desktop package exists")
         .dependencies[0]
         .requirement = "^1.17.1".to_owned();
-    assert!(verify_graph(&widened_requirement, GraphPhase::CompilerOnly).is_err());
+    assert!(
+        verify_graph(
+            &widened_requirement,
+            &target_context(),
+            GraphPhase::CompilerOnly,
+            GraphConfiguration::CompilerOnly,
+        )
+        .is_err()
+    );
 }

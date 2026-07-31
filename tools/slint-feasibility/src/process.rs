@@ -2,9 +2,13 @@ use std::ffi::{OsStr, OsString};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
+use std::str::FromStr;
 use std::time::{Duration, Instant};
 
-use crate::{CargoMetadata, CheckError, GraphPhase};
+use cargo_platform::Cfg;
+
+use crate::graph::validate_phase_configuration;
+use crate::{CargoMetadata, CheckError, GraphConfiguration, GraphPhase, TargetContext};
 
 const STDOUT_LIMIT: usize = 16 * 1024 * 1024;
 const STDERR_LIMIT: usize = 1024 * 1024;
@@ -13,6 +17,10 @@ const CARGO_BANNER: &str = "cargo 1.96.0 (30a34c682 2026-05-25)";
 const CARGO_RELEASE: &str = "1.96.0";
 const CARGO_COMMIT_HASH: &str = "30a34c6821b57de0aaec83a901aca39f88f6778c";
 const CARGO_COMMIT_DATE: &str = "2026-05-25";
+const RUSTC_BANNER: &str = "rustc 1.96.0 (ac68faa20 2026-05-25)";
+const RUSTC_RELEASE: &str = "1.96.0";
+const RUSTC_COMMIT_HASH: &str = "ac68faa20c58cbccd01ee7208bf3b6e93a7d7f96";
+const RUSTC_COMMIT_DATE: &str = "2026-05-25";
 
 /// Load reviewed metadata bytes or collect locked offline metadata with Cargo.
 ///
@@ -26,35 +34,40 @@ const CARGO_COMMIT_DATE: &str = "2026-05-25";
 ///
 /// # Errors
 ///
-/// Rejects ambiguous input modes, an untrusted Cargo identity, a non-absolute
-/// manifest, unreadable/oversized replay input, unsupported final-runtime
-/// collection, process timeout/failure/output overflow, or malformed metadata.
+/// Rejects ambiguous input modes, an untrusted Cargo/rustc identity, a
+/// non-absolute manifest, unreadable/oversized replay input, incompatible
+/// phase/configuration selection, process timeout/failure/output overflow, or
+/// malformed metadata.
 pub fn load_or_collect_metadata(
     metadata_path: Option<&Path>,
     manifest_path: Option<&Path>,
     phase: GraphPhase,
-) -> Result<CargoMetadata, CheckError> {
-    match (metadata_path, manifest_path) {
+    configuration: GraphConfiguration,
+) -> Result<(CargoMetadata, TargetContext), CheckError> {
+    let target = load_native_target_context()?;
+    let metadata = match (metadata_path, manifest_path) {
         (Some(path), None) => {
             let bytes = read_bounded_file(path, STDOUT_LIMIT)?;
             CargoMetadata::parse(&bytes)
         }
         (None, Some(manifest)) => {
-            let bytes = collect_metadata(manifest, phase)?;
+            let bytes = collect_metadata(manifest, phase, configuration, &target)?;
             CargoMetadata::parse(&bytes)
         }
         _ => Err(CheckError::new(
             "choose exactly --metadata FILE or --manifest ABSOLUTE",
         )),
-    }
+    }?;
+    Ok((metadata, target))
 }
 
-fn collect_metadata(manifest_path: &Path, phase: GraphPhase) -> Result<Vec<u8>, CheckError> {
-    if phase == GraphPhase::FinalRuntime {
-        return Err(CheckError::new(
-            "this checkpoint cannot collect or prove a final-runtime graph",
-        ));
-    }
+fn collect_metadata(
+    manifest_path: &Path,
+    phase: GraphPhase,
+    configuration: GraphConfiguration,
+    target: &TargetContext,
+) -> Result<Vec<u8>, CheckError> {
+    validate_phase_configuration(phase, configuration)?;
     let cargo_path = trusted_cargo_path(Path::new(env!("CARGO")))?;
     let manifest_path = absolute_regular_file(manifest_path, "workspace manifest")?;
     if manifest_path.file_name() != Some(OsStr::new("Cargo.toml")) {
@@ -66,19 +79,33 @@ fn collect_metadata(manifest_path: &Path, phase: GraphPhase) -> Result<Vec<u8>, 
     let working_directory = manifest_path
         .parent()
         .ok_or_else(|| CheckError::new("workspace manifest has no parent directory"))?;
-    verify_cargo_identity(&cargo_path, working_directory)?;
+    let cargo_host = verify_cargo_identity(&cargo_path, working_directory)?;
+    if cargo_host != target.name() {
+        return Err(CheckError::new(format!(
+            "Cargo host {cargo_host:?} differs from authenticated rustc target {:?}",
+            target.name()
+        )));
+    }
+    let mut cargo_arguments = vec![
+        OsString::from("metadata"),
+        OsString::from("--locked"),
+        OsString::from("--offline"),
+        OsString::from("--format-version"),
+        OsString::from("1"),
+        OsString::from("--filter-platform"),
+        OsString::from(target.name()),
+        OsString::from("--no-default-features"),
+    ];
+    if let Some(feature) = runtime_cargo_feature(configuration) {
+        cargo_arguments.push(OsString::from("--features"));
+        cargo_arguments.push(OsString::from(feature));
+    }
+    cargo_arguments.push(OsString::from("--manifest-path"));
+    cargo_arguments.push(manifest_path.as_os_str().to_owned());
+
     let mut command = Command::new(&cargo_path);
     command
-        .args([
-            OsString::from("metadata"),
-            OsString::from("--locked"),
-            OsString::from("--offline"),
-            OsString::from("--format-version"),
-            OsString::from("1"),
-            OsString::from("--no-default-features"),
-            OsString::from("--manifest-path"),
-            manifest_path.as_os_str().to_owned(),
-        ])
+        .args(cargo_arguments)
         .current_dir(working_directory)
         .env_clear()
         .env("CARGO_TERM_COLOR", "never")
@@ -96,6 +123,15 @@ fn collect_metadata(manifest_path: &Path, phase: GraphPhase) -> Result<Vec<u8>, 
         )));
     }
     Ok(output.stdout)
+}
+
+fn runtime_cargo_feature(configuration: GraphConfiguration) -> Option<&'static str> {
+    match configuration {
+        GraphConfiguration::CompilerOnly => None,
+        GraphConfiguration::RendererFemtoVg => Some("partman-desktop/renderer-femtovg"),
+        GraphConfiguration::RendererSoftware => Some("partman-desktop/renderer-software"),
+        GraphConfiguration::ComparisonCombined => Some("partman-desktop/comparison-combined"),
+    }
 }
 
 fn trusted_cargo_path(path: &Path) -> Result<PathBuf, CheckError> {
@@ -145,7 +181,10 @@ fn trusted_cargo_path_against(path: &Path, selected: &Path) -> Result<PathBuf, C
     Ok(path.to_path_buf())
 }
 
-fn verify_cargo_identity(cargo_path: &Path, working_directory: &Path) -> Result<(), CheckError> {
+fn verify_cargo_identity(
+    cargo_path: &Path,
+    working_directory: &Path,
+) -> Result<String, CheckError> {
     let mut command = Command::new(cargo_path);
     command
         .arg("-vV")
@@ -173,7 +212,7 @@ fn verify_cargo_identity(cargo_path: &Path, working_directory: &Path) -> Result<
     verify_cargo_identity_output(&output.stdout)
 }
 
-fn verify_cargo_identity_output(output: &[u8]) -> Result<(), CheckError> {
+fn verify_cargo_identity_output(output: &[u8]) -> Result<String, CheckError> {
     let text = std::str::from_utf8(output)
         .map_err(|error| CheckError::new(format!("Cargo identity is not UTF-8: {error}")))?;
     let mut lines = text.lines();
@@ -186,6 +225,7 @@ fn verify_cargo_identity_output(output: &[u8]) -> Result<(), CheckError> {
     let mut release = None;
     let mut commit_hash = None;
     let mut commit_date = None;
+    let mut host = None;
     for line in lines {
         if let Some(value) = line.strip_prefix("release: ") {
             set_identity_field(&mut release, value, "release")?;
@@ -193,11 +233,157 @@ fn verify_cargo_identity_output(output: &[u8]) -> Result<(), CheckError> {
             set_identity_field(&mut commit_hash, value, "commit-hash")?;
         } else if let Some(value) = line.strip_prefix("commit-date: ") {
             set_identity_field(&mut commit_date, value, "commit-date")?;
+        } else if let Some(value) = line.strip_prefix("host: ") {
+            set_identity_field(&mut host, value, "host")?;
         }
     }
     require_identity_field(release, CARGO_RELEASE, "release")?;
     require_identity_field(commit_hash, CARGO_COMMIT_HASH, "commit-hash")?;
-    require_identity_field(commit_date, CARGO_COMMIT_DATE, "commit-date")
+    require_identity_field(commit_date, CARGO_COMMIT_DATE, "commit-date")?;
+    let host = host
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| CheckError::new("Cargo identity has no non-empty host field"))?;
+    Ok(host.to_owned())
+}
+
+fn load_native_target_context() -> Result<TargetContext, CheckError> {
+    let selected_rustc = selected_rustc_path();
+    let rustc_path = trusted_rustc_path(&selected_rustc)?;
+    let mut identity_command = Command::new(&rustc_path);
+    identity_command
+        .arg("-vV")
+        .env_clear()
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    copy_minimal_environment(&mut identity_command, &rustc_path);
+    let identity_output = run_bounded(identity_command, "rustc identity check")?;
+    require_success_without_stderr(&identity_output, "rustc identity check")?;
+    let target_name = verify_rustc_identity_output(&identity_output.stdout)?;
+
+    let mut cfg_command = Command::new(&rustc_path);
+    cfg_command
+        .arg("--print=cfg")
+        .env_clear()
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    copy_minimal_environment(&mut cfg_command, &rustc_path);
+    let cfg_output = run_bounded(cfg_command, "rustc target-cfg inventory")?;
+    require_success_without_stderr(&cfg_output, "rustc target-cfg inventory")?;
+    let cfg_text = std::str::from_utf8(&cfg_output.stdout)
+        .map_err(|error| CheckError::new(format!("rustc target cfg is not UTF-8: {error}")))?;
+    let cfgs = cfg_text
+        .lines()
+        .map(|line| {
+            Cfg::from_str(line).map_err(|error| {
+                CheckError::new(format!("cannot parse rustc target cfg {line:?}: {error}"))
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if cfgs.is_empty() {
+        return Err(CheckError::new("rustc target-cfg inventory is empty"));
+    }
+    TargetContext::new(target_name, cfgs)
+}
+
+fn trusted_rustc_path(path: &Path) -> Result<PathBuf, CheckError> {
+    if path != selected_rustc_path() {
+        return Err(CheckError::new(format!(
+            "rustc executable differs from the compile-time selection: {}",
+            path.display()
+        )));
+    }
+    if !path.is_absolute() {
+        return Err(CheckError::new(format!(
+            "rustc executable path must be absolute: {}",
+            path.display()
+        )));
+    }
+    let expected_names = if cfg!(windows) {
+        ["rustc.exe", "rustc"]
+    } else {
+        ["rustc", "rustc"]
+    };
+    let name = path.file_name().and_then(OsStr::to_str).ok_or_else(|| {
+        CheckError::new(format!(
+            "rustc executable name is not UTF-8: {}",
+            path.display()
+        ))
+    })?;
+    if !expected_names.contains(&name) {
+        return Err(CheckError::new(format!(
+            "compile-time executable is not named rustc: {}",
+            path.display()
+        )));
+    }
+    let metadata = std::fs::metadata(path)
+        .map_err(|error| CheckError::new(format!("cannot inspect {}: {error}", path.display())))?;
+    if !metadata.is_file() {
+        return Err(CheckError::new(format!(
+            "rustc executable is not a regular file: {}",
+            path.display()
+        )));
+    }
+    Ok(path.to_path_buf())
+}
+
+fn selected_rustc_path() -> PathBuf {
+    let filename = if cfg!(windows) { "rustc.exe" } else { "rustc" };
+    Path::new(env!("CARGO")).with_file_name(filename)
+}
+
+fn verify_rustc_identity_output(output: &[u8]) -> Result<String, CheckError> {
+    let text = std::str::from_utf8(output)
+        .map_err(|error| CheckError::new(format!("rustc identity is not UTF-8: {error}")))?;
+    let mut lines = text.lines();
+    if lines.next() != Some(RUSTC_BANNER) {
+        return Err(CheckError::new(
+            "rustc identity banner differs from the pinned toolchain",
+        ));
+    }
+    let mut release = None;
+    let mut commit_hash = None;
+    let mut commit_date = None;
+    let mut host = None;
+    for line in lines {
+        if let Some(value) = line.strip_prefix("release: ") {
+            set_identity_field(&mut release, value, "release")?;
+        } else if let Some(value) = line.strip_prefix("commit-hash: ") {
+            set_identity_field(&mut commit_hash, value, "commit-hash")?;
+        } else if let Some(value) = line.strip_prefix("commit-date: ") {
+            set_identity_field(&mut commit_date, value, "commit-date")?;
+        } else if let Some(value) = line.strip_prefix("host: ") {
+            set_identity_field(&mut host, value, "host")?;
+        }
+    }
+    require_identity_field(release, RUSTC_RELEASE, "release")?;
+    require_identity_field(commit_hash, RUSTC_COMMIT_HASH, "commit-hash")?;
+    require_identity_field(commit_date, RUSTC_COMMIT_DATE, "commit-date")?;
+    let host = host
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| CheckError::new("rustc identity has no non-empty host field"))?;
+    Ok(host.to_owned())
+}
+
+fn require_success_without_stderr(
+    output: &BoundedOutput,
+    operation: &str,
+) -> Result<(), CheckError> {
+    if !output.status.success() {
+        return Err(CheckError::new(format!(
+            "{operation} failed with {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    if !output.stderr.is_empty() {
+        return Err(CheckError::new(format!(
+            "{operation} wrote unexpected stderr: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    Ok(())
 }
 
 fn set_identity_field<'a>(
@@ -207,7 +393,7 @@ fn set_identity_field<'a>(
 ) -> Result<(), CheckError> {
     if slot.replace(value).is_some() {
         return Err(CheckError::new(format!(
-            "Cargo identity contains duplicate {name} fields"
+            "toolchain identity contains duplicate {name} fields"
         )));
     }
     Ok(())
@@ -222,7 +408,7 @@ fn require_identity_field(
         Ok(())
     } else {
         Err(CheckError::new(format!(
-            "Cargo identity {name} differs from the pinned toolchain"
+            "toolchain identity {name} differs from the pinned toolchain"
         )))
     }
 }

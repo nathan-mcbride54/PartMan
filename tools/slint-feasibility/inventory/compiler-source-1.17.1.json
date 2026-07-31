@@ -45,6 +45,110 @@
         { "path": "LICENSES/LicenseRef-Slint-Royalty-free-2.0.md", "length": 3620, "sha256": "5167f5056e850419106ab6265efbdca7cba4d99c849d1445ca0bbf6a1e2315fe" },
         { "path": "LICENSES/LicenseRef-Slint-Software-3.0.md", "length": 9187, "sha256": "a235744b92f4453fe18e081e54f29468a6a9db6a44e9a8f6364a48001ba4f10f" }
       ]
+    },
+    {
+      "package": "i-slint-backend-selector",
+      "version": "1.17.1",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "crateSha256": "2247a4590a02a466b2f4916cc789dfe66247f6af826f00eb84a2685259a45c1c",
+      "licenseExpression": "GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0",
+      "normalizedCargoTomlSha256": "3fa906c21b051271d9965e783b7037adfc19d542b2b784a4f0005133b0673bca",
+      "licenseFiles": [
+        { "path": "LICENSES/GPL-3.0-only.txt", "length": 34670, "sha256": "b6a8bf63ae2c95b0aa256ee774680d7bd18f21f457da75466f7610b3b16acc4e" },
+        { "path": "LICENSES/LicenseRef-Slint-Royalty-free-2.0.md", "length": 3620, "sha256": "5167f5056e850419106ab6265efbdca7cba4d99c849d1445ca0bbf6a1e2315fe" },
+        { "path": "LICENSES/LicenseRef-Slint-Software-3.0.md", "length": 9187, "sha256": "a235744b92f4453fe18e081e54f29468a6a9db6a44e9a8f6364a48001ba4f10f" }
+      ]
+    },
+    {
+      "package": "i-slint-backend-winit",
+      "version": "1.17.1",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "crateSha256": "a27c7e8f53418d3017362465367b6612b6e439a68097d627d1b91c94b885f0a6",
+      "licenseExpression": "GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0",
+      "normalizedCargoTomlSha256": "1fdc9588b5046c3da9026035c53ea365ad4c25db5b5955913a1be8b19f546773",
+      "licenseFiles": [
+        { "path": "LICENSES/GPL-3.0-only.txt", "length": 34670, "sha256": "b6a8bf63ae2c95b0aa256ee774680d7bd18f21f457da75466f7610b3b16acc4e" },
+        { "path": "LICENSES/LicenseRef-Slint-Royalty-free-2.0.md", "length": 3620, "sha256": "5167f5056e850419106ab6265efbdca7cba4d99c849d1445ca0bbf6a1e2315fe" },
+        { "path": "LICENSES/LicenseRef-Slint-Software-3.0.md", "length": 9187, "sha256": "a235744b92f4453fe18e081e54f29468a6a9db6a44e9a8f6364a48001ba4f10f" }
+      ]
+    },
+    {
+      "package": "i-slint-core",
+      "version": "1.17.1",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "crateSha256": "4e407dc2bd5385dcbdd9c1cf927213d2e4bacda667545abf8839c60f8290f754",
+      "licenseExpression": "GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0",
+      "normalizedCargoTomlSha256": "7dcbb3f148c40aa4e85f690518ddcdf4b92ce63665b988aaea2bb00278fc6bd9",
+      "licenseFiles": [
+        { "path": "LICENSES/GPL-3.0-only.txt", "length": 34670, "sha256": "b6a8bf63ae2c95b0aa256ee774680d7bd18f21f457da75466f7610b3b16acc4e" },
+        { "path": "LICENSES/LicenseRef-Slint-Royalty-free-2.0.md", "length": 3620, "sha256": "5167f5056e850419106ab6265efbdca7cba4d99c849d1445ca0bbf6a1e2315fe" },
+        { "path": "LICENSES/LicenseRef-Slint-Software-3.0.md", "length": 9187, "sha256": "a235744b92f4453fe18e081e54f29468a6a9db6a44e9a8f6364a48001ba4f10f" }
+      ]
+    },
+    {
+      "package": "i-slint-core-macros",
+      "version": "1.17.1",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "crateSha256": "3a842640da4c4d0909d25cc5a51e1f9cde02bd48f7fdfa94df10d595d4e3c80a",
+      "licenseExpression": "GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0",
+      "normalizedCargoTomlSha256": "0c338c7474098bc46e4e5c25c3e976c19cb580043240676dad3b674cbaa77293",
+      "licenseFiles": [
+        { "path": "LICENSES/GPL-3.0-only.txt", "length": 34670, "sha256": "b6a8bf63ae2c95b0aa256ee774680d7bd18f21f457da75466f7610b3b16acc4e" },
+        { "path": "LICENSES/LicenseRef-Slint-Royalty-free-2.0.md", "length": 3620, "sha256": "5167f5056e850419106ab6265efbdca7cba4d99c849d1445ca0bbf6a1e2315fe" },
+        { "path": "LICENSES/LicenseRef-Slint-Software-3.0.md", "length": 9187, "sha256": "a235744b92f4453fe18e081e54f29468a6a9db6a44e9a8f6364a48001ba4f10f" }
+      ]
+    },
+    {
+      "package": "i-slint-renderer-femtovg",
+      "version": "1.17.1",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "crateSha256": "78d0d99a18d66738b684758fe8460743a0aa0f64a96e05940942231a340085b1",
+      "licenseExpression": "GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0",
+      "normalizedCargoTomlSha256": "6726475354fd5c3e3cc1017e14758af96d8c443d98ea854624a5882d7bb7b1cd",
+      "licenseFiles": [
+        { "path": "LICENSES/GPL-3.0-only.txt", "length": 34670, "sha256": "b6a8bf63ae2c95b0aa256ee774680d7bd18f21f457da75466f7610b3b16acc4e" },
+        { "path": "LICENSES/LicenseRef-Slint-Royalty-free-2.0.md", "length": 3620, "sha256": "5167f5056e850419106ab6265efbdca7cba4d99c849d1445ca0bbf6a1e2315fe" },
+        { "path": "LICENSES/LicenseRef-Slint-Software-3.0.md", "length": 9187, "sha256": "a235744b92f4453fe18e081e54f29468a6a9db6a44e9a8f6364a48001ba4f10f" }
+      ]
+    },
+    {
+      "package": "i-slint-renderer-software",
+      "version": "1.17.1",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "crateSha256": "73496f164f8e471877c35e0fadb996dcc674922712abd9c2be2cbe80c58859bd",
+      "licenseExpression": "GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0",
+      "normalizedCargoTomlSha256": "e3bb0ff085de7e1d0bacb4aa0577a29c1b96188ad757532108f52303088289c8",
+      "licenseFiles": [
+        { "path": "LICENSES/GPL-3.0-only.txt", "length": 34670, "sha256": "b6a8bf63ae2c95b0aa256ee774680d7bd18f21f457da75466f7610b3b16acc4e" },
+        { "path": "LICENSES/LicenseRef-Slint-Royalty-free-2.0.md", "length": 3620, "sha256": "5167f5056e850419106ab6265efbdca7cba4d99c849d1445ca0bbf6a1e2315fe" },
+        { "path": "LICENSES/LicenseRef-Slint-Software-3.0.md", "length": 9187, "sha256": "a235744b92f4453fe18e081e54f29468a6a9db6a44e9a8f6364a48001ba4f10f" }
+      ]
+    },
+    {
+      "package": "slint",
+      "version": "1.17.1",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "crateSha256": "ce12038f57f8f3a423564b0c9301a2ab3fda4246e4cbadd6b97acf9124bdc315",
+      "licenseExpression": "GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0",
+      "normalizedCargoTomlSha256": "7729832c62d258091553f1bff79335f434c91f89d2770174926a1112ab060bd2",
+      "licenseFiles": [
+        { "path": "LICENSES/GPL-3.0-only.txt", "length": 34670, "sha256": "b6a8bf63ae2c95b0aa256ee774680d7bd18f21f457da75466f7610b3b16acc4e" },
+        { "path": "LICENSES/LicenseRef-Slint-Royalty-free-2.0.md", "length": 3620, "sha256": "5167f5056e850419106ab6265efbdca7cba4d99c849d1445ca0bbf6a1e2315fe" },
+        { "path": "LICENSES/LicenseRef-Slint-Software-3.0.md", "length": 9187, "sha256": "a235744b92f4453fe18e081e54f29468a6a9db6a44e9a8f6364a48001ba4f10f" }
+      ]
+    },
+    {
+      "package": "slint-macros",
+      "version": "1.17.1",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "crateSha256": "9f2a763e72e1e53c496f571d36327e777da1eb0d9e58fceb83890c2a83ee7223",
+      "licenseExpression": "GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0",
+      "normalizedCargoTomlSha256": "355a11b6f1c13f6f604dcfe71d7beef13efcf2406bffe24f3963b8bac39c8cda",
+      "licenseFiles": [
+        { "path": "LICENSES/GPL-3.0-only.txt", "length": 34670, "sha256": "b6a8bf63ae2c95b0aa256ee774680d7bd18f21f457da75466f7610b3b16acc4e" },
+        { "path": "LICENSES/LicenseRef-Slint-Royalty-free-2.0.md", "length": 3620, "sha256": "5167f5056e850419106ab6265efbdca7cba4d99c849d1445ca0bbf6a1e2315fe" },
+        { "path": "LICENSES/LicenseRef-Slint-Software-3.0.md", "length": 9187, "sha256": "a235744b92f4453fe18e081e54f29468a6a9db6a44e9a8f6364a48001ba4f10f" }
+      ]
     }
   ],
   "criticalFiles": [

@@ -1,8 +1,9 @@
 use std::io::Cursor;
 
 use super::{
-    CARGO_BANNER, CARGO_COMMIT_DATE, CARGO_COMMIT_HASH, CARGO_RELEASE, STDERR_LIMIT, drain_bounded,
-    verify_cargo_identity_output,
+    CARGO_BANNER, CARGO_COMMIT_DATE, CARGO_COMMIT_HASH, CARGO_RELEASE, RUSTC_BANNER,
+    RUSTC_COMMIT_DATE, RUSTC_COMMIT_HASH, RUSTC_RELEASE, STDERR_LIMIT, drain_bounded,
+    verify_cargo_identity_output, verify_rustc_identity_output,
 };
 
 #[cfg(unix)]
@@ -76,10 +77,42 @@ fn cargo_identity_fails_closed_on_every_pinned_field() {
             &format!("release: {CARGO_RELEASE}\n"),
             &format!("release: {CARGO_RELEASE}\nrelease: {CARGO_RELEASE}\n"),
         ),
+        clean.replacen("host: test-host", "host: ", 1),
+        clean.replace("host: test-host\n", "host: test-host\nhost: test-host\n"),
     ] {
         assert!(
             verify_cargo_identity_output(drifted.as_bytes()).is_err(),
             "mutated Cargo identity must fail"
+        );
+    }
+}
+
+// Requirements: SAFE-004, SEC-010
+//   Target-predicate evaluation accepts only the pinned rustc release and full identity, with one non-empty host field
+// Work-Package: WP-030
+// Evidence: rustc_identity_fails_closed_on_every_pinned_field
+#[test]
+fn rustc_identity_fails_closed_on_every_pinned_field() {
+    let clean = format!(
+        "{RUSTC_BANNER}\nbinary: rustc\ncommit-hash: {RUSTC_COMMIT_HASH}\ncommit-date: {RUSTC_COMMIT_DATE}\nhost: test-host\nrelease: {RUSTC_RELEASE}\nLLVM version: 21.1.2\n"
+    );
+    verify_rustc_identity_output(clean.as_bytes()).expect("exact rustc identity passes");
+
+    for drifted in [
+        clean.replacen(RUSTC_BANNER, "rustc 1.96.1 (substituted)", 1),
+        clean.replacen(RUSTC_RELEASE, "1.96.1", 1),
+        clean.replacen(
+            RUSTC_COMMIT_HASH,
+            "0000000000000000000000000000000000000000",
+            1,
+        ),
+        clean.replacen(RUSTC_COMMIT_DATE, "2026-05-26", 1),
+        clean.replacen("host: test-host", "host: ", 1),
+        clean.replace("host: test-host\n", "host: test-host\nhost: test-host\n"),
+    ] {
+        assert!(
+            verify_rustc_identity_output(drifted.as_bytes()).is_err(),
+            "mutated rustc identity must fail"
         );
     }
 }

@@ -1,0 +1,204 @@
+import {
+    PartmanGeneratedContrast,
+    PartmanGeneratedMetrics,
+    PartmanCursorRoleId,
+    PartmanRadiusId,
+    PartmanSpacingId,
+    PartmanStrokeId,
+    PartmanText,
+    PartmanTextContrastPairId,
+    PartmanTextFlowId,
+    PartmanTextStyleId,
+    PartmanThemeId,
+    PartmanUiContrastPairId,
+} from "../../../packages/design-tokens/generated/partman-tokens.slint";
+
+export component PartmanPanel inherits Rectangle {
+    in property <PartmanThemeId> theme: PartmanThemeId.vdark;
+    in property <PartmanTextContrastPairId> surface-pair:
+        PartmanTextContrastPairId.vtextz2eprimary-to-vsurfacez2eraised;
+    in property <PartmanUiContrastPairId> border-pair:
+        PartmanUiContrastPairId.vborderz2edefault-to-vsurfacez2ebase;
+
+    background: PartmanGeneratedContrast.text-colors(root.theme, root.surface-pair).background;
+    border-color: PartmanGeneratedContrast.ui-colors(root.theme, root.border-pair).foreground;
+    border-width: PartmanGeneratedMetrics.stroke(PartmanStrokeId.vhairline);
+    border-radius: PartmanGeneratedMetrics.radius(PartmanRadiusId.vmd);
+}
+
+export component PartmanHeading inherits Rectangle {
+    in property <PartmanThemeId> theme: PartmanThemeId.vdark;
+    in property <string> eyebrow;
+    in property <string> heading;
+    in property <string> trailing;
+    background: transparent;
+
+    PartmanText {
+        x: PartmanGeneratedMetrics.spacing(PartmanSpacingId.vmd);
+        y: PartmanGeneratedMetrics.spacing(PartmanSpacingId.vsm);
+        width: parent.width - 2 * PartmanGeneratedMetrics.spacing(PartmanSpacingId.vmd);
+        height: 16px;
+        theme: root.theme;
+        text: root.eyebrow;
+        style-id: PartmanTextStyleId.veyebrow;
+        flow-id: PartmanTextFlowId.vsinglez2dline;
+        contrast-pair: PartmanTextContrastPairId.vtextz2emuted-to-vsurfacez2eraised;
+    }
+    PartmanText {
+        x: PartmanGeneratedMetrics.spacing(PartmanSpacingId.vmd);
+        y: 27px;
+        width: parent.width - 2 * PartmanGeneratedMetrics.spacing(PartmanSpacingId.vmd);
+        height: 24px;
+        theme: root.theme;
+        text: root.heading;
+        style-id: PartmanTextStyleId.vheading;
+        flow-id: PartmanTextFlowId.vsinglez2dline;
+        contrast-pair: PartmanTextContrastPairId.vtextz2eprimary-to-vsurfacez2eraised;
+    }
+    PartmanText {
+        x: parent.width - self.width - PartmanGeneratedMetrics.spacing(PartmanSpacingId.vmd);
+        y: 27px;
+        width: 72px;
+        height: 20px;
+        theme: root.theme;
+        text: root.trailing;
+        style-id: PartmanTextStyleId.vbodyz2dsmall;
+        flow-id: PartmanTextFlowId.vsinglez2dline;
+        contrast-pair: PartmanTextContrastPairId.vtextz2esecondary-to-vsurfacez2eraised;
+        horizontal-alignment: right;
+    }
+}
+
+export component PartmanChoiceCard inherits Rectangle {
+    in property <PartmanThemeId> theme: PartmanThemeId.vdark;
+    in property <string> accessibility-id;
+    in property <string> accessibility-label;
+    in property <string> label;
+    in property <string> detail;
+    in property <string> selected-label;
+    in property <bool> selected;
+    in property <int> item-index;
+    in property <int> item-count;
+    in property <PartmanTextContrastPairId> accent-pair:
+        PartmanTextContrastPairId.ventityz2edevice-to-vsurfacez2ebase;
+    in property <bool> accent-uses-ui-pair: false;
+    in property <PartmanUiContrastPairId> ui-accent-pair:
+        PartmanUiContrastPairId.ventityz2efreez53pace-to-vsurfacez2ebase;
+    private property <color> accent-color: root.accent-uses-ui-pair
+        ? PartmanGeneratedContrast.ui-colors(root.theme, root.ui-accent-pair).foreground
+        : PartmanGeneratedContrast.text-colors(root.theme, root.accent-pair).foreground;
+    callback activated();
+
+    accessible-id: root.accessibility-id;
+    accessible-role: list-item;
+    accessible-label: root.accessibility-label;
+    accessible-item-selectable: true;
+    accessible-item-selected: root.selected;
+    accessible-item-index: root.item-index;
+    accessible-item-count: root.item-count;
+    accessible-action-default => { root.activated(); }
+    forward-focus: focus-scope;
+
+    background: root.selected
+        ? PartmanGeneratedContrast.text-colors(
+            root.theme,
+            PartmanTextContrastPairId.vtextz2eprimary-to-vsurfacez2eraised,
+        ).background
+        : PartmanGeneratedContrast.text-colors(
+            root.theme,
+            PartmanTextContrastPairId.vtextz2eprimary-to-vsurfacez2ebase,
+        ).background;
+    border-color: focus-scope.has-focus
+        ? PartmanGeneratedContrast.ui-colors(
+            root.theme,
+            PartmanUiContrastPairId.vfocusz2ering-to-vsurfacez2ebase,
+        ).foreground
+        : (root.selected
+            ? root.accent-color
+            : PartmanGeneratedContrast.ui-colors(
+                root.theme,
+                PartmanUiContrastPairId.vborderz2edefault-to-vsurfacez2ebase,
+            ).foreground);
+    border-width: focus-scope.has-focus
+        ? PartmanGeneratedMetrics.stroke(PartmanStrokeId.vfocus)
+        : PartmanGeneratedMetrics.stroke(PartmanStrokeId.vhairline);
+    border-radius: PartmanGeneratedMetrics.radius(PartmanRadiusId.vsm);
+
+    Rectangle {
+        x: PartmanGeneratedMetrics.spacing(PartmanSpacingId.vsm);
+        y: PartmanGeneratedMetrics.spacing(PartmanSpacingId.vsm);
+        width: 5px;
+        height: parent.height - 2 * PartmanGeneratedMetrics.spacing(PartmanSpacingId.vsm);
+        background: root.accent-color;
+        border-radius: PartmanGeneratedMetrics.radius(PartmanRadiusId.vpill);
+    }
+    PartmanText {
+        x: 24px;
+        y: 10px;
+        width: parent.width - 34px;
+        height: 22px;
+        theme: root.theme;
+        text: root.label;
+        style-id: PartmanTextStyleId.vbody;
+        flow-id: PartmanTextFlowId.vsinglez2dline;
+        contrast-pair: root.selected
+            ? PartmanTextContrastPairId.vtextz2eprimary-to-vsurfacez2eraised
+            : PartmanTextContrastPairId.vtextz2eprimary-to-vsurfacez2ebase;
+    }
+    PartmanText {
+        x: 24px;
+        y: 34px;
+        width: parent.width - 34px;
+        height: 20px;
+        theme: root.theme;
+        text: root.selected ? root.selected-label : root.detail;
+        style-id: PartmanTextStyleId.vbodyz2dsmall;
+        flow-id: PartmanTextFlowId.vsinglez2dline;
+        contrast-pair: root.selected
+            ? PartmanTextContrastPairId.vtextz2esecondary-to-vsurfacez2eraised
+            : PartmanTextContrastPairId.vtextz2esecondary-to-vsurfacez2ebase;
+    }
+    TouchArea {
+        mouse-cursor: PartmanGeneratedMetrics.cursor(PartmanCursorRoleId.vaction);
+        clicked => { root.activated(); }
+    }
+    focus-scope := FocusScope {
+        key-pressed(event) => {
+            if (event.text == " " || event.text == "\n") {
+                root.activated();
+                return accept;
+            }
+            return reject;
+        }
+    }
+}
+
+export component PartmanFactRow inherits Rectangle {
+    in property <PartmanThemeId> theme: PartmanThemeId.vdark;
+    in property <string> label;
+    in property <string> value;
+    background: transparent;
+
+    PartmanText {
+        x: 0px;
+        y: 2px;
+        width: 42%;
+        height: parent.height - 4px;
+        theme: root.theme;
+        text: root.label;
+        style-id: PartmanTextStyleId.vcaption;
+        flow-id: PartmanTextFlowId.vmultiz2dline;
+        contrast-pair: PartmanTextContrastPairId.vtextz2emuted-to-vsurfacez2eraised;
+    }
+    PartmanText {
+        x: parent.width * 0.44;
+        y: 2px;
+        width: 56%;
+        height: parent.height - 4px;
+        theme: root.theme;
+        text: root.value;
+        style-id: PartmanTextStyleId.vexactz2dvalue;
+        flow-id: PartmanTextFlowId.vmultiz2dline;
+        contrast-pair: PartmanTextContrastPairId.vtextz2esecondary-to-vsurfacez2eraised;
+    }
+}

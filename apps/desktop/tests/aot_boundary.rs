@@ -27,8 +27,16 @@ use slint_environment::{
 
 static FIXTURE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-const TOKEN_SOURCE: &str = r"
+const TOKEN_SOURCE: &str = r#"
+import { Palette } from "std-widgets.slint";
+
 export enum ProbeTheme { dark, light }
+
+export global PartmanGeneratedThemeAdapter {
+    out property <ProbeTheme> system-theme: Palette.color-scheme == ColorScheme.light
+        ? ProbeTheme.light
+        : (Palette.color-scheme == ColorScheme.dark ? ProbeTheme.dark : ProbeTheme.dark);
+}
 
 export global ProbeTokens {
     public pure function spacing(theme: ProbeTheme) -> length {
@@ -36,13 +44,25 @@ export global ProbeTokens {
         return 16px;
     }
 }
-";
+
+export component ProbeWindow inherits Window {
+    background: #16181c;
+    default-font-family: "";
+}
+
+export component ProbeUnsafeWindow inherits Window { }
+export component ProbeUnsafeTextWindow inherits Window {
+    background: #16181c;
+    default-font-family: "";
+    Text { text: "probe"; }
+}
+"#;
 
 const SUCCESS_ROOT: &str = r#"
 import { ProbePanel } from "panel.slint";
-import { ProbeTheme, ProbeTokens } from "../token-contract.slint";
+import { ProbeTheme, ProbeTokens, ProbeWindow } from "../token-contract.slint";
 
-export component ProbeApp inherits Window {
+export component ProbeApp inherits ProbeWindow {
     in property <ProbeTheme> theme: ProbeTheme.dark;
     out property <length> gap: ProbeTokens.spacing(root.theme);
     width: 320px;
@@ -322,11 +342,13 @@ fn typed_fixture_compilation_is_deterministic_tracked_and_resource_free() {
 }
 
 // Requirements: UI-001, SEC-010
-//   The production probe root imports the canonical generated token contract and exercises its typed enum, metric, and palette APIs without a runtime dependency
+//   The production root compiles to includable Rust while using only typed contrast/metric APIs and explicit Window style bindings
 // Evidence: production_root_compiles_against_the_generated_token_contract
 #[test]
 fn production_root_compiles_against_the_generated_token_contract() {
-    let fixture = Fixture::new("export component Unused inherits Window { }");
+    let fixture = Fixture::new(
+        "import { ProbeWindow } from \"../token-contract.slint\"; export component Unused inherits ProbeWindow { }",
+    );
     let manifest_directory = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let repository_root = manifest_directory.join("../..");
     let ui_root = manifest_directory.join("ui");
@@ -351,22 +373,46 @@ fn production_root_compiles_against_the_generated_token_contract() {
 }
 
 // Requirements: UI-013, SEC-010
-//   Root and imported syntax reject translations, images, and font imports before code generation or resource I/O
+//   Root and imported syntax reject translations, assets, raw/upstream palettes, style metrics, and standard widgets before code generation or resource I/O
 // Evidence: forbidden_language_constructs_are_rejected_in_roots_and_imports
 #[test]
 fn forbidden_language_constructs_are_rejected_in_roots_and_imports() {
     let cases = [
         (
-            "export component Probe inherits Window { in property <string> label: @tr(\"probe\"); }",
+            "export component Probe inherits Window { }",
+            ForbiddenSyntax::UngovernedStyleBuiltin,
+        ),
+        (
+            "import { ProbeWindow } from \"../token-contract.slint\"; export component Probe inherits ProbeWindow { in property <string> label: \"PartMan\"; }",
+            ForbiddenSyntax::EmbeddedDisplayString,
+        ),
+        (
+            "import { ProbeWindow } from \"../token-contract.slint\"; export component Probe inherits ProbeWindow { in property <string> label: @tr(\"probe\"); }",
             ForbiddenSyntax::Translation,
         ),
         (
-            "export component Probe inherits Window { in property <image> icon: @image-url(\"absent.png\"); }",
+            "import { ProbeWindow } from \"../token-contract.slint\"; export component Probe inherits ProbeWindow { in property <image> icon: @image-url(\"absent.png\"); }",
             ForbiddenSyntax::ImageUrl,
         ),
         (
-            "import \"absent.ttf\"; export component Probe inherits Window { }",
+            "import \"absent.ttf\"; import { ProbeWindow } from \"../token-contract.slint\"; export component Probe inherits ProbeWindow { }",
             ForbiddenSyntax::FontImport,
+        ),
+        (
+            "import { ProbeWindow } from \"../token-contract.slint\"; export component Probe inherits ProbeWindow { in property <color> value: PartmanRawGeneratedPalette.color-test; }",
+            ForbiddenSyntax::RawGeneratedPalette,
+        ),
+        (
+            "import { ProbeWindow } from \"../token-contract.slint\"; export component Probe inherits ProbeWindow { in property <color> value: Palette.foreground; }",
+            ForbiddenSyntax::UpstreamPalette,
+        ),
+        (
+            "import { ProbeWindow } from \"../token-contract.slint\"; export component Probe inherits ProbeWindow { in property <length> value: StyleMetrics.layout-spacing; }",
+            ForbiddenSyntax::UpstreamStyleMetrics,
+        ),
+        (
+            "import { Button } from \"std-widgets.slint\"; import { ProbeWindow } from \"../token-contract.slint\"; export component Probe inherits ProbeWindow { Button { } }",
+            ForbiddenSyntax::StandardWidgets,
         ),
     ];
     for (source, expected) in cases {
@@ -376,7 +422,7 @@ fn forbidden_language_constructs_are_rejected_in_roots_and_imports() {
     }
 
     let fixture = Fixture::new(
-        "import { Bad } from \"bad.slint\"; export component Probe inherits Window { Bad { } }",
+        "import { Bad } from \"bad.slint\"; import { ProbeWindow } from \"../token-contract.slint\"; export component Probe inherits ProbeWindow { Bad { } }",
     );
     fixture.write_ui(
         "bad.slint",
@@ -390,6 +436,72 @@ fn forbidden_language_constructs_are_rejected_in_roots_and_imports() {
             ..
         }
     ));
+
+    let palette_fixture = successful_fixture();
+    fs::write(
+        &palette_fixture.token_contract,
+        TOKEN_SOURCE.replacen("Palette.color-scheme", "Palette.foreground", 1),
+    )
+    .expect("mutated token contract is written");
+    let error = compile_to_memory(palette_fixture.request())
+        .expect_err("generated exception cannot read a Palette brush");
+    assert!(matches!(
+        error,
+        AotError::Policy {
+            syntax: ForbiddenSyntax::UpstreamPalette,
+            ..
+        }
+    ));
+
+    let widget_fixture = successful_fixture();
+    fs::write(
+        &widget_fixture.token_contract,
+        TOKEN_SOURCE.replace("import { Palette }", "import { Button, Palette }"),
+    )
+    .expect("mutated widget import is written");
+    let error = compile_to_memory(widget_fixture.request())
+        .expect_err("generated exception cannot import an additional widget");
+    assert!(matches!(
+        error,
+        AotError::Policy {
+            syntax: ForbiddenSyntax::StandardWidgets,
+            ..
+        }
+    ));
+}
+
+// Requirements: UI-008, SEC-010
+//   Lowered PartMan-owned Window and text builtins retain authored bindings for every property the pinned compiler could otherwise source from Palette or StyleMetrics
+// Work-Package: WP-030
+// Evidence: implicit_style_defaults_are_rejected_after_lowering
+#[test]
+fn implicit_style_defaults_are_rejected_after_lowering() {
+    let window = Fixture::new(
+        "import { ProbeUnsafeWindow } from \"../token-contract.slint\"; export component Probe inherits ProbeUnsafeWindow { }",
+    );
+    let error = compile_to_memory(window.request()).expect_err("implicit Window style must fail");
+    assert!(matches!(
+        error,
+        AotError::ImplicitStyleBinding {
+            element: "Window",
+            property: "background",
+            ..
+        }
+    ));
+
+    let text = Fixture::new(
+        r#"import { ProbeUnsafeTextWindow } from "../token-contract.slint";
+        export component Probe inherits ProbeUnsafeTextWindow { }"#,
+    );
+    let error = compile_to_memory(text.request()).expect_err("implicit Text style must fail");
+    assert!(matches!(
+        error,
+        AotError::ImplicitStyleBinding {
+            element: "Text",
+            property: "color",
+            ..
+        }
+    ));
 }
 
 // Requirements: SEC-010
@@ -398,7 +510,7 @@ fn forbidden_language_constructs_are_rejected_in_roots_and_imports() {
 #[test]
 fn import_callback_rejects_canonical_escape() {
     let fixture = Fixture::new(
-        "import { Escaped } from \"../escaped.slint\"; export component Probe inherits Window { Escaped { } }",
+        "import { Escaped } from \"../escaped.slint\"; import { ProbeWindow } from \"../token-contract.slint\"; export component Probe inherits ProbeWindow { Escaped { } }",
     );
     let escaped = fixture.base.join("escaped.slint");
     fs::write(
@@ -418,7 +530,9 @@ fn import_callback_rejects_canonical_escape() {
 // Evidence: missing_required_inputs_are_refused
 #[test]
 fn missing_required_inputs_are_refused() {
-    let missing_root = Fixture::new("export component Probe inherits Window { }");
+    let missing_root = Fixture::new(
+        "import { ProbeWindow } from \"../token-contract.slint\"; export component Probe inherits ProbeWindow { }",
+    );
     fs::remove_file(&missing_root.root).expect("root fixture is removed");
     let error = compile_to_memory(missing_root.request()).expect_err("missing root must fail");
     assert!(matches!(error, AotError::Io { .. }));
@@ -436,7 +550,7 @@ fn missing_required_inputs_are_refused() {
 #[test]
 fn source_and_output_symlinks_are_refused() {
     let import_fixture = Fixture::new(
-        "import { Escaped } from \"linked.slint\"; export component Probe inherits Window { Escaped { } }",
+        "import { Escaped } from \"linked.slint\"; import { ProbeWindow } from \"../token-contract.slint\"; export component Probe inherits ProbeWindow { Escaped { } }",
     );
     let escaped = import_fixture.base.join("escaped.slint");
     fs::write(
@@ -478,12 +592,15 @@ fn source_and_output_symlinks_are_refused() {
 // Evidence: compiler_warnings_and_errors_are_both_fatal
 #[test]
 fn compiler_warnings_and_errors_are_both_fatal() {
-    let warning_fixture = Fixture::new("export Probe := Window { }");
+    let warning_fixture = Fixture::new(
+        "import { ProbeWindow } from \"../token-contract.slint\"; export Probe := ProbeWindow { }",
+    );
     let warning = compile_to_memory(warning_fixture.request()).expect_err("warning must fail");
     assert!(matches!(warning, AotError::Diagnostics(report) if report.contains("deprecated")));
 
-    let error_fixture =
-        Fixture::new("export component Probe inherits Window { definitely-not-a-property: true; }");
+    let error_fixture = Fixture::new(
+        "import { ProbeWindow } from \"../token-contract.slint\"; export component Probe inherits ProbeWindow { definitely-not-a-property: true; }",
+    );
     let error = compile_to_memory(error_fixture.request()).expect_err("error must fail");
     assert!(
         matches!(error, AotError::Diagnostics(report) if report.contains("definitely-not-a-property"))
@@ -495,8 +612,9 @@ fn compiler_warnings_and_errors_are_both_fatal() {
 // Evidence: output_write_is_fixed_exclusive_and_failure_atomic
 #[test]
 fn output_write_is_fixed_exclusive_and_failure_atomic() {
-    let failing =
-        Fixture::new("export component Probe inherits Window { definitely-not-a-property: true; }");
+    let failing = Fixture::new(
+        "import { ProbeWindow } from \"../token-contract.slint\"; export component Probe inherits ProbeWindow { definitely-not-a-property: true; }",
+    );
     let destination = failing.output_directory.join(GENERATED_RUST_FILENAME);
     fs::write(&destination, b"sentinel").expect("sentinel output is written");
     compile_and_write(failing.request()).expect_err("failed compile must not write");
@@ -523,18 +641,26 @@ fn output_write_is_fixed_exclusive_and_failure_atomic() {
 }
 
 // Requirements: SEC-010
-//   The application manifest keeps the public crate runtime-free and uses only the exact reviewed compiler and executor in build/test scope
-// Evidence: manifest_has_no_slint_runtime_or_native_window_dependency
+//   The application manifest exposes only the reviewed Winit/accessibility runtime, closed renderer features, and exact AOT compiler boundary
+// Work-Package: WP-030
+// Evidence: manifest_and_generated_runtime_boundary_are_exact
 #[test]
-fn manifest_has_no_slint_runtime_or_native_window_dependency() {
+fn manifest_and_generated_runtime_boundary_are_exact() {
     let manifest = include_str!("../Cargo.toml");
-    let dependencies = manifest
-        .split_once("[dependencies]")
-        .and_then(|(_before, after)| after.split_once("[build-dependencies]"))
-        .map(|(block, _after)| block.trim())
-        .expect("manifest has dependency and build-dependency sections");
-    assert!(dependencies.is_empty());
-    assert!(!manifest.contains("\nslint ="));
+    for exact in [
+        "default = [\"renderer-femtovg\"]",
+        "renderer-femtovg = [\"slint/renderer-femtovg\"]",
+        "renderer-software = [\"slint/renderer-software\"]",
+        "comparison-combined = [\"renderer-femtovg\", \"renderer-software\"]",
+        "slint = { version = \"=1.17.1\", default-features = false, features = [\"std\", \"backend-winit\", \"accessibility\", \"compat-1-2\"] }",
+        "unicode-segmentation = \"=1.13.3\"",
+    ] {
+        assert_eq!(
+            manifest.matches(exact).count(),
+            1,
+            "exact boundary: {exact}"
+        );
+    }
     assert!(!manifest.contains("slint-build"));
     assert_eq!(
         manifest
@@ -543,7 +669,7 @@ fn manifest_has_no_slint_runtime_or_native_window_dependency() {
         2
     );
     assert_eq!(manifest.matches("spin_on = \"=0.1.1\"").count(), 2);
-    assert!(!include_str!("../src/lib.rs").contains("partman_ui.rs"));
+    assert!(include_str!("../src/lib.rs").contains("partman_ui.rs"));
 }
 
 // Requirements: SEC-010
