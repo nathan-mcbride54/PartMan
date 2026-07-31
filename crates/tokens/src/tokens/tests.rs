@@ -23,6 +23,9 @@ fn temporary_token_file(contents: &str) -> std::path::PathBuf {
     path
 }
 
+// Requirements: UI-001
+//   The crate resolves the one repository token source from its manifest directory rather than from a caller-controlled working directory
+// Evidence: the_repository_token_file_is_where_the_crate_expects_it
 #[test]
 fn the_repository_token_file_is_where_the_crate_expects_it() {
     let path = repository_token_path();
@@ -40,6 +43,9 @@ fn the_repository_token_file_is_where_the_crate_expects_it() {
     );
 }
 
+// Requirements: UI-001, UI-008
+//   The shipped token file loads with its pinned specification and token-set versions and includes the default dark theme
+// Evidence: loading_the_repository_token_file_succeeds_and_carries_its_versions
 #[test]
 fn loading_the_repository_token_file_succeeds_and_carries_its_versions() {
     let set = TokenSet::load_repository_tokens().expect("repository tokens load");
@@ -51,6 +57,9 @@ fn loading_the_repository_token_file_succeeds_and_carries_its_versions() {
     assert!(set.themes.contains_key("dark"));
 }
 
+// Requirements: UI-008
+//   A malformed colour in any declared role is rejected while loading the whole token set rather than deferred until first use
+// Evidence: a_malformed_colour_is_refused_at_load_rather_than_at_first_use
 #[test]
 fn a_malformed_colour_is_refused_at_load_rather_than_at_first_use() {
     // The whole file is validated up front. A bad colour in a role that no
@@ -83,6 +92,9 @@ fn a_malformed_colour_is_refused_at_load_rather_than_at_first_use() {
     let _ = std::fs::remove_file(&path);
 }
 
+// Requirements: UI-008
+//   Malformed JSON fails closed with source-path context instead of becoming an empty or partial accessibility policy
+// Evidence: malformed_json_is_refused_with_the_path_in_the_message
 #[test]
 fn malformed_json_is_refused_with_the_path_in_the_message() {
     let path = temporary_token_file("{ this is not json");
@@ -92,6 +104,9 @@ fn malformed_json_is_refused_with_the_path_in_the_message() {
     let _ = std::fs::remove_file(&path);
 }
 
+// Requirements: UI-001, UI-008
+//   A missing token source is a read error rather than a default palette or a vacuously clean audit
+// Evidence: a_missing_file_is_refused_rather_than_treated_as_an_empty_token_set
 #[test]
 fn a_missing_file_is_refused_rather_than_treated_as_an_empty_token_set() {
     let missing = std::env::temp_dir().join("partman-tokens-does-not-exist-9f3a.json");
@@ -99,6 +114,9 @@ fn a_missing_file_is_refused_rather_than_treated_as_an_empty_token_set() {
     assert!(matches!(error, TokenError::Read { .. }));
 }
 
+// Requirements: UI-007, UI-008
+//   Omitting a required policy section is rejected instead of defaulted, so absent non-colour channels cannot pass the accessibility gate
+// Evidence: a_file_missing_a_required_section_is_refused_not_defaulted
 #[test]
 fn a_file_missing_a_required_section_is_refused_not_defaulted() {
     // Defaulting an absent `nonColorChannels` to empty would turn UI-007 into a
@@ -108,14 +126,25 @@ fn a_file_missing_a_required_section_is_refused_not_defaulted() {
           "tokenSetVersion": "1.0.0",
           "specVersion": "4.0.0",
           "themes": {},
-          "contrastRules": { "thresholds": {}, "pairings": [] }
+          "contrastRules": { "thresholds": {}, "pairings": [] },
+          "colorVisionSeparation": {
+            "minimumDeltaE": 12.0,
+            "mustRemainDistinct": []
+          }
         }"#,
     );
     let error = TokenSet::load(&path).expect_err("a truncated token file must be refused");
     assert!(matches!(error, TokenError::Parse { .. }));
+    assert!(
+        error.to_string().contains("nonColorChannels"),
+        "the file omits only nonColorChannels, so that must be the parse failure: {error}"
+    );
     let _ = std::fs::remove_file(&path);
 }
 
+// Requirements: UI-001, UI-003
+//   Theme-and-role lookup resolves only declared values and returns no invented fallback for unknown themes or semantic roles
+// Evidence: colour_lookup_resolves_through_theme_and_role
 #[test]
 fn colour_lookup_resolves_through_theme_and_role() {
     let set = TokenSet::load_repository_tokens().expect("repository tokens load");

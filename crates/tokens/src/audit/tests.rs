@@ -15,6 +15,9 @@ fn repository_tokens() -> TokenSet {
     TokenSet::load_repository_tokens().expect("the repository token file loads")
 }
 
+// Requirements: UI-001, UI-003, UI-007, UI-008, UI-011, PLAN-004
+//   The shipped token set passes a non-vacuous audit over the required themes, semantic roles, redundant channels, contrast pairings, and risk vocabulary
+// Evidence: the_repository_token_set_satisfies_every_rule
 #[test]
 fn the_repository_token_set_satisfies_every_rule() {
     let report = audit(&repository_tokens());
@@ -32,6 +35,9 @@ fn the_repository_token_set_satisfies_every_rule() {
     );
 }
 
+// Requirements: UI-001, UI-008
+//   The harness evaluates every supported theme, including high contrast, instead of proving only that the default dark palette passes
+// Evidence: every_theme_is_audited_not_just_the_default
 #[test]
 fn every_theme_is_audited_not_just_the_default() {
     // If the harness only ever looked at `dark`, a high-contrast theme could
@@ -273,7 +279,7 @@ fn mutations() -> Vec<Mutation> {
         },
         Mutation {
             name: "a PLAN-004 severity is deleted from the vocabulary",
-            requirement: "UI-003",
+            requirement: "PLAN-004",
             apply: |set| {
                 for theme in set.themes.values_mut() {
                     theme.colors.remove("severity.dataMoving");
@@ -287,6 +293,25 @@ fn mutations() -> Vec<Mutation> {
                     .must_remain_distinct
                     .retain(|pair| {
                         pair[0] != "severity.dataMoving" && pair[1] != "severity.dataMoving"
+                    });
+            },
+        },
+        Mutation {
+            name: "a UI-011 progress state is deleted from the vocabulary",
+            requirement: "UI-011",
+            apply: |set| {
+                for theme in set.themes.values_mut() {
+                    theme.colors.remove("progress.recovering");
+                }
+                set.contrast_rules.pairings.retain(|pairing| {
+                    pairing.foreground != "progress.recovering"
+                        && pairing.background != "progress.recovering"
+                });
+                set.non_color_channels.roles.remove("progress.recovering");
+                set.color_vision_separation
+                    .must_remain_distinct
+                    .retain(|pair| {
+                        pair[0] != "progress.recovering" && pair[1] != "progress.recovering"
                     });
             },
         },
@@ -326,7 +351,7 @@ fn mutations() -> Vec<Mutation> {
         },
         Mutation {
             name: "a meaningful role is invented without going through the specification",
-            requirement: "UI-003",
+            requirement: "PLAN-004",
             apply: |set| {
                 for theme in set.themes.values_mut() {
                     theme
@@ -369,6 +394,9 @@ fn mutations() -> Vec<Mutation> {
     ]
 }
 
+// Requirements: UI-001, UI-003, UI-007, UI-008, UI-011, PLAN-004, Section 12
+//   Twenty-seven named hostile mutations prove the static policy checks can fail for theme, vocabulary, channel, contrast, version, and progress-state regressions
+// Evidence: every_check_rejects_a_mutation_that_defeats_it
 #[test]
 fn every_check_rejects_a_mutation_that_defeats_it() {
     for mutation in mutations() {
@@ -398,6 +426,9 @@ fn every_check_rejects_a_mutation_that_defeats_it() {
     }
 }
 
+// Requirements: UI-007, UI-008
+//   A passing audit reports its tightest contrast and colour-vision margins instead of hiding proximity to either policy floor
+// Evidence: the_summary_reports_the_tightest_pairing_it_saw
 #[test]
 fn the_summary_reports_the_tightest_pairing_it_saw() {
     // Reporting how close a passing set came to failing is the difference
@@ -417,6 +448,9 @@ fn the_summary_reports_the_tightest_pairing_it_saw() {
     assert!(*difference > 0.0);
 }
 
+// Requirements: UI-008
+//   Audit output names the keyboard, screen-reader, zoom, and other rendered behavior that a static token harness does not establish
+// Evidence: the_caveats_are_carried_into_the_output
 #[test]
 fn the_caveats_are_carried_into_the_output() {
     // A green harness that does not say what it failed to check invites being
