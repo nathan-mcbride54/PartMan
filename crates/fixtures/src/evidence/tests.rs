@@ -16,6 +16,9 @@ use std::collections::BTreeSet;
 use super::{Missing, claims, verify, verify_catalogue};
 use crate::catalogue::catalogue;
 
+// Requirements: Section 11.7
+//   Fixture claims and catalogue entries are exhaustive in both directions and no image is claimed twice
+// Evidence: every_fixture_has_a_claim_and_every_claim_has_a_fixture
 #[test]
 fn every_fixture_has_a_claim_and_every_claim_has_a_fixture() {
     // Exhaustive in both directions. One direction alone would let a fixture be
@@ -37,6 +40,9 @@ fn every_fixture_has_a_claim_and_every_claim_has_a_fixture() {
     assert_eq!(claims().len(), claimed.len(), "a fixture is claimed twice");
 }
 
+// Requirements: Section 11.7, Section 12
+//   Every catalogue builder's actual bytes satisfy the registered purpose for that fixture
+// Evidence: every_fixture_satisfies_its_claim
 #[test]
 fn every_fixture_satisfies_its_claim() {
     // Built from the catalogue's own builders, not from literals restated here.
@@ -45,6 +51,9 @@ fn every_fixture_satisfies_its_claim() {
     verify_catalogue().expect("every fixture must support its own rationale");
 }
 
+// Requirements: SAFE-005, Section 11.7
+//   Evidence verification fails closed when a fixture name has no registered claim
+// Evidence: a_fixture_with_no_registered_claim_is_refused_rather_than_passed
 #[test]
 fn a_fixture_with_no_registered_claim_is_refused_rather_than_passed() {
     // Treating an unknown name as "nothing to check" would reintroduce the gap
@@ -355,6 +364,9 @@ fn signature_mutations() -> Vec<Mutation> {
     ]
 }
 
+// Requirements: Section 11.7, Section 12
+//   Every named hostile mutation is rejected by the intended fixture claim with the expected reason rather than by an unrelated check
+// Evidence: every_claim_rejects_a_mutation_that_breaks_it_and_says_why
 #[test]
 fn every_claim_rejects_a_mutation_that_breaks_it_and_says_why() {
     // The test that makes the others mean something. A claim that cannot fail
@@ -389,6 +401,9 @@ fn every_claim_rejects_a_mutation_that_breaks_it_and_says_why() {
     }
 }
 
+// Requirements: Section 11.7, Section 12
+//   Every fixture has at least one hostile mutation proving its registered claim can fail
+// Evidence: every_fixture_has_at_least_one_mutation_that_must_be_caught
 #[test]
 fn every_fixture_has_at_least_one_mutation_that_must_be_caught() {
     // Otherwise a claim could be added with no proof it is capable of failing,
@@ -403,6 +418,9 @@ fn every_fixture_has_at_least_one_mutation_that_must_be_caught() {
     );
 }
 
+// Requirements: Section 11.7
+//   Catalogue-wide identity checks prevent two distinct fixture media from silently claiming the same disk, array, PV, or encryption identity
+// Evidence: two_fixtures_may_not_claim_one_identity
 #[test]
 fn two_fixtures_may_not_claim_one_identity() {
     // No single-image claim can see this, so `verify_catalogue` checks the set.
@@ -452,6 +470,9 @@ const MDRAID_12_CSUM: u32 = 0xa1e6_80fb;
 /// The mdraid 0.90 `sb_csum` in the fixture `blkid -p` validated.
 const MDRAID_090_CSUM: u32 = 0xc5b2_91a4;
 
+// Requirements: FS-004
+//   The LVM2 label checksum is pinned to the value libblkid 2.41 accepted, not merely to this repository's second implementation
+// Evidence: the_lvm2_checksum_matches_the_value_libblkid_accepted
 #[test]
 fn the_lvm2_checksum_matches_the_value_libblkid_accepted() {
     let bytes = build("lvm2-pv-orphan-512.img");
@@ -463,6 +484,9 @@ fn the_lvm2_checksum_matches_the_value_libblkid_accepted() {
     assert_eq!(super::lvm2_crc_bitwise(&bytes[532..1024]), LVM2_LABEL_CRC);
 }
 
+// Requirements: FS-004
+//   The mdraid 1.2 and 0.90 checksum fields are pinned to values blkid 2.41 validated
+// Evidence: the_mdraid_checksums_match_the_values_blkid_validated
 #[test]
 fn the_mdraid_checksums_match_the_values_blkid_validated() {
     let member = build("mdraid-1.2-member-512.img");
@@ -481,6 +505,9 @@ fn the_mdraid_checksums_match_the_values_blkid_validated() {
     );
 }
 
+// Requirements: INV-003
+//   The independent table-driven CRC-32 oracle reproduces the published IEEE check value
+// Evidence: the_crc32_here_reproduces_the_published_check_value
 #[test]
 fn the_crc32_here_reproduces_the_published_check_value() {
     // The anchor outside this repository. Both this table-driven version and
@@ -490,6 +517,9 @@ fn the_crc32_here_reproduces_the_published_check_value() {
     assert_eq!(super::crc32_table(b""), 0);
 }
 
+// Requirements: INV-003, Section 12
+//   Independent table-driven and bitwise CRC-32 implementations agree across varied inputs after both are externally anchored
+// Evidence: the_two_crc32_implementations_agree_without_sharing_code
 #[test]
 fn the_two_crc32_implementations_agree_without_sharing_code() {
     // One iterates bits, the other looks up bytes. A defect in either would
@@ -504,6 +534,9 @@ fn the_two_crc32_implementations_agree_without_sharing_code() {
     }
 }
 
+// Requirements: FS-004, Section 12
+//   Independent bit-loop and nibble-table LVM2 checksum implementations agree across varied inputs after external anchoring
+// Evidence: the_two_lvm2_checksums_agree_without_sharing_code
 #[test]
 fn the_two_lvm2_checksums_agree_without_sharing_code() {
     // A nibble table against a bit loop over the same polynomial. On its own
@@ -519,6 +552,9 @@ fn the_two_lvm2_checksums_agree_without_sharing_code() {
     }
 }
 
+// Requirements: FS-004, Section 12
+//   Independent mdraid folded-word checksum implementations agree without sharing the writer's folding method
+// Evidence: the_two_mdraid_checksums_agree_without_sharing_code
 #[test]
 fn the_two_mdraid_checksums_agree_without_sharing_code() {
     let mut superblock = [0_u8; 256];

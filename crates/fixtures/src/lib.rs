@@ -11,10 +11,11 @@
 //! images. So the images live in this crate as *code*, and the bytes are
 //! reproduced on demand.
 //!
-//! **SAFE-007** requires three independent proofs before a destructive suite may
-//! run, and says outright that one environment variable is not enough. That is
-//! [`interlock`], and the property it is built around is that disposability is
-//! *computed* from the target's own bytes rather than asserted by whoever asked.
+//! **SAFE-007** requires three proofs to be present before a destructive suite
+//! may run, and says outright that one environment variable is not enough. It
+//! does not require those proofs to be independent. That is [`interlock`], and
+//! the property it is built around is that disposability is *computed* from the
+//! target's own bytes rather than asserted by whoever asked.
 //!
 //! A third obligation was added after a project review. Section 11.7 fails a
 //! work package that claims a requirement without linked evidence, and this
@@ -23,8 +24,10 @@
 //! computed from its bytes and generation refuses to write one that has stopped
 //! serving it.
 //!
-//! This crate performs no privileged operation, opens no device, and launches no
-//! process. It writes files where it is told to and refuses everything else.
+//! The library's non-test code performs no privileged operation, opens no
+//! device, and launches no process. Its tests use regular files in temporary
+//! directories. Windows-only race setup may launch unprivileged `cmd /c mklink`
+//! to create a junction; that helper never probes or mutates storage devices.
 
 pub mod catalogue;
 pub mod evidence;

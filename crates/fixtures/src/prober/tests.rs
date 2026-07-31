@@ -17,6 +17,9 @@ const MEASURED: (u32, u32) = (2, 41);
 /// The util-linux `ubuntu-24.04` ships, which disagrees about one fixture.
 const OLDER: (u32, u32) = (2, 39);
 
+// Requirements: FS-004, Section 11.7
+//   Every fixture has one recorded external-prober expectation and no orphaned row exists.
+// Evidence: every_fixture_has_a_recorded_prober_expectation
 #[test]
 fn every_fixture_has_a_recorded_prober_expectation() {
     // Exhaustive in both directions, for the same reason the claims are: a
@@ -40,6 +43,9 @@ fn every_fixture_has_a_recorded_prober_expectation() {
     );
 }
 
+// Requirements: FS-004, Section 11.7
+//   Every recorded prober expectation explains non-obvious or version-dependent output.
+// Evidence: every_expectation_records_why_it_is_what_it_is
 #[test]
 fn every_expectation_records_why_it_is_what_it_is() {
     // Three of these rows are not what a reader would predict from the
@@ -55,6 +61,9 @@ fn every_expectation_records_why_it_is_what_it_is() {
     }
 }
 
+// Requirements: INV-003, SAFE-005
+//   Recorded probes preserve the SI-35 premise that healthy and conflicting GPT images are indistinguishable.
+// Evidence: the_conflicting_and_healthy_tables_are_recorded_as_indistinguishable
 #[test]
 fn the_conflicting_and_healthy_tables_are_recorded_as_indistinguishable() {
     // SI-35 rests on this equality, so state it as an assertion rather than
@@ -79,6 +88,9 @@ fn the_conflicting_and_healthy_tables_are_recorded_as_indistinguishable() {
     );
 }
 
+// Requirements: FS-004, INV-004
+//   The single-answer probe records stale mdraid while enumeration records both signatures.
+// Evidence: the_stale_signature_is_the_one_the_single_answer_interface_reports
 #[test]
 fn the_stale_signature_is_the_one_the_single_answer_interface_reports() {
     // The asymmetry the protection model turns on, asserted rather than left in
@@ -102,6 +114,9 @@ fn the_stale_signature_is_the_one_the_single_answer_interface_reports() {
     );
 }
 
+// Requirements: FS-004, SAFE-005
+//   Prober parsers accept captured util-linux shapes and distinguish valid empty output.
+// Evidence: the_parsers_read_the_shapes_the_tools_actually_emit
 #[test]
 fn the_parsers_read_the_shapes_the_tools_actually_emit() {
     // Captured verbatim from libblkid 2.41 rather than invented, including the
@@ -147,6 +162,9 @@ fn the_parsers_read_the_shapes_the_tools_actually_emit() {
     );
 }
 
+// Requirements: SAFE-005
+//   Unreadable prober output is refused instead of being silently discarded.
+// Evidence: a_line_the_parser_cannot_read_is_refused_rather_than_dropped
 #[test]
 fn a_line_the_parser_cannot_read_is_refused_rather_than_dropped() {
     // The defect this replaced: both parsers discarded what they did not
@@ -187,6 +205,9 @@ fn a_line_the_parser_cannot_read_is_refused_rather_than_dropped() {
     }
 }
 
+// Requirements: SAFE-005
+//   A foreign output shape cannot be misclassified as a valid blank-device observation.
+// Evidence: a_changed_output_shape_cannot_pass_as_a_blank_fixture
 #[test]
 fn a_changed_output_shape_cannot_pass_as_a_blank_fixture() {
     // The concrete consequence the review named. `blank-512.img` expects no
@@ -213,6 +234,9 @@ fn a_changed_output_shape_cannot_pass_as_a_blank_fixture() {
     }
 }
 
+// Requirements: FS-004
+//   A matching external-prober observation produces no false disagreement.
+// Evidence: a_matching_observation_produces_no_disagreements
 #[test]
 fn a_matching_observation_produces_no_disagreements() {
     let all = expectations();
@@ -223,6 +247,9 @@ fn a_matching_observation_produces_no_disagreements() {
     assert!(compare(expected, &observation_of(expected), MEASURED).is_empty());
 }
 
+// Requirements: FS-004, Section 12
+//   Probe comparison fails for lost, reversed, missing, and unexpected signatures.
+// Evidence: the_comparison_is_capable_of_failing_in_every_direction
 #[test]
 fn the_comparison_is_capable_of_failing_in_every_direction() {
     // The test that makes the table mean something. A comparison that never
@@ -402,6 +429,9 @@ fn captured() -> std::collections::BTreeMap<String, Observation> {
     all
 }
 
+// Requirements: FS-004, Section 11.7
+//   The expectation table exactly matches a captured libblkid and wipefs run.
+// Evidence: the_recorded_table_matches_a_real_probe_run
 #[test]
 fn the_recorded_table_matches_a_real_probe_run() {
     // The check that keeps the table tied to a tool rather than to an opinion.
@@ -427,6 +457,9 @@ fn the_recorded_table_matches_a_real_probe_run() {
     );
 }
 
+// Requirements: FS-004, INV-004
+//   Raw captured output shows both signatures while the single-answer interface reports one.
+// Evidence: the_capture_shows_both_signatures_where_only_one_is_reported
 #[test]
 fn the_capture_shows_both_signatures_where_only_one_is_reported() {
     // Stated against the raw capture rather than the table, so the asymmetry
@@ -446,6 +479,9 @@ fn the_capture_shows_both_signatures_where_only_one_is_reported() {
     assert_eq!(stale.signatures.len(), 2, "wipefs enumerates both");
 }
 
+// Requirements: FS-004, LIN-005
+//   Version-keyed expectations treat both newly named and newly silent output as regressions.
+// Evidence: the_version_dependent_row_expects_silence_below_its_version_and_a_name_at_it
 #[test]
 fn the_version_dependent_row_expects_silence_below_its_version_and_a_name_at_it() {
     // The first real disagreement this check found, held as a test. util-linux
@@ -491,6 +527,9 @@ fn the_version_dependent_row_expects_silence_below_its_version_and_a_name_at_it(
     );
 }
 
+// Requirements: FS-004, SAFE-005
+//   Captured util-linux banners yield exact versions while unreadable banners yield no guess.
+// Evidence: a_util_linux_banner_yields_the_version_the_expectations_are_keyed_on
 #[test]
 fn a_util_linux_banner_yields_the_version_the_expectations_are_keyed_on() {
     // Both banners captured verbatim from the runs that produced this table.

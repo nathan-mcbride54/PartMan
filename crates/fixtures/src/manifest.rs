@@ -50,12 +50,13 @@ impl Manifest {
     /// stdout, where CI captures it into a log. Anyone who can read the
     /// repository can derive it.
     ///
-    /// What it proves is narrower: that the operator ran the generator and
-    /// deliberately passed back what it recorded. That is a real but weak
-    /// factor, and SAFE-007's strength here rests on the target verification —
-    /// which is computed from bytes and cannot be asserted — not on this. If a
-    /// factor with independent strength is wanted, it has to be a per-generation
-    /// value that is not derivable from source.
+    /// What it proves is narrower: the invocation supplied the exact value
+    /// derived by this build. It does not prove who supplied it, whether they
+    /// ran the generator, or whether they intended an operation. Its value is
+    /// accident friction, and SAFE-007's strength here rests on target
+    /// verification — which is computed from bytes and cannot be asserted —
+    /// not on this. A factor with independent strength would require state that
+    /// is not derivable from source or writable fixture-root contents.
     ///
     /// # Panics
     ///

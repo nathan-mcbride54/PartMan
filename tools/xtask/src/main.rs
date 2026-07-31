@@ -511,7 +511,12 @@ fn probe_output(
     // hand the parser a line that is not what the tool emitted, and the parsers
     // below refuse what they cannot read precisely so that a changed output
     // shape cannot pass as an empty observation.
-    String::from_utf8(output.stdout).map_err(|error| {
+    decode_probe_stdout(tool, path, output.stdout)
+}
+
+/// Decode prober stdout without replacing bytes the tool did not emit.
+fn decode_probe_stdout(tool: &str, path: &Path, stdout: Vec<u8>) -> Result<String, TaskError> {
+    String::from_utf8(stdout).map_err(|error| {
         TaskError::Usage(format!(
             "`{tool}` produced output that is not UTF-8 for {}: {error}",
             path.display()
@@ -4778,6 +4783,10 @@ Mention Section 1.99 in prose.
         assert_eq!(parse(&[]).expect("bare invocation"), Task::Help);
     }
 
+    // Requirements: Section 11.3
+    //   The fixture generator is reachable through the xtask command parser.
+    // Work-Package: WP-020
+    // Evidence: the_fixture_generator_is_a_documented_task
     #[test]
     fn the_fixture_generator_is_a_documented_task() {
         assert_eq!(
@@ -4786,6 +4795,10 @@ Mention Section 1.99 in prose.
         );
     }
 
+    // Requirements: FS-004, SAFE-005
+    //   The real-prober task refuses with platform guidance where util-linux is unavailable.
+    // Work-Package: WP-020
+    // Evidence: the_prober_check_refuses_where_its_tools_do_not_exist
     #[test]
     fn the_prober_check_refuses_where_its_tools_do_not_exist() {
         // `blkid` and `wipefs` are Linux tools, and the refusal has to say so
@@ -4799,6 +4812,79 @@ Mention Section 1.99 in prose.
         let message = error.to_string();
         assert!(message.contains("Linux"), "{message}");
         assert!(message.contains("prober.rs"), "{message}");
+    }
+
+    // Requirements: SAFE-005
+    //   Non-UTF-8 prober output is refused rather than changed with replacement characters.
+    // Work-Package: WP-020
+    // Evidence: invalid_utf8_from_a_prober_is_refused_without_substitution
+    #[test]
+    fn invalid_utf8_from_a_prober_is_refused_without_substitution() {
+        // Git's pretty formatter writes the requested raw byte to its pipe.
+        // Driving `probe_output` itself, instead of only its decoder helper,
+        // makes this fail if the real call site regresses to lossy decoding.
+        let root = repository_root();
+        let root_text = root.to_str().expect("repository path is UTF-8");
+        let path = Path::new("AGENT_BUILD_SPEC.md");
+        let error = super::probe_output(
+            "git",
+            &["-C", root_text, "log", "-1", "--format=%xFF", "--"],
+            path,
+            &[0],
+        )
+        .expect_err("undecodable output must be refused");
+        let message = error.to_string();
+        assert!(message.contains("not UTF-8"), "{message}");
+        assert!(message.contains("AGENT_BUILD_SPEC.md"), "{message}");
+        assert!(!message.contains('\u{fffd}'), "{message}");
+    }
+
+    // Requirements: Section 16
+    //   The repository-local ignore rule keeps generated fixture images out of ordinary staging.
+    // Work-Package: WP-020
+    // Evidence: generated_fixture_output_is_ignored_by_the_repository
+    #[test]
+    fn generated_fixture_output_is_ignored_by_the_repository() {
+        let root = repository_root();
+        let output = Command::new("git")
+            .args([
+                "check-ignore",
+                "-v",
+                "--no-index",
+                "--",
+                "tests/generated/traceability-ignore-check.img",
+            ])
+            .current_dir(&root)
+            .output()
+            .expect("git check-ignore must launch");
+        assert!(
+            output.status.success(),
+            "generated fixture path is not ignored: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let rule = String::from_utf8(output.stdout).expect("git output is UTF-8");
+        assert!(
+            rule.starts_with(".gitignore:") && rule.contains("/tests/generated/"),
+            "the repository .gitignore must supply the rule, got {rule:?}"
+        );
+    }
+
+    // Requirements: Section 16
+    //   A force-added generated fixture image is rejected by the tracked-path ownership gate.
+    // Work-Package: WP-020
+    // Evidence: a_force_added_generated_fixture_is_refused_by_the_ownership_gate
+    #[test]
+    fn a_force_added_generated_fixture_is_refused_by_the_ownership_gate() {
+        let repo = GitFixture::new("force-added-generated-fixture");
+        let generated = "tests/generated/forced.img";
+        repo.write(generated, "synthetic image bytes");
+        super::git(&repo.root, &["add", "-f", generated]).expect("force-add generated image");
+        let error = verify_path_ownership(&repo.root)
+            .expect_err("a tracked generated image has no work-package owner");
+        assert!(
+            error.to_string().contains(generated),
+            "the refusal must name the generated image: {error}"
+        );
     }
 
     // Requirements: SAFE-007
