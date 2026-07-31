@@ -21,6 +21,9 @@ fn parse(text: &str) -> Srgb {
     Srgb::parse(text).expect("test colour parses")
 }
 
+// Requirements: UI-008
+//   The token reader accepts exactly six-digit sRGB hexadecimal in either letter case
+// Evidence: parsing_accepts_six_digit_hexadecimal_in_either_case
 #[test]
 fn parsing_accepts_six_digit_hexadecimal_in_either_case() {
     assert_eq!(parse("#000000"), BLACK);
@@ -36,6 +39,9 @@ fn parsing_accepts_six_digit_hexadecimal_in_either_case() {
     );
 }
 
+// Requirements: UI-008
+//   Plausible alternate colour spellings are rejected rather than silently interpreted into a value nobody declared
+// Evidence: parsing_refuses_every_other_spelling
 #[test]
 fn parsing_refuses_every_other_spelling() {
     // Each of these is a plausible colour string that a strict reader must
@@ -60,6 +66,9 @@ fn parsing_refuses_every_other_spelling() {
     }
 }
 
+// Requirements: UI-008
+//   The contrast implementation reproduces WCAG's published maximum of 21 to 1 for black on white
+// Evidence: black_on_white_is_the_published_maximum_of_twenty_one_to_one
 #[test]
 fn black_on_white_is_the_published_maximum_of_twenty_one_to_one() {
     // WCAG's own stated bound. If the transfer function or the luminance
@@ -71,6 +80,9 @@ fn black_on_white_is_the_published_maximum_of_twenty_one_to_one() {
     );
 }
 
+// Requirements: UI-008
+//   Contrast is order-independent and every identical foreground/background pair bottoms out at one to one
+// Evidence: contrast_is_symmetric_and_bottoms_out_at_one
 #[test]
 fn contrast_is_symmetric_and_bottoms_out_at_one() {
     assert!((contrast_ratio(WHITE, BLACK) - contrast_ratio(BLACK, WHITE)).abs() < 1e-12);
@@ -83,6 +95,9 @@ fn contrast_is_symmetric_and_bottoms_out_at_one() {
     }
 }
 
+// Requirements: UI-008
+//   Relative luminance remains strictly ordered from the shipped dark surface through light text, catching an inverted transfer function
+// Evidence: luminance_is_ordered_by_lightness
 #[test]
 fn luminance_is_ordered_by_lightness() {
     // A weaker property than the exact figures, but one that fails loudly if
@@ -104,6 +119,9 @@ fn luminance_is_ordered_by_lightness() {
     }
 }
 
+// Requirements: UI-008
+//   Relative luminance preserves the published channel-weight ordering with green above red above blue
+// Evidence: the_green_channel_dominates_luminance
 #[test]
 fn the_green_channel_dominates_luminance() {
     // The 0.2126 / 0.7152 / 0.0722 weighting is the whole reason a mid green
@@ -113,6 +131,9 @@ fn the_green_channel_dominates_luminance() {
     assert!(RED.relative_luminance() > BLUE.relative_luminance());
 }
 
+// Requirements: UI-007
+//   Every colour-vision simulation preserves the achromatic axis closely enough to catch a mistyped matrix row
+// Evidence: simulation_leaves_greys_untouched
 #[test]
 fn simulation_leaves_greys_untouched() {
     // Every deficiency matrix must map the achromatic axis onto itself: a
@@ -133,6 +154,9 @@ fn simulation_leaves_greys_untouched() {
     }
 }
 
+// Requirements: UI-007
+//   Protanopia and deuteranopia simulations exhibit their defining red-green convergence instead of merely returning plausible numbers
+// Evidence: red_and_green_converge_for_protanopia_and_deuteranopia
 #[test]
 fn red_and_green_converge_for_protanopia_and_deuteranopia() {
     // The defining property of both deficiencies, and the reason the matrices
@@ -150,6 +174,9 @@ fn red_and_green_converge_for_protanopia_and_deuteranopia() {
     }
 }
 
+// Requirements: UI-007
+//   Tritanopia collapses the blue-yellow axis without being an accidental copy of a red-green deficiency matrix
+// Evidence: tritanopia_collapses_blue_without_collapsing_red_against_green
 #[test]
 fn tritanopia_collapses_blue_without_collapsing_red_against_green() {
     // The complementary property: tritanopia is a blue-yellow deficiency, so it
@@ -175,6 +202,9 @@ fn tritanopia_collapses_blue_without_collapsing_red_against_green() {
     );
 }
 
+// Requirements: UI-007
+//   CIE76 colour difference is zero for identity and symmetric for reversed inputs
+// Evidence: delta_e_is_zero_for_identity_and_symmetric
 #[test]
 fn delta_e_is_zero_for_identity_and_symmetric() {
     for color in [BLACK, WHITE, RED, parse("#7BD5A0")] {
@@ -183,6 +213,9 @@ fn delta_e_is_zero_for_identity_and_symmetric() {
     assert!((delta_e_76(RED, BLUE) - delta_e_76(BLUE, RED)).abs() < 1e-9);
 }
 
+// Requirements: UI-007
+//   CIE76 reproduces the externally fixed full lightness range of approximately 100 between black and white
+// Evidence: delta_e_separates_black_from_white_by_the_full_lightness_range
 #[test]
 fn delta_e_separates_black_from_white_by_the_full_lightness_range() {
     // CIELAB lightness runs 0..=100, so black against white is 100 by

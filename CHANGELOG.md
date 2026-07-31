@@ -33,6 +33,14 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   and raw hash bytes without consulting caller-controlled constructor species
   or mutable prototype methods; regression tests cover element substitution,
   dropping, reordering, and wider typed-array views.
+- WP-030 increment 1c converts its traceability document to generated evidence
+  without treating row-count similarity as proof of preservation. Thirty-one
+  live Rust tests now carry requirement-bound claims, non-test evidence is
+  typed in the work-package source, and an exact source-revision/blob ledger
+  accounts for every former evidence row and narrative section. The conversion
+  also corrects vocabulary findings so entity, severity, and progress roles
+  report UI-003, PLAN-004, and UI-011 respectively, with a hostile progress-role
+  deletion proving the UI-011 path can fail.
 - WP-010 increment 1: the `pce/1` canonical encoding. `schemas/canonical-encoding.md`
   specifies it normatively, and `crates/domain` implements the encoder, a strict
   validating decoder, and SHA-256 hashing over canonical bytes (MODEL-005).

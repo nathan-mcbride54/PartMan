@@ -7,11 +7,14 @@
 //!
 //! - **UI-001** — a dark charcoal default, a system theme, and an accessible
 //!   high-contrast theme, all three defining the same set of roles.
+//! - **UI-003** — the exact eight-role storage-entity vocabulary exists.
+//! - **PLAN-004** — the exact five-role ordinal risk vocabulary exists.
 //! - **UI-007** — colour is never the only carrier of identity, selection, file
 //!   system, health, or risk. Every role that means something declares an icon,
 //!   a label and a shape, and no two roles share an icon *and* a label.
 //! - **UI-008** — every declared foreground/background pairing meets its WCAG
 //!   2.2 AA threshold, in every theme.
+//! - **UI-011** — the exact eight-role progress-state vocabulary exists.
 //!
 //! The token file lives in `schemas/` for the same reason
 //! `canonical-encoding-vectors.json` does: when the Tauri front end arrives it
@@ -24,6 +27,9 @@
 //! It renders nothing and opens no window. UI-008 also requires keyboard-only
 //! operation, screen-reader semantics, 200% zoom and reduced motion; none of
 //! those can be satisfied by a token file and none of them are inspected here.
+//! Likewise, the UI-003 and UI-011 vocabularies do not prove that entities are
+//! rendered distinctly or that a live progress surface makes the required
+//! state transitions.
 //! [`audit::Report::caveats`] carries that list into the harness output so a
 //! green run is never read as more than it is.
 //!

@@ -171,7 +171,24 @@ pub fn required_meaning_bearing_roles() -> impl Iterator<Item = &'static str> {
 /// would be noise that trains a reader to ignore the rule.
 #[must_use]
 pub fn carries_meaning(role: &str) -> bool {
-    role.starts_with("entity.") || role.starts_with("severity.") || role.starts_with("progress.")
+    vocabulary_requirement(role).is_some()
+}
+
+/// The requirement that owns a meaning-bearing role family.
+///
+/// This keeps audit findings honest: a missing progress state is a UI-011
+/// vocabulary failure, not UI-003 merely because the same roster loop found it.
+#[must_use]
+pub fn vocabulary_requirement(role: &str) -> Option<&'static str> {
+    if role.starts_with("entity.") {
+        Some("UI-003")
+    } else if role.starts_with("severity.") {
+        Some("PLAN-004")
+    } else if role.starts_with("progress.") {
+        Some("UI-011")
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]

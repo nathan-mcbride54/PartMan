@@ -98,7 +98,8 @@ impl Report {
     }
 }
 
-/// Audit a token set against UI-001, UI-007 and UI-008.
+/// Audit a token set against UI-001, UI-003, UI-007, UI-008, UI-011, and
+/// PLAN-004.
 #[must_use]
 pub fn audit(set: &TokenSet) -> Report {
     let mut report = Report::default();
@@ -214,7 +215,8 @@ fn check_required_roster(set: &TokenSet, report: &mut Report) {
         report.checks += 1;
         if !reference.colors.contains_key(required) {
             report.findings.push(Finding {
-                requirement: "UI-003",
+                requirement: policy::vocabulary_requirement(required)
+                    .expect("every required role belongs to a requirement family"),
                 detail: format!(
                     "role {required:?} is required by the specification's vocabulary but is not \
                      defined in the {:?} theme",
@@ -234,7 +236,8 @@ fn check_required_roster(set: &TokenSet, report: &mut Report) {
         report.checks += 1;
         if !policy::required_meaning_bearing_roles().any(|required| required == role) {
             report.findings.push(Finding {
-                requirement: "UI-003",
+                requirement: policy::vocabulary_requirement(role)
+                    .expect("the filter admits only meaning-bearing role families"),
                 detail: format!(
                     "role {role:?} carries meaning but is not in the specification-derived \
                      vocabulary; add it to crates/tokens/src/policy.rs with its requirement, or \
