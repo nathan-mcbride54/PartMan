@@ -7,6 +7,17 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- WP-030 publishes the evidence-only result of ADR-0009's bounded Slint 1.17.1
+  evaluation without merging the rejected desktop runtime. A strict normalized
+  manifest records immutable source/lock/artifact identities, structured
+  commands, exact renderer-graph observations, and supply-chain findings but
+  cannot carry a `pass` or `result` field. The generator parses the ADR's exact
+  41-gate registry, rejects duplicate JSON keys and missing/duplicate/unknown
+  gates, hashes integer-only input with PartMan's shared `pce/1` implementation,
+  and emits byte-stable Markdown. It derives one pass, hard failures at
+  `G-CFG-08` and `G-SC-01`, and 38 inconclusive rows. Windows unstripped
+  executable measurements remain explicitly non-decisive; no Slint runtime,
+  renderer dependency, licence exception, or supply-chain waiver lands.
 - WP-000 closes issue #39 after all four current package traceability documents
   completed package-owned, zero-loss conversions. Every document is now
   generated from validated source annotations and typed evidence; declarations
