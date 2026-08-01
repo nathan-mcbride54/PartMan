@@ -35,8 +35,12 @@ What does exist:
   light/dark signal through the generated token adapter, and binds a Rust-owned
   synthetic view model with fail-closed opaque selections and exact byte
   facts. Source, licence, feature-graph, and ambient-input replay remain strict.
-  It is not adopted, has no storage or helper boundary, and its current
-  supply-chain result is a hard failure on upstream unmaintained dependencies.
+  The generated 41-row ADR report rejects it on `G-CFG-08` and `G-SC-01`: the
+  current supply-chain result is a hard failure on upstream unmaintained
+  dependencies and unresolved licence-policy findings. It is not adopted and
+  has no storage or helper boundary. Windows-only unstripped executable sizes
+  are retained as non-decisive observations; no package, runtime, accessibility,
+  or cross-platform threshold is claimed from them.
 
 The domain crate performs no I/O and launches no process. Tier 2 and Tier 3
 test suites fail closed and cannot run at all yet.
@@ -110,7 +114,7 @@ Section 14 of the specification is normative. Current state:
 | ADR-C2 … ADR-C6 | Hashed-artifact body/envelope split, identity strength, provenance shape, aggregation vocabulary, canonical set ordering and depth | Accepted |
 | WP-010 | Canonical domain model, schema versioning, encoding and hashing | In progress. SI-31 is resolved by the delivered schema-set boundary, and traceability is generated with a zero-loss migration ledger; increment 3 remains blocked by the authoritative issue register. See `docs/work-packages/WP-010.md` |
 | WP-020 | Disk-image fixture generator and destructive-test interlocks | In progress — increments 1–1g and 2a–2d delivered. Preconditions 1 and 3 are now closed on both platforms (issue #51): Unix opens a direct child relative to a held root object, Windows holds the root with a share mode the filesystem enforces, and the other-name refusal — which was a **live defect**, not a missing check — now reads the link count through the authorized handle everywhere. Windows containment is enforcement by the filesystem rather than resolution from a handle, so it is **unproven for roots that are not on a local volume**, and non-local roots are refused. WP-020 traceability is generated from validated source-local claims and typed evidence, with a source-revision/blob ledger preserving every former evidence row, correction, limitation, and residual risk. Tier 2 stays unavailable on every platform because no destructive suite exists; see `docs/work-packages/WP-020.md` |
-| WP-030 | Design tokens, dark UI shell, accessibility harness | In progress — increments 1 through 1c are delivered on main. Draft PR #89 carries the bounded Slint 1.17.1 candidate: strict version-2 tokens, deterministic AOT generation and inclusion, generated style wrappers, a closed catalogue, collision-safe identifier presentation, exact byte formatting, a Rust-owned synthetic four-region shell view model, fail-closed opaque selections, Winit, and exact FemtoVG/software runtime graphs. UI-002 therefore has executable off-main implementation evidence, but no production adoption or rendered cross-platform qualification. The latest-stable candidate currently fails ADR-0009's supply-chain hard gate on `RUSTSEC-2026-0192` and `RUSTSEC-2026-0206`; the preserved Tauri comparison also remains off-main |
+| WP-030 | Design tokens, dark UI shell, accessibility harness | In progress — increments 1 through 1c are delivered on main. Draft PR #89 carries the bounded Slint 1.17.1 candidate: strict version-2 tokens, deterministic AOT generation and inclusion, generated style wrappers, a closed catalogue, collision-safe identifier presentation, exact byte formatting, a Rust-owned synthetic four-region shell view model, fail-closed opaque selections, Winit, and exact FemtoVG/software runtime graphs. UI-002 therefore has executable off-main implementation evidence, but no production adoption or rendered cross-platform qualification. Its generated exact-registry report records one pass, two hard failures, and 38 inconclusive rows; ADR-0009 therefore rejects the candidate. The preserved Tauri comparison also remains off-main |
 
 WP-020 and WP-030 depend only on WP-000 and could begin in parallel. WP-040 is
 the first package gated on WP-010.

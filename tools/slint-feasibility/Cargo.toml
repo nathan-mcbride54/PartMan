@@ -9,6 +9,8 @@ publish = false
 
 [dependencies]
 cargo-platform = "=0.3.3"
+partman-domain = { path = "../../crates/domain" }
+serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
 sha2 = "=0.11.0"
 

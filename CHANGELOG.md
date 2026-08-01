@@ -32,8 +32,8 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   locked, offline metadata collection. The replay also confines
   `RUSTSEC-2025-0141` to bincode 2.0.1's inactive optional lockfile edge from
   every workspace member before the root-only cargo-audit ignore is permitted;
-  Cargo-deny and the fuzz audit remain unexcepted. The
-  The next checkpoints add the public Slint runtime and AOT-generated Rust,
+  Cargo-deny and the fuzz audit remain unexcepted. The next checkpoints add the
+  public Slint runtime and AOT-generated Rust,
   generated style wrappers with AST/lowered-IR enforcement, exact Winit plus
   FemtoVG/software graphs, programmatic backend selection, system light/dark
   theme mapping, and a Rust-owned synthetic four-region shell. Its view model
@@ -44,7 +44,15 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   `rustybuzz 0.20.1` and `ttf-parser 0.25.1` are newly reported unmaintained
   with no safe upgrade, while the all-features audit also exposes unresolved
   BSL-1.0 and inactive-Skia licence-policy gaps. These failures are recorded,
-  not ignored or presented as adoption-ready.
+  not ignored or presented as adoption-ready. A strict report generator now
+  parses ADR-0009's exact 41-gate registry, rejects evidence-owned verdicts,
+  hashes normalized observations with the shared `pce/1` implementation, and
+  emits byte-identical Markdown. The result is one pass, two hard failures
+  (`G-CFG-08`, `G-SC-01`), and 38 inconclusive rows, so the candidate is
+  rejected. Exact Windows unstripped executable observations put FemtoVG,
+  software, and the non-shipping combined control at 1.4276x, 1.4965x, and
+  1.5784x the rebuilt Tauri executable; they remain explicitly insufficient for
+  any package or all-platform performance verdict.
 - WP-000 closes issue #39 after all four current package traceability documents
   completed package-owned, zero-loss conversions. Every document is now
   generated from validated source annotations and typed evidence; declarations

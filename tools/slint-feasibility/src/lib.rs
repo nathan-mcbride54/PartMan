@@ -11,6 +11,7 @@ mod error;
 mod graph;
 mod metadata;
 mod process;
+mod report;
 mod source;
 
 pub use environment::{EnvironmentInventory, verify_environment_inventory};
@@ -18,4 +19,5 @@ pub use error::CheckError;
 pub use graph::{GraphConfiguration, GraphPhase, GraphReport, TargetContext, verify_graph};
 pub use metadata::CargoMetadata;
 pub use process::load_or_collect_metadata;
+pub use report::{ReportSummary, verify_or_write_report};
 pub use source::{SourceReport, verify_source};

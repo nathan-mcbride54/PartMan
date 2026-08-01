@@ -1,12 +1,12 @@
 //! CLI for fail-closed ADR-0009 static and replay checks.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::str::FromStr;
 
 use partman_slint_feasibility::{
     CheckError, GraphConfiguration, GraphPhase, load_or_collect_metadata,
-    verify_environment_inventory, verify_graph, verify_source,
+    verify_environment_inventory, verify_graph, verify_or_write_report, verify_source,
 };
 
 fn main() -> ExitCode {
@@ -27,23 +27,57 @@ enum Command {
     All,
 }
 
-struct Options {
-    command: Command,
-    metadata: Option<PathBuf>,
-    manifest: Option<PathBuf>,
-    phase: GraphPhase,
-    configuration: GraphConfiguration,
+#[derive(Debug, PartialEq, Eq)]
+enum Options {
+    Verification {
+        command: Command,
+        metadata: Option<PathBuf>,
+        manifest: Option<PathBuf>,
+        phase: GraphPhase,
+        configuration: GraphConfiguration,
+    },
+    Report {
+        root: PathBuf,
+        write: bool,
+    },
 }
 
 fn run(arguments: Vec<std::ffi::OsString>) -> Result<(), CheckError> {
-    let options = parse_arguments(arguments)?;
-    let (metadata, target) = load_or_collect_metadata(
-        options.metadata.as_deref(),
-        options.manifest.as_deref(),
-        options.phase,
-        options.configuration,
-    )?;
-    if matches!(options.command, Command::Source | Command::All) {
+    match parse_arguments(arguments)? {
+        Options::Verification {
+            command,
+            metadata,
+            manifest,
+            phase,
+            configuration,
+        } => run_verification(
+            command,
+            metadata.as_deref(),
+            manifest.as_deref(),
+            phase,
+            configuration,
+        ),
+        Options::Report { root, write } => {
+            let summary = verify_or_write_report(&root, write)?;
+            println!(
+                "report verified: decision={} gates={} raw-evidence-manifest=pce/1:{}",
+                summary.decision, summary.gate_count, summary.raw_evidence_manifest_hash
+            );
+            Ok(())
+        }
+    }
+}
+
+fn run_verification(
+    command: Command,
+    metadata_path: Option<&Path>,
+    manifest_path: Option<&Path>,
+    phase: GraphPhase,
+    configuration: GraphConfiguration,
+) -> Result<(), CheckError> {
+    let (metadata, target) =
+        load_or_collect_metadata(metadata_path, manifest_path, phase, configuration)?;
+    if matches!(command, Command::Source | Command::All) {
         let report = verify_source(&metadata)?;
         println!(
             "source verified: i-slint-compiler {} commit {} tree {} ({} files)",
@@ -54,19 +88,14 @@ fn run(arguments: Vec<std::ffi::OsString>) -> Result<(), CheckError> {
         );
     }
     let graph_report = if matches!(
-        options.command,
+        command,
         Command::Graph | Command::EnvironmentInventory | Command::All
     ) {
-        Some(verify_graph(
-            &metadata,
-            &target,
-            options.phase,
-            options.configuration,
-        )?)
+        Some(verify_graph(&metadata, &target, phase, configuration)?)
     } else {
         None
     };
-    if matches!(options.command, Command::Graph | Command::All) {
+    if matches!(command, Command::Graph | Command::All) {
         let report = graph_report
             .as_ref()
             .ok_or_else(|| CheckError::new("graph report was not produced"))?;
@@ -81,10 +110,7 @@ fn run(arguments: Vec<std::ffi::OsString>) -> Result<(), CheckError> {
             report.lockfile_only_advisories
         );
     }
-    if matches!(
-        options.command,
-        Command::EnvironmentInventory | Command::All
-    ) {
+    if matches!(command, Command::EnvironmentInventory | Command::All) {
         let graph = graph_report
             .as_ref()
             .ok_or_else(|| CheckError::new("environment inventory has no graph scope"))?;
@@ -101,15 +127,18 @@ fn run(arguments: Vec<std::ffi::OsString>) -> Result<(), CheckError> {
 
 fn parse_arguments(arguments: Vec<std::ffi::OsString>) -> Result<Options, CheckError> {
     let mut arguments = arguments.into_iter();
-    let command = match arguments
+    let command = arguments
         .next()
         .and_then(|value| value.into_string().ok())
-        .as_deref()
-    {
-        Some("verify-source") => Command::Source,
-        Some("verify-graph") => Command::Graph,
-        Some("verify-environment-inventory") => Command::EnvironmentInventory,
-        Some("verify-all") => Command::All,
+        .ok_or_else(usage)?;
+    if command == "render-report" {
+        return parse_report_arguments(arguments.collect());
+    }
+    let command = match command.as_str() {
+        "verify-source" => Command::Source,
+        "verify-graph" => Command::Graph,
+        "verify-environment-inventory" => Command::EnvironmentInventory,
+        "verify-all" => Command::All,
         _ => return Err(usage()),
     };
     let mut metadata = None;
@@ -162,12 +191,32 @@ fn parse_arguments(arguments: Vec<std::ffi::OsString>) -> Result<Options, CheckE
         (Some(_), None) | (None, Some(_)) => {}
         _ => return Err(usage()),
     }
-    Ok(Options {
+    Ok(Options::Verification {
         command,
         metadata,
         manifest,
         phase,
         configuration,
+    })
+}
+
+fn parse_report_arguments(arguments: Vec<std::ffi::OsString>) -> Result<Options, CheckError> {
+    let mut arguments = arguments.into_iter();
+    let mut root = None;
+    let mut write = false;
+    while let Some(option) = arguments.next() {
+        match option.to_str() {
+            Some("--root") => {
+                let value = arguments.next().ok_or_else(usage)?;
+                set_once(&mut root, PathBuf::from(value), "--root")?;
+            }
+            Some("--write") if !write => write = true,
+            _ => return Err(usage()),
+        }
+    }
+    Ok(Options::Report {
+        root: root.ok_or_else(|| CheckError::new("--root is required"))?,
+        write,
     })
 }
 
@@ -180,13 +229,15 @@ fn set_once<T>(slot: &mut Option<T>, value: T, name: &str) -> Result<(), CheckEr
 
 fn usage() -> CheckError {
     CheckError::new(
-        "usage: partman-slint-feasibility <verify-source|verify-graph|verify-environment-inventory|verify-all> --phase <compiler-only|final-runtime> --configuration <compiler-only|renderer-femtovg|renderer-software|comparison-combined> (--metadata FILE | --manifest ABSOLUTE)",
+        "usage: partman-slint-feasibility <verify-source|verify-graph|verify-environment-inventory|verify-all> --phase <compiler-only|final-runtime> --configuration <compiler-only|renderer-femtovg|renderer-software|comparison-combined> (--metadata FILE | --manifest ABSOLUTE) | render-report --root ABSOLUTE [--write]",
     )
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Command, parse_arguments};
+    use std::path::PathBuf;
+
+    use super::{Command, Options, parse_arguments};
 
     // Requirements: SAFE-004, SEC-010
     //   The CLI accepts only narrow explicit subcommands, one input mode, and an explicit proof phase
@@ -208,7 +259,13 @@ mod tests {
             .collect(),
         )
         .expect("explicit replay command parses");
-        assert_eq!(options.command, Command::All);
+        assert!(matches!(
+            options,
+            Options::Verification {
+                command: Command::All,
+                ..
+            }
+        ));
         for rejected in [
             vec!["verify-all", "--metadata", "metadata.json"],
             vec![
@@ -250,6 +307,45 @@ mod tests {
                 "compiler-only",
                 "--metadata",
                 "a",
+            ],
+        ] {
+            assert!(
+                parse_arguments(rejected.into_iter().map(std::ffi::OsString::from).collect())
+                    .is_err()
+            );
+        }
+    }
+
+    // Requirements: SEC-010, Section 12
+    //   Report generation accepts one fixed absolute root and one explicit
+    //   write switch; evidence paths and verdicts cannot be injected by CLI.
+    // Work-Package: WP-030
+    // Evidence: report_command_has_a_fixed_narrow_surface
+    #[test]
+    fn report_command_has_a_fixed_narrow_surface() {
+        assert_eq!(
+            parse_arguments(
+                ["render-report", "--root", "C:/PartMan", "--write"]
+                    .into_iter()
+                    .map(std::ffi::OsString::from)
+                    .collect()
+            )
+            .expect("report arguments parse"),
+            Options::Report {
+                root: PathBuf::from("C:/PartMan"),
+                write: true,
+            }
+        );
+        for rejected in [
+            vec!["render-report"],
+            vec!["render-report", "--root", "C:/PartMan", "--result", "pass"],
+            vec!["render-report", "--root", "a", "--root", "b"],
+            vec![
+                "render-report",
+                "--write",
+                "--write",
+                "--root",
+                "C:/PartMan",
             ],
         ] {
             assert!(

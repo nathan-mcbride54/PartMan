@@ -293,6 +293,20 @@ offline builds on all three operating-system families, attribution inside a
 distribution, SBOMs, installers, and packages. Every Slint re-pin requires a
 source/API diff and fresh hashes; `slint-build` is never a fallback.
 
+`cargo xtask slint-report` now checks the strict normalized evidence and the
+generated 41-row ADR registry. Its input cannot contain `pass` or `result`, and
+its `pce/1` hash is
+`e1f91437816510737b0ca219c6c246ddc932b6d295a139b8898ce6eb6cbc7d10`.
+The mechanical result is one pass (`G-CFG-02`), two hard failures
+(`G-CFG-08`, `G-SC-01`), and 38 inconclusive rows. A Windows development-host
+comparison records exact, unstripped release executables for the immutable
+Tauri baseline and all three Slint renderer configurations. The Slint files are
+42.76%, 49.65%, and 57.84% larger than that rebuilt Tauri executable. Those
+numbers are observations, not `G-PERF-02`: no installer/package bytes,
+clean-system runtime-dependency bytes, stripped binaries, paired runtime
+samples, or all-platform evidence were produced. Binary artifacts remain local
+and uncommitted; the report retains their sizes and SHA-256 identities.
+
 ## Known gap: a duplicate major version will not fail CI
 
 `[bans] multiple-versions` is `"warn"`, and `cargo xtask supply-chain` does not

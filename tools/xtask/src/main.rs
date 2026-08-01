@@ -80,6 +80,7 @@ enum Task {
     Probe,
     SupplyChain,
     SlintControls,
+    SlintReport { write: bool },
     Test { tier: u8, profile: Option<String> },
     Tokens,
     Traceability { write: bool },
@@ -98,6 +99,7 @@ impl Task {
             Self::Ci
                 | Self::Desktop
                 | Self::SlintControls
+                | Self::SlintReport { .. }
                 | Self::SupplyChain
                 | Self::Test { .. }
                 | Self::Traceability { .. }
@@ -128,6 +130,7 @@ fn parse(args: &[OsString]) -> Result<Task, TaskError> {
         "probe" => nullary(Task::Probe, command, rest),
         "supply-chain" => nullary(Task::SupplyChain, command, rest),
         "slint-controls" => nullary(Task::SlintControls, command, rest),
+        "slint-report" => parse_slint_report(command, rest),
         "tokens" => nullary(Task::Tokens, command, rest),
         "traceability" => parse_traceability(command, rest),
         "verify-ownership" => nullary(Task::VerifyOwnership, command, rest),
@@ -156,6 +159,7 @@ fn execute(task: &Task) -> Result<(), TaskError> {
             audit_tokens()?;
             check_desktop_aot()?;
             verify_slint_controls()?;
+            verify_slint_report(false)?;
             cargo(&["fmt", "--all", "--", "--check"])?;
             cargo(&[
                 "clippy",
@@ -175,7 +179,8 @@ fn execute(task: &Task) -> Result<(), TaskError> {
         Task::CrossLanguage => cross_language(),
         Task::Desktop => {
             check_desktop_aot()?;
-            verify_slint_controls()
+            verify_slint_controls()?;
+            verify_slint_report(false)
         }
         Task::Fuzz { seconds } => fuzz(seconds),
         Task::Fmt => cargo(&["fmt", "--all"]),
@@ -225,8 +230,10 @@ fn execute(task: &Task) -> Result<(), TaskError> {
             // clean machine does not turn the intentionally offline replay
             // into a cache-dependent command.
             check_desktop_aot()?;
-            verify_slint_controls()
+            verify_slint_controls()?;
+            verify_slint_report(false)
         }
+        Task::SlintReport { write } => verify_slint_report(write),
         Task::Test { tier, ref profile } => run_tier(tier, profile.as_deref()),
         Task::Fixtures => generate_fixtures(),
         Task::Probe => probe_fixtures(),
@@ -265,6 +272,17 @@ fn parse_traceability(command: &str, rest: &[OsString]) -> Result<Task, TaskErro
     match rest {
         [] => Ok(Task::Traceability { write: false }),
         [flag] if flag == "--write" => Ok(Task::Traceability { write: true }),
+        _ => Err(TaskError::Usage(format!(
+            "usage: cargo xtask {command} [--write]"
+        ))),
+    }
+}
+
+/// Parse the fixed-path Slint report check, optionally with explicit writing.
+fn parse_slint_report(command: &str, rest: &[OsString]) -> Result<Task, TaskError> {
+    match rest {
+        [] => Ok(Task::SlintReport { write: false }),
+        [flag] if flag == "--write" => Ok(Task::SlintReport { write: true }),
         _ => Err(TaskError::Usage(format!(
             "usage: cargo xtask {command} [--write]"
         ))),
@@ -452,6 +470,45 @@ fn run_slint_feasibility(
         Err(TaskError::CommandFailed {
             program: format!(
                 "partman-slint-feasibility {command} --phase {phase} --configuration {configuration}"
+            ),
+            code: status.code(),
+        })
+    }
+}
+
+/// Check or explicitly regenerate ADR-0009's fixed-path decision report.
+fn verify_slint_report(write: bool) -> Result<(), TaskError> {
+    let root = repository_root();
+    let cargo_path = cargo_executable()?;
+    let mut command = Command::new(&cargo_path);
+    command
+        .args([
+            OsStr::new("run"),
+            OsStr::new("--locked"),
+            OsStr::new("--package"),
+            OsStr::new("partman-slint-feasibility"),
+            OsStr::new("--"),
+            OsStr::new("render-report"),
+            OsStr::new("--root"),
+        ])
+        .arg(&root);
+    if write {
+        command.arg("--write");
+    }
+    let status = command
+        .current_dir(&root)
+        .status()
+        .map_err(|source| TaskError::Launch {
+            program: "partman-slint-feasibility render-report".to_owned(),
+            source,
+        })?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(TaskError::CommandFailed {
+            program: format!(
+                "partman-slint-feasibility render-report{}",
+                if write { " --write" } else { "" }
             ),
             code: status.code(),
         })
@@ -4281,6 +4338,9 @@ PartMan repository tasks
   cargo xtask supply-chain       Run cargo-deny and cargo-audit
   cargo xtask slint-controls     Replay pinned Slint source, graph, licence,
                                  feature, and ambient-input controls
+  cargo xtask slint-report [--write]
+                                 Check the generated ADR-0009 gate report;
+                                 `--write` regenerates it from normalized evidence
   cargo xtask tokens             Audit the complete static token policy and generated Slint ABI
   cargo xtask traceability [--write]
                                  Check annotations and typed evidence against the spec,
@@ -5090,11 +5150,20 @@ Mention Section 1.99 in prose.
             parse(&args(&["slint-controls"])).expect("slint-controls"),
             Task::SlintControls
         );
+        assert_eq!(
+            parse(&args(&["slint-report"])).expect("slint-report"),
+            Task::SlintReport { write: false }
+        );
+        assert_eq!(
+            parse(&args(&["slint-report", "--write"])).expect("slint-report --write"),
+            Task::SlintReport { write: true }
+        );
 
         for task in [
             Task::Ci,
             Task::Desktop,
             Task::SlintControls,
+            Task::SlintReport { write: false },
             Task::SupplyChain,
             Task::Test {
                 tier: 1,

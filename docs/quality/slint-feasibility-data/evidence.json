@@ -1,0 +1,250 @@
+{
+  "schemaVersion": 1,
+  "observedDate": "2026-07-31",
+  "candidate": {
+    "sourceCommit": "359e33101b8fe6ad017d51d7c1fc0f9e5c501288",
+    "slintVersion": "1.17.1",
+    "cargoLockSha256": "3669021499f0769201bebd70400b6101105768c787e18fed153abe09d021735d"
+  },
+  "hosts": [
+    {
+      "id": "windows-development-host-2026-07-31",
+      "osFamily": "Windows",
+      "registryProductName": "Windows 10 Pro",
+      "displayVersion": "25H2",
+      "build": "26200.8973",
+      "architecture": "x86_64-pc-windows-msvc",
+      "cpuIdentifier": "AMD64 Family 26 Model 68 Stepping 0",
+      "logicalProcessors": 16,
+      "rustc": "1.96.0 (ac68faa20c58cbccd01ee7208bf3b6e93a7d7f96; LLVM 22.1.2)",
+      "cargo": "1.96.0 (30a34c682)"
+    }
+  ],
+  "sources": [
+    {
+      "id": "slint-github-latest-release",
+      "kind": "upstream release API observation",
+      "url": "https://api.github.com/repos/slint-ui/slint/releases/latest",
+      "observedValue": "v1.17.1 was the latest stable release on 2026-07-31",
+      "archiveStatus": "response not committed; blocks G-CFG-01"
+    },
+    {
+      "id": "slint-crates-io-release",
+      "kind": "registry release observation",
+      "url": "https://crates.io/crates/slint/1.17.1",
+      "observedValue": "slint 1.17.1 was the latest stable crate on 2026-07-31",
+      "archiveStatus": "response not committed; blocks G-CFG-01"
+    },
+    {
+      "id": "slint-security-policy",
+      "kind": "pinned upstream security policy",
+      "url": "https://github.com/slint-ui/slint/blob/v1.17.1/SECURITY.md",
+      "observedValue": "the public policy supports the latest Slint release",
+      "archiveStatus": "source linked but no hashed readback committed; blocks G-CFG-01"
+    },
+    {
+      "id": "slint-svg-feature-issue",
+      "kind": "upstream feature-boundary issue",
+      "url": "https://github.com/slint-ui/slint/issues/8805",
+      "observedValue": "request to make SVG support optional remained open on 2026-07-31",
+      "archiveStatus": "source linked; used only to explain the unavoidable resvg closure"
+    }
+  ],
+  "commandRuns": [
+    {
+      "id": "ci",
+      "hostId": "windows-development-host-2026-07-31",
+      "sourceCommit": "359e33101b8fe6ad017d51d7c1fc0f9e5c501288",
+      "argv": ["cargo", "xtask", "ci"],
+      "exitCode": 0,
+      "observation": "the pre-report Tier-1 repository gate passed at the immutable candidate checkpoint"
+    },
+    {
+      "id": "tier-1",
+      "hostId": "windows-development-host-2026-07-31",
+      "sourceCommit": "359e33101b8fe6ad017d51d7c1fc0f9e5c501288",
+      "argv": ["cargo", "xtask", "test", "--tier", "1"],
+      "exitCode": 0,
+      "observation": "the complete unprivileged test suite passed, including renderer-neutral model and AOT fixtures"
+    },
+    {
+      "id": "desktop",
+      "hostId": "windows-development-host-2026-07-31",
+      "sourceCommit": "359e33101b8fe6ad017d51d7c1fc0f9e5c501288",
+      "argv": ["cargo", "xtask", "desktop"],
+      "exitCode": 0,
+      "observation": "all three exact AOT/runtime configurations compiled and the source, graph, licence, feature, and environment controls replayed"
+    },
+    {
+      "id": "slint-controls",
+      "hostId": "windows-development-host-2026-07-31",
+      "sourceCommit": "359e33101b8fe6ad017d51d7c1fc0f9e5c501288",
+      "argv": ["cargo", "xtask", "slint-controls"],
+      "exitCode": 0,
+      "observation": "the compiler source and exact locked host/target graph controls passed"
+    },
+    {
+      "id": "change-ownership",
+      "hostId": "windows-development-host-2026-07-31",
+      "sourceCommit": "359e33101b8fe6ad017d51d7c1fc0f9e5c501288",
+      "argv": ["cargo", "xtask", "verify-change-ownership", "--base", "origin/main"],
+      "exitCode": 0,
+      "observation": "all checkpoint changes were within WP-030 authority; Cargo.lock was accepted only as derived manifest churn"
+    },
+    {
+      "id": "supply-chain",
+      "hostId": "windows-development-host-2026-07-31",
+      "sourceCommit": "359e33101b8fe6ad017d51d7c1fc0f9e5c501288",
+      "argv": ["cargo", "xtask", "supply-chain"],
+      "exitCode": 1,
+      "observation": "the required policy gate failed; no advisory ignore, global licence allowance, Skia exception, or warning downgrade was added"
+    }
+  ],
+  "configurations": [
+    {
+      "id": "renderer-femtovg",
+      "shippingEligible": true,
+      "hostPackageCount": 114,
+      "targetPackageCount": 196,
+      "evaluatedTargetPredicates": 32,
+      "finalRuntimeProven": true,
+      "rendererFeatures": ["renderer-femtovg"],
+      "runtimeClosures": [
+        "winit backend selected before component construction",
+        "image 0.25.10 with JPEG and PNG only",
+        "resvg 0.47.0 with gif, image-webp, raster-images, and text"
+      ]
+    },
+    {
+      "id": "renderer-software",
+      "shippingEligible": true,
+      "hostPackageCount": 110,
+      "targetPackageCount": 188,
+      "evaluatedTargetPredicates": 24,
+      "finalRuntimeProven": true,
+      "rendererFeatures": ["renderer-software"],
+      "runtimeClosures": [
+        "winit backend selected before component construction",
+        "image 0.25.10 with JPEG and PNG only",
+        "resvg 0.47.0 with gif, image-webp, raster-images, and text"
+      ]
+    },
+    {
+      "id": "comparison-combined",
+      "shippingEligible": false,
+      "hostPackageCount": 114,
+      "targetPackageCount": 199,
+      "evaluatedTargetPredicates": 33,
+      "finalRuntimeProven": false,
+      "rendererFeatures": ["renderer-femtovg", "renderer-software"],
+      "runtimeClosures": [
+        "comparison-only Winit graph with no runtime renderer attestation",
+        "image 0.25.10 with JPEG and PNG only",
+        "resvg 0.47.0 with gif, image-webp, raster-images, and text"
+      ]
+    }
+  ],
+  "supplyChain": {
+    "runId": "supply-chain",
+    "findings": [
+      {
+        "tool": "cargo-audit",
+        "code": "RUSTSEC-2026-0206",
+        "package": "rustybuzz",
+        "version": "0.20.1",
+        "classification": "unmaintained",
+        "solutionAvailable": false,
+        "detail": "reachable through the required Slint text/SVG closure; the advisory reported no safe upgrade"
+      },
+      {
+        "tool": "cargo-audit",
+        "code": "RUSTSEC-2026-0192",
+        "package": "ttf-parser",
+        "version": "0.25.1",
+        "classification": "unmaintained",
+        "solutionAvailable": false,
+        "detail": "reachable through the required Slint text/SVG closure; the advisory reported no safe upgrade"
+      },
+      {
+        "tool": "cargo-deny",
+        "code": "rejected",
+        "package": "clipboard-win",
+        "version": "5.4.1",
+        "classification": "BSL-1.0 rejected by project policy",
+        "solutionAvailable": false,
+        "detail": "the feasibility candidate does not widen the repository licence allow-list"
+      },
+      {
+        "tool": "cargo-deny",
+        "code": "rejected",
+        "package": "error-code",
+        "version": "3.3.2",
+        "classification": "BSL-1.0 rejected by project policy",
+        "solutionAvailable": false,
+        "detail": "the feasibility candidate does not widen the repository licence allow-list"
+      },
+      {
+        "tool": "cargo-deny",
+        "code": "rejected",
+        "package": "i-slint-renderer-skia",
+        "version": "1.17.1",
+        "classification": "inactive all-features package rejected by exact Slint licence policy",
+        "solutionAvailable": false,
+        "detail": "Skia is forbidden in shipping graphs, so the candidate intentionally grants it no package/version exception"
+      }
+    ]
+  },
+  "artifactComparison": {
+    "hostId": "windows-development-host-2026-07-31",
+    "scope": "windows-release-executable-only",
+    "tauriCargoLockSha256": "8b744d2699641a55b761c1e9907e7d48a6c7f44ab96c0ccf85788185a43306ce",
+    "tauriPackageLockSha256": "a8c96cec6937674ed87d3d59af7d691b9c0abad3b57b7e69e107f795f45c71c6",
+    "tauriEmbeddedFrontendBytes": 254007,
+    "artifacts": [
+      {
+        "id": "tauri-baseline",
+        "stack": "tauri",
+        "configuration": "immutable comparison baseline",
+        "sourceCommit": "b0f11249903372d9b9cfba76128479ecfd3917f3",
+        "kind": "unstripped-release-executable",
+        "bytes": 7745536,
+        "sha256": "35868ecb5cd4d2b89edb6a231b0505e061758ae14023c75a2bd29d3889366da1",
+        "argv": ["npm", "run", "native:build", "--", "--no-bundle", "--", "--locked"],
+        "retention": "local-uncommitted-measurement"
+      },
+      {
+        "id": "slint-femtovg",
+        "stack": "slint",
+        "configuration": "renderer-femtovg",
+        "sourceCommit": "359e33101b8fe6ad017d51d7c1fc0f9e5c501288",
+        "kind": "unstripped-release-executable",
+        "bytes": 11057664,
+        "sha256": "09e536f40d88543c116bfea688d076b253086cd50292dc45a5f5748d85d2a9b2",
+        "argv": ["cargo", "build", "--release", "--locked", "--package", "partman-desktop", "--no-default-features", "--features", "renderer-femtovg"],
+        "retention": "local-uncommitted-measurement"
+      },
+      {
+        "id": "slint-software",
+        "stack": "slint",
+        "configuration": "renderer-software",
+        "sourceCommit": "359e33101b8fe6ad017d51d7c1fc0f9e5c501288",
+        "kind": "unstripped-release-executable",
+        "bytes": 11591168,
+        "sha256": "3fcaf789154cb7511f39ea1d19c4f483eb881f87daa5ae744ca4abd5d36ec6c1",
+        "argv": ["cargo", "build", "--release", "--locked", "--package", "partman-desktop", "--no-default-features", "--features", "renderer-software"],
+        "retention": "local-uncommitted-measurement"
+      },
+      {
+        "id": "slint-combined-control",
+        "stack": "slint",
+        "configuration": "comparison-combined",
+        "sourceCommit": "359e33101b8fe6ad017d51d7c1fc0f9e5c501288",
+        "kind": "unstripped-release-executable",
+        "bytes": 12225536,
+        "sha256": "255b5189470e03a44d8a96ec21d9b929e815ec000fc7db977c4195f1076420fb",
+        "argv": ["cargo", "build", "--release", "--locked", "--package", "partman-desktop", "--no-default-features", "--features", "comparison-combined"],
+        "retention": "local-uncommitted-measurement"
+      }
+    ]
+  }
+}

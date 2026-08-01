@@ -37,7 +37,12 @@ Tier 1 is unprivileged and safe on every developer host. It currently contains:
   companion replay tool checks exact compiler source, the ten reachable
   Slint-family package archives/manifests/licence rosters, the source-derived
   environment inventory, and separate FemtoVG, software, and marked combined
-  Cargo graphs. The tests construct the renderer-neutral view model but do not
+  Cargo graphs. The report tests parse ADR-0009's exact 41-ID registry, reject
+  missing/duplicate/unknown gates and evidence-owned verdicts, hash normalized
+  integer-only evidence with the shared `pce/1` implementation, derive hard
+  supply-chain failure, keep absent evidence inconclusive, and compare renderer
+  executable sizes with integer arithmetic. The tests construct the
+  renderer-neutral view model but do not
   present a window or inspect pixels/platform accessibility APIs; interactive
   renderer, operating-system, assistive-technology, and packaging behavior
   remains external qualification evidence.
@@ -51,7 +56,10 @@ for the two ownership checks; both lockfiles; `.cargo/config.toml`;
 `schemas/canonical-encoding-vectors.json` for the shared vectors;
 `schemas/design-tokens.json` and
 `packages/design-tokens/generated/partman-tokens.slint` for the WP-030 static
-token/generation boundary; the bounded `.slint` source tree; exact pinned Slint
+token/generation boundary; the bounded `.slint` source tree;
+`docs/adr/0009-bounded-slint-desktop-feasibility.md`, the normalized
+`docs/quality/slint-feasibility-data/evidence.json`, and the generated
+`docs/quality/slint-feasibility.md`; exact pinned Slint
 compiler and reachable runtime registry sources and licence files; structured `cargo metadata`;
 the ignored generated Rust file beneath Cargo's `OUT_DIR`; and temporary
 directories the tests create and remove themselves. Tier 1 also launches `git`
@@ -75,6 +83,15 @@ Run it with:
 
 ```text
 cargo xtask test --tier 1
+```
+
+The bounded Slint report has its own fixed-path check and explicit regeneration
+mode. The ordinary form never edits evidence or Markdown, and `desktop`,
+`slint-controls`, and `ci` all use that checking form:
+
+```text
+cargo xtask slint-report
+cargo xtask slint-report --write
 ```
 
 The MODEL-005 Rust/TypeScript parity proof is Tier 1 too, but needs a Node
