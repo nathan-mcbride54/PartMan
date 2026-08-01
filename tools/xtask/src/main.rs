@@ -71,6 +71,7 @@ enum Task {
     FmtCheck,
     Help,
     Probe,
+    SlintReport { write: bool },
     SupplyChain,
     Test { tier: u8, profile: Option<String> },
     Tokens,
@@ -102,6 +103,7 @@ fn parse(args: &[OsString]) -> Result<Task, TaskError> {
         "fmt-check" => nullary(Task::FmtCheck, command, rest),
         "help" | "--help" | "-h" => nullary(Task::Help, command, rest),
         "probe" => nullary(Task::Probe, command, rest),
+        "slint-report" => parse_slint_report(command, rest),
         "supply-chain" => nullary(Task::SupplyChain, command, rest),
         "tokens" => nullary(Task::Tokens, command, rest),
         "traceability" => parse_traceability(command, rest),
@@ -126,6 +128,7 @@ fn execute(task: &Task) -> Result<(), TaskError> {
             verify_workspace_lints(&repository_root())?;
             verify_path_ownership(&repository_root())?;
             audit_tokens()?;
+            verify_slint_report(false)?;
             cargo(&["fmt", "--all", "--", "--check"])?;
             cargo(&[
                 "clippy",
@@ -181,6 +184,7 @@ fn execute(task: &Task) -> Result<(), TaskError> {
         Task::Test { tier, ref profile } => run_tier(tier, profile.as_deref()),
         Task::Fixtures => generate_fixtures(),
         Task::Probe => probe_fixtures(),
+        Task::SlintReport { write } => verify_slint_report(write),
         Task::Tokens => audit_tokens(),
         Task::Traceability { write } => verify_traceability(&repository_root(), write),
         Task::VerifyActions => verify_action_pins(&repository_root()),
@@ -219,6 +223,62 @@ fn parse_traceability(command: &str, rest: &[OsString]) -> Result<Task, TaskErro
         _ => Err(TaskError::Usage(format!(
             "usage: cargo xtask {command} [--write]"
         ))),
+    }
+}
+
+/// Parse the fixed-path Slint evidence report, optionally with explicit writing.
+fn parse_slint_report(command: &str, rest: &[OsString]) -> Result<Task, TaskError> {
+    match rest {
+        [] => Ok(Task::SlintReport { write: false }),
+        [flag] if flag == "--write" => Ok(Task::SlintReport { write: true }),
+        _ => Err(TaskError::Usage(format!(
+            "usage: cargo xtask {command} [--write]"
+        ))),
+    }
+}
+
+/// Check or explicitly regenerate ADR-0009's evidence-only decision report.
+fn verify_slint_report(write: bool) -> Result<(), TaskError> {
+    let root = repository_root();
+    let cargo_path = PathBuf::from(env!("CARGO"));
+    if !cargo_path.is_absolute() || !cargo_path.is_file() {
+        return Err(TaskError::Safety(format!(
+            "compile-time Cargo path is not an absolute regular file: {}",
+            cargo_path.display()
+        )));
+    }
+    let mut command = Command::new(&cargo_path);
+    command
+        .args([
+            OsStr::new("run"),
+            OsStr::new("--locked"),
+            OsStr::new("--package"),
+            OsStr::new("partman-slint-feasibility"),
+            OsStr::new("--"),
+            OsStr::new("render-report"),
+            OsStr::new("--root"),
+        ])
+        .arg(&root);
+    if write {
+        command.arg("--write");
+    }
+    let status = command
+        .current_dir(&root)
+        .status()
+        .map_err(|source| TaskError::Launch {
+            program: "partman-slint-feasibility render-report".to_owned(),
+            source,
+        })?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(TaskError::CommandFailed {
+            program: format!(
+                "partman-slint-feasibility render-report{}",
+                if write { " --write" } else { "" }
+            ),
+            code: status.code(),
+        })
     }
 }
 
@@ -4051,6 +4111,9 @@ PartMan repository tasks
                                  No destructive suite exists yet, so this still
                                  refuses rather than reporting an empty pass.
   cargo xtask supply-chain       Run cargo-deny and cargo-audit
+  cargo xtask slint-report [--write]
+                                 Check the generated ADR-0009 rejection report;
+                                 `--write` regenerates it from normalized evidence
   cargo xtask tokens             Audit the design tokens for UI-001/007/008
   cargo xtask traceability [--write]
                                  Check annotations and typed evidence against the spec,
@@ -4809,6 +4872,14 @@ Mention Section 1.99 in prose.
         );
         assert_eq!(parse(&args(&["probe"])).expect("probe"), Task::Probe);
         assert_eq!(
+            parse(&args(&["slint-report"])).expect("slint-report"),
+            Task::SlintReport { write: false }
+        );
+        assert_eq!(
+            parse(&args(&["slint-report", "--write"])).expect("slint-report --write"),
+            Task::SlintReport { write: true }
+        );
+        assert_eq!(
             parse(&args(&["traceability"])).expect("traceability"),
             Task::Traceability { write: false }
         );
@@ -4845,6 +4916,30 @@ Mention Section 1.99 in prose.
             }
         );
         assert_eq!(parse(&[]).expect("bare invocation"), Task::Help);
+    }
+
+    // Requirements: SEC-010, Section 12
+    //   The evidence-only task launches the fixed package/action through the
+    //   Cargo executable selected at compile time, never a caller substitution.
+    // Work-Package: WP-030
+    // Evidence: slint_report_launch_is_compile_time_selected_and_fixed_path
+    #[test]
+    fn slint_report_launch_is_compile_time_selected_and_fixed_path() {
+        let source = fs::read_to_string(repository_root().join("tools/xtask/src/main.rs"))
+            .expect("read xtask source");
+        let launch = source
+            .split_once("fn verify_slint_report")
+            .expect("report launcher exists")
+            .1
+            .split_once("fn parse_change_ownership")
+            .expect("report launcher has a bounded source region")
+            .0;
+        assert!(launch.contains("env!(\"CARGO\")"));
+        assert!(launch.contains("partman-slint-feasibility"));
+        assert!(launch.contains("render-report"));
+        assert!(launch.contains("repository_root()"));
+        assert!(!launch.contains("var_os(\"CARGO\")"));
+        assert!(!launch.contains("var_os(\"PATH\")"));
     }
 
     // Requirements: Section 11.3

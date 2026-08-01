@@ -1,0 +1,16 @@
+[package]
+name = "partman-slint-feasibility"
+description = "Reproducible evidence reporting for the rejected Slint feasibility candidate"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+partman-domain = { path = "../../crates/domain" }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+
+[lints]
+workspace = true

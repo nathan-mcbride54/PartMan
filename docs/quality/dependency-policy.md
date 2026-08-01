@@ -200,6 +200,41 @@ digest-pinned self-hosted or container-based builders; a release artefact built
 on a mutable image weakens SEC-010's reproducibility goal in a way a CI test
 run does not.
 
+## Rejected Slint 1.17.1 evidence boundary
+
+ADR-0009's bounded Slint implementation was closed without merge at candidate
+checkpoint `359e33101b8fe6ad017d51d7c1fc0f9e5c501288`. The evidence/report checkpoint
+is `1ef0f0d47bbb6a981b9554b3b7e3691d6ecc43d5` on closed PR #89. Main contains no
+Slint/i-Slint, Winit, renderer, image, SVG, clipboard, or AOT-compiler
+dependency. `tools/slint-feasibility` is a non-product JSON/Markdown evidence
+tool depending only on the existing canonical domain crate and pinned Serde
+parser stack.
+
+`cargo xtask slint-report` checks a strict normalized manifest and generated
+41-row ADR registry. The manifest cannot own a `pass` or `result`, rejects
+duplicate keys and unknown schema fields, and hashes to
+`pce/1:e1f91437816510737b0ca219c6c246ddc932b6d295a139b8898ce6eb6cbc7d10`.
+The mechanical decision is rejection: `G-CFG-08` and `G-SC-01` fail because the
+exact candidate's required supply-chain run reports:
+
+- `RUSTSEC-2026-0206` for reachable unmaintained `rustybuzz 0.20.1`, with no
+  safe upgrade;
+- `RUSTSEC-2026-0192` for reachable unmaintained `ttf-parser 0.25.1`, also with
+  no safe upgrade;
+- project-policy rejection of BSL-1.0 on `clipboard-win 5.4.1` and
+  `error-code 3.3.2`; and
+- rejection of inactive `i-slint-renderer-skia 1.17.1` by cargo-deny's
+  all-features licence analysis. It intentionally received no exact Slint
+  licence exception because every shipping graph forbade Skia.
+
+No advisory ignore, global licence expansion, exact Skia exception, warning
+downgrade, or Slint royalty-free exception lands with the report. Exact local
+Windows executable observations remain in the evidence manifest, but they were
+unstripped binaries rather than packages and lack all-platform, clean-system,
+runtime, memory, responsiveness, and statistical measurements. They decide no
+`G-PERF-*` gate. Discarded binaries are recorded as digest observations, not
+misrepresented as files CI can rehash.
+
 ## Deliberate absence of global `RUSTFLAGS`
 
 `.cargo/config.toml` intentionally defines no `[build] rustflags`. Cargo

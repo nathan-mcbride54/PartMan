@@ -17,6 +17,12 @@ Tier 1 is unprivileged and safe on every developer host. It currently contains:
 - Design-token and accessibility tests: WCAG contrast, colour-vision
   simulation, the specification-derived role vocabulary, and the mutation table
   that proves each check can fail (WP-030).
+- Slint feasibility evidence tests: exact 41-ID ADR registry parsing;
+  duplicate/missing/unknown gate refusal; duplicate-key, unknown-field, and
+  evidence-owned-verdict refusal; shared `pce/1` hashing; mechanical
+  supply-chain rejection; missing-proof inconclusiveness; integer artifact
+  ratios; and byte-fresh generated Markdown (WP-030). This tool contains no
+  Slint runtime or candidate application.
 
 Filesystem access is all of repository-controlled text, and it has grown with
 each gate: workflow and composite-action YAML plus any Dockerfile they build for
@@ -25,9 +31,14 @@ two licence texts for the licence check; the `owned-paths` blocks, every tracked
 path from `git ls-files`, and the workspace membership `cargo metadata` reports
 for the two ownership checks; both lockfiles; `.cargo/config.toml`;
 `schemas/canonical-encoding-vectors.json` for the shared vectors;
-`schemas/design-tokens.json` for the WP-030 accessibility harness; and temporary
-directories the tests create and remove themselves. Tier 1 also launches `git`
-and `cargo` as subprocesses.
+`schemas/design-tokens.json` for the WP-030 accessibility harness;
+`docs/adr/0009-bounded-slint-desktop-feasibility.md`, the normalized
+`docs/quality/slint-feasibility-data/evidence.json`, and the generated
+`docs/quality/slint-feasibility.md`; and temporary directories the tests create
+and remove themselves. Tier 1 also launches `git` and the compile-time-selected
+`cargo` as structured subprocesses. The report reads fixed repository paths and
+writes only its one Markdown target under explicit `--write`; ordinary CI is a
+read-only freshness check.
 
 *This paragraph previously said access was limited to `.github/workflows/`, two
 schema files and temporary directories. That stopped being true as gates were
@@ -42,6 +53,14 @@ Run it with:
 
 ```text
 cargo xtask test --tier 1
+```
+
+The evidence report has a fixed-path check and an explicit regeneration mode.
+The first form runs inside `cargo xtask ci`:
+
+```text
+cargo xtask slint-report
+cargo xtask slint-report --write
 ```
 
 The MODEL-005 Rust/TypeScript parity proof is Tier 1 too, but needs a Node
@@ -98,4 +117,3 @@ of nothing (Section 12, Section 16).
 No command in this repository enumerates, opens, or writes a block device, at
 any tier. Filesystem access is limited to repository-controlled files and to the
 generated fixture tree under `tests/generated/`, which `.gitignore` excludes.
-
