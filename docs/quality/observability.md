@@ -802,17 +802,31 @@ outcome is register evidence; neither is written in advance.
 Protocol recorded 2026-08-02 under spec version 4.2.0 by WP-035 and taken the
 same day, in two runs on the hardware described under Apparatus.
 
-**Status: the register's liveness sequence passed on this reader — and a
-separate measured property, which the falsification map did not anticipate,
-independently constrains whether the witness can be used at all.**
+**Status: every part of the register's liveness sequence was satisfied, but no
+single driver instance carried the whole sequence — and a separate measured
+property, which the falsification map did not anticipate, constrains whether
+the witness can be used at all.**
 
 The register's sequence is three-part: exchange the medium and assert the
 immediate re-read moved; repeat with a sixty-second idle gap to detect
 poll-driven behaviour; close and reopen the handle and assert the value
-survives. All three were exercised and all three moved as the sequence
-requires — L1 three trials of three, L2 three trials of three, L5b once —
-which is the conjunction the falsification map fixed in advance as its pass
-condition. Two things travel with that result and may not be dropped from any
+survives. Each part was satisfied — but **on two different driver instances**,
+and that split is a qualification on the pass, not a footnote to it:
+
+| Part | Where it was satisfied |
+| --- | --- |
+| immediate re-read moved | **instance β** (L1, three trials of three) |
+| sixty-second idle repeat | **instance β** (L2, three trials of three) |
+| value survives close/reopen | **instance α** (L5b, once, with the ordering deviation recorded in its cell) |
+
+On α only one card was available, so L1 and L2 were `not runnable — single
+medium`. On β the only close/reopen leg attempted (L5a) returned nothing
+interpretable. Reading the three parts as one passed sequence therefore
+assumes two instances of the same driver on the same reader behave alike —
+reasonable, and **unmeasured**. This record does not assemble deltas across
+that boundary and does not claim the sequence was executed end to end.
+
+Two further things travel with the result and may not be dropped from any
 retelling of it:
 
 - **The ceiling this protocol declared before any data existed.** Prompt
@@ -820,30 +834,46 @@ retelling of it:
   because a background poll could equally have produced it. The strongest
   recordable positive is *no staleness observed under these conditions* — for
   the slot-exchange family, on one reader, on one bridge, on one build.
-- **The counter is not monotone.** It was observed returning to a value it had
-  already held, because a device re-enumeration restarts it from zero. An
-  equality test between a plan-time and an apply-time reading therefore
-  cannot establish non-interruption. This is measured, it is **not** a row in
-  the falsification map, and it is the finding most likely to decide whether a
-  witness field is usable. See "The reset, and why it outranks the pass".
+- **The counter is not monotone across driver instances.** A fresh instance
+  reads a value the previous instance had already passed, so a later reading
+  can equal an earlier one. An equality test between a plan-time and an
+  apply-time reading therefore cannot establish non-interruption. The reading
+  is measured; the attribution to re-enumeration rests on one timestamped
+  co-occurrence plus the documented baseline, and is **not** a row in the
+  falsification map. See "The reset, and why it outranks the pass".
 
 Cells still reading `not yet taken` are unrun legs, and this section extends
 this file's rule of use to that vocabulary: such a cell MUST NOT be relied on,
 cited, or paraphrased as a finding — by anything, not only by an ADR that
 freezes canonical bytes.
 
-#### The two runs
+#### The sittings
 
-Both non-elevated (`IsInRole(Administrator)` `False`, token carrying no
-Administrators group), Windows build 10.0.26200.0.
+All non-elevated (`IsInRole(Administrator)` `False`, token carrying no
+Administrators group), Windows build 10.0.26200.0, one host. Timestamps are
+the transcripts' own headers except where stated.
 
-| Run | Driver instance | Legs taken |
-| --- | --- | --- |
-| 1, 10:25 | α — the instance live at run start | H matrix, L3, L4, L5a, L5b, L6a, L6b, L7 |
-| 2, 10:32 | β — **a new instance**; see the reset below | L5a re-run, L1 ×3, L2 ×3 |
+| Sitting | Driver instance | Legs taken | Media available |
+| --- | --- | --- | --- |
+| 1a, before 10:25:33 | α | H matrix, L5a, L6a — taken interactively, no transcript file; counter at its floor throughout | one card |
+| 1b, from 10:25:33 | α | L3, L4, L5b, L6b, L7; L1 and L2 recorded `not runnable — single medium` | one card |
+| 2, from 10:37:59 | β — a different instance | L5a re-run, L1 ×3, L2 ×3 | **two cards** |
 
-The two runs are **not** one series. The counter restarted between them, so no
-delta spans the boundary and none is recorded across it.
+1a and 1b are one driver instance and one continuous counter; they are
+separated here only because 1a has no transcript file and its provenance
+should not be overstated. The **one-card/two-card asymmetry is why the leg
+table looks as it does**: every exchange leg belongs to sitting 2 and every
+same-medium leg to sitting 1b.
+
+Sittings 1 and 2 are **not** one series. The counter restarted between them,
+so no delta spans that boundary and none is recorded across it.
+
+**The reader's arrival is timestamped 10:32:09** — after sitting 1b's last
+recorded device event (10:28:03, the L7 replug) and before sitting 2's first
+sample (10:37:59). The ordering is therefore sourced rather than inferred; an
+earlier draft of this record derived a run-2 start time *from* the arrival
+timestamp and then used it to order the two, which was circular and is
+recorded here as the error it was.
 
 #### Why this experiment exists
 
@@ -1047,11 +1077,11 @@ outside this protocol's population. That run confirmed only that the calls
 marshal and that the access-class gate behaves as `winioctl.h` declares on
 that one handle: V2 completed on a zero-access handle and returned a
 four-byte count, and V1 on the same handle failed with `ERROR_ACCESS_DENIED`.
-Nothing from it fills any cell — the H matrix belongs to the removable-media
-subjects, and every cell stays `not yet taken`. This paragraph is instrument
-validation, not observation: this section's rule of use extends to it, so
-nothing in it may be cited as any device's gate behaviour — the H matrix, on
-the protocol's own subjects, is where that answer may land.
+No cell below is filled from this paragraph — the H matrix belongs to the
+removable-media subjects. This paragraph is instrument validation, not
+observation: this section's rule of use extends to it, so nothing in it may
+be cited as any device's gate behaviour — the H matrix, on the protocol's own
+subjects, is where that answer landed.
 
 Per-handle usage, repeated for each matrix cell:
 
@@ -1196,12 +1226,12 @@ address the two-identical-flash-drives population at all — SI-28's population
 
 Run header, one per execution:
 
-| Field | Value |
-| --- | --- |
-| Date, OS build | not yet taken |
-| Elevation assertion (step 1's two lines, transcribed) | not yet taken |
-| Media available (one card / two cards) | not yet taken |
-| Instrument handle chosen (per the H rule) | not yet taken |
+| Field | Sitting 1a / 1b | Sitting 2 |
+| --- | --- | --- |
+| Date, OS build | 2026-08-02, 10.0.26200.0 | 2026-08-02, 10.0.26200.0 |
+| Elevation assertion | `non-elevated: confirmed`; token carries Administrators group: `False` | same, both lines recorded |
+| Media available | **one card** | **two cards** |
+| Instrument handle chosen (per the H rule) | `\\.\PhysicalDrive<n>` at access `0x00000000` — the least-privileged combination whose V2 returned a count | same |
 
 Result cells use a closed vocabulary, and every negative outcome has a
 spelling. The vocabulary deliberately departs from the ADR-C4 spelling the
@@ -1229,6 +1259,20 @@ is the step being unavailable.
 Instrument failure — an `Add-Type` error, a typo, a crashed shell — is not
 an observation and must not occupy a cell; fix the instrument and run the leg
 cleanly.
+
+**A discarded leg, recorded so the discard is auditable.** An earlier L4
+attempt on 2026-08-02 used a fixed-window script — sample, wait, sample —
+that announced its timing in advance rather than prompting. The physical
+action was never performed inside the window, and every sample it took
+returned a present medium and an unchanged count. Read as a result it would
+have said *the counter did not move across a same-medium exchange*, which is
+the L4 refutation, from a leg where no exchange occurred. The empty-slot
+assertion is what caught it: the mid-leg sample returned a present medium
+where an ejected card must return `error 21`. Under the rule above the attempt
+is instrument failure, so it occupies no cell and its numbers appear nowhere
+in this record. It is named here because the assertion that caught it is now
+load-bearing for every leg, and the operator scripts were rewritten to prompt
+and to validate each physical step before proceeding.
 
 Symbols for annotation, verified against `winerror.h` 10.0.26100.0:
 `ERROR_ACCESS_DENIED` 5, `ERROR_NOT_READY` 21, `ERROR_UNRECOGNIZED_VOLUME`
@@ -1259,22 +1303,23 @@ the counter does move unobserved, so the reason stands for L4.
 
 | Leg | Trials asked / taken | Record | Result |
 | --- | --- | --- | --- |
-| L1 immediate exchange | 3 / 3 | Δ across exchange at immediate re-read, per trial | `count Δ=+1` in **all three trials**, every swap fingerprint-validated as a genuinely different card |
-| L1 | 3 / 3 | status of first post-exchange sample, per trial | success with a count in all three; the documented withheld-count path never fired, and each bracket at +5 s held the same Δ |
-| L2 sixty-second idle | 3 / 3 | Δ across exchange after 60 s hands-off | `count Δ=+1` in **all three trials**, each from a single sample with no probe in the preceding minute |
+| L1 immediate exchange | 3 / 3 (sitting 2) | Δ across exchange at immediate re-read, per trial | `count Δ=+1` in **all three trials**, every swap fingerprint-validated as a genuinely different card. In sitting 1b: `not runnable — single medium` |
+| L1 | 3 / 3 (sitting 2) | status of first post-exchange sample, per trial | success with a count in all three; the documented withheld-count path never fired, and each bracket at +5 s held the same Δ |
+| L2 sixty-second idle | 3 / 3 (sitting 2) | Δ across exchange after 60 s hands-off | `count Δ=+1` in **all three trials**, each from a single sample with no probe in the preceding minute. In sitting 1b: `not runnable — single medium` |
 | L3 own bracket | ≥1 / 1 | Δ step 1 (pre) vs step 3, per round — the "moved only after" antecedent's own cell | `count Δ=+1` — moved **before** any forced I/O |
 | L3 forced-I/O, filesystem arm | ≥1 / 1 | Δ step 3 vs step 5a | `count Δ=0` |
 | L3 forced-I/O, V1 arm | ≥1 / 1 | Δ step 3 vs step 5b, and whether a read handle existed | `count Δ=0`; a read handle existed, by the volume path, and V1 succeeded on it |
 | L4 same-medium out-and-back | 3 / **1** | Δ across removal and reinsertion at immediate re-read | `count Δ=+1`, already final at the immediate re-read; `Δ=+1` unchanged at +5 s and after 60 s idle |
-| L5a reopen, quiescent | ≥1 / 2 | Δ across close/reopen, with sign | `count Δ=0` both times, and **uninterpretable both times**: the counter sat at its floor in run 1 and had just reset to the floor again in run 2, and at the floor "survived" and "reset" are indistinguishable. The re-run was taken precisely to escape that and did not. L5b answers the question L5a could not. |
-| L5b reopen across exchange | ≥1 / 1 | Δ visible from the fresh handle, with sign | post-exchange value **visible from the fresh handle**, `Δ=+1` versus the pre-exchange baseline, sign positive — no reset across the handle boundary |
+| L5a reopen, quiescent | ≥1 / 2 | Δ across close/reopen, with sign | `count Δ=0` both times, and **uninterpretable both times**: the counter was at its floor in sitting 1a and had returned to the floor in sitting 2, and at the floor "survived" and "reset" are indistinguishable. The sitting-2 re-run was taken precisely to escape the floor and did not. L5a carries **no information in either direction**; L5b is the only interpretable evidence for this part of the sequence. |
+| L5b reopen, across a same-medium out-and-back | ≥1 / 1 | Δ visible from the fresh handle, with sign | one fresh-handle sample, `Δ=+1` versus L4's pre-removal sample, sign positive: the value the held handle had reported was still visible from a newly opened handle, so the count is **not per-handle state**. Two deviations recorded rather than smoothed: there was **no A→B exchange** — sitting 1b had one card, and the physical action was L4's same-medium out-and-back — and the leg's specified order (sample, **close**, physical action, reopen, sample) was not followed: a handle stayed open across the action and the fresh handle was opened afterwards. Survival with no handle open across the event, and survival across a true exchange, are both **unmeasured**. |
 | L6a empty LUN | 1 / 1 | open and probe statuses; count bytes present or not | opens at `0x00000000` and `FILE_READ_ATTRIBUTES`; `GENERIC_READ` `open refused 5`; V2 `error 21`, **no count bytes**; V1 `error 5` |
 | L6b card LUN while empty | 1 / 1 | probe status with no medium | V2 `error 21`, 0 bytes — the same answer the never-occupied LUN gives |
-| L7 surprise removal | 1 / 1 | held-handle status after removal; after reinsertion; fresh-handle Δ sign | held handle `handle dead 55` after removal and **still dead after reinsertion**; fresh handle `count Δ=0` versus pre — but both readings at the floor, so reset and never-counted are indistinguishable |
+| L7 surprise removal | 1 / 1 | held-handle status after removal; after reinsertion; fresh-handle Δ sign | held handle `handle dead 55` after removal and **still dead after reinsertion**; fresh handle `count Δ=0` versus pre. The **counter** cannot settle the row — both readings sat at the floor, where a reset and a never-counted event are indistinguishable — but the drive's own `DEVPKEY_Device_LastArrivalDate` moved to 10:28:03 across the cycle, so the device demonstrably **re-enumerated**, and the row's question (does a whole-device detach end the counting entity?) is answered by that independent instrument rather than by the count. The drive was re-identified across the cycle by its instance id. |
 
 **One reading between legs, recorded because it bounds the single-trial
-result.** Within run 1, between the H matrix and L4's pre-sample, the counter
-advanced by 2 with no samples taken in the interval. The interval contained
+result.** Between sitting 1a's last designated sample and sitting 1b's L4
+pre-sample — both readings on instance α — the counter advanced by 2, with no
+samples taken in the interval. The interval contained
 operator handling of the medium, so the advance is consistent with two
 handling cycles outside any bracket; the cause is **not established**, and no
 sample brackets it. It is recorded because it is the run's own demonstration
@@ -1318,54 +1363,80 @@ checked against the recorded cells rather than against a reading of them:
 | L1, L2, L3 all unchanged | **no** |
 | L4 unchanged | **no** — L4 moved on same-medium return |
 | L5 delta negative on reopen | **no** — L5b showed the post-exchange value present from a fresh handle |
-| L7 handle dies and fresh-handle delta negative | **partly** — the handle died and stayed dead, but both readings sat at the floor, so a reset and a never-counted event are indistinguishable. Recorded as inconclusive, not as a refutation |
-| **pass row**: L1, L2, L4 moved and L5 stable | **yes** — hence the status above, with its declared ceiling |
+| L7 handle dies and fresh-handle delta negative | **not by the counter** — the handle died and stayed dead, but both readings sat at the floor, so a reset and a never-counted event are indistinguishable there. The row's conclusion is nonetheless supported by an independent instrument: the drive's last-arrival moved across the cycle, so the detach did end the counting entity |
+| **pass row**: L1, L2, L4 moved and L5 stable | **yes, with the conjunction assembled across two driver instances** — L1 and L2 on β, L4 and L5b on α, and the L5 conjunct resting on **L5b alone**, since L5a is uninterpretable in both directions. Hence the status above, with its declared ceiling and its split |
 
 The one thing no row anticipated is the reset, and it is the reason the pass
 row is not the end of the matter.
 
 #### The reset, and why it outranks the pass
 
-**Measured.** Run 1 ended with the counter at a recorded value. Run 2's first
-sample, on the same reader, read **lower** — the counter had returned to its
-floor. The cause is established independently of the counter rather than
-inferred from it, which matters because detecting a new driver instance *by*
-the count being lower would be circular: the reader's
-`DEVPKEY_Device_LastArrivalDate` records an arrival timestamped **after run 1**,
-so the device re-enumerated between the runs and the counter restarted with the
-new instance. That is consistent with the documented "since the driver
-started" semantics — the documentation says what the baseline is, and this run
-measured what happens when the baseline moves.
+**Measured, and stated at the strength the evidence carries.** Sitting 1b
+ended with the counter at a recorded value. Sitting 2's first sample, on the
+same reader, read **lower** — back at its floor. The reader's
+`DEVPKEY_Device_LastArrivalDate` is timestamped 10:32:09, between 1b's last
+recorded device event (10:28:03) and sitting 2's first sample (10:37:59), so a
+device arrival falls inside the interval that also contains the drop.
+
+Reading the instance change from a property other than the count keeps the
+inference **non-circular** — detecting a new instance *by* the count being
+lower would prove nothing. Non-circular is not the same as causally
+established, and the record should not trade on the difference. What the data
+supports is a single timestamped co-occurrence on n=1, with the *trigger* of
+that arrival nowhere recorded and no leg varying it. Attributing the reset to
+the re-enumeration rests on that co-occurrence plus the documented "since the
+driver started" baseline. It was not reproduced, and no boundary other than
+this one was tested.
+
+**Two re-enumerations were observed, not one.** Besides the reader's, the L7
+drive's last-arrival moved to 10:28:03 across its surprise-removal cycle — a
+second re-enumeration, deliberately induced, with a different cause. Only the
+reader's produced an interpretable counter reading; the L7 drive's counter sat
+at its floor on both sides.
 
 **Why it matters more than the pass.** A witness exists to answer one question
 at apply time: *was the medium exchanged since the plan was made?* The
-proposed test is a comparison between a recorded reading and a fresh one. That
-test is sound only if the value cannot revisit a value it already held.
-This one can:
+proposed test is a comparison between a recorded reading and a fresh one, and
+that test is sound only if the value cannot revisit a value it already held.
+This one can.
 
-- a plan is made on a fresh driver instance, at the floor;
-- the medium is exchanged, and the counter moves;
-- the device re-enumerates — an unplug, a suspend, a hub reset — and the
-  counter returns to the floor;
-- apply reads the floor, compares equal to the recorded reading, and concludes
-  the medium was never exchanged. It was.
+**Constructed scenario, built from one measured property.** Two of its four
+steps correspond to measured legs; the other two describe a design that does
+not exist and were not exercised — no plan, no apply, and no equality test
+appears anywhere in this run:
 
-The failure direction is the one that matters: **it fails open**, and it does
-so silently while the plan carries a field implying the check was made. That
-is the precise shape of harm SI-33's filing warns about — *"worse than no
-witness, because it converts an admitted gap into a false assurance"* — reached
-by a route the filing did not name, since the filing's concern was staleness
-within one attach session and this is a reset across sessions.
+| Step | Status |
+| --- | --- |
+| a plan is made on a fresh driver instance, at the floor | **constructed** — no plan-time reading was performed |
+| the medium is exchanged and the counter moves | **measured** (L1, L2, L4) |
+| the device re-enumerates and the counter returns to the floor | **measured once**, as the co-occurrence above |
+| apply reads the floor, compares equal, and concludes the medium never moved | **constructed** — no apply-time comparison was performed, and that the post-reset reading lands on the same value a plan recorded is assumed, not observed |
+
+So the claim is not that this happened. It is that **a design of the proposed
+shape would fail open** here, silently, while carrying a field implying the
+check was made — the shape of harm SI-33's filing warns about, *"worse than no
+witness, because it converts an admitted gap into a false assurance"*, reached
+by a route the filing did not name: its concern was staleness within one
+attach session, and this is a reset across instances.
 
 **Stated exactly, because the difference is load-bearing.** The reset does not
-show the counter is a bad *detector* — as a detector it passed every leg. It
-shows the counter is not a *monotone* quantity, and that equality of two
-readings is therefore not evidence of non-interruption. A design that
-compares readings needs something the reset cannot forge: a driver-instance
-identity recorded alongside the count, so that a reading from a different
-instance is incomparable rather than equal. Whether such an identity exists,
-is stable, and is readable unprivileged is **not measured here**, and nothing
-in this record says it does.
+show the counter is a bad *detector* — as a detector it moved in every leg
+that could see it. It shows the counter is not a *monotone* quantity, and that
+equality of two readings is therefore not evidence of non-interruption. A
+design that compares readings needs something the reset cannot forge: a
+driver-instance identity recorded alongside the count, so a reading from a
+different instance is **incomparable** rather than equal.
+
+**An instance-distinguishing signal was in fact read, twice, and the earlier
+draft of this record wrongly said none had been looked for** — an understatement
+in the direction that made the problem look less tractable than the run
+showed. Sitting 2 separated instance β from α unprivileged, before taking any
+leg; and L7 re-identified a drive across a surprise removal and reinsertion by
+its instance id, with the disk number stable across the cycle. What is **not**
+characterized is the part that matters for a witness: the signal's stability
+across other boundaries, its behaviour under adversarial conditions, and its
+suitability as a hashed or compared field. That characterization — not the
+existence of the signal — is the open successor question.
 
 **A gap in the protocol, recorded against the protocol.** L5 covered the
 *handle* boundary and found the value survives it. Nothing in the protocol
@@ -1384,7 +1455,13 @@ bookkeeping step.
   generalizes to a second reader, a native SD host, or any other device class
   until one is measured. The bridge measured on 2026-08-02 enumerates as USB
   vendor `0BDA` behind a whitelabel model string, recorded so a second reader
-  can be compared as same-bridge or different-bridge rather than by brand.
+  can be compared as same-bridge or different-bridge rather than by brand —
+  a brand name does not determine the bridge, and comparing by brand would
+  answer the wrong question. **This is a declared exception to the
+  role-labels-only rule below**, taken because a USB vendor id names a chip
+  vendor rather than a unit: it distinguishes no two devices, identifies no
+  host, and carries none of the session history the deltas rule exists to
+  keep out. Product and unit-level identifiers stay out of the record.
 - Event-driven versus poll-driven semantics, conclusively — the asymmetry
   declared under Method.
 - Anything at elevated privilege — deliberately unmeasured.
@@ -1400,9 +1477,11 @@ bookkeeping step.
   detectable.** The reset finding names that as the successor question; this
   run did not look for such an identity, and no claim is made that one is
   available, stable, or readable unprivileged.
-- **What the counter does across suspend, hub reset, or a reboot.** One
-  re-enumeration was observed, by accident of the runs being separated. Its
-  causes were not varied and no other boundary was tested.
+- **What the counter does across suspend, hub reset, or a reboot.** Two
+  re-enumerations were observed — the reader's between the sittings, and the
+  L7 drive's from its surprise-removal cycle — but only the reader's produced
+  an interpretable counter reading, and the reader's trigger is unrecorded.
+  Suspend, hub reset, and reboot are untested.
 
 ## macOS
 

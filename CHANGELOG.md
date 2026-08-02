@@ -10,32 +10,38 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 - The SI-33 media-change-counter liveness experiment was **taken** on
   2026-08-02, on a card reader and two identical flash drives, entirely
   unprivileged and read-only, and its results are recorded in
-  `docs/quality/observability.md`. The register's three-part liveness
-  sequence passed on this reader: the immediate re-read moved in all three
+  `docs/quality/observability.md`. Every part of the register's three-part
+  liveness sequence was satisfied — the immediate re-read moved in all three
   L1 trials, the sixty-second-idle repeat moved in all three L2 trials, and
-  the post-exchange value survived a handle boundary (L5b) — under the
-  ceiling the protocol declared before any data existed, that prompt
-  movement cannot be attributed to exchange-synchronous detection. Two
-  things the run establishes that no pre-registered row anticipated. The
-  counter **resets on device re-enumeration**: run 2 read lower than run 1
-  ended, and the cause is established from the device's own
-  `DEVPKEY_Device_LastArrivalDate` rather than inferred from the count,
-  which would have been circular. A witness whose value can revisit a value
-  it already held cannot support the equality test the witness exists for —
-  a plan made at the floor, a medium exchanged, a re-enumeration, and an
-  apply-time read compares equal and concludes the medium never moved. It
-  fails open, silently, while the plan carries a field implying the check
-  was made. Separately, an empty slot makes the probe fail outright
-  (`ERROR_NOT_READY`, no count bytes) rather than merely report nothing, and
-  a read-access handle turns out to be grantable unprivileged by the volume
-  path though refused on every `PhysicalDrive`. Recorded against the
-  protocol itself: L5 covered the handle boundary but nothing covered the
-  device boundary, and the run's most consequential finding surfaced from a
-  bookkeeping continuity check rather than a designated leg. The
-  fingerprint-validated swap and the empty-slot assertion both earned their
-  place — an earlier attempt produced a leg that looked like a clean result
-  while nothing had been physically exchanged, and the assertion is what
-  caught it. The SI-35 measurements remain not taken.
+  L5b showed the count is not per-handle state — but the parts were taken on
+  **two different driver instances**, so no single instance carried the whole
+  sequence, and reading them as one sequence assumes an instance-to-instance
+  equivalence that was not measured. The ceiling the protocol declared before
+  any data existed stands: prompt movement cannot be attributed to
+  exchange-synchronous detection. What no pre-registered row anticipated is
+  that the counter is **not monotone across driver instances** — a fresh
+  instance reads a value the previous one had already passed. A device
+  arrival is timestamped inside the interval containing the drop, which keeps
+  the inference non-circular; attribution still rests on that single
+  co-occurrence plus the documented "since the driver started" baseline, and
+  was not reproduced. Since the value can revisit a value it already held, a
+  witness of the proposed shape **would** fail open — recorded as a
+  constructed scenario with its measured and unmeasured steps marked, because
+  no plan-time or apply-time comparison exists to have failed. Separately, an
+  empty slot makes the probe fail outright (`ERROR_NOT_READY`, no count
+  bytes) rather than merely report nothing; a read-access handle is grantable
+  unprivileged by the volume path though refused on every `PhysicalDrive`;
+  and an instance-distinguishing signal was read twice, so characterizing it
+  — not finding one — is the successor question. Recorded against the
+  protocol itself: L5 covered the handle boundary and nothing covered the
+  device boundary, so the most consequential finding surfaced from a
+  bookkeeping continuity check rather than a designated leg. An earlier L4
+  attempt is recorded as discarded: its fixed-window script measured a leg in
+  which the physical action never happened, and read as a result it would
+  have reported the L4 refutation from an exchange that did not occur. The
+  empty-slot assertion caught it, it occupies no cell, and the operator
+  scripts were rewritten to validate every physical step. The SI-35
+  measurements remain not taken.
 - WP-035 increment 5 records the register measurement instruments:
   protocols and recording formats for the SI-33 media-change-counter
   liveness experiment and the SI-35 loop-device and Windows partition-list
