@@ -8,10 +8,14 @@ validator, journal, image engine, and per-platform privileged helpers.
 ## Current status
 
 **Not a usable partition manager, and must not be represented as one.** Nothing
-here discovers, plans, or mutates storage. There is no GUI, no CLI, no planner,
-and no privileged helper. ADR-0009's off-main Slint 1.17.1 candidate was
-rejected and closed without merge; only its reproducible evidence record lands
-here.
+here discovers, plans, or mutates storage. There is no GUI, no planner, and no
+privileged helper. A CLI chassis exists — argument parsing, a documented
+exit-code contract, a schema-versioned JSON envelope, and a typed refusal
+vocabulary — and it inspects nothing yet: `partman inspect` refuses with a
+typed value naming what gates it, because printing a plausible empty
+inspection would be a fake success path. ADR-0009's off-main Slint 1.17.1
+candidate was rejected and closed without merge; only its reproducible
+evidence record lands here.
 
 What does exist:
 
@@ -32,6 +36,14 @@ What does exist:
   failures at `G-CFG-08` and `G-SC-01`, and 38 inconclusive rows, together with
   immutable candidate/artifact identities and explicit accessibility/platform
   gaps. No Slint runtime or renderer dependency is present on main.
+- The `partman` CLI chassis (WP-035 increment 1): structured argv that owns
+  the non-Unicode seam as a typed refusal instead of a panic, exit codes
+  pinned by test, an ANSI-free schema-versioned envelope
+  (`partman.cli.envelope/0`, provisional within major version 0), and the
+  typed refusal vocabulary. Its shipped dependency closure is empty and its
+  output type carries a compile-fail non-`Hash` proof — both guards' exact
+  reach is stated in the crate, and domain payloads are absent from every
+  surface rather than emitted unversioned.
 
 The domain crate performs no I/O and launches no process. Tier 2 and Tier 3
 test suites fail closed and cannot run at all yet.
@@ -107,7 +119,7 @@ Section 14 of the specification is normative. Current state:
 | WP-020 | Foundations (M0) | Disk-image fixture generator and destructive-test interlocks | In progress — increments 1–1g and 2a–2d delivered. Preconditions 1 and 3 are now closed on both platforms (issue #51): Unix opens a direct child relative to a held root object, Windows holds the root with a share mode the filesystem enforces, and the other-name refusal — which was a **live defect**, not a missing check — now reads the link count through the authorized handle everywhere. Windows containment is enforcement by the filesystem rather than resolution from a handle, so it is **unproven for roots that are not on a local volume**, and non-local roots are refused. WP-020 traceability is generated from validated source-local claims and typed evidence, with a source-revision/blob ledger preserving every former evidence row, correction, limitation, and residual risk. Tier 2 stays unavailable on every platform because no destructive suite exists; see `docs/work-packages/WP-020.md` |
 | WP-030 | Foundations (M0); desktop shell deferred, no authority on main | Design tokens, dark UI shell, accessibility harness | In progress — increments 1 through 1c delivered (tokens, the static accessibility harness, and zero-loss generated traceability). Increment 2S's bounded Slint 1.17.1 branch was implemented, measured, mechanically rejected on two hard gates, and closed without merge. Main now retains only normalized evidence, the byte-reproducible 41-row report, and accessibility limitations; no shell exists, UI-002 remains unimplemented, and the rendered half of UI-008 remains untested. The temporary implementation authority was retired by PR #91, so no desktop-shell path is authorized on main and reviving either off-main branch needs fresh governance rather than inertia |
 
-| WP-035 | Evidence (M0.5) | Read-only CLI chassis and evidence instrument | Not started. Assignment created; paths reserved; no code exists. The read-only chassis is the first increment and `partman inspect` is the package objective; it is forbidden every surface the spec-issue register's open items gate — see `docs/work-packages/WP-035.md` for the boundary |
+| WP-035 | Evidence (M0.5) | Read-only CLI chassis and evidence instrument | In progress — increment 1 delivered: the chassis, with structured argv owning the non-Unicode seam as a typed refusal, exit codes pinned by test, the ANSI-free schema-versioned envelope (`partman.cli.envelope/0`, provisional within major version 0), the typed refusal vocabulary, the empty-shipped-closure and compile-fail non-`Hash` guards with their reach stated, and generated traceability. `partman inspect` still refuses — observation records are increment 4 — and the package remains forbidden every surface the spec-issue register's open items gate; see `docs/work-packages/WP-035.md` for the boundary. Increment 1 was adversarially reviewed before push; the corrections it forced are recorded in the commit history |
 
 Stage labels name Section 13's milestone themes where one exists; the deferred
 desktop shell has none while its authority stays retired. Each label is carried
