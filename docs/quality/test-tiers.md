@@ -146,10 +146,17 @@ when deciding whether the interlock works, so it must never be produced by a run
 of nothing (Section 12, Section 16).
 
 No command in this repository writes a block device or opens one with write
-intent, at any tier. Today none enumerates or opens one at all; that stronger
-sentence is retired deliberately ahead of the read-only inspection package
-(WP-035) — see the Tier 1 section for the narrowing, its subprocess rule, and
-its reason. Filesystem access remains limited to repository-controlled files
-and to the generated fixture tree under `tests/generated/`, which `.gitignore`
-excludes, until that package lands with the boundary statement its assignment
-obliges it to carry.
+intent, at any tier, and none reads a byte from one. The "today none opens
+one at all" clause that stood here expired on 2026-08-02, when WP-035's
+`inspect --replay` landed, and is replaced by the exact boundary that
+package's own docs carry: replay reads one caller-named regular file; a
+pre-open look refuses devices and directories before any open in the common
+case; `fstat` through the opened handle is the authority; and a device
+swapped in by a rebinding race is opened read-only at most long enough for
+the handle to identify itself, then refused with no byte read — the
+momentary open under a race is the stated residue of choosing handle
+verification over trusting a name. The doctor's roster probes launch tools
+at compiled absolute paths and open nothing else. Command filesystem access
+beyond those two stated reaches remains limited to repository-controlled
+files and to the generated fixture tree under `tests/generated/`, which
+`.gitignore` excludes.
