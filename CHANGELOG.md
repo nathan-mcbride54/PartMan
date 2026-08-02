@@ -7,6 +7,47 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- The SI-35 **loop-device measurement** was taken read-only on 2026-08-02,
+  six fixtures plus the 4Kn annex attached `--read-only --partscan` one at a
+  time, read-only read back from `/sys` rather than trusted from the flag, and
+  the measuring identity asserted unprivileged — uid non-zero, not in `disk`,
+  and a direct read of the loop device **denied**, where the denial is the
+  pass. Repository issue #94 was open, so the run is the read-only case
+  WP-035 provides for in terms, the binding-gap line travels beneath every
+  table it filled, WP-020's increment-2 row stays Blocked, and nothing here
+  weakens the gate. A content check — hashing the whole loop device against
+  the fixture digest, all seven matching — is recorded as a mitigation of the
+  read-only blast radius and explicitly **not** as #94's closure, since a
+  digest binds bytes and #94 is about binding an inode. **H-separation is
+  refuted**: the normalized client projections of `gpt-conflicting-tables-512`
+  and `gpt-basic-512` are byte-identical, the kernel having materialized the
+  primary set and left the disagreeing backup nowhere visible. That settles
+  the register's attribution question against the escape route — the collapse
+  is not a file-probing artifact, since a fully kernel-parsed device with
+  partition scanning reproduces it — and the privileged view is no better,
+  `wipefs` reporting identical offsets for both. So the decisive pair is now
+  indistinguishable through three interfaces on two platforms and SI-35's
+  option (b) does not become viable. **H-4Kn is supported**, with the
+  like-for-like control met: a loop device with `--sector-size 4096` makes the
+  4Kn GPT observable where file probing reported `PMBR`, which is the IMG-011
+  route the Linux section said would be needed and confirms the fixture's
+  `PMBR` result as a probing artifact rather than a defect. Two unasked-for
+  findings: a damaged primary **is** separated, by materializing no partitions
+  while libblkid still labels the disk `gpt` — a third instance of this file's
+  two-interfaces-disagree pattern — and a missing backup is **helper-only**,
+  visible to `wipefs` and invisible to the client. The hybrid table is
+  untraced here as in file probing, and unanswered on Windows, so INV-003's
+  hybrid question is open on both platforms. Recorded against the protocol:
+  the declared normalization drop-list was incomplete — a loop device's udev
+  entry carries `ID_LOOP_BACKING_*` keys naming the backing file, so the first
+  diff returned every pair as differing by filename alone. The audit rule that
+  says such a key joins the list "or the diff is not this measurement" is what
+  caught it; the first computation is void and occupies no cell, and the
+  device-name check's hole — it scanned key names, not values — is recorded
+  for the next revision. The decisive-pair refutation is a negative taken
+  under WSL2, and this section's own rule withholds it from any register
+  decision until a non-WSL distro-kernel run confirms it.
+
 - The SI-35 **Windows partition-list measurement** was taken on 2026-08-02,
   seven WP-020 fixtures attached one at a time as read-only fixed VHDs by an
   elevated console while an ordinary non-elevated console did the measuring,

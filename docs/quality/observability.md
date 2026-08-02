@@ -6,8 +6,11 @@
   disks, no partitions). macOS not established.** Two of increment 5's three
   measurements were taken on 2026-08-02 and are recorded in the Windows
   section: the SI-33 media-change-counter liveness experiment, and the SI-35
-  Windows partition-list measurement. The **SI-35 loop-device measurement has a
-  protocol recorded and no run taken**, gated on repository issue #94.
+  Windows partition-list measurement. The **SI-35 loop-device measurement was
+  taken read-only on 2026-08-02** with repository issue #94 still open, and its
+  binding gap travels with every table it filled; its decisive-pair result is a
+  negative recorded under WSL2 and is not available to a register decision
+  until a non-WSL distro-kernel run confirms it.
 
 ## Why this document exists
 
@@ -1822,13 +1825,22 @@ fails for one of them.
 Defined under spec version 4.2.0 by WP-035; the header's spec-version line
 describes the established measurements, not these three sections.
 
-**Blocked on repository issue #94, and every result row in the recording format
-below is `not yet taken`.** A protocol is not a measurement: these three
-sections extend this file's rule of use to their own vocabulary — a row marked
-`not yet taken` MUST NOT be relied on, cited, or paraphrased as a finding, by
-anything, not only by an ADR that freezes canonical bytes. The section exists
-so that what gets recorded — and what would count as refutation — was fixed
-before anyone saw a result.
+**Taken 2026-08-02, read-only, with repository issue #94 still open.** The
+gate on this measurement is a gate on the *destructive* use: WP-035 provides
+in terms for a read-only measurement being taken before #94 closes — "if a
+read-only measurement is ever taken before then, the gap is recorded beside
+the numbers" — and #94 itself records the read-only blast radius as **a wrong
+measurement, not a write**, with its deadline set "before any destructive
+Tier-2 suite is registered". No such suite exists. Nothing here weakens the
+gate: WP-020's increment-2 row stays Blocked, #94 stays open, and the binding
+gap travels with every table below.
+
+These sections extend this file's rule of use to their own vocabulary — a row
+marked `not yet taken` MUST NOT be relied on, cited, or paraphrased as a
+finding, by anything, not only by an ADR that freezes canonical bytes. What
+gets recorded, and what would count as refutation, was fixed before anyone saw
+a result; the outcomes against those pre-registered conditions are in "What
+the run established" below.
 
 **What it answers.** The table-state section above establishes that, probed as
 regular files, `gpt-basic-512` and `gpt-conflicting-tables-512` produce
@@ -2070,18 +2082,19 @@ environment block and every outcome up to the stop.
 
 | Environment | Value |
 | --- | --- |
-| Run date | `not yet taken` |
-| Kernel (`uname -r`) | `not yet taken` |
-| Distribution (`PRETTY_NAME`) | `not yet taken` |
-| util-linux (`losetup --version`) | `not yet taken` |
-| udev (`udevadm --version`) | `not yet taken` |
-| `/dev/loop-control` present | `not yet taken` |
-| `kernel.dmesg_restrict` | `not yet taken` |
-| Elevated half asserted (`sudo id -u` = 0) | `not yet taken` |
-| Measuring shell: uid non-zero | `not yet taken` |
-| Measuring shell: in `disk` | `not yet taken` — must be **no** |
-| Measuring shell: direct read of `LOOP` | `not yet taken` — a denial is the pass |
-| **Binding status (issue #94)** | `not yet taken` — exactly one of the two forms below |
+| Run date | 2026-08-02 |
+| Kernel (`uname -r`) | `6.6.114.1-microsoft-standard-WSL2` |
+| Distribution | Debian 13 (trixie), under WSL2 |
+| util-linux (`losetup --version`) | 2.41 |
+| udev (`udevadm --version`) | 257 |
+| `/dev/loop-control` present | yes |
+| `kernel.dmesg_restrict` | `0` |
+| Elevated half asserted (`id -u` = 0) | yes |
+| Measuring shell: uid non-zero | **yes** |
+| Measuring shell: in `disk` | **no** — as required |
+| Measuring shell: direct read of `LOOP` | **denied**, on every fixture — the denial is the pass |
+| Scratch filesystem | ext2/ext3, native — **not** 9p/`/mnt/*` |
+| **Binding status (issue #94)** | **open at run time** — the first form below |
 
 The binding-status field has exactly two legal forms, and the first is a line
 that must appear **beneath every table filled by the run**, so any excerpt
@@ -2099,16 +2112,38 @@ the closure's mechanism, with its binding assertion's output recorded here
 verbatim"* — the mechanism named from the closure itself, not presumed from
 the issue's candidate.
 
-**Disk-level record** — one row per fixture:
+**A content check was performed, and it is not that closure.** After each
+attach the privileged half hashed the whole loop device and compared it to the
+fixture's digest; all seven matched. This binds *bytes*, not an inode: #94 is
+about binding `/dev/loopN` to a verified handle, and a digest cannot do that.
+What it does bound is the read-only blast radius the issue names — a wrong
+backing object would have to reproduce the fixture's full-device digest to
+yield a wrong measurement. It is a snapshot taken at one instant and says
+nothing about the binding afterwards, and it is recorded as a mitigation, not
+a closure.
+
+Because the gap line must travel with any excerpt carrying a number, a
+self-contained short form appears beneath every filled table below.
+
+**Disk-level record** — one row per fixture. Every attach succeeded, every
+`/sys` `ro` read back `1`, every content check matched:
 
 | Fixture | Attach | `/sys` `ro` | Partitions materialized | `ID_PART_TABLE_TYPE` (udev db) | udev db entry |
 | --- | --- | --- | --- | --- | --- |
-| `blank-512` | `not yet taken` | `not yet taken` | `not yet taken` | `not yet taken` | `not yet taken` |
-| `gpt-basic-512` | `not yet taken` | `not yet taken` | `not yet taken` | `not yet taken` | `not yet taken` |
-| `gpt-conflicting-tables-512` | `not yet taken` | `not yet taken` | `not yet taken` | `not yet taken` | `not yet taken` |
-| `gpt-invalid-primary-valid-backup-512` | `not yet taken` | `not yet taken` | `not yet taken` | `not yet taken` | `not yet taken` |
-| `gpt-missing-backup-512` | `not yet taken` | `not yet taken` | `not yet taken` | `not yet taken` | `not yet taken` |
-| `hybrid-mbr-gpt-512` | `not yet taken` | `not yet taken` | `not yet taken` | `not yet taken` | `not yet taken` |
+| `blank-512` | ok | `1` | **0** | absent | present |
+| `gpt-basic-512` | ok | `1` | **2** | `gpt` | present |
+| `gpt-conflicting-tables-512` | ok | `1` | **2** | `gpt` | present |
+| `gpt-invalid-primary-valid-backup-512` | ok | `1` | **0** | `gpt` | present |
+| `gpt-missing-backup-512` | ok | `1` | **2** | `gpt` | present |
+| `hybrid-mbr-gpt-512` | ok | `1` | **2** | `gpt` | present |
+
+> **Binding gap (issue #94, open at run time):** nothing bound `/dev/loopN` to
+> a verified handle; the attach resolved a path in userspace. A
+> wrong-measurement possibility travels with these numbers.
+
+`udevd` did process loop-attach events on this host — no `UDEV-DB:absent` was
+recorded for any fixture, which the protocol had left as a measured row rather
+than an assumption in either direction.
 
 **Per-partition record** — one row per materialized partition, as many rows as
 materialize; a fixture that materializes none records the literal
@@ -2117,9 +2152,23 @@ Fixture-derived values (`ID_PART_ENTRY_SCHEME`, `NUMBER`, `OFFSET`, `SIZE`,
 `TYPE`, `UUID`, `NAME`) are recorded verbatim; a property absent from the udev
 db entry is recorded as `absent`, which is observed absence, not a failure.
 
-| Fixture | Partition (`LOOPpN`) | `/sys` start/size (512-B units) | `ro` | `ID_PART_ENTRY_*` present | Values |
+| Fixture | Partition | `/sys` start/size (512-B units) | `ro` | `ID_PART_ENTRY_*` present | Values |
 | --- | --- | --- | --- | --- | --- |
-| *(all)* | `not yet taken` | `not yet taken` | `not yet taken` | `not yet taken` | `not yet taken` |
+| `blank-512` | *none materialized* | — | — | — | — |
+| `gpt-basic-512` | p1 | 2048 / 2048 | `1` | yes | `NAME=EFI\x20System` `SCHEME=gpt` `OFFSET=2048` `SIZE=2048` `TYPE=c12a7328-…` `UUID=e0dfdbfc-…` |
+| `gpt-basic-512` | p2 | 4096 / 4063 | `1` | yes | `NAME=Data` `SCHEME=gpt` `OFFSET=4096` `SIZE=4063` `TYPE=0fc63daf-…` `UUID=28e70b48-…` |
+| `gpt-conflicting-tables-512` | p1, p2 | 2048/2048, 4096/4063 | `1` | yes | **byte-identical to `gpt-basic-512`'s**, every key and value |
+| `gpt-invalid-primary-valid-backup-512` | *none materialized* | — | — | — | — |
+| `gpt-missing-backup-512` | p1, p2 | 2048/2048, 4096/4063 | `1` | yes | **byte-identical to `gpt-basic-512`'s** |
+| `hybrid-mbr-gpt-512` | p1, p2 | 2048/2048, 4096/4063 | `1` | yes | **byte-identical to `gpt-basic-512`'s**; `SCHEME=gpt` |
+
+> **Binding gap (issue #94, open at run time):** nothing bound `/dev/loopN` to
+> a verified handle. A wrong-measurement possibility travels with these numbers.
+
+`/sys` reports `start` and `size` in 512-byte units regardless of logical
+sector size — confirmed by arithmetic against the fixture layout rather than
+trusted from the protocol's sentence: the 4Kn annex's ESP sits at LBA 256 of
+4096 bytes and `/sys` reported `start=2048`, which is 256 × 8.
 
 **View classification** — for the fixtures where two descriptions of the disk
 exist, which one the kernel materialized. The candidate descriptions are
@@ -2131,43 +2180,160 @@ match; anything else is `other` with the verbatim rows.
 
 | Fixture | Question | Legal answers | Result |
 | --- | --- | --- | --- |
-| `gpt-conflicting-tables-512` | Which view materialized? | `primary set` / `backup set` / `neither` / `other (verbatim)` | `not yet taken` |
-| `gpt-invalid-primary-valid-backup-512` | Did partitions materialize, and does any client-readable fact differ from `gpt-basic-512`'s projection? | `materialized, marked` / `materialized, unmarked` / `none materialized` / `other` | `not yet taken` |
-| `gpt-missing-backup-512` | Same question, for the missing backup | same four | `not yet taken` |
-| `hybrid-mbr-gpt-512` | Which scheme won, and does any client-readable fact carry a trace of the aliasing `0x0c` entry? | `gpt, traced` / `gpt, untraced` / `dos` / `other` | `not yet taken` |
-| `blank-512` | Control: zero partitions and no table type? | `confirmed` / `other (verbatim)` | `not yet taken` |
+| `gpt-conflicting-tables-512` | Which view materialized? | `primary set` / `backup set` / `neither` / `other (verbatim)` | **`primary set`** — ESP at 2048–4095 plus Data at 4096–8158, matching the catalogue's primary exactly. The backup's single "Disagreeing" partition appears nowhere |
+| `gpt-invalid-primary-valid-backup-512` | Did partitions materialize, and does any client-readable fact differ from `gpt-basic-512`'s projection? | `materialized, marked` / `materialized, unmarked` / `none materialized` / `other` | **`none materialized`** — and the whole-disk entry still carries `ID_PART_TABLE_TYPE=gpt`. The kernel materialized nothing while libblkid labelled the disk `gpt` |
+| `gpt-missing-backup-512` | Same question, for the missing backup | same four | **`materialized, unmarked`** — two partitions, projection identical to healthy, nothing flagged |
+| `hybrid-mbr-gpt-512` | Which scheme won, and does any client-readable fact carry a trace of the aliasing `0x0c` entry? | `gpt, traced` / `gpt, untraced` / `dos` / `other` | **`gpt, untraced`** — `SCHEME=gpt`, the GPT partitions materialized, and the aliasing `0x0c` MBR entry left no trace in the client projection |
+| `blank-512` | Control: zero partitions and no table type? | `confirmed` / `other (verbatim)` | **`confirmed`** |
+
+> **Binding gap (issue #94, open at run time):** nothing bound `/dev/loopN` to
+> a verified handle. A wrong-measurement possibility travels with these numbers.
 
 **Separation record** — the SI-35 question itself, answered only by the
-Phase 7 diff over declared normalizations. The drop-list is closed:
-`USEC_INITIALIZED` (timestamp) and `ID_PART_ENTRY_DISK` (host-session
-major:minor). The capture pipeline retains only `E:` property lines, so
-whether any retained key carries a device name is checked at run time — if
-one does, that key joins this list with its reason, or the diff is not this
-measurement. Device-name normalization to `LOOP` applies to this recorded
-document, not to the diffed bytes.
+Phase 7 diff over declared normalizations.
+
+**The drop-list had to be extended at run time, and the rule that forced it
+worked.** The list was closed at `USEC_INITIALIZED` and `ID_PART_ENTRY_DISK`,
+with the standing condition that any retained key carrying a device name joins
+it with its reason "or the diff is not this measurement". The first run
+returned every pair as DIFFERS — because a loop device's udev entry carries
+`ID_LOOP_BACKING_FILENAME`, `ID_LOOP_BACKING_FILENAME_ENC`,
+`ID_LOOP_BACKING_INODE` and `ID_LOOP_BACKING_DEVICE`, which name **the backing
+file**, so each fixture differed from every other by its own filename and by
+nothing else. That is a property of the loop plumbing, not of the partition
+table. The four keys join the drop-list with that reason and the diff was
+recomputed; the first computation is void and its output occupies no cell.
+The device-name check as written scanned for `loop[0-9]` and did not catch a
+key whose *value* was a path — a real hole in the check, recorded so the next
+revision widens it to any key whose value contains the scratch path.
+
+Final drop-list: `USEC_INITIALIZED`, `ID_PART_ENTRY_DISK`, and the four
+`ID_LOOP_BACKING_*` keys.
 
 | Pair (normalized client projections) | Differ? | Differing lines |
 | --- | --- | --- |
-| `gpt-basic-512` vs `gpt-conflicting-tables-512` | `not yet taken` | `not yet taken` |
-| `gpt-basic-512` vs `gpt-invalid-primary-valid-backup-512` | `not yet taken` | `not yet taken` |
-| `gpt-basic-512` vs `gpt-missing-backup-512` | `not yet taken` | `not yet taken` |
-| `gpt-basic-512` vs `hybrid-mbr-gpt-512` | `not yet taken` | `not yet taken` |
+| `gpt-basic-512` vs `gpt-conflicting-tables-512` | **IDENTICAL** | none |
+| `gpt-basic-512` vs `gpt-invalid-primary-valid-backup-512` | **DIFFERS** | the entire partition half: `gpt-basic-512` carries two `PART` entries with their full `ID_PART_ENTRY_*` sets; the damaged fixture carries none. The whole-disk `ID_PART_TABLE_TYPE=gpt` line is common to both |
+| `gpt-basic-512` vs `gpt-missing-backup-512` | **IDENTICAL** | none |
+| `gpt-basic-512` vs `hybrid-mbr-gpt-512` | **IDENTICAL** | none |
+
+> **Binding gap (issue #94, open at run time):** nothing bound `/dev/loopN` to
+> a verified handle. A wrong-measurement possibility travels with these numbers.
 
 **Privileged comparison record** — labelled, never merged with the rows above:
 
-| Fixture | `blkid -p -o udev` (device) | `wipefs -n` (device) | `blkid -p -o udev` (each partition) | Kernel log lines since attach |
-| --- | --- | --- | --- | --- |
-| *(all seven)* | `not yet taken` | `not yet taken` | `not yet taken` | `not yet taken` |
+| Fixture | `blkid -p -o udev` (device) | `wipefs -n` offsets (device) | `blkid -p -o udev` (each partition) |
+| --- | --- | --- | --- |
+| `blank-512` | *(nothing)* | *(nothing)* | none |
+| `gpt-basic-512` | `TABLE_TYPE=gpt` `TABLE_UUID=7a1e9153-…` | `0x200`, `0x3ffe00`, `0x1fe` | p1 ESP, p2 Data, full entries |
+| `gpt-conflicting-tables-512` | **identical to basic** | **`0x200`, `0x3ffe00`, `0x1fe` — identical to basic** | **identical to basic** |
+| `gpt-invalid-primary-valid-backup-512` | `TABLE_TYPE=gpt` — same as basic | **`0x3ffe00`, `0x1fe` — the primary at `0x200` is absent** | none — no partitions materialized |
+| `gpt-missing-backup-512` | `TABLE_TYPE=gpt` — same as basic | **`0x200`, `0x1fe` — the backup at `0x3ffe00` is absent** | p1, p2, identical to basic |
+| `hybrid-mbr-gpt-512` | `TABLE_TYPE=gpt` — same as basic | `0x200`, `0x3ffe00`, `0x1fe` — identical to basic | identical to basic |
+| `gpt-basic-4kn` | `TABLE_TYPE=gpt` `TABLE_UUID=1ac207e4-…` | `0x1000`, `0x3ff000`, `0x1fe` — the 4Kn offsets | p1 ESP, p2 Data (`TYPE=ebd0a0a2-…`) |
+
+> **Binding gap (issue #94, open at run time):** nothing bound `/dev/loopN` to
+> a verified handle. A wrong-measurement possibility travels with these numbers.
+
+**The asymmetry, quantified.** Putting the privileged view beside the client
+projection gives the client/helper comparison this file exists to make, and it
+is not uniform across the damage cases:
+
+| Fixture | Helper (`wipefs` offsets) separates it from healthy? | Client projection separates it? |
+| --- | --- | --- |
+| `gpt-conflicting-tables-512` | **no** — identical offsets | **no** — identical projection |
+| `gpt-invalid-primary-valid-backup-512` | **yes** — primary copy absent | **yes** — no partitions materialized |
+| `gpt-missing-backup-512` | **yes** — backup copy absent | **no** — projection identical to healthy |
+| `hybrid-mbr-gpt-512` | **no** | **no** |
+
+So the client is not uniformly weaker: it separates the damaged-primary case
+the helper also separates, is blind where the helper sees the missing backup,
+and both are blind to the conflicting and hybrid tables. The ambiguous
+table — the one ADR-C3's `Indeterminate` exists for — is invisible to **both**.
 
 **4Kn annex record:**
 
 | Row | Value |
 | --- | --- |
-| Attach with `--sector-size 4096` | `not yet taken` |
-| `logical_block_size` read-back | `not yet taken` |
-| `ID_PART_TABLE_TYPE` (udev db) | `not yet taken` |
-| Partitions materialized | `not yet taken` |
-| H-4Kn on this environment | `not yet taken` — `supported` / `refuted (like-for-like vs same-run gpt-basic-512)` / `failed (mechanism: verbatim)` |
+| Attach with `--sector-size 4096` | ok |
+| `logical_block_size` read-back | **4096** |
+| `ID_PART_TABLE_TYPE` (udev db) | `gpt` |
+| Partitions materialized | **2** — ESP at `/sys` start 2048, Data at 4096 |
+| H-4Kn on this environment | **`supported`** |
+
+> **Binding gap (issue #94, open at run time):** nothing bound `/dev/loopN` to
+> a verified handle. A wrong-measurement possibility travels with these numbers.
+
+**H-4Kn is supported, and the like-for-like condition was met properly.** The
+refutation condition required the same-run `gpt-basic-512` control to
+materialize partitions or carry `ID_PART_TABLE_TYPE=gpt` while the 4Kn attach
+showed neither; the control did materialize, and so did the 4Kn attach, so the
+mechanism was working and the annex's answer is a real one rather than a
+global failure misread as a refutation.
+
+**This is the IMG-011 route the file said would be needed.** The Linux section
+above records that `gpt-basic-4kn.img` probes as `PMBR` from a regular file,
+because a file carries no logical sector size, and that a prober-based check
+for 4Kn "needs a loop device configured with an explicit sector size, which is
+privileged and therefore Tier 2". That device was configured and the 4Kn GPT
+is observable through it: `wipefs` finds the tables at `0x1000` and `0x3ff000`
+rather than the 512-byte offsets, and the partition extents match the
+catalogue's 4Kn layout under the 512-byte-unit convention. The fixture's
+`PMBR` result from file probing is confirmed as an artifact of file probing,
+not a defect in the fixture — which is exactly what that record asked a future
+measurement to settle.
+
+### What the run established
+
+**H-separation is refuted, and that is the consequential result.** Its
+condition was fixed before the run: refuted if the two normalized client
+projections are identical. They are — byte for byte, once the backing-object
+keys are dropped. The kernel parsed both images, materialized the **primary**
+set for the conflicting fixture, and produced a projection indistinguishable
+from the healthy disk's. The backup's disagreeing partition appears nowhere,
+and no client-readable fact marks the disagreement.
+
+**This settles SI-35's attribution question, in the direction that closes an
+escape route.** The register asked for this measurement "so the file-probing
+limitation is not mistaken for a kernel limitation". It is not a file-probing
+artifact: a device the kernel has fully parsed, with partition scanning on,
+yields the same collapse. And the privileged view is no better — `wipefs`
+reports identical offsets for both images. On this environment **neither the
+client nor the helper can distinguish an ambiguous table from a healthy one.**
+
+**Option (b) does not become viable.** The register states that if a loop
+device separates the two, "option (b) becomes viable and this issue narrows
+sharply". It does not separate them. Combined with the Windows partition-list
+measurement recorded above and the original file probing, the decisive pair is
+now indistinguishable through **three interfaces on two platforms**. Options
+(a) and (c) are untouched by this run: their recorded costs — (a)'s
+observation basis becoming hash-visible body content, (c)'s inherited unproven
+monotonicity obligation — are unchanged. The record lands here; the register
+weighs it.
+
+**Two findings the hypotheses did not ask for.**
+
+- **A damaged primary is separated, by partition count rather than by any
+  table property.** `gpt-invalid-primary-valid-backup-512` materialized **no**
+  partitions while its udev entry still read `ID_PART_TABLE_TYPE=gpt`. So the
+  kernel's partition parser and libblkid disagree about the same device: one
+  declines the table, the other labels it. A client reading only
+  `ID_PART_TABLE_TYPE` sees a healthy-looking `gpt`; a client that also counts
+  materialized partitions sees the difference. This is a **third** instance of
+  the two-interfaces-disagree pattern this file has now recorded — after
+  `blkid`-versus-`wipefs` arity on Linux and `MSFT_Disk`-versus-layout-IOCTL
+  on Windows.
+- **A missing backup is helper-only.** `wipefs` shows the backup copy absent;
+  the client projection is identical to healthy. That is a clean instance of
+  the asymmetry Part 5's conclusion needs re-checking against, and it is
+  recorded for that purpose without deciding it.
+
+**The hybrid table is invisible here too.** `gpt, untraced`: the aliasing
+`0x0c` MBR entry leaves no trace in the client projection, matching libblkid's
+file result. INV-003's hybrid-detection requirement therefore cannot be
+delegated to this projection on Linux — and the Windows equivalent fell into
+that platform's enumeration gap, so **the hybrid question is unanswered on
+both platforms**.
 
 ### What a WSL2 run of this protocol does and does not establish
 
@@ -2186,12 +2352,18 @@ limits do:
   proof that one util-linux version's answer is not another's. Whether `udevd`
   processes loop-attach events on any given host is therefore a measured row —
   `UDEV-DB:absent` is a finding about the platform, not a broken run.
-- **Negatives demand a second environment.** A row recorded only under WSL2
-  that asserts an absence — projections identical, no udev entry, no
-  partitions — must not be relied on by any register decision until confirmed
-  on one non-WSL, distro-kernel environment, because an absence claim
-  generalizes worse than an existence claim. A positive row stands as every
-  row in this file does: environment-scoped, versions beside it.
+- **Negatives demand a second environment, and this run produced the negative
+  that matters.** A row recorded only under WSL2 that asserts an absence —
+  projections identical, no udev entry, no partitions — must not be relied on
+  by any register decision until confirmed on one non-WSL, distro-kernel
+  environment, because an absence claim generalizes worse than an existence
+  claim. **H-separation's refutation is exactly such a negative**, and this
+  rule binds it: the decisive-pair result stands as measured on this
+  environment and is **not yet available to a register decision** until a
+  non-WSL distro-kernel run confirms it. That confirmation is the single
+  outstanding piece of SI-35's evidence list this run does not supply. The
+  positive rows — H-4Kn supported, the damaged-primary separation — carry the
+  ordinary environment scoping every row in this file carries.
 - **The attach is privileged everywhere.** A separation finding here is a fact
   about what the kernel's parse leaves client-readable, not about what an
   unprivileged client can cause to be parsed. Real disks are parsed at
