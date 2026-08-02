@@ -331,8 +331,10 @@ impl DiagnosticField {
                  {EXIT_REFUSAL} typed refusal\n"
             ),
             Self::DiscoveryEvidence => format!(
-                "  discovery-evidence: {} ({})\n",
-                DISCOVERY_EVIDENCE_REFUSAL.state, DISCOVERY_EVIDENCE_REFUSAL.reference
+                "  discovery-evidence: {} ({})\n    {}\n",
+                DISCOVERY_EVIDENCE_REFUSAL.state,
+                DISCOVERY_EVIDENCE_REFUSAL.reference,
+                DISCOVERY_EVIDENCE_REFUSAL.detail
             ),
         }
     }
