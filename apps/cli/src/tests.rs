@@ -394,7 +394,7 @@ fn export_diagnostics_admits_exactly_the_allowlisted_fields() {
 }
 
 // Requirements: SAFE-006
-//   No output in any mode carries the host's username, home path, or computer name, nor any environment value six bytes or longer — a tripwire so the first code path that reads the environment cannot leak it silently
+//   No output in any mode carries the host's username, home path, or computer name, nor any environment value six bytes or longer that is not byte-equal to a compile-time constant the bundle renders by definition — a tripwire so the first code path that reads the environment cannot leak it silently
 // Evidence: no_output_in_any_mode_carries_an_environment_value
 #[test]
 fn no_output_in_any_mode_carries_an_environment_value() {
@@ -425,9 +425,21 @@ fn no_output_in_any_mode_carries_an_environment_value() {
     // Every other environment value long enough to be identifying. Short
     // values ("true", "1", locale fragments) are skipped because they can
     // collide with legitimate static output by coincidence, and a tripwire
-    // that cries wolf gets deleted.
+    // that cries wolf gets deleted. One further exemption, exact and named:
+    // a value byte-equal to a compile-time constant the bundle renders by
+    // definition. WSL's login shell exports HOSTTYPE=x86_64, which equals
+    // `std::env::consts::ARCH` — the bundle printing its own build target is
+    // not an environment read, and the byte-determinism test is what proves
+    // output is environment-independent. The exemption lists the constants
+    // themselves rather than loosening the sweep.
+    let rendered_constants = [
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        VERSION,
+        ENVELOPE_SCHEMA,
+    ];
     for (name, value) in std::env::vars() {
-        if value.len() >= 6 {
+        if value.len() >= 6 && !rendered_constants.contains(&value.as_str()) {
             sensitive.push((name, value));
         }
     }
