@@ -1,22 +1,41 @@
-//! Chassis tests. Every behavior is asserted through [`dispatch`] as pure
-//! data; the only process any test launches is the compile-time-selected
-//! `cargo`, for the structural dependency guard.
+//! Chassis tests. Every behavior is asserted through [`dispatch`] or
+//! [`dispatch_os`] as pure data; the only process any test launches is the
+//! compile-time-selected `cargo`, for the structural dependency guard.
 
 use super::{
-    Command, ENVELOPE_SCHEMA, EXIT_OK, EXIT_REFUSAL, EXIT_USAGE, Outcome, VERSION, dispatch,
-    envelope, help_text, json_escaped,
+    ALL_COMMANDS, Command, ENVELOPE_SCHEMA, EXIT_OK, EXIT_REFUSAL, EXIT_USAGE, Outcome, VERSION,
+    dispatch, dispatch_os, envelope, help_text, json_escaped,
 };
 
-/// Every distinct invocation shape the chassis has, so contract-wide tests
-/// cannot quietly skip a surface that was added later without extending this
-/// list — a test over a hand-picked subset proves the subset.
+/// One shared enumeration of invocation shapes, so every contract-wide test
+/// covers the same set. The command words are derived from [`ALL_COMMANDS`],
+/// whose companion `match` in [`Command::name`] is wildcard-free — adding a
+/// variant fails that match and brings the author here; extending the alias
+/// and refused lists below is the review obligation that visit carries, an
+/// obligation this comment states rather than a guarantee it claims.
 fn every_invocation() -> Vec<Vec<String>> {
+    let mut words: Vec<String> = ALL_COMMANDS
+        .iter()
+        .map(|command| command.name().to_owned())
+        .collect();
+    // Alias spellings and refused shapes, beyond what the enum can derive.
+    for extra in [
+        "--help",
+        "-h",
+        "--version",
+        "-V",
+        "frobnicate",
+        "--frob",
+        "",
+    ] {
+        words.push(extra.to_owned());
+    }
     let mut invocations = Vec::new();
-    for command in ["help", "version", "inspect", "frobnicate", "--frob", ""] {
+    for word in words {
         for json in [false, true] {
             let mut arguments: Vec<String> = Vec::new();
-            if !command.is_empty() {
-                arguments.push(command.to_owned());
+            if !word.is_empty() {
+                arguments.push(word.clone());
             }
             if json {
                 arguments.push("--json".to_owned());
@@ -109,10 +128,24 @@ fn inspect_refuses_with_a_typed_value_not_only_an_exit_code() {
 }
 
 // Requirements: CLI-005
-//   The exit-code contract is documented in the help text from the same constants the binary returns, so the documentation cannot drift from the code
+//   The documented exit codes are pinned as literals — 0 ok, 2 usage refusal, 3 typed refusal — so renumbering a constant is a visible test edit, and the help text interpolates the same constants so a renumbering cannot desynchronize the two
 // Evidence: exit_codes_match_the_contract_the_help_text_documents
 #[test]
 fn exit_codes_match_the_contract_the_help_text_documents() {
+    // Literal pins first: without these, every other assertion in this file
+    // compares the code against the same constant that produced it, and a
+    // mutation of EXIT_REFUSAL to 0 — refusal indistinguishable from
+    // success — left the whole suite green when tried.
+    assert_eq!(EXIT_OK, 0, "the ok code is part of the documented contract");
+    assert_eq!(
+        EXIT_USAGE, 2,
+        "the usage code is part of the documented contract"
+    );
+    assert_eq!(
+        EXIT_REFUSAL, 3,
+        "the refusal code is part of the documented contract"
+    );
+
     assert_eq!(dispatch(&["help".to_owned()]).code, EXIT_OK);
     assert_eq!(dispatch(&["version".to_owned()]).code, EXIT_OK);
     assert_eq!(dispatch(&["inspect".to_owned()]).code, EXIT_REFUSAL);
@@ -133,7 +166,7 @@ fn exit_codes_match_the_contract_the_help_text_documents() {
 }
 
 // Requirements: SAFE-005
-//   A token the parser does not recognize is refused with its exact spelling rather than guessed at, in both output modes, and a second command word is refused rather than either being kept
+//   A token the parser does not recognize is refused with its exact spelling rather than guessed at, in both output modes; a second command word is refused carrying the second token's spelling, never a canonical name the user did not type
 // Evidence: unknown_tokens_are_refused_with_their_exact_spelling
 #[test]
 fn unknown_tokens_are_refused_with_their_exact_spelling() {
@@ -146,10 +179,22 @@ fn unknown_tokens_are_refused_with_their_exact_spelling() {
     assert_eq!(flag.code, EXIT_USAGE);
     assert!(flag.stderr.contains("unknown flag `--frob`"));
 
-    let doubled = dispatch(&["version".to_owned(), "help".to_owned()]);
-    assert_eq!(
-        doubled.code, EXIT_USAGE,
-        "two command words are a refusal, not a silent choice of either"
+    // The second-command refusal carries the second token's exact spelling.
+    // An earlier draft reported the canonical name — `partman version -V`
+    // said "unknown command `version`", declaring a known command unknown
+    // and showing a word the user never typed — and only the exit code was
+    // asserted, which is how the misreport survived review.
+    let doubled = dispatch(&["version".to_owned(), "-V".to_owned()]);
+    assert_eq!(doubled.code, EXIT_USAGE);
+    assert!(
+        doubled.stderr.contains("second command word `-V`"),
+        "the refusal must name the token the user actually typed: {}",
+        doubled.stderr
+    );
+    assert!(
+        !doubled.stderr.contains("unknown command"),
+        "a second command word is not an unknown command: {}",
+        doubled.stderr
     );
 
     let json = dispatch(&["frobnicate".to_owned(), "--json".to_owned()]);
@@ -162,6 +207,48 @@ fn unknown_tokens_are_refused_with_their_exact_spelling() {
         serde_json::Value::Null,
         "no command was accepted, and the field says so rather than being omitted"
     );
+}
+
+// Requirements: SAFE-005, CLI-005
+//   A non-Unicode argument is a typed usage refusal at the documented code, not a panic: std::env::args() would abort with an undocumented 101, so the binary's entry seam owns the conversion
+// Evidence: a_non_unicode_argument_is_refused_not_a_panic
+#[test]
+fn a_non_unicode_argument_is_refused_not_a_panic() {
+    let invalid = invalid_unicode_argument();
+
+    let human = dispatch_os(vec![std::ffi::OsString::from("version"), invalid.clone()]);
+    assert_eq!(human.code, EXIT_USAGE);
+    assert!(
+        human.stderr.contains("is not valid Unicode"),
+        "the refusal must say what was wrong: {}",
+        human.stderr
+    );
+
+    let json = dispatch_os(vec![
+        std::ffi::OsString::from("--json"),
+        std::ffi::OsString::from("version"),
+        invalid,
+    ]);
+    assert_eq!(json.code, EXIT_USAGE);
+    let parsed: serde_json::Value = serde_json::from_str(&json.stdout)
+        .expect("a non-Unicode refusal under --json is an envelope like any other");
+    assert_eq!(parsed["outcome"]["kind"], "usage-refusal");
+}
+
+/// An `OsString` that is deliberately not valid Unicode, built per platform
+/// because the two encodings break differently: an unpaired UTF-16
+/// surrogate on Windows, a bare 0xFF byte on Unix.
+fn invalid_unicode_argument() -> std::ffi::OsString {
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStringExt as _;
+        std::ffi::OsString::from_wide(&[0xD800])
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStringExt as _;
+        std::ffi::OsString::from_vec(vec![0xFF])
+    }
 }
 
 // Requirements: CLI-008
@@ -196,7 +283,7 @@ fn hostile_strings_cannot_break_the_envelope() {
 }
 
 // Requirements: Section 14
-//   The shipped dependency closure is empty — no normal or build dependency exists — which is what keeps a hash function unreachable from inspector output and keeps every plan type out of this binary's reach
+//   No normal or build dependency exists, so no hash or plan implementation can arrive from outside the crate; std's own hashers are held off the output type by its compile-fail non-Hash proof, and past that the boundary is a named review obligation
 // Evidence: the_shipped_dependency_closure_is_empty
 #[test]
 fn the_shipped_dependency_closure_is_empty() {
@@ -227,15 +314,19 @@ fn the_shipped_dependency_closure_is_empty() {
         .iter()
         // `kind` is null for a normal dependency, "build" for build scripts,
         // "dev" for test-only. Dev-dependencies cannot reach the shipped
-        // binary, which is exactly the boundary this guard draws; this
-        // assertion is a snapshot of the manifest, not of what tests link.
+        // binary, which is exactly the boundary this guard draws. With the
+        // direct non-dev set empty the transitive closure is empty by
+        // entailment; if a dependency is ever allowlisted, this test must
+        // resolve the real closure or be renamed, because its name would
+        // otherwise overclaim. The assertion is a snapshot of the manifest,
+        // not of what tests link.
         .filter(|dependency| dependency["kind"] != "dev")
         .map(|dependency| dependency["name"].to_string())
         .collect();
     assert!(
         shipped.is_empty(),
         "the shipped closure gained {shipped:?}; widening it is a reviewed decision — the \
-         guard exists so a hash function or plan type cannot arrive as a transitive convenience"
+         guard exists so a hash or plan implementation cannot arrive as a transitive convenience"
     );
 }
 

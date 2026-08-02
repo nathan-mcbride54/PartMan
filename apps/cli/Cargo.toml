@@ -13,9 +13,11 @@ path = "src/main.rs"
 
 # No `[dependencies]` section, and that is a guard rather than an omission:
 # `the_shipped_dependency_closure_is_empty` asserts it through `cargo
-# metadata`, which is what keeps a hash function unreachable from inspector
-# output and keeps every plan type out of this binary's reach. Widening it is
-# a reviewed decision, not a convenience.
+# metadata`, so no hash or plan implementation can arrive from outside this
+# crate. What the guard cannot see — std's own hashers used deliberately
+# in-crate — is held off the output type by its compile-fail non-Hash proof,
+# and past that is a named review obligation, not a claimed impossibility.
+# Widening this section is a reviewed decision, not a convenience.
 
 [dev-dependencies]
 # Test-only, for parsing `cargo metadata` in the structural guard — a
