@@ -12,22 +12,39 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   time, read-only read back from `/sys` rather than trusted from the flag, and
   the measuring identity asserted unprivileged — uid non-zero, not in `disk`,
   and a direct read of the loop device **denied**, where the denial is the
-  pass. Repository issue #94 was open, so the run is the read-only case
-  WP-035 provides for in terms, the binding-gap line travels beneath every
-  table it filled, WP-020's increment-2 row stays Blocked, and nothing here
-  weakens the gate. A content check — hashing the whole loop device against
+  pass. **Repository issue #94 was open, so this measurement was taken across
+  a block that had not lifted.** WP-035 says loop-backed work is *blocked*
+  until #94 closes and adds a rule for what to record if a read-only
+  measurement is taken anyway — a contingency, not a permission — and #94
+  itself disclaims proposing "a manual, out-of-tier loop attach". The run was
+  performed at the operator's explicit instruction after the gate was raised,
+  though it was raised with an over-favourable reading since withdrawn.
+  **M0.5's loop-backed exit criterion is not satisfied by this run.** The
+  contingency was honoured: the binding-gap line travels beneath every table
+  filled, WP-020's increment-2 row stays Blocked, and test-tiers.md's
+  sentences remain true because nothing in the repository opened a device. A
+  conflict between the two authorities — WP-035 calling these operator-run
+  experiments and not tier work, #94 calling the same probe Tier-2 work that
+  cannot yet be made — is named for filing under §1.11 rather than resolved
+  here. A content check — hashing the whole loop device against
   the fixture digest, all seven matching — is recorded as a mitigation of the
   read-only blast radius and explicitly **not** as #94's closure, since a
   digest binds bytes and #94 is about binding an inode. **H-separation is
   refuted**: the normalized client projections of `gpt-conflicting-tables-512`
   and `gpt-basic-512` are byte-identical, the kernel having materialized the
-  primary set and left the disagreeing backup nowhere visible. That settles
-  the register's attribution question against the escape route — the collapse
-  is not a file-probing artifact, since a fully kernel-parsed device with
-  partition scanning reproduces it — and the privileged view is no better,
-  `wipefs` reporting identical offsets for both. So the decisive pair is now
-  indistinguishable through three interfaces on two platforms and SI-35's
-  option (b) does not become viable. **H-4Kn is supported**, with the
+  primary set and left the disagreeing backup nowhere visible. On this
+  environment the collapse is therefore **not** a file-probing artifact, since
+  a fully kernel-parsed device with partition scanning reproduces it, and the
+  privileged view is no better — `wipefs` reports identical offsets for both.
+  The register's attribution answer is *provisional*, not settled: it is an
+  absence claim on one kernel, one util-linux and one udev under WSL2, and
+  this section's own rule withholds it from register use until a non-WSL
+  distro-kernel run confirms it. So the decisive pair is indistinguishable
+  through three interfaces on two platforms, and SI-35's option (b) does not
+  become viable on the evidence so far. Two items of the register's
+  three-item evidence list remain outstanding — that non-WSL confirmation, and
+  the demonstration that whichever option is chosen still refuses on
+  `gpt-conflicting-tables-512.img`, which no measurement can supply. **H-4Kn is supported**, with the
   like-for-like control met: a loop device with `--sector-size 4096` makes the
   4Kn GPT observable where file probing reported `PMBR`, which is the IMG-011
   route the Linux section said would be needed and confirms the fixture's
@@ -73,12 +90,15 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   available to one client disagreeing about whether a disk exists, reproduced
   twice each, with the attach, the device-layer presence, the selection
   predicate and a settling race each ruled out by measurement. The correlation
-  with the MBR entry is offered as a correlation, not a mechanism. And
-  `MSFT_Disk.PartitionStyle` reports GPT where
-  `IOCTL_DISK_GET_DRIVE_LAYOUT_EX` reports MBR on the same disk in the same
-  session — recorded as observed, unreconciled. The hybrid fixture fell in the
-  enumeration gap, so INV-003's hybrid question stays open on Windows as it
-  does on Linux. The loop-device half remains not taken, gated on issue #94.
+  with the MBR entry is offered as a correlation, not a mechanism. The hybrid
+  fixture produced no `MSFT_Disk` row, and its question is recorded as **not
+  attempted** rather than unanswerable: a device index was available from
+  `Win32_DiskDrive` in the same session and the zero-access layout IOCTL is
+  readable at such an index, so the probe that would have answered which
+  scheme the stack privileged was simply not run. The damaged-primary result
+  is recorded without attributing a mechanism — both GPT copies of that
+  fixture describe the same partitions, so the run cannot distinguish recovery
+  from the backup from parsing the primary without validating its CRC.
 
 - The SI-33 media-change-counter liveness experiment was **taken** on
   2026-08-02, on a card reader and two identical flash drives, entirely

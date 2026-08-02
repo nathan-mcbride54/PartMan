@@ -147,7 +147,7 @@ bound one.
 from USB mass storage (7). It does not help here: the reader and the flash drives
 are all bus type 7 and need opposite answers.
 
-### SI-35 on Windows: the partition-list interface against the table states — protocol recorded, not yet taken
+### SI-35 on Windows: the partition-list interface against the table states — measured 2026-08-02
 
 **Status: taken 2026-08-02.** Protocol and results both recorded under spec
 version 4.2.0 by WP-035 — the header's spec-version line describes the
@@ -284,19 +284,20 @@ machines:
 The conversion script, for copy-paste reproduction. It refuses a digest
 mismatch, verifies its own output by reading it back (length, payload hash,
 cookie, fixed-disk sentinel, size field, checksum), and emits the digests the
-run record needs. The three scripts in this subsection that can run without
-an attach were executed on 2026-08-02 to prove they run as pasted: this
-conversion against a synthetic 4 MiB payload (it parses, refuses a wrong
-digest, converts deterministically, and computes the pinned 120/4/17
-geometry), and the measurement query and the layout probe in a non-elevated
-console. **Those runs were script validation only: no fixture was attached
-and no measurement was taken.** The privileged attach (S3) and detach (S4)
-blocks were **not** executed — running them is the experiment's privileged
-setup itself — so their only validation is review, and their first execution
-will be the executed run. The layout probe's validation exercised one
-zero-access open of a real fixed disk, readability only — nothing from it
-fills any cell, and W3's control row is taken during the executed run so its
-answer shares a session and build with the fixture rows.
+run record needs.
+
+**Script provenance, in two stages.** *Before* the run, on 2026-08-02, the
+three scripts that can execute without an attach were run to prove they work
+as pasted: this conversion against a synthetic 4 MiB payload (it parses,
+refuses a wrong digest, converts deterministically, and computes the pinned
+120/4/17 geometry), and the measurement query and the layout probe in a
+non-elevated console. Those pre-run executions attached no fixture and took no
+measurement; the layout probe's exercised one zero-access open of a real fixed
+disk, readability only, and filled no cell. *Then* the experiment itself ran:
+S3 and S4 were executed for seven fixtures across two sittings, every attach
+succeeded and **every post-detach digest matched**, and W3's control row was
+taken during that run so its answer shares a session and build with the
+fixture rows.
 
 ```powershell
 # Conversion: raw fixture image -> fixed VHD, in operator scratch space.
@@ -695,7 +696,7 @@ surfaces can separate that fixture — and its Matches cell says
 | --- | --- | --- | --- |
 | `mbr-basic-512` | `unavailable(no MSFT_Disk row)` | — | — |
 | `blank-512` | 0 | none | `none` |
-| `gpt-basic-512` | 2 | offset 1048576 size 1048576 type `{c12a7328-…}` (ESP); offset 2097152 size 2080256 type `{0fc63daf-…}` (Linux FS) | `primary` |
+| `gpt-basic-512` | 2 | offset 1048576 size 1048576 type `{c12a7328-…}` (ESP); offset 2097152 size 2080256 type `{0fc63daf-…}` (Linux FS) | `primary/backup (indistinguishable by content)` — this fixture's backup agrees with its primary, so its rows cannot identify the copy parsed either |
 | `gpt-conflicting-tables-512` | 2 | **byte-identical to `gpt-basic-512`'s rows**, including both partition GUIDs | `primary` — the valid primary was parsed; the disagreeing backup is not represented anywhere |
 | `gpt-invalid-primary-valid-backup-512` | 2 | identical rows | `primary/backup (indistinguishable by content)` — both copies describe the same partitions, so only a status surface could have separated this fixture, and none did |
 | `gpt-missing-backup-512` | 2 | identical rows | `primary` |
@@ -705,27 +706,40 @@ surfaces can separate that fixture — and its Matches cell says
 
 | Target | `CreateFileW(access=0)` | `IOCTL_DISK_GET_DRIVE_LAYOUT_EX` | Style / count (fixtures only) |
 | --- | --- | --- | --- |
-| `blank-512` | succeeded | succeeded, 48 bytes | style `0`, count `0` |
-| `gpt-basic-512` | succeeded | succeeded, 336 bytes | style **`1`**, count `2` |
-| `gpt-conflicting-tables-512` | succeeded | succeeded, 336 bytes | style **`1`**, count `2` — identical |
-| `gpt-invalid-primary-valid-backup-512` | succeeded | succeeded, 336 bytes | style **`1`**, count `2` — identical |
-| `gpt-missing-backup-512` | succeeded | succeeded, 336 bytes | style **`1`**, count `2` — identical |
-| `mbr-basic-512`, `hybrid-mbr-gpt-512` | not attempted — no `MSFT_Disk` row supplied a disk number | — | — |
+| `blank-512` | succeeded | succeeded, 48 bytes | style `0` = MBR, count `0` |
+| `gpt-basic-512` | succeeded | succeeded, 336 bytes | style `1` = GPT, count `2` |
+| `gpt-conflicting-tables-512` | succeeded | succeeded, 336 bytes | style `1` = GPT, count `2` — identical |
+| `gpt-invalid-primary-valid-backup-512` | succeeded | succeeded, 336 bytes | style `1` = GPT, count `2` — identical |
+| `gpt-missing-backup-512` | succeeded | succeeded, 336 bytes | style `1` = GPT, count `2` — identical |
+| `mbr-basic-512`, `hybrid-mbr-gpt-512` | not attempted — see below; a device index **was** available | — | — |
 | one real physical disk (control — readability only, no content) | **succeeded** | **succeeded** | n/a — real hardware |
+
+**The two interfaces use different enumerations for the same answer, and this
+record originally misread that as a disagreement.** `winioctl.h`'s
+`PARTITION_STYLE` is `MBR=0, GPT=1, RAW=2`; `MSFT_Disk.PartitionStyle` is
+`Unknown=0, MBR=1, GPT=2`. So the IOCTL's `1` and CIM's `2` are both **GPT**
+and the interfaces **agree**. The output sizes corroborate the GPT parse
+independently: 336 bytes is a 48-byte `DRIVE_LAYOUT_INFORMATION_EX` header
+(its union sized by the 40-byte GPT member) plus two 144-byte
+`PARTITION_INFORMATION_EX` entries, and `blank-512`'s 48 bytes is that header
+with no entries. An earlier version of this section claimed the two
+interfaces reported different partitioning schemes, derived by comparing raw
+integers across two enumerations without checking either. That claim was
+false, is withdrawn, and the enum values are stated here so no future reader
+re-derives it.
+
+One cell in this table is a real cross-interface difference and is **not**
+resolved by the enum mapping: for `blank-512`, CIM reports `0` = *unknown or
+uninitialized* while the IOCTL reports `0` = *MBR*. Whether that is a
+meaningful answer or merely each enum's zero value is **not established
+here**; it is recorded because ADR-C3's `Absent` is exactly the state a blank
+disk should map to, and two interfaces naming it differently is the register's
+business, not this record's.
 
 **The zero-access layout IOCTL is readable unprivileged**, on the fixture
 disks and on a real physical disk alike — while `GENERIC_READ` on a physical
 drive is denied, as the established table above records. The control row
 records readability only; no content from real hardware is recorded.
-
-**Two Windows interfaces disagree about the same bytes.** For all four GPT
-fixtures `MSFT_Disk.PartitionStyle` reports `2` (GPT) while
-`IOCTL_DISK_GET_DRIVE_LAYOUT_EX` reports `PartitionStyle=1` on the same
-attached disk in the same session. Recorded as observed; the meaning of the
-IOCTL's enumeration versus the CIM class's is **not established here**, and
-no attempt is made to reconcile them. It is noted because a client choosing
-between these two interfaces would not merely see different detail — it would
-see a different partitioning scheme.
 
 #### The enumeration gap: two unprivileged interfaces disagree about whether a disk exists
 
@@ -741,6 +755,13 @@ out by measurement rather than by argument:
 - **The selection predicate was not the cause.** The re-run dumped every
   `MSFT_Disk` row unfiltered; disks 0–6 were present and there was no row for
   the attached image at all.
+- **`MSFT_Disk` was not simply stale.** The re-run's roster contained a USB
+  disk that had not been present in the earlier roster — the host's device set
+  changed between sittings. So the class enumerated a newly arrived device in
+  that same window while still not enumerating the attached image. That also
+  bounds any "reproduced under identical conditions" reading: the conditions
+  were not identical, and the reproduction is of the absence, not of the
+  whole host state.
 - **It was not a settling race.** The first run allowed 800 ms, the re-run
   3 seconds; both produced no row. A longer wait than 3 s is untested.
 - **It reproduced** — twice for each of the two fixtures, in two sittings.
@@ -828,9 +849,9 @@ them:
 | Hypothesis | Outcome |
 | --- | --- |
 | **W-H1**, the decisive pair | **Refuted.** Every status surface in W1 — `IsOffline`/`OfflineReason`, `OperationalStatus`/`HealthStatus` — recorded equal values for `gpt-conflicting-tables-512` and `gpt-basic-512`, and W2 shows the conflicting disk's rows are one table's content presented without complaint. The valid primary was parsed; the disagreeing backup appears nowhere. Both branches the protocol named in advance were covered, and this is the matching-rows branch: the list is indistinguishable from the healthy disk's, and no status surface says otherwise |
-| **W-H2**, silent recovery | **Refuted.** `gpt-invalid-primary-valid-backup-512`'s W1 row equals `gpt-basic-512`'s and its partitions appear ordinarily. The Windows analogue of libblkid's silent backup recovery, on this build. Because both GPT copies of this fixture describe the same partitions, row content could never have separated it — only a status surface could, and none did |
+| **W-H2**, damaged primary | **Refuted.** `gpt-invalid-primary-valid-backup-512`'s W1 row equals `gpt-basic-512`'s and its partitions appear ordinarily: no surface flags the damage. **Which copy was used is unmeasured** — both GPT copies of this fixture describe the same partitions, so row content cannot identify the copy read, and the run distinguishes "recovered from the backup" from "parsed the primary without validating its CRC" not at all. An earlier version of this row called it silent *recovery*; that attributed a mechanism the measurement cannot see, and the loop run cuts against it, since the same image materialized **zero** partitions under the kernel's parser |
 | **W-H3**, missing backup | **Refuted**, the same way: identical W1 row, partitions present, nothing flagged |
-| **W-Q4**, hybrid | **Unanswerable on this run** — the fixture fell in the enumeration gap. Recorded `unavailable`, not as an absence of hybridity reporting |
+| **W-Q4**, hybrid | **Not attempted**, which is weaker than unanswerable and is the honest word. The fixture produced no `MSFT_Disk` row, so the CIM route was closed — but `Win32_DiskDrive` supplied a device index for the same attached disk in the same session, and W3 establishes that the zero-access layout IOCTL is readable unprivileged at such an index. That probe would have answered which scheme the stack privileged and it was simply not run. The gap here is in the execution, not the platform |
 | **W-Q5**, blank | **Answered: distinct.** `blank-512` reports `PartitionStyle=0`, no partitions, empty GUID and signature — distinguishable from every GPT fixture and from the `unavailable` rows. Whether `0` maps to ADR-C3's positively-observed `Absent` or to an unreadable unknown is a register question the value alone does not settle, exactly as the format said it would not |
 
 **What this feeds, stated no wider than the run supports.** On this build, for
@@ -1820,20 +1841,60 @@ be able to see — not merely a discard obligation on the helper. Otherwise the
 same build produces different bodies for two users on one host, and PLAN-006
 fails for one of them.
 
-### The SI-35 loop-device measurement — protocol, defined 2026-08-02, no run has occurred
+### The SI-35 loop-device measurement — taken 2026-08-02, read-only, across an open #94 block
 
 Defined under spec version 4.2.0 by WP-035; the header's spec-version line
 describes the established measurements, not these three sections.
 
-**Taken 2026-08-02, read-only, with repository issue #94 still open.** The
-gate on this measurement is a gate on the *destructive* use: WP-035 provides
-in terms for a read-only measurement being taken before #94 closes — "if a
-read-only measurement is ever taken before then, the gap is recorded beside
-the numbers" — and #94 itself records the read-only blast radius as **a wrong
-measurement, not a write**, with its deadline set "before any destructive
-Tier-2 suite is registered". No such suite exists. Nothing here weakens the
-gate: WP-020's increment-2 row stays Blocked, #94 stays open, and the binding
-gap travels with every table below.
+**Taken 2026-08-02, read-only, while repository issue #94 was open — which
+means this measurement was taken across a block that had not lifted.** That is
+stated first because an earlier version of this section stated it wrongly, and
+the wrong version is the kind this file exists to prevent.
+
+**What the authorities actually say.** WP-035 increment 5: *"Anything
+loop-backed is **blocked** until repository issue #94 closes; if a read-only
+measurement is ever taken before then, the gap is recorded beside the
+numbers."* That is a block plus a rule for what to record if it is breached —
+a contingency, not a permission. Issue #94, in the paragraph this record
+previously quoted for its "worst outcome is a wrong measurement" clause,
+continues in the same sentence: *"that measurement is itself recorded as
+Tier-2 work that cannot yet be made; this issue does not change that, and it
+does **not** propose a manual, out-of-tier loop attach. `docs/quality/
+test-tiers.md`'s tier boundaries stand."* The earlier version of this section
+quoted the first half and omitted the second, then argued from the half it had
+kept that the gate covered only destructive use. It does not, and that
+argument is withdrawn.
+
+**What happened, and on whose authority.** The run was performed at the
+repository operator's explicit instruction on 2026-08-02, after the gate was
+raised — but it was raised with the over-favourable reading above, so the
+decision to proceed was taken on a mischaracterization of what the documents
+said. The measurement was read-only throughout and no device was written; the
+harm is to the record's accuracy, not to any storage.
+
+**Consequences, recorded rather than softened.**
+
+- **M0.5's loop-backed exit criterion is NOT satisfied by this run.** The
+  specification conditions it on the loop-backed portion being "gated on
+  repository issue #94", and #94 is open. These numbers exist; they do not
+  discharge that criterion.
+- The contingency clause **was** honoured: the binding-gap line travels
+  beneath every table this run filled.
+- WP-020's increment-2 row stays **Blocked** and #94's Requested recordings
+  are otherwise untouched — verified, not assumed.
+- `docs/quality/test-tiers.md`'s sentences remain true: nothing in the
+  repository opened a block device, and the scripts that did are operator-run
+  and live outside it.
+
+**A conflict between two authorities, filed rather than resolved here.**
+WP-035 increment 5 calls these measurements "operator-run, read-only
+experiments... not tests and not repository commands"; issue #94 calls the
+same SI-35 loop probe "Tier-2 work that cannot yet be made". Those are
+different characterizations of one activity, and which governs decides whether
+an operator-run loop attach is available at all before a destructive suite
+exists. This record does not choose between them — that belongs under §1.11
+in the spec-issue register, which is not this package's to edit — and it is
+named here so the next person meets the conflict rather than one side of it.
 
 These sections extend this file's rule of use to their own vocabulary — a row
 marked `not yet taken` MUST NOT be relied on, cited, or paraphrased as a
@@ -2069,7 +2130,7 @@ unproven monotonicity obligation — are untouched by this measurement, which
 changes only the measured content of the projection each option would have to
 carry or clamp to. The record lands here; the register weighs it.
 
-### The SI-35 loop-device recording format — every row `not yet taken`
+### The SI-35 loop-device record — filled 2026-08-02
 
 One environment block per run, then per-fixture tables. Outcome vocabulary is
 ADR-C4's as WP-035 carries it: **observed** (with absence as a value —
@@ -2285,21 +2346,31 @@ measurement to settle.
 
 ### What the run established
 
-**H-separation is refuted, and that is the consequential result.** Its
-condition was fixed before the run: refuted if the two normalized client
-projections are identical. They are — byte for byte, once the backing-object
-keys are dropped. The kernel parsed both images, materialized the **primary**
-set for the conflicting fixture, and produced a projection indistinguishable
-from the healthy disk's. The backup's disagreeing partition appears nowhere,
-and no client-readable fact marks the disagreement.
+> **Scope line, travelling with every claim below:** these results are one
+> kernel build, one util-linux, one udev, under WSL2. The decisive-pair result
+> is an **absence** claim, and this section's own rule withholds such a claim
+> from any register decision until a non-WSL distro-kernel run confirms it.
 
-**This settles SI-35's attribution question, in the direction that closes an
-escape route.** The register asked for this measurement "so the file-probing
-limitation is not mistaken for a kernel limitation". It is not a file-probing
-artifact: a device the kernel has fully parsed, with partition scanning on,
-yields the same collapse. And the privileged view is no better — `wipefs`
-reports identical offsets for both images. On this environment **neither the
+**H-separation is refuted on this environment.** Its condition was fixed
+before the run: refuted if the two normalized client projections are
+identical. They are — byte for byte, once the backing-object keys are dropped.
+The kernel parsed both images, materialized the **primary** set for the
+conflicting fixture, and produced a projection indistinguishable from the
+healthy disk's. The backup's disagreeing partition appears nowhere, and no
+client-readable fact marks the disagreement.
+
+**On SI-35's attribution question, the answer is provisional and points one
+way.** The register asked for this measurement "so the file-probing limitation
+is not mistaken for a kernel limitation". On this environment it is not a
+file-probing artifact: a device the kernel has fully parsed, with partition
+scanning on, yields the same collapse, and the privileged view is no better —
+`wipefs` reports identical offsets for both images. So here **neither the
 client nor the helper can distinguish an ambiguous table from a healthy one.**
+The word is *provisional*, not *settled*: this file's own mdraid section is
+the proof that this toolchain changes its answers between versions, and a
+result cannot be settled and simultaneously withheld from register use. An
+earlier version of this paragraph said "settles", which contradicted the
+withholding rule four screens below it.
 
 **Option (b) does not become viable.** The register states that if a loop
 device separates the two, "option (b) becomes viable and this issue narrows
@@ -2319,10 +2390,12 @@ weighs it.
   kernel's partition parser and libblkid disagree about the same device: one
   declines the table, the other labels it. A client reading only
   `ID_PART_TABLE_TYPE` sees a healthy-looking `gpt`; a client that also counts
-  materialized partitions sees the difference. This is a **third** instance of
-  the two-interfaces-disagree pattern this file has now recorded — after
-  `blkid`-versus-`wipefs` arity on Linux and `MSFT_Disk`-versus-layout-IOCTL
-  on Windows.
+  materialized partitions sees the difference. This is a **second** instance
+  of the two-interfaces-disagree pattern this file has recorded, after the
+  `blkid`-versus-`wipefs` arity finding on Linux. It is not a third: the
+  `MSFT_Disk`-versus-layout-IOCTL "disagreement" this record briefly claimed
+  was an artifact of comparing two enumerations, and is withdrawn in the
+  Windows subsection above.
 - **A missing backup is helper-only.** `wipefs` shows the backup copy absent;
   the client projection is identical to healthy. That is a clean instance of
   the asymmetry Part 5's conclusion needs re-checking against, and it is
@@ -2360,10 +2433,21 @@ limits do:
   claim. **H-separation's refutation is exactly such a negative**, and this
   rule binds it: the decisive-pair result stands as measured on this
   environment and is **not yet available to a register decision** until a
-  non-WSL distro-kernel run confirms it. That confirmation is the single
-  outstanding piece of SI-35's evidence list this run does not supply. The
-  positive rows — H-4Kn supported, the damaged-primary separation — carry the
-  ordinary environment scoping every row in this file carries.
+  non-WSL distro-kernel run confirms it. The positive rows — H-4Kn supported,
+  the damaged-primary separation — carry the ordinary environment scoping
+  every row in this file carries.
+
+  **What remains outstanding on SI-35's evidence list, counted honestly.** The
+  register requires three things before any option is accepted: the
+  loop-device measurement, the same measurement on Windows, and *"a
+  demonstration that whichever option is chosen still refuses rather than
+  proceeds on `gpt-conflicting-tables-512.img`"*. This run supplies the first
+  and the Windows subsection supplies the second. **Two** remain: the non-WSL
+  confirmation this rule demands of the negative, and the register's third
+  item — which **no measurement can supply**, because it depends on an option
+  being chosen and the register has not chosen one. An earlier version of this
+  section said only one piece was outstanding, which made SI-35 read as one
+  run from closure. It is not, and this package may not make it look so.
 - **The attach is privileged everywhere.** A separation finding here is a fact
   about what the kernel's parse leaves client-readable, not about what an
   unprivileged client can cause to be parsed. Real disks are parsed at
