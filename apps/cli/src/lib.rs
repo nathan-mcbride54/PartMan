@@ -1,13 +1,15 @@
 //! `partman` — the WP-035 read-only CLI chassis.
 //!
-//! This library is the evidence instrument's frame, not the instrument:
-//! structured argument parsing, a documented exit-code contract, a
-//! schema-versioned JSON envelope, and a typed refusal vocabulary. It
-//! inspects nothing yet — `partman inspect` refuses honestly rather than
-//! printing something plausible — and it is forbidden every surface the
-//! spec-issue register gates: no identity strength, no partition-table
-//! state, no typed topology node, no hash, no plan. The boundary and the
-//! gate behind each prohibition are in `docs/work-packages/WP-035.md`.
+//! This library is the evidence instrument's frame and, since increment 4,
+//! its first observing surface: structured argument parsing, a documented
+//! exit-code contract, a schema-versioned JSON envelope, a typed refusal
+//! vocabulary, and adapter-attributed observation records over replayed
+//! regular files. It remains forbidden every surface the spec-issue
+//! register gates — no identity strength, no partition-table state, no
+//! typed topology node, no hash, no plan — and each gated surface travels
+//! in-band in every inspect answer as a typed refusal naming its register
+//! issue. The boundary and the gate behind each prohibition are in
+//! `docs/work-packages/WP-035.md`.
 //!
 //! Two properties are guarded mechanically, and each guard's exact reach is
 //! stated, because an overstated guard sentence is how this repository's
@@ -30,17 +32,21 @@
 //! is ever added it arrives behind `NO_COLOR` and non-TTY detection, and the
 //! no-ANSI test moves from "always" to "when disabled".
 //!
-//! I/O reach, restated each time it grows (increment 3 grew it): the shipped
-//! binary opens no socket and reads no environment variable; its only
-//! file-system reads and process launches are the doctor's — existence
-//! checks and `--version` probes of roster tools at compiled absolute
-//! paths, under SAFE-004's launch discipline. The exact statement lives in
-//! [`doctor`]'s module doc, beside the code it describes.
+//! I/O reach, restated each time it grows (increments 3 and 4 grew it): the
+//! shipped binary opens no socket and reads no environment variable. Its
+//! file-system reads and process launches are exactly two: the doctor's
+//! existence checks and `--version` probes of roster tools at compiled
+//! absolute paths, and `inspect --replay`'s read of one caller-named
+//! object, refused through the opened handle unless it is a regular file —
+//! so no command opens a block device at all, even when handed one by
+//! name. The exact statements live in [`doctor`]'s and [`inspect`]'s module
+//! docs, beside the code they describe.
 
 use std::ffi::OsString;
 
 pub mod doctor;
 pub mod facts;
+pub mod inspect;
 
 /// The schema identifier every JSON emission carries.
 ///
@@ -92,8 +98,11 @@ pub enum Command {
     Help,
     /// Print the version.
     Version,
-    /// The instrument's surface. Refuses until increment 4 has observation
-    /// records for it to print.
+    /// The instrument's surface: observation records, labelled by the
+    /// adapter that produced them. `--replay <file>` runs the
+    /// fixture-replay adapter over one regular file; without it, the
+    /// answer states that no device adapter exists on this platform yet.
+    /// Every register-gated surface travels in-band as a typed refusal.
     Inspect,
     /// The redacted diagnostics bundle: this build's identity and surface
     /// states, admitted field-by-field through the deny-by-default
@@ -139,10 +148,12 @@ impl Command {
     }
 }
 
-/// One parsed invocation: a command plus the output mode.
+/// One parsed invocation: a command, the output mode, and inspect's
+/// optional replay object.
 struct Invocation {
     command: Command,
     json: bool,
+    replay: Option<String>,
 }
 
 /// Why the parser refused. The exact spelling of the refused token travels
@@ -160,6 +171,14 @@ enum UsageRefusal {
     /// canonical name of the command it aliases, which told the user a
     /// known command was unknown and showed a word they never typed.
     SecondCommand(String),
+    /// `--replay` with no value after it.
+    ReplayNeedsValue,
+    /// `--replay` given twice. Two objects is an ambiguity, not a list;
+    /// unlike `--json`, repetition here would change what the invocation
+    /// means, so it is refused like a second command word.
+    ReplayTwice,
+    /// `--replay` alongside a command that is not `inspect`.
+    ReplayNeedsInspect(String),
     /// An argument that is not valid Unicode, rendered lossily. Owned as a
     /// refusal because the alternative — `std::env::args()` — panics, and a
     /// panic is an undocumented exit code wearing a stack trace.
@@ -185,6 +204,15 @@ impl UsageRefusal {
             Self::NotUnicode(lossy) => {
                 format!("argument `{lossy}` is not valid Unicode; arguments are matched exactly")
             }
+            Self::ReplayNeedsValue => {
+                "flag `--replay` needs a value: the file to replay".to_owned()
+            }
+            Self::ReplayTwice => {
+                "flag `--replay` given twice; one object per invocation".to_owned()
+            }
+            Self::ReplayNeedsInspect(command) => {
+                format!("flag `--replay` belongs to inspect, not to `{command}`")
+            }
         }
     }
 }
@@ -208,17 +236,6 @@ pub struct Refusal {
     pub detail: &'static str,
 }
 
-/// The refusal `partman inspect` gives while there is nothing honest for it
-/// to print.
-const INSPECT_REFUSAL: Refusal = Refusal {
-    state: "not-implemented",
-    reference: "WP-035 increment 4",
-    detail: "inspect arrives with increment 4's adapter-attributed observation records; \
-             this chassis increment ships argument parsing, the exit-code contract, the \
-             JSON envelope, and this refusal vocabulary, and printing a plausible empty \
-             inspection instead of refusing would be a fake success path",
-};
-
 /// The refusal the diagnostics bundle carries in place of discovery
 /// evidence. In-band rather than omitted: an absent field would be
 /// indistinguishable from "there was nothing to report", and INV-007's
@@ -226,10 +243,11 @@ const INSPECT_REFUSAL: Refusal = Refusal {
 /// refusal names when.
 const DISCOVERY_EVIDENCE_REFUSAL: Refusal = Refusal {
     state: "not-implemented",
-    reference: "WP-035 increment 4",
-    detail: "the diagnostics bundle carries no discovery evidence because none exists to \
-             carry; adapter-attributed observation records arrive with increment 4 and \
-             enter this bundle only through the same field allowlist",
+    reference: "WP-W100, WP-L100, WP-M100",
+    detail: "the diagnostics bundle admits compile-time data only, so it carries no \
+             discovery evidence; observation records exist as per-run inspect output, \
+             and evidence from real devices reaches this bundle only when a platform \
+             adapter package lands it here through the same field allowlist",
 };
 
 /// One field the diagnostics allowlist admits.
@@ -362,6 +380,14 @@ impl DiagnosticField {
 }
 
 /// What state a command answers in, for the diagnostics surface list.
+///
+/// Every current command answers, and the match is kept wildcard-free
+/// anyway: a future refusing surface must decide its state here explicitly
+/// rather than inheriting an "answers" it never earned.
+#[expect(
+    clippy::match_same_arms,
+    reason = "wildcard-free on purpose; a new command must decide its state here"
+)]
 fn command_state(command: Command) -> &'static str {
     match command {
         Command::Help
@@ -369,7 +395,7 @@ fn command_state(command: Command) -> &'static str {
         | Command::ExportDiagnostics
         | Command::Doctor
         | Command::Facts => "answers",
-        Command::Inspect => "refuses: not-implemented until WP-035 increment 4",
+        Command::Inspect => "answers",
     }
 }
 
@@ -451,7 +477,9 @@ fn help_text() -> String {
          Commands:\n\
          \x20 help                 this text\n\
          \x20 version              the version, as a line or a JSON envelope\n\
-         \x20 inspect              refuses with a typed value until observation records exist\n\
+         \x20 inspect              observation records, labelled by the adapter that\n\
+         \x20                      produced them; register-gated surfaces travel in-band\n\
+         \x20                      as typed refusals, and bytes are never classified\n\
          \x20 export-diagnostics   this build's identity and surface states, admitted\n\
          \x20                      field-by-field through a deny-by-default allowlist\n\
          \x20 doctor               roster tools at compiled absolute paths — present,\n\
@@ -459,8 +487,12 @@ fn help_text() -> String {
          \x20 facts                immutable technology limits, each with its basis\n\
          \n\
          Flags:\n\
-         \x20 --json     one schema-versioned JSON envelope on stdout ({ENVELOPE_SCHEMA});\n\
-         \x20            provisional within major version 0; contains no ANSI sequences\n\
+         \x20 --json               one schema-versioned JSON envelope on stdout\n\
+         \x20                      ({ENVELOPE_SCHEMA}); provisional within major\n\
+         \x20                      version 0; contains no ANSI sequences\n\
+         \x20 --replay <file>      inspect only: replay one regular file through the\n\
+         \x20                      fixture-replay adapter, verified through the opened\n\
+         \x20                      handle — a device named here is refused unread\n\
          \n\
          Exit codes (documented contract, provisional within major version 0):\n\
          \x20 {EXIT_OK}  the command produced its answer\n\
@@ -484,9 +516,20 @@ fn help_text() -> String {
 fn parse(arguments: &[String]) -> Result<Invocation, UsageRefusal> {
     let mut json = false;
     let mut command: Option<Command> = None;
-    for token in arguments {
+    let mut replay: Option<String> = None;
+    let mut tokens = arguments.iter();
+    while let Some(token) = tokens.next() {
         match token.as_str() {
             "--json" => json = true,
+            "--replay" => {
+                if replay.is_some() {
+                    return Err(UsageRefusal::ReplayTwice);
+                }
+                let Some(value) = tokens.next() else {
+                    return Err(UsageRefusal::ReplayNeedsValue);
+                };
+                replay = Some(value.clone());
+            }
             "help" | "--help" | "-h" => set_command(&mut command, Command::Help, token)?,
             "version" | "--version" | "-V" => set_command(&mut command, Command::Version, token)?,
             "inspect" => set_command(&mut command, Command::Inspect, token)?,
@@ -501,8 +544,16 @@ fn parse(arguments: &[String]) -> Result<Invocation, UsageRefusal> {
             word => return Err(UsageRefusal::UnknownCommand(word.to_owned())),
         }
     }
-    command.map_or(Err(UsageRefusal::MissingCommand), |command| {
-        Ok(Invocation { command, json })
+    let Some(command) = command else {
+        return Err(UsageRefusal::MissingCommand);
+    };
+    if replay.is_some() && command != Command::Inspect {
+        return Err(UsageRefusal::ReplayNeedsInspect(command.name().to_owned()));
+    }
+    Ok(Invocation {
+        command,
+        json,
+        replay,
     })
 }
 
@@ -524,6 +575,69 @@ fn set_command(
 /// no environment, no process; the doctor's I/O goes through the injected
 /// launcher, which is how Tier-1 tests keep their process set at `git` and
 /// the compile-time-selected `cargo`.
+/// The inspect command's outcome: the no-adapter statement, a replayed
+/// observation set, or a typed refusal — each on stdout in both modes.
+fn inspect_outcome(replay: Option<&str>, json: bool) -> Outcome {
+    let Some(path) = replay else {
+        return Outcome {
+            stdout: if json {
+                envelope(
+                    Some(Command::Inspect),
+                    &format!(
+                        "{{\"kind\":\"ok\",\"inspect\":{}}}",
+                        inspect::no_adapter_json()
+                    ),
+                )
+            } else {
+                inspect::no_adapter_human()
+            },
+            stderr: String::new(),
+            code: EXIT_OK,
+        };
+    };
+    match inspect::replay(std::path::Path::new(path)) {
+        Ok(observations) => Outcome {
+            stdout: if json {
+                envelope(
+                    Some(Command::Inspect),
+                    &format!(
+                        "{{\"kind\":\"ok\",\"inspect\":{}}}",
+                        inspect::replay_json(&observations)
+                    ),
+                )
+            } else {
+                inspect::replay_human(&observations)
+            },
+            stderr: String::new(),
+            code: EXIT_OK,
+        },
+        Err(refusal) => Outcome {
+            stdout: if json {
+                envelope(
+                    Some(Command::Inspect),
+                    &format!(
+                        "{{\"kind\":\"refusal\",\"state\":{state},\"reference\":{reference},\
+                         \"detail\":{detail}}}",
+                        state = json_escaped(refusal.state),
+                        reference = json_escaped(refusal.reference),
+                        detail = json_escaped(&refusal.detail),
+                    ),
+                )
+            } else {
+                format!(
+                    "inspect: refused\n  state: {state}\n  reference: {reference}\n  \
+                     detail: {detail}\n",
+                    state = refusal.state,
+                    reference = refusal.reference,
+                    detail = refusal.detail,
+                )
+            },
+            stderr: String::new(),
+            code: EXIT_REFUSAL,
+        },
+    }
+}
+
 fn run(invocation: &Invocation, launcher: &dyn doctor::ToolLauncher) -> Outcome {
     match invocation.command {
         Command::Help => Outcome {
@@ -553,7 +667,7 @@ fn run(invocation: &Invocation, launcher: &dyn doctor::ToolLauncher) -> Outcome 
             stderr: String::new(),
             code: EXIT_OK,
         },
-        Command::Inspect => refusal_outcome(Command::Inspect, &INSPECT_REFUSAL, invocation.json),
+        Command::Inspect => inspect_outcome(invocation.replay.as_deref(), invocation.json),
         Command::ExportDiagnostics => Outcome {
             stdout: if invocation.json {
                 envelope(
@@ -597,37 +711,6 @@ fn run(invocation: &Invocation, launcher: &dyn doctor::ToolLauncher) -> Outcome 
             stderr: String::new(),
             code: EXIT_OK,
         },
-    }
-}
-
-/// Render a typed refusal. The refusal is the command's answer, so it goes
-/// to stdout in both modes — never only an exit code, never a stderr string,
-/// never a silent omission.
-fn refusal_outcome(command: Command, refusal: &Refusal, json: bool) -> Outcome {
-    let stdout = if json {
-        envelope(
-            Some(command),
-            &format!(
-                "{{\"kind\":\"refusal\",\"state\":{state},\"reference\":{reference},\
-                 \"detail\":{detail}}}",
-                state = json_escaped(refusal.state),
-                reference = json_escaped(refusal.reference),
-                detail = json_escaped(refusal.detail),
-            ),
-        )
-    } else {
-        format!(
-            "{command}: refused\n  state: {state}\n  reference: {reference}\n  detail: {detail}\n",
-            command = command.name(),
-            state = refusal.state,
-            reference = refusal.reference,
-            detail = refusal.detail,
-        )
-    };
-    Outcome {
-        stdout,
-        stderr: String::new(),
-        code: EXIT_REFUSAL,
     }
 }
 
