@@ -8,8 +8,13 @@ and product requirements are normative.
 - Work on one dependency-ready work package at a time.
 - Create a branch and pull request for each work package. Never push directly to
   the default branch.
-- **Put a `Work-Package: WP-0NN` trailer on every commit you write**, naming the
-  assignment the change belongs to. `cargo xtask verify-change-ownership --base
+- **Put a `Work-Package: WP-<id>` trailer on every commit you write**, naming
+  the assignment the change belongs to. The id names an assignment the
+  catalogue holds and is not only three digits — Section 14 already lists ids
+  like `WP-W100` and `WP-DOC100`, and the checker matches the `WP-` prefix and
+  then requires the assignment document to exist at the base revision, so those
+  become legal the moment a `Governance:` change lands their assignment. Prose
+  narrower than the code here would refuse a legitimate platform package. `cargo xtask verify-change-ownership --base
   origin/main` refuses a change whose paths fall outside that assignment, and CI
   runs it on every pull request. The assignment is read from the **base**
   revision, so widening your own `owned-paths` block in the same change does not
