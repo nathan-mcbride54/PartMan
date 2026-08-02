@@ -9,13 +9,15 @@ validator, journal, image engine, and per-platform privileged helpers.
 
 **Not a usable partition manager, and must not be represented as one.** Nothing
 here discovers, plans, or mutates storage. There is no GUI, no planner, and no
-privileged helper. A CLI chassis exists — argument parsing, a documented
-exit-code contract, a schema-versioned JSON envelope, and a typed refusal
-vocabulary — and it inspects nothing yet: `partman inspect` refuses with a
-typed value naming what gates it, because printing a plausible empty
-inspection would be a fake success path. ADR-0009's off-main Slint 1.17.1
-candidate was rejected and closed without merge; only its reproducible
-evidence record lands here.
+privileged helper. A read-only CLI exists — argument parsing, a documented
+exit-code contract, a schema-versioned JSON envelope, a typed refusal
+vocabulary, a dependency doctor, technology facts, and adapter-attributed
+observation records over replayed regular files — and it observes no real
+device yet: `partman inspect` without `--replay` answers with a typed
+no-adapter statement naming the platform package that changes that, because
+printing a plausible empty machine would be a fake success path. ADR-0009's
+off-main Slint 1.17.1 candidate was rejected and closed without merge; only
+its reproducible evidence record lands here.
 
 What does exist:
 
@@ -56,11 +58,12 @@ What does exist:
   immutable technology limits each with its basis, mechanically refused the
   CAP-003 status vocabulary that belongs to WP-050. `inspect` answers with
   adapter-attributed observation records: `--replay` runs the fixture-replay
-  adapter over one regular file — verified through the opened handle, so a
-  device named by path is refused unread — reporting bytes as hex that no
-  code classifies, with ADR-C4's value/observed-absent/unavailable
-  trichotomy real in the output and the standing gated list (SI-28, SI-35,
-  SI-12) carried in-band in every answer.
+  adapter over one regular file — refused unread if it is anything else,
+  with fstat through the opened handle as the authority — reporting bytes
+  as hex that no code classifies, with ADR-C4's outcome vocabulary as the
+  ADR wrote it (observed, with absence as a value; unavailable; failed) and
+  the standing gated list (SI-28, SI-35, SI-12) carried in-band in every
+  answer, refusals included.
 
 The domain crate performs no I/O and launches no process. Tier 2 and Tier 3
 test suites fail closed and cannot run at all yet.
@@ -136,7 +139,7 @@ Section 14 of the specification is normative. Current state:
 | WP-020 | Foundations (M0) | Disk-image fixture generator and destructive-test interlocks | In progress — increments 1–1g and 2a–2d delivered. Preconditions 1 and 3 are now closed on both platforms (issue #51): Unix opens a direct child relative to a held root object, Windows holds the root with a share mode the filesystem enforces, and the other-name refusal — which was a **live defect**, not a missing check — now reads the link count through the authorized handle everywhere. Windows containment is enforcement by the filesystem rather than resolution from a handle, so it is **unproven for roots that are not on a local volume**, and non-local roots are refused. WP-020 traceability is generated from validated source-local claims and typed evidence, with a source-revision/blob ledger preserving every former evidence row, correction, limitation, and residual risk. Tier 2 stays unavailable on every platform because no destructive suite exists; see `docs/work-packages/WP-020.md` |
 | WP-030 | Foundations (M0); desktop shell deferred, no authority on main | Design tokens, dark UI shell, accessibility harness | In progress — increments 1 through 1c delivered (tokens, the static accessibility harness, and zero-loss generated traceability). Increment 2S's bounded Slint 1.17.1 branch was implemented, measured, mechanically rejected on two hard gates, and closed without merge. Main now retains only normalized evidence, the byte-reproducible 41-row report, and accessibility limitations; no shell exists, UI-002 remains unimplemented, and the rendered half of UI-008 remains untested. The temporary implementation authority was retired by PR #91, so no desktop-shell path is authorized on main and reviving either off-main branch needs fresh governance rather than inertia |
 
-| WP-035 | Evidence (M0.5) | Read-only CLI chassis and evidence instrument | In progress — increments 1–4 delivered: the chassis (structured argv owning the non-Unicode seam as a typed refusal, exit codes pinned by test, the ANSI-free schema-versioned envelope `partman.cli.envelope/0` provisional within major version 0, the typed refusal vocabulary, the empty-shipped-closure and compile-fail non-`Hash` guards with their reach stated); the redacted `export-diagnostics` (a deny-by-default field allowlist that is the builder's type, compile-time-only field values, the missing discovery evidence carried as an in-band typed refusal, and redaction tests — exact-field pin, byte-pinned human rendering, environment-value tripwire, env-read source guard, byte-determinism — gating the tier); and the dependency doctor and technology facts (roster tools probed at compiled absolute paths only under SAFE-004's launch discipline through a launcher seam that keeps roster launches out of Tier 1, presence/version/tested-range reported as facts with provenance, an empty platform roster as a typed statement, and FS-007's five input facts mechanically refused CAP-003's status vocabulary). `partman inspect` now answers: adapter-attributed observation records with ADR-C4's value/observed-absent/unavailable trichotomy over `--replay`ed regular files (verified through the opened handle, so a device named by path is refused unread), bytes reported as hex and never classified, no path echo, and the standing gated list — SI-28, SI-35, SI-12 — carried in-band in every answer; without `--replay` the answer is a typed no-adapter statement naming the platform package, never a plausible empty machine. The package remains forbidden every surface the spec-issue register's open items gate; see `docs/work-packages/WP-035.md` for the boundary. Every increment was adversarially reviewed before push; the corrections forced are recorded in the commit history |
+| WP-035 | Evidence (M0.5) | Read-only CLI chassis and evidence instrument | In progress — increments 1–4 delivered: the chassis (structured argv owning the non-Unicode seam as a typed refusal, exit codes pinned by test, the ANSI-free schema-versioned envelope `partman.cli.envelope/0` provisional within major version 0, the typed refusal vocabulary, the empty-shipped-closure and compile-fail non-`Hash` guards with their reach stated); the redacted `export-diagnostics` (a deny-by-default field allowlist that is the builder's type, compile-time-only field values, the missing discovery evidence carried as an in-band typed refusal, and redaction tests — exact-field pin, byte-pinned human rendering, environment-value tripwire, env-read source guard, byte-determinism — gating the tier); and the dependency doctor and technology facts (roster tools probed at compiled absolute paths only under SAFE-004's launch discipline through a launcher seam that keeps roster launches out of Tier 1, presence/version/tested-range reported as facts with provenance, an empty platform roster as a typed statement, and FS-007's five input facts mechanically refused CAP-003's status vocabulary). `partman inspect` now answers: adapter-attributed observation records with ADR-C4's outcome vocabulary as the ADR wrote it (observed, with absence as a value; unavailable; failed) over `--replay`ed regular files (verified through the opened handle, so a device named by path is refused unread), bytes reported as hex and never classified, no path echo, and the standing gated list — SI-28, SI-35, SI-12 — carried in-band in every answer, refusals included; without `--replay` the answer is a typed no-adapter statement naming the platform package, never a plausible empty machine. The package remains forbidden every surface the spec-issue register's open items gate; see `docs/work-packages/WP-035.md` for the boundary. Every increment was adversarially reviewed before push; the corrections forced are recorded in the commit history |
 
 Stage labels name Section 13's milestone themes where one exists; the deferred
 desktop shell has none while its authority stays retired. Each label is carried

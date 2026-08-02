@@ -10,23 +10,28 @@
 //!   partition table, and what state it is in, is exactly what SI-35 holds
 //!   open — the inspector prints the raw material and the standing gated
 //!   list, and the reader does the interpreting.
-//! - **ADR-C4's trichotomy is real.** A successful read is a value. A probe
-//!   beyond the object's end is a **positively observed absence** — the
-//!   handle's own length says those bytes do not exist, which is knowledge,
-//!   not failure. A read error is **unavailable** — the adapter could not
-//!   answer, and unavailability must never masquerade as absence, because
-//!   treating "could not look" as "looked and found nothing" is the
-//!   fail-closed violation SAFE-005 exists to prevent.
+//! - **ADR-C4's outcome vocabulary, as written.** `observed` carries bytes
+//!   or a positively determined absence — absence is a value, and the
+//!   state word says so. `unavailable` is the platform not exposing an
+//!   answer; `failed` is the read itself erroring; and the two are kept
+//!   distinct because collapsing them is the paraphrase an earlier draft
+//!   shipped and review refused. No outcome ever renders a non-answer as
+//!   an absence: treating "could not look" as "looked and found nothing"
+//!   is the fail-closed violation SAFE-005 exists to prevent.
 //! - **No path echo, no stable handle.** The replayed object is reported
 //!   under a session-local selector; the caller knows what they named, and
 //!   a path is on SEC-006's deny-floor. SI-27 keeps stable handles gated.
 //!
-//! The replay adapter reads one caller-named **regular file**, verified
-//! through the opened handle — `fstat` on the handle, not `stat` on the
-//! path, the same discipline the SAFE-007 interlock records — so a block
-//! device named here is refused before its first byte is read, and the
-//! repository's boundary sentence (no command opens a block device at all
-//! today) survives this increment too.
+//! The replay adapter reads one caller-named **regular file**. Anything
+//! else is refused unread: a pre-open look refuses devices and directories
+//! in the common case before any open touches them, and the authority is
+//! `fstat` through the opened handle — the interlock's discipline — so a
+//! device swapped in by a rebinding race is opened read-only at most long
+//! enough for the handle to identify itself, then refused with no byte
+//! read. The exact boundary, stated rather than rounded: no command reads
+//! a block device, and nothing opens one with write intent; a momentary
+//! read-only open under a race is the stated residue of choosing handle
+//! verification over trusting a name.
 
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
@@ -51,21 +56,45 @@ const REPLAY: Attribution = Attribution {
     method: "seek-and-read through the verified handle",
 };
 
-/// How one observation ended — ADR-C4's trichotomy, in the order of how
-/// much was learned.
+/// How one observation ended — ADR-C4's outcome vocabulary, taken as the
+/// ADR wrote it rather than paraphrased: an earlier draft of this module
+/// shipped `value / observed-absent / unavailable` and folded read errors
+/// into unavailability, and adversarial review correctly refused it —
+/// "the read itself errored" and "the platform did not expose it" are the
+/// distinction the ADR deliberately keeps, and a positively observed
+/// absence is a **value**, which the state word must say.
 pub enum Outcome {
-    /// The adapter read these bytes. Raw, hex-encoded, uninterpreted.
-    Value(String),
-    /// The adapter positively determined the asked-for thing does not
-    /// exist. This is a value — knowledge of absence — not a failure.
-    ObservedAbsent {
-        /// What established the absence.
+    /// The adapter looked and determined something. Absence is a value in
+    /// this family (ADR-C4): knowing the bytes do not exist is knowledge,
+    /// and it renders under the same `observed` state as bytes do.
+    Observed(ObservedValue),
+    /// The adapter looked; the platform did not expose the answer. The
+    /// replay adapter has no such case today — a regular file exposes
+    /// everything it has — and the variant is kept because the vocabulary
+    /// is ADR-C4's, not this adapter's to shrink.
+    Unavailable {
+        /// Why the platform could not expose the answer.
         reason: String,
     },
-    /// The adapter could not answer. Not an absence, and never rendered as
-    /// one.
-    Unavailable {
-        /// Why the answer could not be produced.
+    /// The read itself errored. Distinct from unavailability, and never
+    /// rendered as absence: treating could-not-look as
+    /// looked-and-found-nothing is the fail-closed violation SAFE-005
+    /// exists to prevent.
+    Failed {
+        /// The error, as the operating system reported it.
+        error: String,
+    },
+}
+
+/// What an `observed` outcome determined.
+pub enum ObservedValue {
+    /// Bytes, hex-encoded, uninterpreted.
+    Bytes(String),
+    /// A decimal quantity, as text.
+    Decimal(String),
+    /// A positively determined absence, carrying what established it.
+    Absent {
+        /// What established the absence.
         reason: String,
     },
 }
@@ -97,76 +126,181 @@ pub struct ReplayRefusal {
 /// (SI-35, SI-28; the standing list travels in every inspect answer).
 pub const PROBES: &[(u64, u64)] = &[(0, 16), (510, 2), (512, 16), (1024, 16)];
 
-/// The standing gated-surface list, rendered in every inspect answer so
-/// what the inspector will not say is stated in-band, never inferred from
-/// silence. Each entry names the register issue that gates it.
+/// The standing gated-surface list, rendered in every inspect answer —
+/// observation answers and refusals alike — so what the inspector will not
+/// say is stated in-band, never inferred from silence. Each entry names
+/// the register issue that gates it.
 pub const GATED: &[(&str, &str)] = &[
     ("identity-strength", "SI-28"),
     ("partition-table-state", "SI-35"),
     ("same-device-claims", "SI-12"),
 ];
 
+/// The session-local selector for the one replayed object. One constant,
+/// shared by both renderers, so the two cannot drift; the `0` is the
+/// session index the boundary requires in place of any stable handle
+/// (SI-27), and the parser refuses a second object per invocation.
+pub const REPLAY_SELECTOR: &str = "replay:0";
+
 /// Replay one regular file through the fixture-replay adapter.
 ///
 /// # Errors
 ///
-/// Refuses, with a typed value, anything the opened handle reports as not
-/// a regular file, and any object that cannot be opened at all.
+/// Refuses, with a typed value: anything the opened handle reports as not
+/// a regular file; anything a pre-open look already shows is not one (a
+/// hygiene check, raceable and therefore not the authority — the handle
+/// is); and any object that cannot be opened at all. On Unix the open
+/// itself is non-blocking, so a FIFO with no writer is refused instead of
+/// hanging the inspector on an open that never returns.
 pub fn replay(path: &Path) -> Result<Vec<Observation>, ReplayRefusal> {
-    let mut file = std::fs::File::open(path).map_err(|error| ReplayRefusal {
+    // Hygiene, not authority: in the common case a device or directory is
+    // refused here, before any open touches it. A rebinding race can still
+    // swap one in after this look, which is why the post-open fstat below
+    // remains the check that decides.
+    if let Ok(before) = std::fs::symlink_metadata(path)
+        && !before.is_file()
+    {
+        return Err(not_a_regular_file());
+    }
+
+    let mut file = open_for_replay(path).map_err(|error| ReplayRefusal {
         state: "refused",
         reference: "SAFE-005",
         detail: format!("the object could not be opened: {error}"),
     })?;
     // fstat through the handle, not stat on the path: this answers "what
     // did I actually open", which no rebinding of the name can change.
+    replay_handle(&mut file)
+}
+
+/// Open with flags that make hostile objects refusable rather than
+/// hanging: on Unix, `O_NONBLOCK` (a no-op for regular-file reads once
+/// the handle is verified) plus `O_NOCTTY`, so a FIFO or a
+/// carrier-waiting device returns immediately and the handle check
+/// refuses it.
+fn open_for_replay(path: &Path) -> std::io::Result<std::fs::File> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        // O_NONBLOCK = 0x800, O_NOCTTY = 0x100 on Linux; fixed kernel ABI.
+        std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(0x800 | 0x100)
+            .open(path)
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::File::open(path)
+    }
+}
+
+/// The handle-level half of [`replay`], split out so a test can hand it a
+/// handle no path-based refusal would produce — a Windows directory handle
+/// opened with backup semantics — and prove the fstat gate itself refuses,
+/// on the platform where the path-based tests cannot reach it.
+///
+/// # Errors
+///
+/// Refuses anything the handle reports as not a regular file.
+pub fn replay_handle(file: &mut std::fs::File) -> Result<Vec<Observation>, ReplayRefusal> {
     let metadata = file.metadata().map_err(|error| ReplayRefusal {
         state: "refused",
         reference: "SAFE-005",
         detail: format!("the opened handle would not describe itself: {error}"),
     })?;
     if !metadata.is_file() {
-        return Err(ReplayRefusal {
-            state: "refused",
-            reference: "SAFE-005",
-            detail: "replay reads regular files only, and the opened handle reports \
-                     something else; a device is not a fixture, and refusing here is \
-                     what keeps that sentence true"
-                .to_owned(),
-        });
+        return Err(not_a_regular_file());
     }
     let length = metadata.len();
 
     let mut observations = vec![Observation {
         subject: "object-length".to_owned(),
         attribution: REPLAY,
-        outcome: Outcome::Value(length.to_string()),
+        outcome: Outcome::Observed(ObservedValue::Decimal(length.to_string())),
     }];
 
     for &(offset, count) in PROBES {
-        let subject = format!("bytes[{offset}..{end})", end = offset + count);
-        let outcome = if offset + count <= length {
-            match read_exact_at(&mut file, offset, count) {
-                Ok(bytes) => Outcome::Value(hex(&bytes)),
-                Err(error) => Outcome::Unavailable {
-                    reason: format!("the read failed: {error}"),
-                },
-            }
-        } else {
-            Outcome::ObservedAbsent {
-                reason: format!(
-                    "the object ends at byte {length}; the probed range does not exist \
-                     on it — known from the handle's own length, not from a failed read"
-                ),
-            }
+        probe(file, length, offset, count, &mut observations);
+    }
+    Ok(observations)
+}
+
+/// The regular-files-only refusal, shared by the hygiene look and the
+/// handle authority so the two cannot drift apart in wording.
+fn not_a_regular_file() -> ReplayRefusal {
+    ReplayRefusal {
+        state: "refused",
+        reference: "SAFE-005",
+        detail: "replay reads regular files only, and the object is something else; a \
+                 device is not a fixture, and it is refused unread"
+            .to_owned(),
+    }
+}
+
+/// Probe one compiled range, splitting on the object's end so an absence
+/// claim is never made about bytes that exist: a range that straddles the
+/// end yields the existing prefix as observed bytes under an accurate
+/// subject, and the remainder as a positively observed absence. An earlier
+/// draft reported the whole straddling range absent, which was a false
+/// absence claim for every partial overlap — the exact false-positive
+/// class ADR-C4 forbids.
+fn probe(
+    file: &mut std::fs::File,
+    length: u64,
+    offset: u64,
+    count: u64,
+    observations: &mut Vec<Observation>,
+) {
+    let Some(end) = offset.checked_add(count) else {
+        // Unreachable with the compiled probe list; kept so the property
+        // survives if the list grows. A range whose end overflows u64
+        // cannot exist in any object.
+        observations.push(Observation {
+            subject: format!("bytes[{offset}..{offset}+{count})"),
+            attribution: REPLAY,
+            outcome: Outcome::Observed(ObservedValue::Absent {
+                reason: "the probed range's end does not fit in 64 bits, so no object can \
+                         contain it"
+                    .to_owned(),
+            }),
+        });
+        return;
+    };
+
+    let readable_end = end.min(length);
+    if offset < readable_end {
+        let readable = readable_end - offset;
+        let outcome = match read_exact_at(file, offset, readable) {
+            Ok(bytes) => Outcome::Observed(ObservedValue::Bytes(hex(&bytes))),
+            Err(error) => Outcome::Failed {
+                error: format!("the read failed: {error}"),
+            },
         };
         observations.push(Observation {
-            subject,
+            subject: format!("bytes[{offset}..{readable_end})"),
             attribution: REPLAY,
             outcome,
         });
     }
-    Ok(observations)
+    // The absent record covers exactly the asked-about bytes that do not
+    // exist — from the later of the probe's own start and the object's
+    // end. An earlier draft started at the object's end unconditionally,
+    // which for a wholly-beyond probe made the subject claim an answer
+    // about bytes nobody asked after.
+    let absent_start = offset.max(readable_end);
+    if absent_start < end {
+        observations.push(Observation {
+            subject: format!("bytes[{absent_start}..{end})"),
+            attribution: REPLAY,
+            outcome: Outcome::Observed(ObservedValue::Absent {
+                reason: format!(
+                    "the object ends at byte {length}; bytes from {absent_start} do not \
+                     exist on it — known from the handle's own length, not from a failed \
+                     read"
+                ),
+            }),
+        });
+    }
 }
 
 /// Seek and fully read `count` bytes at `offset` through the handle.
@@ -188,20 +322,29 @@ fn hex(bytes: &[u8]) -> String {
     out
 }
 
-/// Render one outcome as JSON.
+/// Render one outcome as JSON. Absence renders under the `observed` state
+/// — the value family, per ADR-C4 — discriminated by an `absence` key
+/// where present values carry `value`; `unavailable` and `failed` are the
+/// two distinct non-answers.
 fn outcome_json(outcome: &Outcome) -> String {
     match outcome {
-        Outcome::Value(value) => {
-            format!("{{\"state\":\"value\",\"value\":{}}}", json_escaped(value))
+        Outcome::Observed(ObservedValue::Bytes(value) | ObservedValue::Decimal(value)) => {
+            format!(
+                "{{\"state\":\"observed\",\"value\":{}}}",
+                json_escaped(value)
+            )
         }
-        Outcome::ObservedAbsent { reason } => format!(
-            "{{\"state\":\"observed-absent\",\"reason\":{}}}",
+        Outcome::Observed(ObservedValue::Absent { reason }) => format!(
+            "{{\"state\":\"observed\",\"absence\":{}}}",
             json_escaped(reason)
         ),
         Outcome::Unavailable { reason } => format!(
             "{{\"state\":\"unavailable\",\"reason\":{}}}",
             json_escaped(reason)
         ),
+        Outcome::Failed { error } => {
+            format!("{{\"state\":\"failed\",\"error\":{}}}", json_escaped(error))
+        }
     }
 }
 
@@ -240,7 +383,8 @@ pub fn replay_json(observations: &[Observation]) -> String {
         })
         .collect();
     format!(
-        "{{\"selector\":\"replay:0\",\"observations\":[{observations}],\"gated\":{gated}}}",
+        "{{\"selector\":{selector},\"observations\":[{observations}],\"gated\":{gated}}}",
+        selector = json_escaped(REPLAY_SELECTOR),
         observations = rendered.join(","),
         gated = gated_json(),
     )
@@ -276,13 +420,28 @@ const NO_ADAPTER_DETAIL: &str = "no device adapter is registered on this platfor
      arrives with the platform adapter package, and an empty observation list must \
      not be read as an empty machine";
 
-/// Render one outcome for humans.
+/// Render one outcome for humans, with the same state words as JSON so
+/// the two modes cannot teach different vocabularies.
 fn outcome_human(outcome: &Outcome) -> String {
     match outcome {
-        Outcome::Value(value) => format!("value {value}"),
-        Outcome::ObservedAbsent { reason } => format!("observed-absent — {reason}"),
+        Outcome::Observed(ObservedValue::Bytes(value) | ObservedValue::Decimal(value)) => {
+            format!("observed {value}")
+        }
+        Outcome::Observed(ObservedValue::Absent { reason }) => {
+            format!("observed absence — {reason}")
+        }
         Outcome::Unavailable { reason } => format!("unavailable — {reason}"),
+        Outcome::Failed { error } => format!("failed — {error}"),
     }
+}
+
+/// The gated list as a standalone human block, for answers assembled
+/// outside this module — the replay refusal carries it too.
+#[must_use]
+pub fn gated_block() -> String {
+    let mut out = String::new();
+    gated_human(&mut out);
+    out
 }
 
 /// Render the gated list for humans.
@@ -298,9 +457,9 @@ fn gated_human(out: &mut String) {
 #[must_use]
 pub fn replay_human(observations: &[Observation]) -> String {
     use std::fmt::Write as _;
-    let mut out = String::from(
+    let mut out = format!(
         "inspect (fixture-replay adapter; bytes labelled by who read them, never \
-         classified)\n  selector: replay:0\n",
+         classified)\n  selector: {REPLAY_SELECTOR}\n"
     );
     for observation in observations {
         let _ = writeln!(

@@ -37,10 +37,13 @@
 //! file-system reads and process launches are exactly two: the doctor's
 //! existence checks and `--version` probes of roster tools at compiled
 //! absolute paths, and `inspect --replay`'s read of one caller-named
-//! object, refused through the opened handle unless it is a regular file —
-//! so no command opens a block device at all, even when handed one by
-//! name. The exact statements live in [`doctor`]'s and [`inspect`]'s module
-//! docs, beside the code they describe.
+//! regular file. A device named to `--replay` is refused **unread**: a
+//! pre-open look refuses it before any open in the common case, and under
+//! a rebinding race it is opened read-only at most long enough for the
+//! handle to identify itself, then refused with no byte read — no command
+//! reads a block device, and nothing opens one with write intent. The
+//! exact statements live in [`doctor`]'s and [`inspect`]'s module docs,
+//! beside the code they describe.
 
 use std::ffi::OsString;
 
@@ -525,10 +528,15 @@ fn parse(arguments: &[String]) -> Result<Invocation, UsageRefusal> {
                 if replay.is_some() {
                     return Err(UsageRefusal::ReplayTwice);
                 }
-                let Some(value) = tokens.next() else {
-                    return Err(UsageRefusal::ReplayNeedsValue);
-                };
-                replay = Some(value.clone());
+                // A following flag is not a value: without this check the
+                // flag swallowed `--json`, and the caller got human-mode
+                // output plus a file-open refusal for a file named
+                // `--json` — one token read two contradictory ways. A
+                // genuinely dash-named file stays reachable as `./--name`.
+                match tokens.next() {
+                    Some(value) if !value.starts_with("--") => replay = Some(value.clone()),
+                    _ => return Err(UsageRefusal::ReplayNeedsValue),
+                }
             }
             "help" | "--help" | "-h" => set_command(&mut command, Command::Help, token)?,
             "version" | "--version" | "-V" => set_command(&mut command, Command::Version, token)?,
@@ -571,12 +579,9 @@ fn set_command(
     Ok(())
 }
 
-/// Run one parsed invocation. Every arm but the doctor's is pure — no I/O,
-/// no environment, no process; the doctor's I/O goes through the injected
-/// launcher, which is how Tier-1 tests keep their process set at `git` and
-/// the compile-time-selected `cargo`.
 /// The inspect command's outcome: the no-adapter statement, a replayed
-/// observation set, or a typed refusal — each on stdout in both modes.
+/// observation set, or a typed refusal — each on stdout in both modes,
+/// each carrying the standing gated list.
 fn inspect_outcome(replay: Option<&str>, json: bool) -> Outcome {
     let Some(path) = replay else {
         return Outcome {
@@ -611,26 +616,32 @@ fn inspect_outcome(replay: Option<&str>, json: bool) -> Outcome {
             stderr: String::new(),
             code: EXIT_OK,
         },
+        // The refusal is the answer, and the gated list travels with every
+        // inspect answer — refusals included — so "what the inspector will
+        // not say" is never inferred from silence.
         Err(refusal) => Outcome {
             stdout: if json {
                 envelope(
                     Some(Command::Inspect),
                     &format!(
                         "{{\"kind\":\"refusal\",\"state\":{state},\"reference\":{reference},\
-                         \"detail\":{detail}}}",
+                         \"detail\":{detail},\"gated\":{gated}}}",
                         state = json_escaped(refusal.state),
                         reference = json_escaped(refusal.reference),
                         detail = json_escaped(&refusal.detail),
+                        gated = inspect::gated_json(),
                     ),
                 )
             } else {
-                format!(
+                let mut text = format!(
                     "inspect: refused\n  state: {state}\n  reference: {reference}\n  \
                      detail: {detail}\n",
                     state = refusal.state,
                     reference = refusal.reference,
                     detail = refusal.detail,
-                )
+                );
+                text.push_str(&inspect::gated_block());
+                text
             },
             stderr: String::new(),
             code: EXIT_REFUSAL,
@@ -638,6 +649,12 @@ fn inspect_outcome(replay: Option<&str>, json: bool) -> Outcome {
     }
 }
 
+/// Run one parsed invocation. Two arms are impure, each through its own
+/// stated seam: the doctor's I/O goes through the injected launcher — how
+/// Tier-1 tests keep their process set at `git` and the compile-time
+/// `cargo` — and inspect's replay reads one caller-named regular file
+/// through the verified handle. Every other arm is pure: no I/O, no
+/// environment, no process.
 fn run(invocation: &Invocation, launcher: &dyn doctor::ToolLauncher) -> Outcome {
     match invocation.command {
         Command::Help => Outcome {

@@ -10,28 +10,39 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 - WP-035 increment 4 delivers the observation records, and `partman
   inspect` answers for the first time. Every observation carries its
   attribution — adapter name, version, method — the precursor toward
-  MODEL-004, whose hashed envelope remains WP-010's to deliver. ADR-C4's
-  trichotomy is real in the output: a successful read is a value; a probe
-  beyond the object's end is a positively observed absence, known from the
-  opened handle's own length and carrying the reason; a read failure is
-  unavailability, which never masquerades as absence. `--replay` runs the
-  fixture-replay adapter over one caller-named regular file, verified
-  through the opened handle so a block device named by path is refused
-  unread with a typed value — the no-device-opens boundary sentence
-  survives the increment that made inspect real. Bytes are reported as
-  lowercase hex at compiled probe offsets and classified by nobody: a
-  mechanical test bans the interpretation vocabulary from the observation
-  renderings, and the standing gated list — identity-strength (SI-28),
+  MODEL-004, whose hashed envelope remains WP-010's to deliver. The outcome
+  vocabulary is ADR-C4's as the ADR wrote it, after adversarial review
+  refused a paraphrase that folded read errors into unavailability:
+  `observed` carries bytes or a positively determined absence — absence is
+  a value, known from the opened handle's own length, and the state word
+  says so; `unavailable` is the platform not exposing an answer; `failed`
+  is the read itself erroring, kept distinct because collapsing the two is
+  the conflation the ADR condemns. A probe straddling the object's end
+  never claims absence of bytes that exist: the existing prefix is
+  observed under an accurate subject and only the truly missing tail is an
+  absence. `--replay` runs the fixture-replay adapter over one
+  caller-named regular file: a pre-open look refuses devices and
+  directories before any open in the common case, the authority is fstat
+  through the opened handle, and on Unix the open is non-blocking so a
+  FIFO is refused rather than hanging — a device named by path is refused
+  unread, opened read-only under a rebinding race at most long enough for
+  the handle to identify itself; no command reads a block device, and
+  nothing opens one with write intent. A following flag is never swallowed
+  as `--replay`'s value. Bytes are reported as lowercase hex at compiled
+  probe offsets and classified by nobody: a mechanical test bans a named
+  list of interpretation words from the observation renderings — the
+  list's reach is exactly those words, with the residue held by review —
+  and the standing gated list — identity-strength (SI-28),
   partition-table-state (SI-35), same-device-claims (SI-12) — travels
-  in-band in every inspect answer, because what the inspector will not say
-  is stated, never inferred from silence. Without `--replay`, the answer is
-  a typed no-adapter statement naming the platform adapter package rather
-  than a plausible empty machine. The replay output echoes no path — a
-  session-local selector stands in, since paths are on SEC-006's
-  deny-floor. Replay over one of WP-020's deterministic images is pinned
-  byte-reproducible in the tests through the fixtures crate as a
-  dev-dependency, which the empty-shipped-closure guard keeps out of the
-  binary.
+  in-band in every inspect answer, refusals included, because what the
+  inspector will not say is stated, never inferred from silence. Without
+  `--replay`, the answer is a typed no-adapter statement naming the
+  platform adapter package rather than a plausible empty machine. The
+  output echoes no path and no file name — a session-local selector
+  stands in, and the tests pin that in both renderings. Replay over one
+  of WP-020's deterministic images is pinned byte-reproducible through
+  the fixtures crate as a dev-dependency, which the empty-shipped-closure
+  guard keeps out of the binary.
 
 - WP-035 increment 3 delivers the dependency doctor and the technology
   facts. `partman doctor` reports each roster tool as facts with provenance —

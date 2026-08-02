@@ -1138,9 +1138,8 @@ fn replay_invocation(path: &std::path::Path, json: bool) -> Outcome {
     }
     fdispatch(&arguments)
 }
-
 // Requirements: MODEL-004, INV-007
-//   Every replay observation carries its attribution — adapter name, version, method — and replay over one of WP-020's deterministic images is byte-reproducible, so the record is raw discovery evidence a reader can re-derive, not narrative
+//   Every replay observation carries its attribution — adapter name, version, method — and replay over one of WP-020's deterministic images is byte-reproducible, so the record is raw discovery evidence a reader can re-derive, not narrative; neither rendering echoes the replayed object's name
 // Evidence: replay_over_a_deterministic_fixture_image_is_attributed_and_reproducible
 #[test]
 fn replay_over_a_deterministic_fixture_image_is_attributed_and_reproducible() {
@@ -1173,7 +1172,7 @@ fn replay_over_a_deterministic_fixture_image_is_attributed_and_reproducible() {
     assert_eq!(
         observations.len(),
         1 + super::inspect::PROBES.len(),
-        "one length observation plus one per probe"
+        "one length observation plus one per probe; every probe lands inside this image"
     );
     for observation in observations {
         assert_eq!(observation["adapter"]["name"], "fixture-replay");
@@ -1185,13 +1184,18 @@ fn replay_over_a_deterministic_fixture_image_is_attributed_and_reproducible() {
             "an observation without a method is not attributable"
         );
         assert_eq!(
-            observation["outcome"]["state"], "value",
-            "every probe lands inside this image, so every outcome is a value"
+            observation["outcome"]["state"], "observed",
+            "every probe lands inside this image, so every outcome is observed"
+        );
+        assert!(
+            observation["outcome"].get("value").is_some(),
+            "in-range probes carry a value, never an absence"
         );
     }
     // Two deterministic anchors a reader can check against the fixture's
     // own definition: the object's length, and the bytes at 510..512 —
-    // reported as hex, interpreted by nobody.
+    // reported as hex, interpreted by nobody, and pinned lowercase so a
+    // case change in the encoding is a visible edit.
     assert_eq!(
         observations[0]["outcome"]["value"],
         image.bytes().len().to_string(),
@@ -1205,24 +1209,50 @@ fn replay_over_a_deterministic_fixture_image_is_attributed_and_reproducible() {
         boot_probe["outcome"]["value"], "55aa",
         "the fixture's bytes at 510..512 are deterministic and reported raw"
     );
+    for observation in observations.iter().skip(1) {
+        let value = observation["outcome"]["value"]
+            .as_str()
+            .expect("in-range probe values are strings");
+        assert!(
+            value
+                .chars()
+                .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c)),
+            "probe hex is lowercase [0-9a-f] only: {value}"
+        );
+    }
 
     // The gated list travels with every answer.
     let gated = inspect_object["gated"].as_array().expect("gated list");
     assert!(!gated.is_empty(), "the gated list is never omitted");
 
-    // No path echo: the answer must not contain the temporary file's path.
-    assert!(
-        !first.stdout.contains(&object.path.display().to_string()),
-        "a path is on SEC-006's deny-floor; the caller knows what they named"
-    );
+    // No name echo, in either rendering. The check uses the temporary
+    // file's unique NAME rather than its full path: on Windows the JSON
+    // escaping doubles backslashes, so a full-path substring check is dead
+    // there — a mutation that echoed the path passed it — and file names
+    // are themselves on SEC-006's deny-floor.
+    let human = replay_invocation(&object.path, false);
+    let name = object
+        .path
+        .file_name()
+        .expect("the temp object has a name")
+        .to_string_lossy()
+        .into_owned();
+    for (mode, text) in [("json", &first.stdout), ("human", &human.stdout)] {
+        assert!(
+            !text.contains(&name),
+            "the {mode} rendering echoes the replayed object's name; names and paths \
+             are on SEC-006's deny-floor, and the caller knows what they named"
+        );
+    }
 }
 
 // Requirements: SAFE-005, INV-007
-//   A probe beyond the object's end is a positively observed absence — knowledge derived from the handle's own length — while a read failure is unavailability, and the two are distinct outcome states because treating could-not-look as looked-and-found-nothing is the fail-closed violation
+//   Absence is a value and renders in the observed family with what established it; a probe straddling the object's end never claims absence of bytes that exist; and a read failure renders as failed — never as unavailability and never as absence — with the three states pinned in both output modes
 // Evidence: absence_and_unavailability_are_distinct_outcomes
 #[test]
 fn absence_and_unavailability_are_distinct_outcomes() {
-    // A 100-byte object: every probe past byte 100 is observed-absent.
+    // A 100-byte object: probes at 510, 512, and 1024 lie wholly beyond
+    // the end and must be observed absences; the head probe is bytes.
     let object = TempObject::holding("tiny", &[0xAB; 100]);
     let outcome = replay_invocation(&object.path, true);
     assert_eq!(outcome.code, EXIT_OK);
@@ -1230,17 +1260,26 @@ fn absence_and_unavailability_are_distinct_outcomes() {
     let observations = parsed["outcome"]["inspect"]["observations"]
         .as_array()
         .expect("observations");
+    // Diagnosability pin first: a wrong record count fails here, by name,
+    // rather than downstream in an absence-count assert.
+    assert_eq!(
+        observations.len(),
+        1 + super::inspect::PROBES.len(),
+        "100 bytes: head probe observed, three probes wholly absent, no splits"
+    );
+    assert_eq!(observations[0]["outcome"]["value"], "100");
 
     let absent: Vec<&serde_json::Value> = observations
         .iter()
-        .filter(|observation| observation["outcome"]["state"] == "observed-absent")
+        .filter(|observation| observation["outcome"].get("absence").is_some())
         .collect();
-    assert!(
-        !absent.is_empty(),
-        "probes beyond a 100-byte object must be observed-absent"
-    );
+    assert_eq!(absent.len(), 3, "three probes lie wholly beyond 100 bytes");
     for observation in &absent {
-        let reason = observation["outcome"]["reason"]
+        assert_eq!(
+            observation["outcome"]["state"], "observed",
+            "absence is a value: it renders in the observed family (ADR-C4)"
+        );
+        let reason = observation["outcome"]["absence"]
             .as_str()
             .expect("absence carries its reason");
         assert!(
@@ -1252,55 +1291,136 @@ fn absence_and_unavailability_are_distinct_outcomes() {
             "absence carries a reason, not a fabricated value"
         );
     }
-    // The in-range probe is still a value.
-    assert_eq!(
-        observations
-            .iter()
-            .find(|observation| observation["subject"] == "bytes[0..16)")
-            .expect("the head probe exists")["outcome"]["state"],
-        "value"
-    );
 
-    // Unavailability is a distinct rendered state with a distinct meaning.
-    // No portable Tier-1 setup forces a mid-file read error, so the
-    // unavailable arm is exercised at the rendering seam with a constructed
-    // observation — stated here so this test's claim is not read as
-    // behavioral coverage of I/O failure.
-    let constructed = super::inspect::Observation {
-        subject: "bytes[0..16)".to_owned(),
-        attribution: super::inspect::Attribution {
-            adapter: "fixture-replay",
-            version: VERSION,
-            method: "seek-and-read through the verified handle",
-        },
-        outcome: super::inspect::Outcome::Unavailable {
-            reason: "the read failed: simulated I/O error".to_owned(),
-        },
-    };
-    let rendered = super::inspect::replay_json(&[constructed]);
-    let parsed: serde_json::Value = serde_json::from_str(&rendered).expect("render parses");
-    assert_eq!(
-        parsed["observations"][0]["outcome"]["state"], "unavailable",
-        "unavailability renders as its own state"
+    // The human rendering pins the same states — a mutation that swapped
+    // the human arms passed the suite when only JSON was pinned.
+    let human = replay_invocation(&object.path, false);
+    assert!(
+        human
+            .stdout
+            .contains("bytes[510..512): observed absence — the object ends at byte 100"),
+        "human absence renders in the observed family with its reason: {}",
+        human.stdout
     );
     assert!(
-        parsed["observations"][0]["outcome"].get("value").is_none(),
-        "an unavailable observation must never masquerade as a value"
+        !human.stdout.contains("unavailable"),
+        "nothing about a short regular file is unavailable: {}",
+        human.stdout
+    );
+
+    // A probe straddling the end must never claim absence of bytes that
+    // exist: a 520-byte object splits the 512..528 probe into observed
+    // bytes [512..520) and observed absence [520..528).
+    let straddle = TempObject::holding("straddle", &[0xCD; 520]);
+    let outcome = replay_invocation(&straddle.path, true);
+    let parsed: serde_json::Value = serde_json::from_str(&outcome.stdout).expect("envelope");
+    let observations = parsed["outcome"]["inspect"]["observations"]
+        .as_array()
+        .expect("observations");
+    assert_eq!(
+        observations.len(),
+        1 + super::inspect::PROBES.len() + 1,
+        "the straddling probe yields two records: its existing prefix and its absent tail"
+    );
+    let prefix = observations
+        .iter()
+        .find(|observation| observation["subject"] == "bytes[512..520)")
+        .expect("the existing prefix is reported under an accurate subject");
+    assert_eq!(prefix["outcome"]["state"], "observed");
+    assert_eq!(
+        prefix["outcome"]["value"].as_str().map(str::len),
+        Some(16),
+        "eight existing bytes render as sixteen hex characters"
+    );
+    let tail = observations
+        .iter()
+        .find(|observation| observation["subject"] == "bytes[520..528)")
+        .expect("the absent tail is reported under an accurate subject");
+    assert!(
+        tail["outcome"]["absence"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("bytes from 520 do not exist")),
+        "the absence claim covers only the bytes that do not exist"
     );
 }
 
 // Requirements: SAFE-005
-//   A replayed object that the opened handle reports as not a regular file is refused with a typed value before its first byte is read, and an unopenable path is a typed refusal, not a panic — so a device named by path is refused unread and the no-device-opens sentence survives
+//   Unavailability and failure are distinct rendered states in both modes, per ADR-C4, and neither masquerades as a value or an absence; exercised at the rendering seam with constructed observations, because no portable Tier-1 setup forces a mid-file read error — stated so this claim is not read as behavioral I/O-failure coverage
+// Evidence: unavailability_and_failure_are_distinct_rendered_states
+#[test]
+fn unavailability_and_failure_are_distinct_rendered_states() {
+    // Unavailability and failure are distinct rendered states with
+    // distinct meanings, per ADR-C4. No portable Tier-1 setup forces a
+    // mid-file read error or a platform-refusing-to-expose case, so both
+    // arms are exercised at the rendering seam with constructed
+    // observations — stated here so this test's claim is not read as
+    // behavioral coverage of I/O failure.
+    let attribution = || super::inspect::Attribution {
+        adapter: "fixture-replay",
+        version: VERSION,
+        method: "seek-and-read through the verified handle",
+    };
+    let constructed = vec![
+        super::inspect::Observation {
+            subject: "bytes[0..16)".to_owned(),
+            attribution: attribution(),
+            outcome: super::inspect::Outcome::Unavailable {
+                reason: "the platform did not expose the answer".to_owned(),
+            },
+        },
+        super::inspect::Observation {
+            subject: "bytes[16..32)".to_owned(),
+            attribution: attribution(),
+            outcome: super::inspect::Outcome::Failed {
+                error: "the read failed: simulated I/O error".to_owned(),
+            },
+        },
+    ];
+    let rendered = super::inspect::replay_json(&constructed);
+    let parsed: serde_json::Value = serde_json::from_str(&rendered).expect("render parses");
+    assert_eq!(parsed["observations"][0]["outcome"]["state"], "unavailable");
+    assert_eq!(parsed["observations"][1]["outcome"]["state"], "failed");
+    for index in [0, 1] {
+        assert!(
+            parsed["observations"][index]["outcome"]
+                .get("value")
+                .is_none()
+                && parsed["observations"][index]["outcome"]
+                    .get("absence")
+                    .is_none(),
+            "a non-answer must never masquerade as a value or an absence"
+        );
+    }
+    let rendered_human = super::inspect::replay_human(&constructed);
+    assert!(
+        rendered_human.contains("unavailable — the platform did not expose the answer"),
+        "{rendered_human}"
+    );
+    assert!(
+        rendered_human.contains("failed — the read failed"),
+        "{rendered_human}"
+    );
+}
+
+// Requirements: SAFE-005
+//   A replayed object that is not a regular file is refused with a typed value before any byte is read — the pre-open look refuses the common case before any open — an unopenable path is a typed refusal rather than a panic, neither refusal echoes the object's name, and the gated list travels with refusal answers too
 // Evidence: replay_refuses_non_regular_objects_with_a_typed_value
 #[test]
 fn replay_refuses_non_regular_objects_with_a_typed_value() {
-    // A directory: openable on some platforms, never a regular file.
+    // A directory: never a regular file, refused by the pre-open look.
     let directory = std::env::temp_dir();
     let refused = replay_invocation(&directory, false);
     assert_eq!(refused.code, EXIT_REFUSAL);
     assert!(
         refused.stdout.contains("state: refused"),
         "the refusal is a typed value on stdout: {}",
+        refused.stdout
+    );
+    assert!(
+        refused
+            .stdout
+            .contains("identity-strength: not-established (SI-28)"),
+        "the gated list travels with refusal answers too: {}",
         refused.stdout
     );
 
@@ -1311,18 +1431,72 @@ fn replay_refuses_non_regular_objects_with_a_typed_value() {
     assert_eq!(parsed["outcome"]["kind"], "refusal");
     assert_eq!(parsed["outcome"]["state"], "refused");
     assert_eq!(parsed["outcome"]["reference"], "SAFE-005");
+    assert!(
+        parsed["outcome"]["gated"]
+            .as_array()
+            .is_some_and(|gated| !gated.is_empty()),
+        "the gated list travels with JSON refusals too"
+    );
 
     // A path that does not exist: refused, typed, at the documented code.
     let missing = std::env::temp_dir().join("partman-inc4-does-not-exist");
-    let refused = replay_invocation(&missing, true);
-    assert_eq!(refused.code, EXIT_REFUSAL);
-    let parsed: serde_json::Value =
-        serde_json::from_str(&refused.stdout).expect("refusals ride the envelope");
-    assert_eq!(parsed["outcome"]["kind"], "refusal");
+    let refused_missing = replay_invocation(&missing, true);
+    assert_eq!(refused_missing.code, EXIT_REFUSAL);
+    let parsed_missing: serde_json::Value =
+        serde_json::from_str(&refused_missing.stdout).expect("refusals ride the envelope");
+    assert_eq!(parsed_missing["outcome"]["kind"], "refusal");
+
+    // The refusal does not echo the object's name: SEC-006's deny-floor
+    // covers refusal text too, and std's io::Error carrying no path is a
+    // fact to pin here, not to trust from documentation. The unique name
+    // makes the check escape-proof in both renderings.
+    assert!(
+        !refused_missing
+            .stdout
+            .contains("partman-inc4-does-not-exist"),
+        "the missing-file refusal echoes the object's name: {}",
+        refused_missing.stdout
+    );
+    let refused_missing_human = replay_invocation(&missing, false);
+    assert!(
+        !refused_missing_human
+            .stdout
+            .contains("partman-inc4-does-not-exist"),
+        "the human missing-file refusal echoes the object's name: {}",
+        refused_missing_human.stdout
+    );
+}
+
+// Requirements: SAFE-005
+//   The handle-level gate refuses a non-regular object on Windows too: a directory handle opened with backup semantics — a handle no path-based Tier-1 test can otherwise produce there — is refused by fstat through the handle, so the platform whose device names most concern the boundary has direct evidence of the gate
+// Evidence: the_handle_gate_refuses_a_directory_handle_on_windows
+#[cfg(windows)]
+#[test]
+fn the_handle_gate_refuses_a_directory_handle_on_windows() {
+    // On Windows, File::open of a directory fails upstream, so the
+    // path-based refusal test never reaches the fstat gate — a mutation
+    // deleting the is_file() check passed the Windows suite when tried.
+    // Backup semantics yields a real directory handle; the gate must
+    // refuse it. A directory, not a device: the tier's boundary holds.
+    use std::os::windows::fs::OpenOptionsExt as _;
+    let mut handle = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(0x0200_0000) // FILE_FLAG_BACKUP_SEMANTICS
+        .open(std::env::temp_dir())
+        .expect("a directory handle opens under backup semantics");
+    let Err(refusal) = super::inspect::replay_handle(&mut handle) else {
+        panic!("a directory handle must be refused by the handle gate");
+    };
+    assert_eq!(refusal.state, "refused");
+    assert!(
+        refusal.detail.contains("regular files only"),
+        "{}",
+        refusal.detail
+    );
 }
 
 // Requirements: Section 12, SAFE-005
-//   Inspect output reports bytes and access facts and never classifications: the vocabulary of interpretation — table formats, signatures, identity strength — is mechanically refused in both renderings, because classification is exactly what the register holds open
+//   Inspect observations report bytes and access facts, never classifications: a named list of interpretation words is mechanically refused in both renderings' observation sections — the list's reach is exactly those words, with the residue held by review — while the gated section legitimately names what it gates
 // Evidence: inspect_reports_bytes_never_classifications
 #[test]
 fn inspect_reports_bytes_never_classifications() {
@@ -1336,8 +1510,10 @@ fn inspect_reports_bytes_never_classifications() {
 
     // The ban scopes to the observations: the gated list legitimately
     // names `partition-table-state`, because saying what is NOT said is
-    // its purpose — the observations are where a classification would be a
-    // violation.
+    // its purpose. The banned list is finite and named — these words,
+    // no more — and hex output can never collide with most of them, so
+    // the guard's real work is on subjects, reasons, and header prose;
+    // words beyond the list are review's to catch.
     let json = replay_invocation(&object.path, true);
     assert_eq!(json.code, EXIT_OK);
     let parsed: serde_json::Value = serde_json::from_str(&json.stdout).expect("envelope");
@@ -1347,6 +1523,22 @@ fn inspect_reports_bytes_never_classifications() {
 
     let human = replay_invocation(&object.path, false);
     assert_eq!(human.code, EXIT_OK);
+    assert!(
+        human.stdout.contains("  gated"),
+        "the human replay answer must carry the gated section — a mutation dropping it \
+         passed while this only split on the marker: {}",
+        human.stdout
+    );
+    for fragment in [
+        "identity-strength: not-established (SI-28)",
+        "partition-table-state: not-established (SI-35)",
+        "same-device-claims: not-established (SI-12)",
+    ] {
+        assert!(
+            human.stdout.contains(fragment),
+            "the human replay answer must carry `{fragment}`"
+        );
+    }
     let human_observations = human
         .stdout
         .split("  gated")
@@ -1383,7 +1575,7 @@ fn inspect_reports_bytes_never_classifications() {
 }
 
 // Requirements: SAFE-005
-//   The --replay flag's malformed shapes are structured usage refusals with exact spellings: a missing value, a second occurrence, and attachment to a command that is not inspect are each refused rather than guessed at
+//   The --replay flag's malformed shapes are structured usage refusals with exact spellings — a missing value, a following flag mistaken for a value, a second occurrence, and attachment to a command that is not inspect — because a token read two contradictory ways in one invocation is a guess, and this parser refuses rather than guesses
 // Evidence: replay_flag_misuse_is_refused_structurally
 #[test]
 fn replay_flag_misuse_is_refused_structurally() {
@@ -1395,6 +1587,40 @@ fn replay_flag_misuse_is_refused_structurally() {
             .contains("flag `--replay` needs a value"),
         "{}",
         missing_value.stderr
+    );
+
+    // A following flag is not a value. Before this refusal existed,
+    // `inspect --replay --json` swallowed the mode flag as a filename and
+    // produced a human-mode file refusal — one token, two readings. Now
+    // the token is refused as a value, and the whole-list mode scan may
+    // still honor it as the mode for rendering the refusal — consistent,
+    // because it was never accepted as anything else.
+    let swallowed_json = fdispatch(&[
+        "inspect".to_owned(),
+        "--replay".to_owned(),
+        "--json".to_owned(),
+    ]);
+    assert_eq!(swallowed_json.code, EXIT_USAGE);
+    let parsed: serde_json::Value = serde_json::from_str(&swallowed_json.stdout)
+        .expect("with --json in the argument list the refusal rides the envelope");
+    assert_eq!(parsed["outcome"]["kind"], "usage-refusal");
+    assert!(
+        parsed["outcome"]["detail"]
+            .as_str()
+            .is_some_and(|detail| detail.contains("flag `--replay` needs a value")),
+        "{}",
+        swallowed_json.stdout
+    );
+
+    let swallowed_replay = fdispatch(&[
+        "inspect".to_owned(),
+        "--replay".to_owned(),
+        "--replay".to_owned(),
+        "x".to_owned(),
+    ]);
+    assert_eq!(
+        swallowed_replay.code, EXIT_USAGE,
+        "a second --replay is not a value for the first"
     );
 
     let twice = fdispatch(&[
