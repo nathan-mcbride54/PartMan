@@ -7,6 +7,34 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- WP-035 increment 2 delivers the deny-by-default redaction allowlist and the
+  redacted `export-diagnostics` command. The allowlist is the bundle
+  builder's type, not a filter: a closed field enum is the only route into
+  the bundle, every variant renders compile-time data, and no API accepts a
+  caller-supplied key or value — so SEC-006's field list (device serials,
+  paths, labels, usernames, keys, file names) is a deny-floor the increment
+  cannot fall below because no runtime value exists to leak. The bundle
+  carries the build's identity, target, command surface states, exit-code
+  contract, and the missing discovery evidence as an in-band typed refusal
+  naming WP-035 increment 4 — never an omission a reader could mistake for a
+  clean bill. Redaction tests gate the tier from four sides: the bundle's
+  JSON key set is pinned as literals so widening the allowlist is a visible
+  reviewed edit; the human rendering is pinned byte-for-byte so a human-only
+  disclosure fails like a smuggled key; no output in any mode may carry the
+  host's username, home path, computer name, or any environment value six
+  bytes or longer that is not byte-equal to a compile-time constant the
+  bundle renders by definition (WSL's HOSTTYPE=x86_64 equals the build
+  target and forced that exemption to be named); and a source guard refuses
+  any `env::var`, `env::vars`, or `var_os` spelling in the shipped sources,
+  which is what makes environment-independence a tested property rather
+  than a review promise — the tripwire only sees variables the test host
+  sets. The bundle's command-surface states are additionally required to
+  agree with dispatch behavior, so the diagnostics cannot claim an
+  unimplemented surface answers. The command emits to stdout only; the
+  shipped binary still opens no socket, reads no file, and reads no
+  environment variable — the source guard and the empty dependency closure
+  are what hold that sentence, with the glob-import bypass refused by the
+  workspace's pedantic clippy gate.
 - WP-035 increment 1 delivers the `partman` CLI chassis: structured argument
   parsing that owns the non-Unicode seam as a typed usage refusal instead of
   `std::env::args()`'s panic; a documented exit-code contract (0 answered, 2

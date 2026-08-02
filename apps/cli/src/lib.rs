@@ -85,6 +85,10 @@ pub enum Command {
     /// The instrument's surface. Refuses until increment 4 has observation
     /// records for it to print.
     Inspect,
+    /// The redacted diagnostics bundle: this build's identity and surface
+    /// states, admitted field-by-field through the deny-by-default
+    /// allowlist, on stdout.
+    ExportDiagnostics,
 }
 
 /// Every command, for contract-wide tests. Kept beside [`Command::name`],
@@ -92,7 +96,12 @@ pub enum Command {
 /// added: the new variant fails that match until it is handled, and
 /// extending this array in the same edit is a review obligation — stated as
 /// one, not claimed as a compiler guarantee.
-pub const ALL_COMMANDS: [Command; 3] = [Command::Help, Command::Version, Command::Inspect];
+pub const ALL_COMMANDS: [Command; 4] = [
+    Command::Help,
+    Command::Version,
+    Command::Inspect,
+    Command::ExportDiagnostics,
+];
 
 impl Command {
     /// The name rendered into envelopes and matched from argv.
@@ -104,6 +113,7 @@ impl Command {
             Self::Help => "help",
             Self::Version => "version",
             Self::Inspect => "inspect",
+            Self::ExportDiagnostics => "export-diagnostics",
         }
     }
 }
@@ -188,6 +198,178 @@ const INSPECT_REFUSAL: Refusal = Refusal {
              inspection instead of refusing would be a fake success path",
 };
 
+/// The refusal the diagnostics bundle carries in place of discovery
+/// evidence. In-band rather than omitted: an absent field would be
+/// indistinguishable from "there was nothing to report", and INV-007's
+/// redacted evidence view is a real obligation this bundle will carry — the
+/// refusal names when.
+const DISCOVERY_EVIDENCE_REFUSAL: Refusal = Refusal {
+    state: "not-implemented",
+    reference: "WP-035 increment 4",
+    detail: "the diagnostics bundle carries no discovery evidence because none exists to \
+             carry; adapter-attributed observation records arrive with increment 4 and \
+             enter this bundle only through the same field allowlist",
+};
+
+/// One field the diagnostics allowlist admits.
+///
+/// **This enum is the redaction mechanism.** The bundle is rendered by
+/// iterating [`DIAGNOSTIC_ALLOWLIST`], and each variant renders itself from
+/// data this crate owns at compile time — there is no API that accepts a
+/// caller-supplied key or value, so deny-by-default is the builder's type
+/// rather than a filter applied afterwards. An allowlist needs no knowledge
+/// of what the denied fields are, which is what keeps it model-independent:
+/// when observation records exist (increment 4), they enter the bundle only
+/// by gaining a variant here, a visible reviewed edit that the exact-field
+/// test pins.
+///
+/// The deny-floor this must never fall below is SEC-006's field list —
+/// device serials, paths, labels, usernames, keys, file names — adopted as
+/// the categories the redaction tests probe for. No variant may ever render
+/// a value in those categories un-redacted.
+#[derive(Clone, Copy)]
+enum DiagnosticField {
+    /// The workspace package version this binary was built as.
+    ToolVersion,
+    /// The envelope schema every JSON emission carries.
+    EnvelopeSchema,
+    /// The compile-time target: OS family and architecture. Constants from
+    /// `std::env::consts`, not probes — nothing is read from the host.
+    BuildTarget,
+    /// Every command and the state it answers in, so a bug report says what
+    /// the build could and could not do without the reporter guessing.
+    CommandSurface,
+    /// The documented exit-code contract, from the same constants the
+    /// binary returns.
+    ExitContract,
+    /// The typed refusal standing where discovery evidence will be.
+    DiscoveryEvidence,
+}
+
+/// The complete allowlist, in rendering order. Extending it is a reviewed
+/// decision: the exact-field test pins these keys as literals.
+const DIAGNOSTIC_ALLOWLIST: [DiagnosticField; 6] = [
+    DiagnosticField::ToolVersion,
+    DiagnosticField::EnvelopeSchema,
+    DiagnosticField::BuildTarget,
+    DiagnosticField::CommandSurface,
+    DiagnosticField::ExitContract,
+    DiagnosticField::DiscoveryEvidence,
+];
+
+impl DiagnosticField {
+    /// The bundle key. Stable within the envelope's major version 0.
+    fn key(self) -> &'static str {
+        match self {
+            Self::ToolVersion => "tool-version",
+            Self::EnvelopeSchema => "envelope-schema",
+            Self::BuildTarget => "build-target",
+            Self::CommandSurface => "commands",
+            Self::ExitContract => "exit-codes",
+            Self::DiscoveryEvidence => "discovery-evidence",
+        }
+    }
+
+    /// The JSON value for this field. Every arm renders compile-time data;
+    /// no runtime value exists in this increment for any arm to leak.
+    fn value_json(self) -> String {
+        match self {
+            Self::ToolVersion => json_escaped(VERSION),
+            Self::EnvelopeSchema => json_escaped(ENVELOPE_SCHEMA),
+            Self::BuildTarget => format!(
+                "{{\"os\":{os},\"arch\":{arch}}}",
+                os = json_escaped(std::env::consts::OS),
+                arch = json_escaped(std::env::consts::ARCH),
+            ),
+            Self::CommandSurface => {
+                let entries: Vec<String> = ALL_COMMANDS
+                    .iter()
+                    .map(|command| {
+                        format!(
+                            "{{\"name\":{name},\"state\":{state}}}",
+                            name = json_escaped(command.name()),
+                            state = json_escaped(command_state(*command)),
+                        )
+                    })
+                    .collect();
+                format!("[{}]", entries.join(","))
+            }
+            Self::ExitContract => format!(
+                "{{\"answered\":{EXIT_OK},\"usage-refusal\":{EXIT_USAGE},\
+                 \"typed-refusal\":{EXIT_REFUSAL}}}"
+            ),
+            Self::DiscoveryEvidence => format!(
+                "{{\"state\":{state},\"reference\":{reference},\"detail\":{detail}}}",
+                state = json_escaped(DISCOVERY_EVIDENCE_REFUSAL.state),
+                reference = json_escaped(DISCOVERY_EVIDENCE_REFUSAL.reference),
+                detail = json_escaped(DISCOVERY_EVIDENCE_REFUSAL.detail),
+            ),
+        }
+    }
+
+    /// The human rendering, one aligned block per field.
+    fn value_human(self) -> String {
+        match self {
+            Self::ToolVersion => format!("  tool-version: {VERSION}\n"),
+            Self::EnvelopeSchema => format!("  envelope-schema: {ENVELOPE_SCHEMA}\n"),
+            Self::BuildTarget => format!(
+                "  build-target: {} {}\n",
+                std::env::consts::OS,
+                std::env::consts::ARCH
+            ),
+            Self::CommandSurface => {
+                let mut block = String::from("  commands:\n");
+                for command in ALL_COMMANDS {
+                    use std::fmt::Write as _;
+                    writeln!(block, "    {}: {}", command.name(), command_state(command))
+                        .expect("writing into a String cannot fail");
+                }
+                block
+            }
+            Self::ExitContract => format!(
+                "  exit-codes: {EXIT_OK} answered, {EXIT_USAGE} usage refusal, \
+                 {EXIT_REFUSAL} typed refusal\n"
+            ),
+            Self::DiscoveryEvidence => format!(
+                "  discovery-evidence: {} ({})\n    {}\n",
+                DISCOVERY_EVIDENCE_REFUSAL.state,
+                DISCOVERY_EVIDENCE_REFUSAL.reference,
+                DISCOVERY_EVIDENCE_REFUSAL.detail
+            ),
+        }
+    }
+}
+
+/// What state a command answers in, for the diagnostics surface list.
+fn command_state(command: Command) -> &'static str {
+    match command {
+        Command::Help | Command::Version | Command::ExportDiagnostics => "answers",
+        Command::Inspect => "refuses: not-implemented until WP-035 increment 4",
+    }
+}
+
+/// Render the diagnostics bundle as a JSON object, by iterating the
+/// allowlist and nothing else.
+fn diagnostics_json() -> String {
+    let fields: Vec<String> = DIAGNOSTIC_ALLOWLIST
+        .iter()
+        .map(|field| format!("{}:{}", json_escaped(field.key()), field.value_json()))
+        .collect();
+    format!("{{{}}}", fields.join(","))
+}
+
+/// Render the diagnostics bundle for humans, same fields, same order.
+fn diagnostics_human() -> String {
+    let mut out = format!(
+        "diagnostics (redacted by allowlist; {count} fields, all compile-time data)\n",
+        count = DIAGNOSTIC_ALLOWLIST.len()
+    );
+    for field in DIAGNOSTIC_ALLOWLIST {
+        out.push_str(&field.value_human());
+    }
+    out
+}
+
 /// Escape one string for placement between JSON quotes.
 ///
 /// Emission only — this binary parses no JSON. Escaping covers the quote,
@@ -234,7 +416,7 @@ fn envelope(command: Option<Command>, body: &str) -> String {
 /// review obligations, and the contract test pins the literal values.
 fn help_text() -> String {
     format!(
-        "partman {VERSION} — read-only CLI chassis (WP-035 increment 1)\n\
+        "partman {VERSION} — read-only CLI chassis (WP-035)\n\
          \n\
          Not a usable partition manager, and must not be represented as one.\n\
          This chassis inspects nothing yet and mutates nothing ever.\n\
@@ -242,9 +424,11 @@ fn help_text() -> String {
          Usage: partman [--json] <command>\n\
          \n\
          Commands:\n\
-         \x20 help       this text\n\
-         \x20 version    the version, as a line or a JSON envelope\n\
-         \x20 inspect    refuses with a typed value until observation records exist\n\
+         \x20 help                 this text\n\
+         \x20 version              the version, as a line or a JSON envelope\n\
+         \x20 inspect              refuses with a typed value until observation records exist\n\
+         \x20 export-diagnostics   this build's identity and surface states, admitted\n\
+         \x20                      field-by-field through a deny-by-default allowlist\n\
          \n\
          Flags:\n\
          \x20 --json     one schema-versioned JSON envelope on stdout ({ENVELOPE_SCHEMA});\n\
@@ -278,6 +462,9 @@ fn parse(arguments: &[String]) -> Result<Invocation, UsageRefusal> {
             "help" | "--help" | "-h" => set_command(&mut command, Command::Help, token)?,
             "version" | "--version" | "-V" => set_command(&mut command, Command::Version, token)?,
             "inspect" => set_command(&mut command, Command::Inspect, token)?,
+            "export-diagnostics" => {
+                set_command(&mut command, Command::ExportDiagnostics, token)?;
+            }
             flag if flag.starts_with('-') => {
                 return Err(UsageRefusal::UnknownFlag(flag.to_owned()));
             }
@@ -334,6 +521,18 @@ fn run(invocation: &Invocation) -> Outcome {
             code: EXIT_OK,
         },
         Command::Inspect => refusal_outcome(Command::Inspect, &INSPECT_REFUSAL, invocation.json),
+        Command::ExportDiagnostics => Outcome {
+            stdout: if invocation.json {
+                envelope(
+                    Some(Command::ExportDiagnostics),
+                    &format!("{{\"kind\":\"ok\",\"diagnostics\":{}}}", diagnostics_json()),
+                )
+            } else {
+                diagnostics_human()
+            },
+            stderr: String::new(),
+            code: EXIT_OK,
+        },
     }
 }
 
