@@ -3,10 +3,11 @@
 - Spec version: 4.1.0
 - Requirement IDs: SAFE-002, SAFE-003, HLP-002, MODEL-005, INV-002, INV-003
 - Status: **Windows established. Linux partly established (one distro, virtual
-  disks, no partitions). macOS not established.** The SI-33 media-change-counter
-  liveness experiment was taken on 2026-08-02 and is recorded in the Windows
-  section; the SI-35 loop-device and Windows partition-list measurements have
-  protocols recorded and **no run taken**.
+  disks, no partitions). macOS not established.** Two of increment 5's three
+  measurements were taken on 2026-08-02 and are recorded in the Windows
+  section: the SI-33 media-change-counter liveness experiment, and the SI-35
+  Windows partition-list measurement. The **SI-35 loop-device measurement has a
+  protocol recorded and no run taken**, gated on repository issue #94.
 
 ## Why this document exists
 
@@ -145,12 +146,15 @@ are all bus type 7 and need opposite answers.
 
 ### SI-35 on Windows: the partition-list interface against the table states — protocol recorded, not yet taken
 
-**Status: not yet taken.** Recorded 2026-08-02 under spec version 4.2.0 by
-WP-035 — the header's spec-version line describes the established
-measurements, not this subsection. This subsection records a protocol and an
-empty recording format. Until its tables fill, it establishes **nothing**
-about what Windows exposes for a damaged, conflicting, hybrid, or blank
-table. This
+**Status: taken 2026-08-02.** Protocol and results both recorded under spec
+version 4.2.0 by WP-035 — the header's spec-version line describes the
+earlier established measurements, not this subsection.
+
+**Headline: no unprivileged surface separated an ambiguous, silently
+recovered, or inconsistent table from a healthy one.** W-H1, W-H2 and W-H3
+were each refuted on this build. Two fixtures could not be measured through
+`MSFT_Disk` at all, for a reason that is itself a finding and is recorded
+below rather than as an absence. This
 subsection extends this file's rule of use to its own vocabulary: an entry
 marked `not yet taken` MUST NOT be relied on, cited, or paraphrased as a
 finding — by anything, not only by an ADR that freezes canonical bytes.
@@ -650,15 +654,25 @@ experiment has not run, and a blank cell is not a permitted value.
 
 **Table W1 — disk-level surfaces, one fixture attached at a time.**
 
+Taken 2026-08-02, non-elevated (`IsInRole(Administrator)` `False`, no
+Administrators group), build 10.0.26200.0, one fixture attached at a time,
+every post-detach digest **unchanged** so the read-only attach altered no
+fixture's bytes. Values from the fixture disks are recorded verbatim: the
+bytes are synthetic, deterministic and public.
+
 | Fixture | ADR-C3 state | Visible unpriv. | `PartitionStyle` | `Guid` | `Signature` | `IsOffline` / `OfflineReason` | `OperationalStatus` / `HealthStatus` | Partition rows (count) |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `mbr-basic-512` | Present (MBR control) | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* |
-| `blank-512` | Absent | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* |
-| `gpt-basic-512` | Present | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* |
-| `gpt-conflicting-tables-512` | **Indeterminate** | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* |
-| `gpt-invalid-primary-valid-backup-512` | Present, recovered | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* |
-| `gpt-missing-backup-512` | Present, inconsistent | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* |
-| `hybrid-mbr-gpt-512` | Present, hybrid | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* |
+| `mbr-basic-512` | Present (MBR control) | `observed(absent from MSFT_Disk)` — see the enumeration gap below | `unavailable(no MSFT_Disk row)` | `unavailable` | `unavailable` | `unavailable` | `unavailable` | `unavailable` |
+| `blank-512` | Absent | `observed(present)` | `0` (unknown/uninitialized) | `''` | `''` | `False` / `0` | `53264` / `0` | `0` |
+| `gpt-basic-512` | Present | `observed(present)` | `2` (GPT) | `{7a1e9153-…-8c23898f2cbf}` | `''` | `False` / `0` | `53264` / `0` | `2` |
+| `gpt-conflicting-tables-512` | **Indeterminate** | `observed(present)` | `2` (GPT) | `{7a1e9153-…-8c23898f2cbf}` — **identical to basic's** | `''` | `False` / `0` — **identical** | `53264` / `0` — **identical** | `2` — **identical** |
+| `gpt-invalid-primary-valid-backup-512` | Present, recovered | `observed(present)` | `2` (GPT) | `{7a1e9153-…-8c23898f2cbf}` | `''` | `False` / `0` — **identical** | `53264` / `0` — **identical** | `2` — **identical** |
+| `gpt-missing-backup-512` | Present, inconsistent | `observed(present)` | `2` (GPT) | `{7a1e9153-…-8c23898f2cbf}` | `''` | `False` / `0` — **identical** | `53264` / `0` — **identical** | `2` — **identical** |
+| `hybrid-mbr-gpt-512` | Present, hybrid | `observed(absent from MSFT_Disk)` — see the enumeration gap below | `unavailable(no MSFT_Disk row)` | `unavailable` | `unavailable` | `unavailable` | `unavailable` | `unavailable` |
+
+The shared disk GUID across the four GPT fixtures is **by construction** —
+they are one disk in different states — and is not a finding. What is a
+finding is that every other cell is identical too.
 
 `PartitionStyle`'s documented value space is 0 (unknown/uninitialized),
 1 (MBR), 2 (GPT). Whatever `blank-512` records, the mapping of that value
@@ -676,20 +690,84 @@ surfaces can separate that fixture — and its Matches cell says
 
 | Fixture | Rows returned | Extents and types observed | Matches |
 | --- | --- | --- | --- |
-| `mbr-basic-512` | *not yet taken* | *not yet taken* | *not yet taken* |
-| `blank-512` | *not yet taken* | *not yet taken* | *not yet taken* |
-| `gpt-basic-512` | *not yet taken* | *not yet taken* | *not yet taken* |
-| `gpt-conflicting-tables-512` | *not yet taken* | *not yet taken* | *not yet taken* |
-| `gpt-invalid-primary-valid-backup-512` | *not yet taken* | *not yet taken* | *not yet taken* |
-| `gpt-missing-backup-512` | *not yet taken* | *not yet taken* | *not yet taken* |
-| `hybrid-mbr-gpt-512` | *not yet taken* | *not yet taken* | *not yet taken* |
+| `mbr-basic-512` | `unavailable(no MSFT_Disk row)` | — | — |
+| `blank-512` | 0 | none | `none` |
+| `gpt-basic-512` | 2 | offset 1048576 size 1048576 type `{c12a7328-…}` (ESP); offset 2097152 size 2080256 type `{0fc63daf-…}` (Linux FS) | `primary` |
+| `gpt-conflicting-tables-512` | 2 | **byte-identical to `gpt-basic-512`'s rows**, including both partition GUIDs | `primary` — the valid primary was parsed; the disagreeing backup is not represented anywhere |
+| `gpt-invalid-primary-valid-backup-512` | 2 | identical rows | `primary/backup (indistinguishable by content)` — both copies describe the same partitions, so only a status surface could have separated this fixture, and none did |
+| `gpt-missing-backup-512` | 2 | identical rows | `primary` |
+| `hybrid-mbr-gpt-512` | `unavailable(no MSFT_Disk row)` | — | — |
 
 **Table W3 — the zero-access layout IOCTL.**
 
 | Target | `CreateFileW(access=0)` | `IOCTL_DISK_GET_DRIVE_LAYOUT_EX` | Style / count (fixtures only) |
 | --- | --- | --- | --- |
-| each fixture disk (7 rows as above) | *not yet taken* | *not yet taken* | *not yet taken* |
-| one real physical disk (control — readability only, no content) | *not yet taken* | *not yet taken* | n/a — real hardware |
+| `blank-512` | succeeded | succeeded, 48 bytes | style `0`, count `0` |
+| `gpt-basic-512` | succeeded | succeeded, 336 bytes | style **`1`**, count `2` |
+| `gpt-conflicting-tables-512` | succeeded | succeeded, 336 bytes | style **`1`**, count `2` — identical |
+| `gpt-invalid-primary-valid-backup-512` | succeeded | succeeded, 336 bytes | style **`1`**, count `2` — identical |
+| `gpt-missing-backup-512` | succeeded | succeeded, 336 bytes | style **`1`**, count `2` — identical |
+| `mbr-basic-512`, `hybrid-mbr-gpt-512` | not attempted — no `MSFT_Disk` row supplied a disk number | — | — |
+| one real physical disk (control — readability only, no content) | **succeeded** | **succeeded** | n/a — real hardware |
+
+**The zero-access layout IOCTL is readable unprivileged**, on the fixture
+disks and on a real physical disk alike — while `GENERIC_READ` on a physical
+drive is denied, as the established table above records. The control row
+records readability only; no content from real hardware is recorded.
+
+**Two Windows interfaces disagree about the same bytes.** For all four GPT
+fixtures `MSFT_Disk.PartitionStyle` reports `2` (GPT) while
+`IOCTL_DISK_GET_DRIVE_LAYOUT_EX` reports `PartitionStyle=1` on the same
+attached disk in the same session. Recorded as observed; the meaning of the
+IOCTL's enumeration versus the CIM class's is **not established here**, and
+no attempt is made to reconcile them. It is noted because a client choosing
+between these two interfaces would not merely see different detail — it would
+see a different partitioning scheme.
+
+#### The enumeration gap: two unprivileged interfaces disagree about whether a disk exists
+
+`mbr-basic-512` and `hybrid-mbr-gpt-512` produced no `MSFT_Disk` row. Before
+that could be recorded as anything, the obvious instrument faults were ruled
+out by measurement rather than by argument:
+
+- **The attach succeeded.** The elevated half logged `attach=ok` for both, and
+  `Get-DiskImage` reported `Attached=True` with `Size=4194304` from the
+  *unprivileged* session.
+- **The disk existed at the device layer.** `Win32_DiskDrive` listed it at
+  index 7 with the correct size, read from the same unprivileged session.
+- **The selection predicate was not the cause.** The re-run dumped every
+  `MSFT_Disk` row unfiltered; disks 0–6 were present and there was no row for
+  the attached image at all.
+- **It was not a settling race.** The first run allowed 800 ms, the re-run
+  3 seconds; both produced no row. A longer wait than 3 s is untested.
+- **It reproduced** — twice for each of the two fixtures, in two sittings.
+
+So the record is not "the disk was absent". It is that **the disk was present
+and one unprivileged interface could not see it**: `Win32_DiskDrive` and
+`Get-DiskImage` enumerated it, `MSFT_Disk` — the class the established Windows
+table above is built on, and the class this protocol measures through — did
+not. `Get-DiskImage`'s own `Number` field was correspondingly empty.
+
+This is not a privilege asymmetry. Both views were taken from the same
+non-elevated session, so nothing here says a helper sees what a client cannot;
+it says two interfaces available to the *same* unprivileged client disagree
+about the existence of a disk.
+
+**A correlation, offered as a correlation.** The two invisible fixtures are
+exactly the two whose MBR carries a non-protective partition entry —
+`mbr-basic-512` (`0x0C` and `0x83`) and `hybrid-mbr-gpt-512` (`0xEE` plus a
+`0x0C` aliasing the ESP). The five that enumerated carry a protective `0xEE`
+alone, or nothing at all. That is a clean split over seven fixtures and it is
+**not a mechanism**: nothing here establishes why, no variant was constructed
+to test it, and one build was measured. Whoever pursues it should build the
+discriminating fixture rather than reason from this row.
+
+**What it costs the measurement.** INV-003's hybrid-detection question and the
+MBR control both fall in the gap: `hybrid-mbr-gpt-512` is the fixture that
+would have answered which scheme Windows privileges, and `mbr-basic-512` was
+its control. Both are recorded `unavailable`, and the hybrid question stays
+open on this platform — as it does on Linux, where libblkid reports plain
+`gpt` for the same image.
 
 #### Hypotheses, and what refutes each
 
@@ -738,6 +816,31 @@ any surface separates any pair, the record names the property and its
 values, and whether that surface is client-readable and body-encodable
 enough to carry option (b) is argued in the register, not here. Either
 outcome is register evidence; neither is written in advance.
+
+#### Outcomes, 2026-08-02
+
+Each antecedent checked against the recorded cells, not against a reading of
+them:
+
+| Hypothesis | Outcome |
+| --- | --- |
+| **W-H1**, the decisive pair | **Refuted.** Every status surface in W1 — `IsOffline`/`OfflineReason`, `OperationalStatus`/`HealthStatus` — recorded equal values for `gpt-conflicting-tables-512` and `gpt-basic-512`, and W2 shows the conflicting disk's rows are one table's content presented without complaint. The valid primary was parsed; the disagreeing backup appears nowhere. Both branches the protocol named in advance were covered, and this is the matching-rows branch: the list is indistinguishable from the healthy disk's, and no status surface says otherwise |
+| **W-H2**, silent recovery | **Refuted.** `gpt-invalid-primary-valid-backup-512`'s W1 row equals `gpt-basic-512`'s and its partitions appear ordinarily. The Windows analogue of libblkid's silent backup recovery, on this build. Because both GPT copies of this fixture describe the same partitions, row content could never have separated it — only a status surface could, and none did |
+| **W-H3**, missing backup | **Refuted**, the same way: identical W1 row, partitions present, nothing flagged |
+| **W-Q4**, hybrid | **Unanswerable on this run** — the fixture fell in the enumeration gap. Recorded `unavailable`, not as an absence of hybridity reporting |
+| **W-Q5**, blank | **Answered: distinct.** `blank-512` reports `PartitionStyle=0`, no partitions, empty GUID and signature — distinguishable from every GPT fixture and from the `unavailable` rows. Whether `0` maps to ADR-C3's positively-observed `Absent` or to an unreadable unknown is a register question the value alone does not settle, exactly as the format said it would not |
+
+**What this feeds, stated no wider than the run supports.** On this build, for
+a file-backed virtual disk, the unprivileged Windows interface collapses
+`Present` and `Indeterminate` onto one indistinguishable description — the
+same collapse the Linux udev projection produces for files, reached through a
+different interface on a different platform. SI-35's option (b) requires
+establishing that some client-readable fact separates a conflicting table from
+a healthy one; **neither measured platform now supplies one**, and this record
+lands beside the libblkid result in SI-35's evidence list carrying its own
+qualifiers: one build, one virtual-disk bus type, seven fixtures, two of them
+unmeasurable. Options (a) and (c) are untouched by this run. The record lands
+here; the register weighs it.
 
 #### Non-answers, each with a defined recording
 

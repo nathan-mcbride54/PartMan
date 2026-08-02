@@ -7,6 +7,38 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- The SI-35 **Windows partition-list measurement** was taken on 2026-08-02,
+  seven WP-020 fixtures attached one at a time as read-only fixed VHDs by an
+  elevated console while an ordinary non-elevated console did the measuring,
+  every post-detach digest unchanged so no fixture's bytes were altered. The
+  headline is a refutation: **no unprivileged surface separated an ambiguous,
+  silently recovered, or inconsistent table from a healthy one.**
+  `gpt-conflicting-tables-512` and `gpt-basic-512` produced identical values
+  on every surface measured — partition style, disk GUID, offline state and
+  reason, operational and health status, and both partition rows including
+  their GUIDs — so the valid primary was parsed and the disagreeing backup
+  appears nowhere (W-H1 refuted). The damaged-primary and missing-backup
+  fixtures were likewise indistinguishable from healthy (W-H2, W-H3 refuted),
+  the Windows analogue of libblkid's silent recovery already recorded for
+  Linux. `blank-512` is distinguishable. So on this build, for a file-backed
+  virtual disk, the unprivileged interface collapses `Present` and
+  `Indeterminate` exactly as the Linux udev projection does for files, and
+  SI-35's option (b) now has **no measured platform** whose client-readable
+  projection separates the states. Two further observations the protocol did
+  not anticipate. Two fixtures — precisely the two whose MBR carries a
+  non-protective partition entry — produced no `MSFT_Disk` row at all, while
+  `Win32_DiskDrive` and `Get-DiskImage` enumerated the same attached disk from
+  the same unprivileged session: not a privilege asymmetry but two interfaces
+  available to one client disagreeing about whether a disk exists, reproduced
+  twice each, with the attach, the device-layer presence, the selection
+  predicate and a settling race each ruled out by measurement. The correlation
+  with the MBR entry is offered as a correlation, not a mechanism. And
+  `MSFT_Disk.PartitionStyle` reports GPT where
+  `IOCTL_DISK_GET_DRIVE_LAYOUT_EX` reports MBR on the same disk in the same
+  session — recorded as observed, unreconciled. The hybrid fixture fell in the
+  enumeration gap, so INV-003's hybrid question stays open on Windows as it
+  does on Linux. The loop-device half remains not taken, gated on issue #94.
+
 - The SI-33 media-change-counter liveness experiment was **taken** on
   2026-08-02, on a card reader and two identical flash drives, entirely
   unprivileged and read-only, and its results are recorded in

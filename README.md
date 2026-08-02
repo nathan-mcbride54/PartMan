@@ -129,7 +129,10 @@ taken** (2026-08-02): every part of the register's liveness sequence was
 satisfied, though no single driver instance carried the whole sequence, and
 the same sittings measured a non-monotone counter that would keep a witness
 of the proposed shape from supporting the equality test it exists for. The
-SI-35 measurements are **not yet taken**. Exit criteria are in
+**SI-35 Windows partition-list measurement has also been taken**: no
+unprivileged surface separated an ambiguous, silently recovered, or
+inconsistent partition table from a healthy one. The SI-35 loop-device
+measurement remains **not taken**, gated on issue #94. Exit criteria are in
 Section 13 and are not restated here; they include the measurements being
 taken and recorded, with the loop-backed portion gated on repository issue
 #94, so the protocols' existence exits nothing.
