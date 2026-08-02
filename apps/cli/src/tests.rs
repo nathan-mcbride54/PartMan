@@ -1,9 +1,9 @@
 //! Chassis tests. Every behavior is asserted through [`dispatch_with`] over
 //! a scripted launcher, or [`dispatch_os`], as pure data. The only
-//! executable any test launches is the compile-time-selected `cargo` —
-//! twice: as the structural dependency guard's oracle, and as the real
-//! launcher's probe subject — so the tier's process set stays `git` and
-//! `cargo`, and no Tier-1 test ever launches a roster tool.
+//! executable classes tests launch are `git` and the compile-time-selected
+//! `cargo`: Cargo is the structural-dependency oracle; Git supplies both the
+//! successful real-launch subject and an intentional nonzero subject. No
+//! Tier-1 test ever launches a roster tool.
 
 use super::doctor::{
     ProbeOutcome, ProbeReport, Resolution, SystemLauncher, TestedVersion, ToolLauncher, ToolSpec,
@@ -166,30 +166,37 @@ fn inspect_answers_with_typed_statements_not_a_fake_topology() {
     let gated = inspect_object["gated"]
         .as_array()
         .expect("the gated list is part of every inspect answer");
-    let gate_ids: Vec<&str> = gated
-        .iter()
-        .filter_map(|entry| entry["gate"].as_str())
-        .collect();
-    for gate in ["SI-28", "SI-35", "ADR-0011"] {
-        assert!(
-            gate_ids.contains(&gate),
-            "the gated list must carry {gate}: {gate_ids:?}"
-        );
-    }
-    for entry in gated {
-        // The two open questions read `not-established`; the resolved one
-        // reads `never-inferred` under its deciding ADR — a decision is not
-        // an open question, and rendering it as one would misattribute.
-        let expected = if entry["surface"] == "same-device-claims" {
-            "never-inferred"
-        } else {
-            "not-established"
-        };
-        assert_eq!(
-            entry["state"], expected,
-            "a gated surface carries its state in-band, never silently omitted"
-        );
-    }
+    assert_eq!(
+        serde_json::Value::Array(gated.clone()),
+        serde_json::json!([
+            {"surface": "identity-strength", "state": "not-established", "gate": "SI-28"},
+            {"surface": "partition-table-state", "state": "not-established", "gate": "SI-35"},
+            {"surface": "same-device-claims", "state": "never-inferred", "gate": "ADR-0011"},
+        ]),
+        "the complete ordered gate contract is pinned: no duplicate, extra, or omitted entry"
+    );
+}
+
+// Requirements: SAFE-005
+//   Replay opens are non-blocking on every supported Unix target using that
+//   target's reviewed ABI values; Linux and Darwin intentionally disagree,
+//   so a shared literal is mechanically rejected by the target-specific pins;
+//   a source-use guard keeps that constant wired into the actual open call
+// Evidence: replay_open_flags_match_the_supported_target_abi
+#[cfg(unix)]
+#[test]
+fn replay_open_flags_match_the_supported_target_abi() {
+    #[cfg(target_os = "linux")]
+    assert_eq!(super::inspect::REPLAY_OPEN_FLAGS, 0x0000_0900);
+    #[cfg(target_os = "macos")]
+    assert_eq!(super::inspect::REPLAY_OPEN_FLAGS, 0x0002_0004);
+
+    let source = include_str!("inspect.rs");
+    assert_eq!(
+        source.matches(".custom_flags(REPLAY_OPEN_FLAGS)").count(),
+        1,
+        "the reviewed target constant must remain wired into the replay open"
+    );
 }
 
 // Requirements: CLI-005
@@ -215,6 +222,9 @@ fn exit_codes_match_the_contract_the_help_text_documents() {
     assert_eq!(fdispatch(&["version".to_owned()]).code, EXIT_OK);
     assert_eq!(fdispatch(&["export-diagnostics".to_owned()]).code, EXIT_OK);
     assert_eq!(fdispatch(&["inspect".to_owned()]).code, EXIT_OK);
+    assert_eq!(fdispatch(&["inventory".to_owned()]).code, EXIT_REFUSAL);
+    assert_eq!(fdispatch(&["topology".to_owned()]).code, EXIT_REFUSAL);
+    assert_eq!(fdispatch(&["capabilities".to_owned()]).code, EXIT_REFUSAL);
     assert_eq!(fdispatch(&["frobnicate".to_owned()]).code, EXIT_USAGE);
     assert_eq!(fdispatch(&[]).code, EXIT_USAGE);
 
@@ -231,8 +241,81 @@ fn exit_codes_match_the_contract_the_help_text_documents() {
     }
 }
 
+// Requirements: MODEL-003, SAFE-005, Section 12
+//   Reserved inventory, topology, and capability requests are recognized and
+//   refuse on stdout at exit 3 with exact typed gates in both modes; their JSON
+//   envelopes contain no domain payload key, so absence never masquerades as
+//   an empty machine, snapshot, or verdict set
+// Evidence: domain_requests_refuse_with_exact_typed_gates_and_no_payload
+#[test]
+fn domain_requests_refuse_with_exact_typed_gates_and_no_payload() {
+    let cases = [
+        (
+            "inventory",
+            "not-established",
+            "SI-27, SI-28, SI-35",
+            "a canonical inventory payload is not established: node naming and collision \
+             behavior (SI-27), identity strength (SI-28), and partition-table state (SI-35) \
+             remain open; use partman inspect for adapter-attributed observations",
+        ),
+        (
+            "topology",
+            "not-established",
+            "SI-27, SI-28, SI-34, SI-35",
+            "a versioned TopologySnapshot payload is not established: node naming (SI-27), \
+             identity strength (SI-28), protection placement (SI-34), and partition-table \
+             state (SI-35) remain open; no partial snapshot is emitted",
+        ),
+        (
+            "capabilities",
+            "not-implemented",
+            "CAP-005",
+            "per-target capability payloads are not implemented: CAP-005 requires the CLI to \
+             use the shared capability engine delivered by WP-050; doctor and facts report \
+             inputs, never verdicts",
+        ),
+    ];
+
+    for (command, state, reference, detail) in cases {
+        let human = fdispatch(&[command.to_owned()]);
+        assert_eq!(human.code, EXIT_REFUSAL);
+        assert!(human.stderr.is_empty());
+        assert_eq!(
+            human.stdout,
+            format!(
+                "{command}: refused\n  state: {state}\n  reference: {reference}\n  detail: {detail}\n"
+            )
+        );
+
+        let json = fdispatch(&[command.to_owned(), "--json".to_owned()]);
+        assert_eq!(json.code, EXIT_REFUSAL);
+        assert!(json.stderr.is_empty());
+        let parsed: serde_json::Value =
+            serde_json::from_str(&json.stdout).expect("typed refusal envelope");
+        assert_eq!(
+            parsed,
+            serde_json::json!({
+                "schema": ENVELOPE_SCHEMA,
+                "command": command,
+                "outcome": {
+                    "kind": "refusal",
+                    "state": state,
+                    "reference": reference,
+                    "detail": detail,
+                }
+            }),
+            "the refusal envelope is exact and contains no domain payload"
+        );
+    }
+
+    let help = help_text();
+    for command in ["inventory", "topology", "capabilities"] {
+        assert!(help.contains(command), "help names reserved `{command}`");
+    }
+}
+
 // Requirements: SAFE-005
-//   A token the parser does not recognize is refused with its exact spelling rather than guessed at, in both output modes; a second command word is refused carrying the second token's spelling, never a canonical name the user did not type
+//   A token the parser does not recognize is refused with its exact logical spelling rather than guessed at: JSON round-trips the exact scalar string and human output uses a lossless injective visible encoding; a second command word carries the second token, never a canonical name the user did not type
 // Evidence: unknown_tokens_are_refused_with_their_exact_spelling
 #[test]
 fn unknown_tokens_are_refused_with_their_exact_spelling() {
@@ -263,16 +346,36 @@ fn unknown_tokens_are_refused_with_their_exact_spelling() {
         doubled.stderr
     );
 
-    let json = fdispatch(&["frobnicate".to_owned(), "--json".to_owned()]);
-    assert_eq!(json.code, EXIT_USAGE);
-    let parsed: serde_json::Value =
-        serde_json::from_str(&json.stdout).expect("usage refusals are envelopes too");
-    assert_eq!(parsed["outcome"]["kind"], "usage-refusal");
-    assert_eq!(
-        parsed["command"],
-        serde_json::Value::Null,
-        "no command was accepted, and the field says so rather than being omitted"
-    );
+    for (arguments, expected_detail) in [
+        (
+            vec!["frobnicate".to_owned(), "--json".to_owned()],
+            "unknown command `frobnicate`; run `partman help` for the command list",
+        ),
+        (
+            vec![
+                "--frob".to_owned(),
+                "version".to_owned(),
+                "--json".to_owned(),
+            ],
+            "unknown flag `--frob`; run `partman help` for the flag list",
+        ),
+        (
+            vec!["version".to_owned(), "-V".to_owned(), "--json".to_owned()],
+            "second command word `-V`; one command per invocation",
+        ),
+    ] {
+        let json = fdispatch(&arguments);
+        assert_eq!(json.code, EXIT_USAGE);
+        let parsed: serde_json::Value =
+            serde_json::from_str(&json.stdout).expect("usage refusals are envelopes too");
+        assert_eq!(parsed["outcome"]["kind"], "usage-refusal");
+        assert_eq!(parsed["outcome"]["detail"], expected_detail);
+        assert_eq!(
+            parsed["command"],
+            serde_json::Value::Null,
+            "no command was accepted, and the field says so rather than being omitted"
+        );
+    }
 }
 
 // Requirements: SAFE-005, CLI-005
@@ -288,6 +391,10 @@ fn a_non_unicode_argument_is_refused_not_a_panic() {
         human.stderr.contains("is not valid Unicode"),
         "the refusal must say what was wrong: {}",
         human.stderr
+    );
+    assert!(
+        !human.stderr.contains('\u{1b}'),
+        "a control byte beside invalid Unicode must not reach the terminal"
     );
 
     let json = dispatch_os(vec![
@@ -308,12 +415,12 @@ fn invalid_unicode_argument() -> std::ffi::OsString {
     #[cfg(windows)]
     {
         use std::os::windows::ffi::OsStringExt as _;
-        std::ffi::OsString::from_wide(&[0xD800])
+        std::ffi::OsString::from_wide(&[0xD800, 0x001B])
     }
     #[cfg(unix)]
     {
         use std::os::unix::ffi::OsStringExt as _;
-        std::ffi::OsString::from_vec(vec![0xFF])
+        std::ffi::OsString::from_vec(vec![0xFF, 0x1B])
     }
 }
 
@@ -326,7 +433,7 @@ fn hostile_strings_cannot_break_the_envelope() {
         "plain",
         "with \"quotes\" and \\backslashes\\",
         "newline\nreturn\rtab\t",
-        "escape byte \u{1b}[31m and null \u{0}",
+        "escape byte \u{1b}[31m, C1 CSI \u{009b}, DEL \u{007f}, and null \u{0}",
         "ünïcode 分区 🗜",
         "{\"kind\":\"ok\"}",
     ];
@@ -348,14 +455,130 @@ fn hostile_strings_cannot_break_the_envelope() {
     }
 }
 
+// Requirements: CLI-008
+//   Caller-controlled command, flag, second-command, replay-value, and
+//   non-Unicode refusal text cannot inject C0, DEL, or C1 controls into human
+//   output; when a refusal emits a caller token, JSON preserves that exact value
+//   only as escapes, while replay refusals deliberately do not echo paths
+// Evidence: hostile_arguments_cannot_inject_terminal_controls
+#[test]
+fn hostile_arguments_cannot_inject_terminal_controls() {
+    let hostile = "\u{1b}[31mline\nnext\r\t\u{007f}\u{009b}\\n".to_owned();
+    let hostile_value = hostile.clone();
+    let cases = [
+        (vec![hostile.clone()], 1, true),
+        (vec![format!("--{hostile}")], 1, true),
+        (vec!["version".to_owned(), hostile.clone()], 1, true),
+        (
+            vec!["inspect".to_owned(), "--replay".to_owned(), hostile],
+            8,
+            false,
+        ),
+    ];
+
+    for (arguments, human_line_count, human_echoes_input) in cases {
+        for json in [false, true] {
+            let mut invocation = arguments.clone();
+            if json {
+                invocation.push("--json".to_owned());
+            }
+            let outcome = fdispatch(&invocation);
+            let rendered = format!("{}{}", outcome.stdout, outcome.stderr);
+            assert!(
+                rendered.ends_with('\n'),
+                "every outcome has one record terminator"
+            );
+            assert_eq!(
+                rendered
+                    .chars()
+                    .filter(|character| *character == '\n')
+                    .count(),
+                if json { 1 } else { human_line_count },
+                "hostile input must not add record boundaries: {invocation:?}"
+            );
+            let body = rendered
+                .strip_suffix('\n')
+                .expect("the final structural newline was just asserted");
+            for character in body.chars().filter(|character| *character != '\n') {
+                assert!(
+                    !character.is_control(),
+                    "{invocation:?} emitted control U+{:04X}",
+                    character as u32
+                );
+            }
+            if json {
+                let parsed = serde_json::from_str::<serde_json::Value>(&outcome.stdout)
+                    .expect("escaped hostile output remains one JSON envelope");
+                let detail = parsed["outcome"]["detail"]
+                    .as_str()
+                    .expect("a usage or replay refusal carries detail");
+                if human_echoes_input {
+                    assert!(
+                        detail.contains(&hostile_value),
+                        "an emitted caller token must round-trip exactly through JSON"
+                    );
+                } else {
+                    assert!(
+                        !detail.contains(&hostile_value),
+                        "replay refusals deliberately do not echo caller paths"
+                    );
+                }
+            } else if human_echoes_input {
+                for visible in [
+                    "\\u{001b}",
+                    "\\n",
+                    "\\r",
+                    "\\t",
+                    "\\u{007f}",
+                    "\\u{009b}",
+                    "\\\\n",
+                ] {
+                    assert!(
+                        body.contains(visible),
+                        "human refusal must retain hostile input as visible {visible:?}: {body}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+// Requirements: CLI-008
+//   Human rendering is an injective visible encoding: controls cannot execute,
+//   and neither a literal escape spelling nor U+FFFD can alias a control input
+// Evidence: human_terminal_encoding_is_injective_for_controls_and_backslashes
+#[test]
+fn human_terminal_encoding_is_injective_for_controls_and_backslashes() {
+    let encoded = super::terminal_safe("\\\n\r\t\u{1b}\u{7f}\u{9b}\u{fffd}");
+    assert_eq!(
+        encoded,
+        concat!(
+            "\\\\",
+            "\\n",
+            "\\r",
+            "\\t",
+            "\\u{001b}",
+            "\\u{007f}",
+            "\\u{009b}",
+            "\u{fffd}"
+        )
+    );
+    assert_ne!(super::terminal_safe("\n"), super::terminal_safe("\\n"));
+    assert_ne!(
+        super::terminal_safe("\u{1b}"),
+        super::terminal_safe("\u{fffd}")
+    );
+}
+
 // Requirements: Section 14
-//   No normal or build dependency exists, so no hash or plan implementation can arrive from outside the crate; std's own hashers are held off the output type by its compile-fail non-Hash proof, and past that the boundary is a named review obligation
+//   No normal or build dependency exists, so no hash or plan implementation can arrive from outside the crate; std's own hashers are held off the output type by a Tier-1 compile-time ambiguity proof, and past that the boundary is a named review obligation
 // Evidence: the_shipped_dependency_closure_is_empty
 #[test]
 fn the_shipped_dependency_closure_is_empty() {
-    // The compile-time-selected cargo, launched with a structured argument
-    // array — the same discipline every other Tier-1 gate uses. This is the
-    // only process any chassis test launches.
+    // The compile-time-selected Cargo, launched with a structured argument
+    // array, is the dependency-closure oracle. Git is the only other executable
+    // class launched by chassis tests, for the bounded-launcher success/failure
+    // proofs; neither comes from PATH.
     let output = std::process::Command::new(env!("CARGO"))
         .args(["metadata", "--format-version", "1", "--no-deps", "--locked"])
         .output()
@@ -394,6 +617,21 @@ fn the_shipped_dependency_closure_is_empty() {
         "the shipped closure gained {shipped:?}; widening it is a reviewed decision — the \
          guard exists so a hash or plan implementation cannot arrive as a transitive convenience"
     );
+}
+
+// Requirements: Section 14
+//   Outcome does not implement Hash: this regular unit-test target carries two otherwise-disjoint trait candidates, so adding Hash makes the marker selection ambiguous and fails Tier-1 compilation
+// Evidence: the_output_type_does_not_implement_hash
+#[test]
+fn the_output_type_does_not_implement_hash() {
+    trait AmbiguousIfHash<Marker> {
+        fn marker() {}
+    }
+    impl<T: ?Sized> AmbiguousIfHash<()> for T {}
+    impl<T: ?Sized + std::hash::Hash> AmbiguousIfHash<u8> for T {}
+
+    let marker = <Outcome as AmbiguousIfHash<_>>::marker;
+    marker();
 }
 
 // Requirements: MODEL-003
@@ -544,7 +782,7 @@ fn no_output_in_any_mode_carries_an_environment_value() {
 }
 
 // Requirements: SEC-007, SAFE-006
-//   The shipped sources contain no environment read — env::var, env::vars, and var_os are absent from every shipped source file the test enumerates: lib.rs, main.rs, doctor.rs, and facts.rs — so an environment value cannot reach output regardless of which variables the host sets; compile-time env::consts and env! are the allowed forms
+//   The shipped sources contain no environment read — env::var, env::vars, and var_os are absent from every shipped source file the test enumerates: lib.rs, main.rs, doctor.rs, facts.rs, and inspect.rs — so an environment value cannot reach output regardless of which variables the host sets; compile-time env::consts and env! are the allowed forms
 // Evidence: the_shipped_sources_read_no_environment_variable
 #[test]
 fn the_shipped_sources_read_no_environment_variable() {
@@ -642,6 +880,9 @@ fn the_human_bundle_is_pinned_byte_for_byte() {
          \x20   export-diagnostics: answers\n\
          \x20   doctor: answers\n\
          \x20   facts: answers\n\
+         \x20   inventory: refuses:not-established\n\
+         \x20   topology: refuses:not-established\n\
+         \x20   capabilities: refuses:not-implemented\n\
          \x20 exit-codes: 0 answered, 2 usage refusal, 3 typed refusal\n\
          \x20 discovery-evidence: not-implemented (WP-W100, WP-L100, WP-M100)\n\
          \x20   the diagnostics bundle admits compile-time data only, so it carries no \
@@ -779,6 +1020,74 @@ fn the_doctor_probes_only_compiled_absolute_paths() {
     }
 }
 
+// Requirements: INV-006
+//   The current shipped source graph has no auto-mount or repair execution route: every production source outside doctor is pinned free of direct process-command construction, the module declaration set is closed, and the production doctor launcher accepts no caller arguments and invokes every compiled roster path with fixed informational --version; alternate spellings remain a named review obligation, bounded by denied unsafe code and the empty shipped dependency closure
+// Evidence: discovery_cannot_auto_mount_or_run_repair_tools
+#[test]
+fn discovery_cannot_auto_mount_or_run_repair_tools() {
+    let library = include_str!("lib.rs");
+    let doctor = include_str!("doctor.rs");
+
+    for (file, source) in [
+        ("main.rs", include_str!("main.rs")),
+        ("lib.rs", library),
+        ("facts.rs", include_str!("facts.rs")),
+        ("inspect.rs", include_str!("inspect.rs")),
+    ] {
+        assert!(
+            !source.contains("std::process::Command") && !source.contains("process::{Command"),
+            "{file} gained direct process access; only the fixed doctor launcher may own it"
+        );
+    }
+
+    let modules: Vec<&str> = library
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("mod ") || line.starts_with("pub mod "))
+        .collect();
+    assert_eq!(
+        modules,
+        [
+            "pub mod doctor;",
+            "pub mod facts;",
+            "pub mod inspect;",
+            "mod tests;",
+        ],
+        "a new shipped module must enter this source guard before it can compile cleanly"
+    );
+
+    let production_doctor = doctor
+        .split("#[cfg(test)]")
+        .next()
+        .expect("the production doctor source precedes its test-only module");
+    assert_eq!(
+        production_doctor
+            .matches("std::process::Command::new")
+            .count(),
+        1,
+        "the production doctor owns exactly one direct process constructor"
+    );
+
+    let start = doctor
+        .find("impl ToolLauncher for SystemLauncher")
+        .expect("the production launcher implementation is present");
+    let end = doctor[start..]
+        .find("/// Launch one absolute executable")
+        .map(|offset| start + offset)
+        .expect("the launcher implementation has its reviewed boundary");
+    let implementation = &doctor[start..end];
+    assert_eq!(
+        implementation.matches("launch_bounded(").count(),
+        1,
+        "the production launcher has one fixed invocation route"
+    );
+    assert!(
+        implementation.contains("launch_bounded(path, &[\"--version\"])")
+            && !implementation.contains("arguments"),
+        "the production route must remain version-only and expose no argument channel"
+    );
+}
+
 /// A launcher whose probe follows one script; only `/probe/tool` exists.
 struct Scripted {
     outcome: ProbeScript,
@@ -814,7 +1123,7 @@ fn scripted_spec() -> ToolSpec {
 // Evidence: the_doctor_reports_presence_version_and_range_as_facts
 #[test]
 fn the_doctor_reports_presence_version_and_range_as_facts() {
-    let cases: [(ProbeScript, &str); 5] = [
+    let cases: [(ProbeScript, &str); 6] = [
         (
             || ProbeOutcome::Completed {
                 stdout: b"tool from util-linux 2.41 (libblkid 2.41.0)".to_vec(),
@@ -843,6 +1152,14 @@ fn the_doctor_reports_presence_version_and_range_as_facts() {
             },
             "within-tested-range",
         ),
+        (
+            || ProbeOutcome::NonzeroExit {
+                code: Some(7),
+                stdout: Vec::new(),
+                stderr: b"\x1b[31mtool refused the probe".to_vec(),
+            },
+            "nonzero-exit",
+        ),
         (|| ProbeOutcome::TimedOut, "timed-out"),
     ];
 
@@ -865,6 +1182,14 @@ fn the_doctor_reports_presence_version_and_range_as_facts() {
             ProbeReport::Failed { state, detail } => {
                 assert_eq!(*state, expectation);
                 assert!(!detail.is_empty(), "a typed failure carries its sentence");
+                if expectation == "nonzero-exit" {
+                    assert!(detail.contains("exit code 7"), "{detail}");
+                    assert!(detail.contains("tool refused the probe"), "{detail}");
+                    assert!(
+                        !detail.contains('\u{1b}'),
+                        "nonzero provenance must be terminal-safe: {detail}"
+                    );
+                }
             }
         }
         // Both renderings stay free of CAP-003 status vocabulary as bare
@@ -935,7 +1260,7 @@ fn an_absent_tool_reports_where_partman_looked() {
 }
 
 // Requirements: SAFE-004
-//   The launcher's child environment is cleared and gains exactly one written variable, LC_ALL=C — pinned as a source-text assertion because no behavioral proof fits the tier's process set, with the pin's reach stated: direct spellings, with smuggling routes closed by the empty closure and the wildcard-import lint, and the residue held by review
+//   The launcher's child environment is cleared and gains exactly one written variable, LC_ALL=C — pinned as a source-text assertion because no behavioral proof fits WP-035's test process set, with the pin's reach stated: direct spellings, with smuggling routes closed by the empty closure and the wildcard-import lint, and the residue held by review
 // Evidence: the_launcher_clears_the_child_environment
 #[test]
 fn the_launcher_clears_the_child_environment() {
@@ -1020,37 +1345,54 @@ fn version_banners_parse_or_stay_unrecognized_never_guessed() {
 }
 
 // Requirements: SAFE-004
-//   The real launcher answers with bounded output, completing before the deadline fires, for a tool that exists, launched by absolute path with a structured argument array; the deadline's kill path is exercised by review and manual probe only, as doctor.rs states, and the probe subject is the compile-time-selected cargo, already in the tier's process set
+//   The real launcher captures a successful exit with bounded output before the deadline by probing Git at one reviewed absolute path; the adjacent doctor-module test supplies Git's intentional nonzero arm, and neither test launches a roster tool or shell
 // Evidence: the_real_launcher_answers_bounded_with_provenance
 #[test]
 fn the_real_launcher_answers_bounded_with_provenance() {
-    let cargo = Path::new(env!("CARGO"));
-    assert!(cargo.is_absolute(), "cargo's compile-time path is absolute");
+    #[cfg(windows)]
+    const TEST_GIT: &[&str] = &[
+        r"C:\Program Files\Git\cmd\git.exe",
+        r"C:\Program Files\Git\bin\git.exe",
+    ];
+    #[cfg(target_os = "linux")]
+    const TEST_GIT: &[&str] = &["/usr/bin/git", "/bin/git", "/usr/local/bin/git"];
+    #[cfg(target_os = "macos")]
+    const TEST_GIT: &[&str] = &[
+        "/Library/Developer/CommandLineTools/usr/bin/git",
+        "/Applications/Xcode.app/Contents/Developer/usr/bin/git",
+        "/opt/homebrew/bin/git",
+        "/usr/local/bin/git",
+        "/usr/bin/git",
+    ];
+    let git = TEST_GIT
+        .iter()
+        .map(Path::new)
+        .find(|path| path.is_file())
+        .expect("Tier 1 requires Git at one reviewed absolute path");
+
     let launcher = SystemLauncher;
-    assert!(
-        launcher.exists(cargo),
-        "the toolchain that built this test exists"
-    );
-    match launcher.probe_version(cargo) {
+    assert!(launcher.exists(git), "the resolved Git executable exists");
+    match launcher.probe_version(git) {
         ProbeOutcome::Completed { stdout, .. } => {
-            assert!(!stdout.is_empty(), "cargo --version banners on stdout");
+            assert!(!stdout.is_empty(), "git --version banners on stdout");
             assert!(stdout.len() <= 4096, "output stayed within the bound");
             let banner = super::doctor::sanitized_first_line(&stdout);
             assert!(
-                banner.contains("cargo"),
+                banner.to_lowercase().contains("git"),
                 "provenance keeps the raw line: {banner}"
             );
             assert!(
                 parse_version(&banner).is_some(),
-                "a real toolchain banner parses: {banner}"
+                "a real Git banner parses: {banner}"
             );
         }
         other => panic!(
-            "cargo --version must complete within the limits; got {}",
+            "git --version must complete within the limits; got {}",
             match other {
                 ProbeOutcome::TimedOut => "timed-out",
                 ProbeOutcome::OverOutputLimit => "over-output-limit",
                 ProbeOutcome::LaunchFailed(_) => "launch-failed",
+                ProbeOutcome::NonzeroExit { .. } => "nonzero-exit",
                 ProbeOutcome::Completed { .. } => unreachable!(),
             }
         ),

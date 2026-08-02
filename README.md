@@ -43,7 +43,7 @@ What does exist:
   pinned by test, an ANSI-free schema-versioned envelope
   (`partman.cli.envelope/0`, provisional within major version 0), and the
   typed refusal vocabulary. Its shipped dependency closure is empty and its
-  output type carries a compile-fail non-`Hash` proof — both guards' exact
+  output type carries a Tier-1 compile-time non-`Hash` proof — both guards' exact
   reach is stated in the crate, and domain payloads are absent from every
   surface rather than emitted unversioned. `export-diagnostics` emits this
   build's identity and surface states through a deny-by-default field
@@ -53,8 +53,10 @@ What does exist:
   rendering, an environment-value tripwire, and an env-read source guard —
   gate the tier. `doctor` reports roster tools at compiled absolute paths —
   present, version, in or out of the recorded tested range — as facts with
-  provenance under SAFE-004's launch discipline, with an empty platform
-  roster carried as a typed statement; `facts` ships FS-007's inputs, five
+  provenance under SAFE-004-derived launch controls. Executable identity is
+  not verified beyond the absolute path, and capability mapping is deferred to
+  WP-050; an empty platform roster is carried as a typed statement. `facts`
+  ships FS-007's inputs, five
   immutable technology limits each with its basis, mechanically refused the
   CAP-003 status vocabulary that belongs to WP-050. `inspect` answers with
   adapter-attributed observation records: `--replay` runs the fixture-replay
@@ -125,22 +127,26 @@ late.
 
 WP-035, M0.5's package, is in progress: increments 1–4 delivered the chassis
 and its surfaces, and increment 5 recorded the SI-33/SI-35 measurement
-protocols in `docs/quality/observability.md`. The **SI-33 experiment has been
-taken** (2026-08-02): every part of the register's liveness sequence was
-satisfied, though no single driver instance carried the whole sequence, and
-the same sittings measured a non-monotone counter that would keep a witness
-of the proposed shape from supporting the equality test it exists for. The
-**SI-35 measurements have also been taken**, both halves: no unprivileged
-surface on Windows separated an ambiguous, silently recovered, or
-inconsistent partition table from a healthy one, and the Linux loop-device
-run — taken read-only with issue #94 still open and its binding gap recorded
-beside every number — found the conflicting and healthy images
-indistinguishable to client and helper alike, while confirming 4Kn tables
-become observable through a loop device configured with an explicit sector
-size. Exit criteria are in
-Section 13 and are not restated here; they include the measurements being
-taken and recorded, with the loop-backed portion gated on repository issue
-#94, so the protocols' existence exits nothing.
+protocols in `docs/quality/observability.md`. The **SI-33 experiment was run**
+on 2026-08-02, but it did not establish the register's full liveness sequence:
+L1 and L2 moved in 3/3 trials, while the close-before-event/reopen arm remained
+unmeasured because L5b kept the original handle open across the event. A lower
+later reading across an interval containing a PnP arrival shows that global
+monotonicity cannot be assumed; the counter epoch and reset cause were not
+characterized, so an equality-only witness is unsafe across that boundary.
+
+The **SI-35 Windows and loop instruments also have 2026-08-02 run records**,
+but neither closes the issue. On Windows, no retained `MSFT_Disk`/
+`MSFT_Partition` field, `MSFT_PhysicalDisk` row count, or layout-IOCTL value
+separated conflicting, damaged-primary, or missing-backup from healthy GPT;
+the wrapper discarded queried `MSFT_PhysicalDisk` property values, so the
+broader existential hypotheses remain inconclusive. The WSL2 loop run crossed
+open issue #94; its normalized client projection and retained `blkid`
+properties/`wipefs` offsets did not separate conflicting from healthy, but
+that negative is non-qualifying and withheld pending a descriptor-bound
+non-WSL rerun. The historical run did record positive 4Kn observability on
+that environment. Exit criteria are in Section 13 and are not restated here;
+M0.5 remains in progress.
 
 ### M1 through M5
 
@@ -161,7 +167,7 @@ Section 14 of the specification is normative. Current state:
 | WP-020 | Foundations (M0) | Disk-image fixture generator and destructive-test interlocks | In progress — increments 1–1g and 2a–2d delivered. Preconditions 1 and 3 are now closed on both platforms (issue #51): Unix opens a direct child relative to a held root object, Windows holds the root with a share mode the filesystem enforces, and the other-name refusal — which was a **live defect**, not a missing check — now reads the link count through the authorized handle everywhere. Windows containment is enforcement by the filesystem rather than resolution from a handle, so it is **unproven for roots that are not on a local volume**, and non-local roots are refused. WP-020 traceability is generated from validated source-local claims and typed evidence, with a source-revision/blob ledger preserving every former evidence row, correction, limitation, and residual risk. Tier 2 stays unavailable on every platform because no destructive suite exists; see `docs/work-packages/WP-020.md` |
 | WP-030 | Foundations (M0); desktop shell deferred, no authority on main | Design tokens, dark UI shell, accessibility harness | In progress — increments 1 through 1c delivered (tokens, the static accessibility harness, and zero-loss generated traceability). Increment 2S's bounded Slint 1.17.1 branch was implemented, measured, mechanically rejected on two hard gates, and closed without merge. Main now retains only normalized evidence, the byte-reproducible 41-row report, and accessibility limitations; no shell exists, UI-002 remains unimplemented, and the rendered half of UI-008 remains untested. The temporary implementation authority was retired by PR #91, so no desktop-shell path is authorized on main and reviving either off-main branch needs fresh governance rather than inertia |
 
-| WP-035 | Evidence (M0.5) | Read-only CLI chassis and evidence instrument | In progress — increments 1–4 delivered and increment 5's instruments recorded: the chassis (structured argv owning the non-Unicode seam as a typed refusal, exit codes pinned by test, the ANSI-free schema-versioned envelope `partman.cli.envelope/0` provisional within major version 0, the typed refusal vocabulary, the empty-shipped-closure and compile-fail non-`Hash` guards with their reach stated); the redacted `export-diagnostics` (a deny-by-default field allowlist that is the builder's type, compile-time-only field values, the missing discovery evidence carried as an in-band typed refusal, and redaction tests — exact-field pin, byte-pinned human rendering, environment-value tripwire, env-read source guard, byte-determinism — gating the tier); and the dependency doctor and technology facts (roster tools probed at compiled absolute paths only under SAFE-004's launch discipline through a launcher seam that keeps roster launches out of Tier 1, presence/version/tested-range reported as facts with provenance, an empty platform roster as a typed statement, and FS-007's five input facts mechanically refused CAP-003's status vocabulary). `partman inspect` now answers: adapter-attributed observation records with ADR-C4's outcome vocabulary as the ADR wrote it (observed, with absence as a value; unavailable; failed) over `--replay`ed regular files (verified through the opened handle, so a device named by path is refused unread), bytes reported as hex and never classified, no path echo, and the standing gated list — SI-28 and SI-35 as open questions, ADR-0011's same-device rule as a standing decision — carried in-band in every answer, refusals included; without `--replay` the answer is a typed no-adapter statement naming the platform package, never a plausible empty machine. Increment 5's instruments are recorded — protocols and recording formats for the SI-33 media-change-counter liveness experiment and the SI-35 loop-device and Windows partition-list measurements, in `docs/quality/observability.md`, operator-run and read-only, the loop-backed portion gated on issue #94. The **SI-33 experiment has since been taken** on real hardware (2026-08-02): every part of the register's three-part liveness sequence was satisfied — L1 and L2 moved in three trials each, L5b showed the count is not per-handle state — but on **two different driver instances**, so no single instance carried the whole sequence, and under the ceiling the protocol declared in advance, that prompt movement cannot be attributed to exchange-synchronous detection. The sittings also measured what no pre-registered row anticipated: the counter is **not monotone across driver instances**, a fresh instance reading a value the previous one had already passed, with a device arrival timestamped in the interval. Equality between a plan-time and an apply-time reading therefore cannot establish non-interruption, and a witness of the proposed shape would fail open in that direction. The **SI-35 measurements have both been taken** (2026-08-02). On Windows, seven fixtures attached read-only as fixed VHDs: no unprivileged surface separated an ambiguous, silently recovered, or inconsistent table from a healthy one, and two fixtures produced no `MSFT_Disk` row while other interfaces enumerated the same attached disk from the same session. On Linux, six fixtures plus the 4Kn annex on read-only loop devices — taken **across an open #94 block**, at the operator's instruction, with the binding gap recorded beside every number and **M0.5's loop-backed exit criterion consequently not satisfied**: the conflicting and healthy images are byte-identical in the client projection and in the privileged view alike, so on that environment the collapse is not a file-probing artifact, while a loop device with an explicit 4096-byte sector size makes the 4Kn table observable — the IMG-011 route the record said would be needed. All three increment-5 measurements have therefore been run, but the loop half did not discharge its exit criterion, the decisive-pair negative is withheld from register use pending a non-WSL distro-kernel confirmation, and the register's third evidence item cannot be supplied by any measurement. The package remains forbidden every surface the spec-issue register's open items gate; see `docs/work-packages/WP-035.md` for the boundary. Every increment was adversarially reviewed before push; the corrections forced are recorded in the commit history |
+| WP-035 | Evidence (M0.5) | Read-only CLI chassis and evidence instrument | In progress — increments 1–4 delivered the unprivileged CLI chassis, typed schema-versioned refusals, redacted diagnostics, bounded absolute-path dependency doctor, technology facts, and fixture-backed replay observations; increment 5 recorded the operator-run SI-33/SI-35 instruments. The audit reserves `inventory`, `topology`, and `capabilities` as exact typed refusals rather than accepting them as unknown commands, treats a dependency's nonzero exit as failure rather than version evidence, escapes terminal controls, and uses each Unix target's actual replay flags. The SI-33 run moved in L1/L2 but did not measure the required close-before-event/reopen arm; a lower reading across a PnP-arrival interval makes global monotonicity unsafe to assume without characterizing the counter epoch. The Windows SI-35 run found no difference in its retained CIM fields, PhysicalDisk row count, or layout IOCTL, but discarded queried PhysicalDisk property values, so its broader existential hypotheses are inconclusive. The historical WSL2 loop record did not separate healthy from conflicting in its post-hoc-normalized retained projections and did observe 4Kn through an explicit-sector-size loop, but it crossed open issue #94 and is non-qualifying pending a descriptor-bound non-WSL rerun. All three instruments therefore have run records, while SI-33's full sequence remains unestablished, the Windows hypotheses remain incomplete, and M0.5's #94-gated loop criterion remains unsatisfied. Separately, SI-35 still requires the chosen option's refusal demonstration. The package remains forbidden every domain surface gated by the open register; see `docs/work-packages/WP-035.md` |
 
 Stage labels name Section 13's milestone themes where one exists; the deferred
 desktop shell has none while its authority stays retired. Each label is carried

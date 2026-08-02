@@ -6,10 +6,12 @@
 //! vocabulary, and adapter-attributed observation records over replayed
 //! regular files. It remains forbidden every surface the spec-issue
 //! register gates — no identity strength, no partition-table state, no
-//! typed topology node, no hash, no plan — and each gated surface travels
-//! in-band in every inspect answer as a typed refusal naming its register
-//! issue. The boundary and the gate behind each prohibition are in
-//! `docs/work-packages/WP-035.md`.
+//! typed topology node, no hash, no plan. Every gated field represented by an
+//! inspect answer travels in-band as a typed refusal naming its issue or
+//! accepted decision. The reserved inventory, topology, and capability
+//! commands likewise name the authority that prevents an honest payload;
+//! mutation/planning command words and hash/plan types are absent rather than
+//! represented as refusals. The boundary is in `docs/work-packages/WP-035.md`.
 //!
 //! Two properties are guarded mechanically, and each guard's exact reach is
 //! stated, because an overstated guard sentence is how this repository's
@@ -18,9 +20,9 @@
 //! - **The shipped dependency closure is empty**, asserted through `cargo
 //!   metadata`, so no hash or plan implementation can arrive from outside
 //!   this crate. What that guard cannot see — `std`'s own hashers used
-//!   deliberately in-crate — is held off by [`Outcome`]'s compile-fail
-//!   non-`Hash` proof and, past that, is a named review obligation rather
-//!   than a claimed impossibility.
+//!   deliberately in-crate — is held off by [`Outcome`]'s Tier-1 compile-time
+//!   ambiguity proof and, past that, is a named review obligation rather than
+//!   a claimed impossibility.
 //! - **No unversioned JSON.** Every JSON emission is wrapped in one envelope
 //!   carrying [`ENVELOPE_SCHEMA`] (MODEL-003). Domain payloads — inventory,
 //!   topology, capability data — are absent from the output surface
@@ -77,14 +79,8 @@ pub const EXIT_REFUSAL: u8 = 3;
 ///
 /// This type deliberately does not implement `Hash`, and that is a guard,
 /// not an omission — the assignment forbids a hash function reachable from
-/// inspector output. Implementing it fails this doctest:
-///
-/// ```compile_fail
-/// fn requires_hash<T: std::hash::Hash>(_value: T) {}
-/// fn hash_the_output(outcome: partman_cli::Outcome) {
-///     requires_hash(outcome);
-/// }
-/// ```
+/// inspector output. A Tier-1 ambiguity assertion fails compilation if a
+/// `Hash` implementation is added.
 pub struct Outcome {
     /// Bytes for stdout, already rendered. Empty when nothing belongs there.
     pub stdout: String,
@@ -118,6 +114,16 @@ pub enum Command {
     /// Immutable technology limits with the basis for each: FS-007's
     /// inputs, with the blocked-reason surface left to WP-050.
     Facts,
+    /// Reserved canonical inventory request. It exists only to return its
+    /// typed register-gate refusal; no inventory payload is representable.
+    Inventory,
+    /// Reserved canonical topology request. It exists only to return its
+    /// typed register-gate refusal; no snapshot payload is representable.
+    Topology,
+    /// Reserved per-target capability request. It exists only to return the
+    /// shared-engine requirement refusal; no verdict payload is implemented or
+    /// emitted by this chassis.
+    Capabilities,
 }
 
 /// Every command, for contract-wide tests. Kept beside [`Command::name`],
@@ -125,13 +131,16 @@ pub enum Command {
 /// added: the new variant fails that match until it is handled, and
 /// extending this array in the same edit is a review obligation — stated as
 /// one, not claimed as a compiler guarantee.
-pub const ALL_COMMANDS: [Command; 6] = [
+pub const ALL_COMMANDS: [Command; 9] = [
     Command::Help,
     Command::Version,
     Command::Inspect,
     Command::ExportDiagnostics,
     Command::Doctor,
     Command::Facts,
+    Command::Inventory,
+    Command::Topology,
+    Command::Capabilities,
 ];
 
 impl Command {
@@ -147,6 +156,9 @@ impl Command {
             Self::ExportDiagnostics => "export-diagnostics",
             Self::Doctor => "doctor",
             Self::Facts => "facts",
+            Self::Inventory => "inventory",
+            Self::Topology => "topology",
+            Self::Capabilities => "capabilities",
         }
     }
 }
@@ -224,16 +236,15 @@ impl UsageRefusal {
 /// produced.
 ///
 /// This vocabulary is the chassis's first real feature and the model for
-/// every later gated surface. `not-implemented` is the only state this
-/// increment constructs, because it is the only state it can construct
-/// honestly; a `not-established` state carrying a spec-issue gate arrives
-/// with the first surface the register actually gates (increment 4's
-/// observation records), not before there is something for it to be true of.
+/// every later gated surface. It constructs `not-implemented` for work with
+/// an assigned future owner and `not-established` where open register
+/// questions prevent an honest payload.
 pub struct Refusal {
     /// The state word, from the vocabulary above.
     pub state: &'static str,
-    /// What a reader follows to see the gate: an assignment increment today,
-    /// a spec-issue id when a register-gated surface exists.
+    /// What a reader follows to see the gate: a governing assignment,
+    /// requirement, spec issue, or accepted decision; possibly a
+    /// comma-separated set.
     pub reference: &'static str,
     /// One sentence a human can act on.
     pub detail: &'static str,
@@ -251,6 +262,30 @@ const DISCOVERY_EVIDENCE_REFUSAL: Refusal = Refusal {
              discovery evidence; observation records exist as per-run inspect output, \
              and evidence from real devices reaches this bundle only when a platform \
              adapter package lands it here through the same field allowlist",
+};
+
+const INVENTORY_REFUSAL: Refusal = Refusal {
+    state: "not-established",
+    reference: "SI-27, SI-28, SI-35",
+    detail: "a canonical inventory payload is not established: node naming and collision \
+             behavior (SI-27), identity strength (SI-28), and partition-table state (SI-35) \
+             remain open; use partman inspect for adapter-attributed observations",
+};
+
+const TOPOLOGY_REFUSAL: Refusal = Refusal {
+    state: "not-established",
+    reference: "SI-27, SI-28, SI-34, SI-35",
+    detail: "a versioned TopologySnapshot payload is not established: node naming (SI-27), \
+             identity strength (SI-28), protection placement (SI-34), and partition-table \
+             state (SI-35) remain open; no partial snapshot is emitted",
+};
+
+const CAPABILITIES_REFUSAL: Refusal = Refusal {
+    state: "not-implemented",
+    reference: "CAP-005",
+    detail: "per-target capability payloads are not implemented: CAP-005 requires the CLI to \
+             use the shared capability engine delivered by WP-050; doctor and facts report \
+             inputs, never verdicts",
 };
 
 /// One field the diagnostics allowlist admits.
@@ -384,9 +419,8 @@ impl DiagnosticField {
 
 /// What state a command answers in, for the diagnostics surface list.
 ///
-/// Every current command answers, and the match is kept wildcard-free
-/// anyway: a future refusing surface must decide its state here explicitly
-/// rather than inheriting an "answers" it never earned.
+/// The match is kept wildcard-free: a future surface must decide its state
+/// here explicitly rather than inheriting an "answers" it never earned.
 #[expect(
     clippy::match_same_arms,
     reason = "wildcard-free on purpose; a new command must decide its state here"
@@ -399,6 +433,8 @@ fn command_state(command: Command) -> &'static str {
         | Command::Doctor
         | Command::Facts => "answers",
         Command::Inspect => "answers",
+        Command::Inventory | Command::Topology => "refuses:not-established",
+        Command::Capabilities => "refuses:not-implemented",
     }
 }
 
@@ -427,8 +463,9 @@ fn diagnostics_human() -> String {
 /// Escape one string for placement between JSON quotes.
 ///
 /// Emission only — this binary parses no JSON. Escaping covers the quote,
-/// the backslash, and every control byte below 0x20, which is also what
-/// keeps a hostile string from smuggling ANSI (0x1b) into `--json` output.
+/// the backslash, and every Unicode control character (C0, DEL, and C1),
+/// which is also what keeps a hostile string from smuggling ANSI into
+/// `--json` output.
 fn json_escaped(value: &str) -> String {
     let mut out = String::with_capacity(value.len() + 2);
     out.push('"');
@@ -439,7 +476,7 @@ fn json_escaped(value: &str) -> String {
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
-            control if (control as u32) < 0x20 => {
+            control if control.is_control() => {
                 use std::fmt::Write as _;
                 write!(out, "\\u{:04x}", control as u32)
                     .expect("writing into a String cannot fail");
@@ -448,6 +485,30 @@ fn json_escaped(value: &str) -> String {
         }
     }
     out.push('"');
+    out
+}
+
+/// Encode human-facing, caller-influenced text without terminal controls.
+///
+/// Backslash is escaped too, making the visible representation injective: a
+/// literal `\n`, a newline, and U+FFFD remain three different inputs on the
+/// terminal. JSON preserves the exact scalar value through its own escaping.
+fn terminal_safe(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            control if control.is_control() => {
+                use std::fmt::Write as _;
+                write!(out, "\\u{{{:04x}}}", control as u32)
+                    .expect("writing into a String cannot fail");
+            }
+            other => out.push(other),
+        }
+    }
     out
 }
 
@@ -473,7 +534,8 @@ fn help_text() -> String {
         "partman {VERSION} — read-only CLI chassis (WP-035)\n\
          \n\
          Not a usable partition manager, and must not be represented as one.\n\
-         This chassis inspects nothing yet and mutates nothing ever.\n\
+         This chassis inspects caller-named regular files through inspect --replay,\n\
+         has no native device adapter yet, and mutates nothing ever.\n\
          \n\
          Usage: partman [--json] <command>\n\
          \n\
@@ -488,6 +550,9 @@ fn help_text() -> String {
          \x20 doctor               roster tools at compiled absolute paths — present,\n\
          \x20                      version, in or out of the tested range; never a verdict\n\
          \x20 facts                immutable technology limits, each with its basis\n\
+         \x20 inventory            reserved: typed refusal; no canonical payload exists\n\
+         \x20 topology             reserved: typed refusal; no partial snapshot exists\n\
+         \x20 capabilities         reserved: typed refusal; shared engine not implemented\n\
          \n\
          Flags:\n\
          \x20 --json               one schema-versioned JSON envelope on stdout\n\
@@ -504,8 +569,8 @@ fn help_text() -> String {
          \n\
          Output contains no ANSI sequences in any mode, so NO_COLOR is honored\n\
          by construction. Domain payloads (inventory, topology, capabilities)\n\
-         are absent from every surface: their schemas are gated by the\n\
-         spec-issue register, and absence-with-refusal is the honest state.\n"
+         are absent from every surface: each typed refusal names its governing\n\
+         spec issue or requirement, and absence-with-refusal is the honest state.\n"
     )
 }
 
@@ -546,6 +611,9 @@ fn parse(arguments: &[String]) -> Result<Invocation, UsageRefusal> {
             }
             "doctor" => set_command(&mut command, Command::Doctor, token)?,
             "facts" => set_command(&mut command, Command::Facts, token)?,
+            "inventory" => set_command(&mut command, Command::Inventory, token)?,
+            "topology" => set_command(&mut command, Command::Topology, token)?,
+            "capabilities" => set_command(&mut command, Command::Capabilities, token)?,
             flag if flag.starts_with('-') => {
                 return Err(UsageRefusal::UnknownFlag(flag.to_owned()));
             }
@@ -638,7 +706,7 @@ fn inspect_outcome(replay: Option<&str>, json: bool) -> Outcome {
                      detail: {detail}\n",
                     state = refusal.state,
                     reference = refusal.reference,
-                    detail = refusal.detail,
+                    detail = terminal_safe(&refusal.detail),
                 );
                 text.push_str(&inspect::gated_block());
                 text
@@ -646,6 +714,34 @@ fn inspect_outcome(replay: Option<&str>, json: bool) -> Outcome {
             stderr: String::new(),
             code: EXIT_REFUSAL,
         },
+    }
+}
+
+/// Render a recognized command whose only honest answer is a typed refusal.
+fn typed_refusal_outcome(command: Command, refusal: &Refusal, json: bool) -> Outcome {
+    Outcome {
+        stdout: if json {
+            envelope(
+                Some(command),
+                &format!(
+                    "{{\"kind\":\"refusal\",\"state\":{state},\"reference\":{reference},\
+                     \"detail\":{detail}}}",
+                    state = json_escaped(refusal.state),
+                    reference = json_escaped(refusal.reference),
+                    detail = json_escaped(refusal.detail),
+                ),
+            )
+        } else {
+            format!(
+                "{command}: refused\n  state: {state}\n  reference: {reference}\n  detail: {detail}\n",
+                command = command.name(),
+                state = refusal.state,
+                reference = refusal.reference,
+                detail = refusal.detail,
+            )
+        },
+        stderr: String::new(),
+        code: EXIT_REFUSAL,
     }
 }
 
@@ -728,6 +824,17 @@ fn run(invocation: &Invocation, launcher: &dyn doctor::ToolLauncher) -> Outcome 
             stderr: String::new(),
             code: EXIT_OK,
         },
+        Command::Inventory => {
+            typed_refusal_outcome(Command::Inventory, &INVENTORY_REFUSAL, invocation.json)
+        }
+        Command::Topology => {
+            typed_refusal_outcome(Command::Topology, &TOPOLOGY_REFUSAL, invocation.json)
+        }
+        Command::Capabilities => typed_refusal_outcome(
+            Command::Capabilities,
+            &CAPABILITIES_REFUSAL,
+            invocation.json,
+        ),
     }
 }
 
@@ -749,7 +856,7 @@ fn usage_outcome(refusal: &UsageRefusal, json: bool) -> Outcome {
     } else {
         Outcome {
             stdout: String::new(),
-            stderr: format!("partman: {}\n", refusal.detail()),
+            stderr: format!("partman: {}\n", terminal_safe(&refusal.detail())),
             code: EXIT_USAGE,
         }
     }
