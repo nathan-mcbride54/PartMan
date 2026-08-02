@@ -52,14 +52,15 @@ SI-31 — which made the register unusable as the dependency gate Section 1.11
 requires it to be. Counts drift; a table that must be edited to add a row does
 not.
 
-Every issue appears exactly once. **Nine items gate increment 3**: six direct,
-one transitive, and two inputs.
+Every issue appears exactly once. **Eight items gate increment 3**: six
+direct and two inputs. The former transitive blocker, SI-12, resolved in spec
+4.3.0 by ADR-0011.
 
 | Class | Meaning | Issues |
 | --- | --- | --- |
-| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-31, SI-32 |
+| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-12, SI-31, SI-32 |
 | **Direct blocker** | Must be decided before increment 3 writes a type | SI-11, SI-27, SI-28, SI-33, SI-34, SI-35 |
-| **Transitive blocker** | Blocks a direct blocker, so it blocks the increment | SI-12 (blocks SI-27) |
+| **Transitive blocker** | Blocks a direct blocker, so it blocks the increment | *(none)* |
 | **Input** | Feeds a direct blocker; not itself a decision | SI-29, SI-30 (both to SI-11) |
 | **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-15, SI-16, SI-17, SI-18, SI-19, SI-20, SI-21, SI-22, SI-23, SI-24, SI-25, SI-26 |
 
@@ -69,7 +70,7 @@ matter, because one of the six is *not* simply "undecided":
 | Issue | Hash-visible | State |
 | --- | --- | --- |
 | SI-11 | no | Open. Three design rounds, three rejections; Parts 4–6 |
-| SI-27 | yes | Open, and blocked by SI-12 |
+| SI-27 | yes | Open. Its transitive blocker SI-12 resolved in 4.3.0 (ADR-0011): inventory nodes mirror kernel-materialized block devices, so the naming round proceeds **without a deduplication question** — while the equal-identifier simultaneous pair (two present devices, byte-equal identity fields, only excluded-from-naming paths to tell apart, Strong identity included per the ADR's unassembled case) is assigned to this issue's collision-behaviour scope, and the membership relation's edge kind is this round's to type |
 | SI-28 | yes | **Mitigated-open.** An interim conservative floor is in force and does not resolve it; Part 7 |
 | SI-33 | no | Open. The route by which SI-28's floor may later be relaxed |
 | SI-34 | yes | Open. Reopens whether the protection verdict belongs in the hashed body at all |
@@ -724,9 +725,29 @@ PLAN-006 unsatisfiable if hashed naively.
 
 ## SI-12 Multipath devices and the single connection path
 
-> **Reclassified by round three: this now blocks SI-27, and therefore increment 3.** Two paths to one LUN must deduplicate to a single device node with the path set in the envelope, or any node-naming scheme is wrong on the first SAN it meets — a multipath pair is one device seen twice, which is the opposite of two ambiguous devices and needs the opposite treatment.
+> **Resolved 2026-08-02 in spec 4.3.0 by ADR-0011.** v1 represents multipath
+> detection-only, with a platform-neutral Section 2.1 non-goal entry as the
+> normative home: the inventory carries the platform's own multipath node
+> and its member paths connected by the kernel-reported membership relation
+> — the edge kind deliberately left to SI-27's naming round, per round
+> three's own finding that signatureless host-assembled devices need a new
+> edge kind — the product infers no cross-path sameness of its own, and
+> mutation reports CAP-003 `unsupported` with a multipath reason. Equal
+> stable identifiers with no platform-assembled multipath node are SAFE-005
+> ambiguity, `blocked`; the ADR records the population this check cannot
+> reach (unequal cross-path identifier bytes, per the bridge-synthesis
+> measurements) as an uncovered residual, not as covered. The path-set
+> encoding — including its body-versus-envelope placement, itself part of
+> what this issue left undecided — is deferred behind a MODEL-003 version
+> bump to the spec change that first makes multipath a supported target,
+> gated on multipath observability rows that do not yet exist. The
+> transitive block on SI-27 lifts; the equal-identifier simultaneous-pair
+> collision family is assigned to SI-27's scope. The filing below is
+> retained as history.
 
-**Requirements:** SAFE-003, LIN-006, INV-001 · **Blocks 3 (was: Later, WP-L100), hash-visible**
+> **Reclassified by round three (block lifted by the resolution above): this blocked SI-27, and therefore increment 3.** Two paths to one LUN must deduplicate to a single device node with the path set in the envelope, or any node-naming scheme is wrong on the first SAN it meets — a multipath pair is one device seen twice, which is the opposite of two ambiguous devices and needs the opposite treatment. *(The resolution takes the deduplication from the kernel's own assembly rather than performing it, and defers the path-set placement it directed.)*
+
+**Requirements:** SAFE-003, LIN-006, INV-001 · **Was: Blocks 3 (earlier: Later, WP-L100), hash-visible · Resolved 4.3.0**
 
 SAFE-003 models one connection path per identity record and makes a path change
 the special case for removable replug. LIN-006 requires detecting multipath and
