@@ -7,6 +7,47 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- WP-035 increment 5 records the register measurement instruments:
+  protocols and recording formats for the SI-33 media-change-counter
+  liveness experiment and the SI-35 loop-device and Windows partition-list
+  measurements, spliced into `docs/quality/observability.md` beside the
+  established rows they extend. The experiments are operator-run and
+  read-only — not tests, not repository commands — and no measurement has
+  been taken: every cell a run can fill reads `not yet taken`, each section
+  extends the file's rule of use so such a cell cannot be relied on, cited,
+  or paraphrased as a finding, and every hypothesis carries its refutation
+  condition fixed before any run — with the degraded-state questions named
+  as questions, not hypotheses — so no conclusion can be fitted to data
+  afterward. The SI-33 protocol probes both CHECK_VERIFY variants across an
+  access matrix from zero-access up, quarantines the device-reaching variant
+  from the liveness legs, and records counter movement only as deltas and signs
+  because an absolute count is session history of real hardware (SEC-006);
+  the register's staleness worry — an answer the class driver already
+  holds — is named as the hypothesis under test, not asserted in either
+  direction. The SI-35 Windows protocol reaches the storage stack through
+  a byte-deterministic fixed-VHD conversion (payload untouched, every free
+  footer field pinned, digest-bracketed on both sides of a read-only
+  attach), splits the privileged setup from the unprivileged measurement
+  with both elevation states asserted, and makes the content-versus-state
+  distinction load-bearing: the conflicting fixture's primary table is
+  row-identical to the healthy one's, so no partition-list shape can be
+  recorded as state separation. The loop protocol is blocked on issue #94
+  and carries the gap structurally — the binding-status line must travel
+  beneath every table a run fills. Every embedded script that can run
+  without an attach — the VHD conversion, the CIM measurement query, the
+  layout probe, and the SI-33 block — was executed on 2026-08-02 as
+  validation only (a signed-hex-literal defect that killed the SI-33 block
+  on paste was found this way, by running, not reading); the privileged
+  attach and detach blocks and the loop-protocol shell phases were not
+  executed, the latter because running the attach is itself the #94-gated
+  act, and nothing from any validation run fills any cell. The README's
+  M0.5 heading now reports the milestone in progress rather than not
+  started, its WP-035 status row counts increments 1–4 delivered and
+  increment 5's instruments recorded while stating in the same sentence
+  that the package's objective — the measurements themselves — remains
+  open, and WP-035's README share names the M0.5 roadmap section
+  explicitly, per the WP-030 precedent that a milestone surface is
+  distinct from a status row.
 - WP-035 increment 4 delivers the observation records, and `partman
   inspect` answers for the first time. Every observation carries its
   attribution — adapter name, version, method — the precursor toward
