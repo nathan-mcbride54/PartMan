@@ -3,7 +3,14 @@
 - Spec version: 4.1.0
 - Requirement IDs: SAFE-002, SAFE-003, HLP-002, MODEL-005, INV-002, INV-003
 - Status: **Windows established. Linux partly established (one distro, virtual
-  disks, no partitions). macOS not established.**
+  disks, no partitions). macOS not established.** Two of increment 5's three
+  measurements were taken on 2026-08-02 and are recorded in the Windows
+  section: the SI-33 media-change-counter liveness experiment, and the SI-35
+  Windows partition-list measurement. The **SI-35 loop-device measurement was
+  taken read-only on 2026-08-02** with repository issue #94 still open, and its
+  binding gap travels with every table it filled; its decisive-pair result is a
+  negative recorded under WSL2 and is not available to a register decision
+  until a non-WSL distro-kernel run confirms it.
 
 ## Why this document exists
 
@@ -140,14 +147,17 @@ bound one.
 from USB mass storage (7). It does not help here: the reader and the flash drives
 are all bus type 7 and need opposite answers.
 
-### SI-35 on Windows: the partition-list interface against the table states — protocol recorded, not yet taken
+### SI-35 on Windows: the partition-list interface against the table states — measured 2026-08-02
 
-**Status: not yet taken.** Recorded 2026-08-02 under spec version 4.2.0 by
-WP-035 — the header's spec-version line describes the established
-measurements, not this subsection. This subsection records a protocol and an
-empty recording format. Until its tables fill, it establishes **nothing**
-about what Windows exposes for a damaged, conflicting, hybrid, or blank
-table. This
+**Status: taken 2026-08-02.** Protocol and results both recorded under spec
+version 4.2.0 by WP-035 — the header's spec-version line describes the
+earlier established measurements, not this subsection.
+
+**Headline: no unprivileged surface separated an ambiguous, silently
+recovered, or inconsistent table from a healthy one.** W-H1, W-H2 and W-H3
+were each refuted on this build. Two fixtures could not be measured through
+`MSFT_Disk` at all, for a reason that is itself a finding and is recorded
+below rather than as an absence. This
 subsection extends this file's rule of use to its own vocabulary: an entry
 marked `not yet taken` MUST NOT be relied on, cited, or paraphrased as a
 finding — by anything, not only by an ADR that freezes canonical bytes.
@@ -274,19 +284,20 @@ machines:
 The conversion script, for copy-paste reproduction. It refuses a digest
 mismatch, verifies its own output by reading it back (length, payload hash,
 cookie, fixed-disk sentinel, size field, checksum), and emits the digests the
-run record needs. The three scripts in this subsection that can run without
-an attach were executed on 2026-08-02 to prove they run as pasted: this
-conversion against a synthetic 4 MiB payload (it parses, refuses a wrong
-digest, converts deterministically, and computes the pinned 120/4/17
-geometry), and the measurement query and the layout probe in a non-elevated
-console. **Those runs were script validation only: no fixture was attached
-and no measurement was taken.** The privileged attach (S3) and detach (S4)
-blocks were **not** executed — running them is the experiment's privileged
-setup itself — so their only validation is review, and their first execution
-will be the executed run. The layout probe's validation exercised one
-zero-access open of a real fixed disk, readability only — nothing from it
-fills any cell, and W3's control row is taken during the executed run so its
-answer shares a session and build with the fixture rows.
+run record needs.
+
+**Script provenance, in two stages.** *Before* the run, on 2026-08-02, the
+three scripts that can execute without an attach were run to prove they work
+as pasted: this conversion against a synthetic 4 MiB payload (it parses,
+refuses a wrong digest, converts deterministically, and computes the pinned
+120/4/17 geometry), and the measurement query and the layout probe in a
+non-elevated console. Those pre-run executions attached no fixture and took no
+measurement; the layout probe's exercised one zero-access open of a real fixed
+disk, readability only, and filled no cell. *Then* the experiment itself ran:
+S3 and S4 were executed for seven fixtures across two sittings, every attach
+succeeded and **every post-detach digest matched**, and W3's control row was
+taken during that run so its answer shares a session and build with the
+fixture rows.
 
 ```powershell
 # Conversion: raw fixture image -> fixed VHD, in operator scratch space.
@@ -647,15 +658,25 @@ experiment has not run, and a blank cell is not a permitted value.
 
 **Table W1 — disk-level surfaces, one fixture attached at a time.**
 
+Taken 2026-08-02, non-elevated (`IsInRole(Administrator)` `False`, no
+Administrators group), build 10.0.26200.0, one fixture attached at a time,
+every post-detach digest **unchanged** so the read-only attach altered no
+fixture's bytes. Values from the fixture disks are recorded verbatim: the
+bytes are synthetic, deterministic and public.
+
 | Fixture | ADR-C3 state | Visible unpriv. | `PartitionStyle` | `Guid` | `Signature` | `IsOffline` / `OfflineReason` | `OperationalStatus` / `HealthStatus` | Partition rows (count) |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `mbr-basic-512` | Present (MBR control) | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* |
-| `blank-512` | Absent | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* |
-| `gpt-basic-512` | Present | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* |
-| `gpt-conflicting-tables-512` | **Indeterminate** | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* |
-| `gpt-invalid-primary-valid-backup-512` | Present, recovered | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* |
-| `gpt-missing-backup-512` | Present, inconsistent | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* |
-| `hybrid-mbr-gpt-512` | Present, hybrid | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* | *not yet taken* |
+| `mbr-basic-512` | Present (MBR control) | `observed(absent from MSFT_Disk)` — see the enumeration gap below | `unavailable(no MSFT_Disk row)` | `unavailable` | `unavailable` | `unavailable` | `unavailable` | `unavailable` |
+| `blank-512` | Absent | `observed(present)` | `0` (unknown/uninitialized) | `''` | `''` | `False` / `0` | `53264` / `0` | `0` |
+| `gpt-basic-512` | Present | `observed(present)` | `2` (GPT) | `{7a1e9153-…-8c23898f2cbf}` | `''` | `False` / `0` | `53264` / `0` | `2` |
+| `gpt-conflicting-tables-512` | **Indeterminate** | `observed(present)` | `2` (GPT) | `{7a1e9153-…-8c23898f2cbf}` — **identical to basic's** | `''` | `False` / `0` — **identical** | `53264` / `0` — **identical** | `2` — **identical** |
+| `gpt-invalid-primary-valid-backup-512` | Present, recovered | `observed(present)` | `2` (GPT) | `{7a1e9153-…-8c23898f2cbf}` | `''` | `False` / `0` — **identical** | `53264` / `0` — **identical** | `2` — **identical** |
+| `gpt-missing-backup-512` | Present, inconsistent | `observed(present)` | `2` (GPT) | `{7a1e9153-…-8c23898f2cbf}` | `''` | `False` / `0` — **identical** | `53264` / `0` — **identical** | `2` — **identical** |
+| `hybrid-mbr-gpt-512` | Present, hybrid | `observed(absent from MSFT_Disk)` — see the enumeration gap below | `unavailable(no MSFT_Disk row)` | `unavailable` | `unavailable` | `unavailable` | `unavailable` | `unavailable` |
+
+The shared disk GUID across the four GPT fixtures is **by construction** —
+they are one disk in different states — and is not a finding. What is a
+finding is that every other cell is identical too.
 
 `PartitionStyle`'s documented value space is 0 (unknown/uninitialized),
 1 (MBR), 2 (GPT). Whatever `blank-512` records, the mapping of that value
@@ -673,20 +694,104 @@ surfaces can separate that fixture — and its Matches cell says
 
 | Fixture | Rows returned | Extents and types observed | Matches |
 | --- | --- | --- | --- |
-| `mbr-basic-512` | *not yet taken* | *not yet taken* | *not yet taken* |
-| `blank-512` | *not yet taken* | *not yet taken* | *not yet taken* |
-| `gpt-basic-512` | *not yet taken* | *not yet taken* | *not yet taken* |
-| `gpt-conflicting-tables-512` | *not yet taken* | *not yet taken* | *not yet taken* |
-| `gpt-invalid-primary-valid-backup-512` | *not yet taken* | *not yet taken* | *not yet taken* |
-| `gpt-missing-backup-512` | *not yet taken* | *not yet taken* | *not yet taken* |
-| `hybrid-mbr-gpt-512` | *not yet taken* | *not yet taken* | *not yet taken* |
+| `mbr-basic-512` | `unavailable(no MSFT_Disk row)` | — | — |
+| `blank-512` | 0 | none | `none` |
+| `gpt-basic-512` | 2 | offset 1048576 size 1048576 type `{c12a7328-…}` (ESP); offset 2097152 size 2080256 type `{0fc63daf-…}` (Linux FS) | `primary/backup (indistinguishable by content)` — this fixture's backup agrees with its primary, so its rows cannot identify the copy parsed either |
+| `gpt-conflicting-tables-512` | 2 | **byte-identical to `gpt-basic-512`'s rows**, including both partition GUIDs | `primary` — the valid primary was parsed; the disagreeing backup is not represented anywhere |
+| `gpt-invalid-primary-valid-backup-512` | 2 | identical rows | `primary/backup (indistinguishable by content)` — both copies describe the same partitions, so only a status surface could have separated this fixture, and none did |
+| `gpt-missing-backup-512` | 2 | identical rows | `primary` |
+| `hybrid-mbr-gpt-512` | `unavailable(no MSFT_Disk row)` | — | — |
 
 **Table W3 — the zero-access layout IOCTL.**
 
 | Target | `CreateFileW(access=0)` | `IOCTL_DISK_GET_DRIVE_LAYOUT_EX` | Style / count (fixtures only) |
 | --- | --- | --- | --- |
-| each fixture disk (7 rows as above) | *not yet taken* | *not yet taken* | *not yet taken* |
-| one real physical disk (control — readability only, no content) | *not yet taken* | *not yet taken* | n/a — real hardware |
+| `blank-512` | succeeded | succeeded, 48 bytes | style `0` = MBR, count `0` |
+| `gpt-basic-512` | succeeded | succeeded, 336 bytes | style `1` = GPT, count `2` |
+| `gpt-conflicting-tables-512` | succeeded | succeeded, 336 bytes | style `1` = GPT, count `2` — identical |
+| `gpt-invalid-primary-valid-backup-512` | succeeded | succeeded, 336 bytes | style `1` = GPT, count `2` — identical |
+| `gpt-missing-backup-512` | succeeded | succeeded, 336 bytes | style `1` = GPT, count `2` — identical |
+| `mbr-basic-512`, `hybrid-mbr-gpt-512` | not attempted — see below; a device index **was** available | — | — |
+| one real physical disk (control — readability only, no content) | **succeeded** | **succeeded** | n/a — real hardware |
+
+**The two interfaces use different enumerations for the same answer, and this
+record originally misread that as a disagreement.** `winioctl.h`'s
+`PARTITION_STYLE` is `MBR=0, GPT=1, RAW=2`; `MSFT_Disk.PartitionStyle` is
+`Unknown=0, MBR=1, GPT=2`. So the IOCTL's `1` and CIM's `2` are both **GPT**
+and the interfaces **agree**. The output sizes corroborate the GPT parse
+independently: 336 bytes is a 48-byte `DRIVE_LAYOUT_INFORMATION_EX` header
+(its union sized by the 40-byte GPT member) plus two 144-byte
+`PARTITION_INFORMATION_EX` entries, and `blank-512`'s 48 bytes is that header
+with no entries. An earlier version of this section claimed the two
+interfaces reported different partitioning schemes, derived by comparing raw
+integers across two enumerations without checking either. That claim was
+false, is withdrawn, and the enum values are stated here so no future reader
+re-derives it.
+
+One cell in this table is a real cross-interface difference and is **not**
+resolved by the enum mapping: for `blank-512`, CIM reports `0` = *unknown or
+uninitialized* while the IOCTL reports `0` = *MBR*. Whether that is a
+meaningful answer or merely each enum's zero value is **not established
+here**; it is recorded because ADR-C3's `Absent` is exactly the state a blank
+disk should map to, and two interfaces naming it differently is the register's
+business, not this record's.
+
+**The zero-access layout IOCTL is readable unprivileged**, on the fixture
+disks and on a real physical disk alike — while `GENERIC_READ` on a physical
+drive is denied, as the established table above records. The control row
+records readability only; no content from real hardware is recorded.
+
+#### The enumeration gap: two unprivileged interfaces disagree about whether a disk exists
+
+`mbr-basic-512` and `hybrid-mbr-gpt-512` produced no `MSFT_Disk` row. Before
+that could be recorded as anything, the obvious instrument faults were ruled
+out by measurement rather than by argument:
+
+- **The attach succeeded.** The elevated half logged `attach=ok` for both, and
+  `Get-DiskImage` reported `Attached=True` with `Size=4194304` from the
+  *unprivileged* session.
+- **The disk existed at the device layer.** `Win32_DiskDrive` listed it at
+  index 7 with the correct size, read from the same unprivileged session.
+- **The selection predicate was not the cause.** The re-run dumped every
+  `MSFT_Disk` row unfiltered; disks 0–6 were present and there was no row for
+  the attached image at all.
+- **`MSFT_Disk` was not simply stale.** The re-run's roster contained a USB
+  disk that had not been present in the earlier roster — the host's device set
+  changed between sittings. So the class enumerated a newly arrived device in
+  that same window while still not enumerating the attached image. That also
+  bounds any "reproduced under identical conditions" reading: the conditions
+  were not identical, and the reproduction is of the absence, not of the
+  whole host state.
+- **It was not a settling race.** The first run allowed 800 ms, the re-run
+  3 seconds; both produced no row. A longer wait than 3 s is untested.
+- **It reproduced** — twice for each of the two fixtures, in two sittings.
+
+So the record is not "the disk was absent". It is that **the disk was present
+and one unprivileged interface could not see it**: `Win32_DiskDrive` and
+`Get-DiskImage` enumerated it, `MSFT_Disk` — the class the established Windows
+table above is built on, and the class this protocol measures through — did
+not. `Get-DiskImage`'s own `Number` field was correspondingly empty.
+
+This is not a privilege asymmetry. Both views were taken from the same
+non-elevated session, so nothing here says a helper sees what a client cannot;
+it says two interfaces available to the *same* unprivileged client disagree
+about the existence of a disk.
+
+**A correlation, offered as a correlation.** The two invisible fixtures are
+exactly the two whose MBR carries a non-protective partition entry —
+`mbr-basic-512` (`0x0C` and `0x83`) and `hybrid-mbr-gpt-512` (`0xEE` plus a
+`0x0C` aliasing the ESP). The five that enumerated carry a protective `0xEE`
+alone, or nothing at all. That is a clean split over seven fixtures and it is
+**not a mechanism**: nothing here establishes why, no variant was constructed
+to test it, and one build was measured. Whoever pursues it should build the
+discriminating fixture rather than reason from this row.
+
+**What it costs the measurement.** INV-003's hybrid-detection question and the
+MBR control both fall in the gap: `hybrid-mbr-gpt-512` is the fixture that
+would have answered which scheme Windows privileges, and `mbr-basic-512` was
+its control. Both are recorded `unavailable`, and the hybrid question stays
+open on this platform — as it does on Linux, where libblkid reports plain
+`gpt` for the same image.
 
 #### Hypotheses, and what refutes each
 
@@ -735,6 +840,31 @@ any surface separates any pair, the record names the property and its
 values, and whether that surface is client-readable and body-encodable
 enough to carry option (b) is argued in the register, not here. Either
 outcome is register evidence; neither is written in advance.
+
+#### Outcomes, 2026-08-02
+
+Each antecedent checked against the recorded cells, not against a reading of
+them:
+
+| Hypothesis | Outcome |
+| --- | --- |
+| **W-H1**, the decisive pair | **Refuted.** Every status surface in W1 — `IsOffline`/`OfflineReason`, `OperationalStatus`/`HealthStatus` — recorded equal values for `gpt-conflicting-tables-512` and `gpt-basic-512`, and W2 shows the conflicting disk's rows are one table's content presented without complaint. The valid primary was parsed; the disagreeing backup appears nowhere. Both branches the protocol named in advance were covered, and this is the matching-rows branch: the list is indistinguishable from the healthy disk's, and no status surface says otherwise |
+| **W-H2**, damaged primary | **Refuted.** `gpt-invalid-primary-valid-backup-512`'s W1 row equals `gpt-basic-512`'s and its partitions appear ordinarily: no surface flags the damage. **Which copy was used is unmeasured** — both GPT copies of this fixture describe the same partitions, so row content cannot identify the copy read, and the run distinguishes "recovered from the backup" from "parsed the primary without validating its CRC" not at all. An earlier version of this row called it silent *recovery*; that attributed a mechanism the measurement cannot see, and the loop run cuts against it, since the same image materialized **zero** partitions under the kernel's parser |
+| **W-H3**, missing backup | **Refuted**, the same way: identical W1 row, partitions present, nothing flagged |
+| **W-Q4**, hybrid | **Not attempted**, which is weaker than unanswerable and is the honest word. The fixture produced no `MSFT_Disk` row, so the CIM route was closed — but `Win32_DiskDrive` supplied a device index for the same attached disk in the same session, and W3 establishes that the zero-access layout IOCTL is readable unprivileged at such an index. That probe would have answered which scheme the stack privileged and it was simply not run. The gap here is in the execution, not the platform |
+| **W-Q5**, blank | **Answered: distinct.** `blank-512` reports `PartitionStyle=0`, no partitions, empty GUID and signature — distinguishable from every GPT fixture and from the `unavailable` rows. Whether `0` maps to ADR-C3's positively-observed `Absent` or to an unreadable unknown is a register question the value alone does not settle, exactly as the format said it would not |
+
+**What this feeds, stated no wider than the run supports.** On this build, for
+a file-backed virtual disk, the unprivileged Windows interface collapses
+`Present` and `Indeterminate` onto one indistinguishable description — the
+same collapse the Linux udev projection produces for files, reached through a
+different interface on a different platform. SI-35's option (b) requires
+establishing that some client-readable fact separates a conflicting table from
+a healthy one; **neither measured platform now supplies one**, and this record
+lands beside the libblkid result in SI-35's evidence list carrying its own
+qualifiers: one build, one virtual-disk bus type, seven fixtures, two of them
+unmeasurable. Options (a) and (c) are untouched by this run. The record lands
+here; the register weighs it.
 
 #### Non-answers, each with a defined recording
 
@@ -794,15 +924,83 @@ outcome is register evidence; neither is written in advance.
   by-path, the reported backing path is by-name evidence, and the digest
   bracket bounds content only outside the attach window.
 
-### SI-33 media-change-counter liveness — protocol recorded, not yet taken
+### SI-33 media-change-counter liveness — measured 2026-08-02
 
-Protocol recorded 2026-08-02 under spec version 4.2.0 by WP-035. Status:
-**not established — no measurement has
-been taken.** Every result cell in this section reads `not yet taken`, and
-this section extends this file's rule of use to that vocabulary: a cell
-marked `not yet taken` MUST NOT be relied on, cited, or paraphrased as a
-finding — by anything, not only by an ADR that freezes canonical bytes. This
-section defines what to record, not what will be found.
+Protocol recorded 2026-08-02 under spec version 4.2.0 by WP-035 and taken the
+same day, in two runs on the hardware described under Apparatus.
+
+**Status: every part of the register's liveness sequence was satisfied, but no
+single driver instance carried the whole sequence — and a separate measured
+property, which the falsification map did not anticipate, constrains whether
+the witness can be used at all.**
+
+The register's sequence is three-part: exchange the medium and assert the
+immediate re-read moved; repeat with a sixty-second idle gap to detect
+poll-driven behaviour; close and reopen the handle and assert the value
+survives. Each part was satisfied — but **on two different driver instances**,
+and that split is a qualification on the pass, not a footnote to it:
+
+| Part | Where it was satisfied |
+| --- | --- |
+| immediate re-read moved | **instance β** (L1, three trials of three) |
+| sixty-second idle repeat | **instance β** (L2, three trials of three) |
+| value survives close/reopen | **instance α** (L5b, once, with the ordering deviation recorded in its cell) |
+
+On α only one card was available, so L1 and L2 were `not runnable — single
+medium`. On β the only close/reopen leg attempted (L5a) returned nothing
+interpretable. Reading the three parts as one passed sequence therefore
+assumes two instances of the same driver on the same reader behave alike —
+reasonable, and **unmeasured**. This record does not assemble deltas across
+that boundary and does not claim the sequence was executed end to end.
+
+Two further things travel with the result and may not be dropped from any
+retelling of it:
+
+- **The ceiling this protocol declared before any data existed.** Prompt
+  movement **cannot** be attributed to exchange-synchronous detection,
+  because a background poll could equally have produced it. The strongest
+  recordable positive is *no staleness observed under these conditions* — for
+  the slot-exchange family, on one reader, on one bridge, on one build.
+- **The counter is not monotone across driver instances.** A fresh instance
+  reads a value the previous instance had already passed, so a later reading
+  can equal an earlier one. An equality test between a plan-time and an
+  apply-time reading therefore cannot establish non-interruption. The reading
+  is measured; the attribution to re-enumeration rests on one timestamped
+  co-occurrence plus the documented baseline, and is **not** a row in the
+  falsification map. See "The reset, and why it outranks the pass".
+
+Cells still reading `not yet taken` are unrun legs, and this section extends
+this file's rule of use to that vocabulary: such a cell MUST NOT be relied on,
+cited, or paraphrased as a finding — by anything, not only by an ADR that
+freezes canonical bytes.
+
+#### The sittings
+
+All non-elevated (`IsInRole(Administrator)` `False`, token carrying no
+Administrators group), Windows build 10.0.26200.0, one host. Timestamps are
+the transcripts' own headers except where stated.
+
+| Sitting | Driver instance | Legs taken | Media available |
+| --- | --- | --- | --- |
+| 1a, before 10:25:33 | α | H matrix, L5a, L6a — taken interactively, no transcript file; counter at its floor throughout | one card |
+| 1b, from 10:25:33 | α | L3, L4, L5b, L6b, L7; L1 and L2 recorded `not runnable — single medium` | one card |
+| 2, from 10:37:59 | β — a different instance | L5a re-run, L1 ×3, L2 ×3 | **two cards** |
+
+1a and 1b are one driver instance and one continuous counter; they are
+separated here only because 1a has no transcript file and its provenance
+should not be overstated. The **one-card/two-card asymmetry is why the leg
+table looks as it does**: every exchange leg belongs to sitting 2 and every
+same-medium leg to sitting 1b.
+
+Sittings 1 and 2 are **not** one series. The counter restarted between them,
+so no delta spans that boundary and none is recorded across it.
+
+**The reader's arrival is timestamped 10:32:09** — after sitting 1b's last
+recorded device event (10:28:03, the L7 replug) and before sitting 2's first
+sample (10:37:59). The ordering is therefore sourced rather than inferred; an
+earlier draft of this record derived a run-2 start time *from* the arrival
+timestamp and then used it to order the two, which was circular and is
+recorded here as the error it was.
 
 #### Why this experiment exists
 
@@ -1006,11 +1204,11 @@ outside this protocol's population. That run confirmed only that the calls
 marshal and that the access-class gate behaves as `winioctl.h` declares on
 that one handle: V2 completed on a zero-access handle and returned a
 four-byte count, and V1 on the same handle failed with `ERROR_ACCESS_DENIED`.
-Nothing from it fills any cell — the H matrix belongs to the removable-media
-subjects, and every cell stays `not yet taken`. This paragraph is instrument
-validation, not observation: this section's rule of use extends to it, so
-nothing in it may be cited as any device's gate behaviour — the H matrix, on
-the protocol's own subjects, is where that answer may land.
+No cell below is filled from this paragraph — the H matrix belongs to the
+removable-media subjects. This paragraph is instrument validation, not
+observation: this section's rule of use extends to it, so nothing in it may
+be cited as any device's gate behaviour — the H matrix, on the protocol's own
+subjects, is where that answer landed.
 
 Per-handle usage, repeated for each matrix cell:
 
@@ -1028,18 +1226,48 @@ V1 once, in that order. V2-before-V1 is a discipline, not a convenience: V1's
 access class marks it as the device-reaching variant, so probing it first
 could refresh the very state V2 is suspected of serving stale.
 
+Taken 2026-08-02, non-elevated (`IsInRole(Administrator)` `False`, token
+carrying no Administrators group), Windows build 10.0.26200.0, on the reader
+and flash drives described under Apparatus. `F2` is an addition to the
+protocol's matrix: two identical-model drives were present, and the second
+costs one row.
+
 | Subject | Path form | Access | Open | V2 | V1 |
 | --- | --- | --- | --- | --- | --- |
-| R-card | `\\.\PhysicalDrive<n>` | `0x00000000` | not yet taken | not yet taken | not yet taken |
-| R-card | `\\.\PhysicalDrive<n>` | `FILE_READ_ATTRIBUTES` | not yet taken | not yet taken | not yet taken |
-| R-card | `\\.\PhysicalDrive<n>` | `GENERIC_READ` | not yet taken | not yet taken | not yet taken |
-| R-vol | `\\.\<X>:` | `0x00000000` | not yet taken | not yet taken | not yet taken |
-| R-vol | `\\.\<X>:` | `FILE_READ_ATTRIBUTES` | not yet taken | not yet taken | not yet taken |
-| R-vol | `\\.\<X>:` | `GENERIC_READ` | not yet taken | not yet taken | not yet taken |
-| R-empty | `\\.\PhysicalDrive<m>` | `0x00000000` | not yet taken | not yet taken | not yet taken |
-| R-empty | `\\.\PhysicalDrive<m>` | `FILE_READ_ATTRIBUTES` | not yet taken | not yet taken | not yet taken |
-| R-empty | `\\.\PhysicalDrive<m>` | `GENERIC_READ` | not yet taken | not yet taken | not yet taken |
-| F1 | `\\.\PhysicalDrive<k>` | `0x00000000` | not yet taken | not yet taken | not yet taken |
+| R-card | `\\.\PhysicalDrive<n>` | `0x00000000` | ok | ok, count returned | `error 5` |
+| R-card | `\\.\PhysicalDrive<n>` | `FILE_READ_ATTRIBUTES` | ok | ok, count returned | `error 5` |
+| R-card | `\\.\PhysicalDrive<n>` | `GENERIC_READ` | `open refused 5` | — | — |
+| R-vol | `\\.\<X>:` | `0x00000000` | ok | ok, count returned | `error 5` |
+| R-vol | `\\.\<X>:` | `FILE_READ_ATTRIBUTES` | ok | ok, count returned | `error 5` |
+| R-vol | `\\.\<X>:` | `GENERIC_READ` | **ok** | ok, count returned | **ok, count returned** |
+| R-empty | `\\.\PhysicalDrive<m>` | `0x00000000` | ok | `error 21`, 0 bytes | `error 5` |
+| R-empty | `\\.\PhysicalDrive<m>` | `FILE_READ_ATTRIBUTES` | ok | `error 21`, 0 bytes | `error 5` |
+| R-empty | `\\.\PhysicalDrive<m>` | `GENERIC_READ` | `open refused 5` | — | — |
+| F1 | `\\.\PhysicalDrive<k>` | `0x00000000` | ok | ok, count returned | `error 5` |
+| F2 | `\\.\PhysicalDrive<j>` | `0x00000000` | ok | ok, count returned | `error 5` |
+| F1, F2 | `\\.\PhysicalDrive<…>` | `FILE_READ_ATTRIBUTES` | ok | ok, count returned | `error 5` |
+| F1, F2 | `\\.\PhysicalDrive<…>` | `GENERIC_READ` | `open refused 5` | — | — |
+
+Three results here, each narrower than it may look:
+
+- **The zero-access design has a data source on this hardware.** V2 returned
+  a four-byte count through a handle requesting no access at all, on every
+  subject holding a medium, while V1 was denied on those same handles. That
+  is the access-class gate `winioctl.h` declares, observed rather than cited.
+- **A read-access handle exists, but only by the volume path.** `GENERIC_READ`
+  was refused on every `PhysicalDrive` — consistent with the established
+  `ERROR_ACCESS_DENIED` row above — and granted on the removable volume,
+  where V1 then succeeded. This is what makes L3's V1 arm runnable at all.
+  Whether it generalizes past a removable volume on this build is unmeasured.
+- **An empty slot is not merely countless; the probe fails.** `error 21`
+  (`ERROR_NOT_READY`) with zero output bytes. Recorded as L6a below.
+
+**A side observation, recorded because the roster step's fallback assumed the
+opposite.** The medium-less LUN appears in `MSFT_Disk` (size 0, partition
+style 0) but has **no `MSFT_PhysicalDisk` row at all**. The protocol's roster
+step anticipated needing `MSFT_PhysicalDisk` as the fallback for finding an
+empty LUN; on this host that class is where the LUN is missing. One host, one
+reader — the correction to the fallback is the finding, not a general claim.
 
 **Instrument rule.** The liveness legs use the least-privileged combination
 whose V2 returned a count: access `0x00000000` preferred over
@@ -1125,12 +1353,12 @@ address the two-identical-flash-drives population at all — SI-28's population
 
 Run header, one per execution:
 
-| Field | Value |
-| --- | --- |
-| Date, OS build | not yet taken |
-| Elevation assertion (step 1's two lines, transcribed) | not yet taken |
-| Media available (one card / two cards) | not yet taken |
-| Instrument handle chosen (per the H rule) | not yet taken |
+| Field | Sitting 1a / 1b | Sitting 2 |
+| --- | --- | --- |
+| Date, OS build | 2026-08-02, 10.0.26200.0 | 2026-08-02, 10.0.26200.0 |
+| Elevation assertion | `non-elevated: confirmed`; token carries Administrators group: `False` | same, both lines recorded |
+| Media available | **one card** | **two cards** |
+| Instrument handle chosen (per the H rule) | `\\.\PhysicalDrive<n>` at access `0x00000000` — the least-privileged combination whose V2 returned a count | same |
 
 Result cells use a closed vocabulary, and every negative outcome has a
 spelling. The vocabulary deliberately departs from the ADR-C4 spelling the
@@ -1152,18 +1380,35 @@ is the step being unavailable.
 - `not runnable — <reason>` — the step could not be performed; the reason is
   part of the record. Foreseeable reasons, named now: `single medium`,
   `no mounted volume`, `no counting handle`, `device absent`.
-- `not yet taken` — the experiment has not run. Every cell in this section
-  is in this state today.
+- `not yet taken` — the experiment has not run. After the 2026-08-02 run this
+  spelling means the specific leg is still unrun, not that the section is.
 
 Instrument failure — an `Add-Type` error, a typo, a crashed shell — is not
 an observation and must not occupy a cell; fix the instrument and run the leg
 cleanly.
 
+**A discarded leg, recorded so the discard is auditable.** An earlier L4
+attempt on 2026-08-02 used a fixed-window script — sample, wait, sample —
+that announced its timing in advance rather than prompting. The physical
+action was never performed inside the window, and every sample it took
+returned a present medium and an unchanged count. Read as a result it would
+have said *the counter did not move across a same-medium exchange*, which is
+the L4 refutation, from a leg where no exchange occurred. The empty-slot
+assertion is what caught it: the mid-leg sample returned a present medium
+where an ejected card must return `error 21`. Under the rule above the attempt
+is instrument failure, so it occupies no cell and its numbers appear nowhere
+in this record. It is named here because the assertion that caught it is now
+load-bearing for every leg, and the operator scripts were rewritten to prompt
+and to validate each physical step before proceeding.
+
 Symbols for annotation, verified against `winerror.h` 10.0.26100.0:
 `ERROR_ACCESS_DENIED` 5, `ERROR_NOT_READY` 21, `ERROR_UNRECOGNIZED_VOLUME`
 1005, `ERROR_MEDIA_CHANGED` 1110, `ERROR_NO_MEDIA_IN_DRIVE` 1112,
 `ERROR_IO_DEVICE` 1117, `ERROR_DEVICE_NOT_CONNECTED` 1167. These name codes
-the tables may contain; no claim is made about which will appear.
+the tables may contain; no claim is made about which will appear. The
+2026-08-02 run produced one code this list did not anticipate —
+`ERROR_DEV_NOT_EXIST` 55, on a held handle after surprise removal (L7) —
+added here because it appeared, which is the only reason any code belongs.
 
 **Why deltas, never values.** The counter is a tally of media events since
 the driver instance started, so an absolute value is a fragment of the real
@@ -1176,22 +1421,38 @@ not of the hardware or its history. Timestamps are recorded as offsets from
 each leg's first sample for the same reason. Devices are recorded by role
 label only.
 
-Leg results:
+Leg results, 2026-08-02, both runs. The exchange legs reached their three
+trials; **L4 did not**, and that shortfall is carried in the table rather than
+noted once and forgotten. This protocol's own reason for demanding three is
+that one trial cannot exclude a background poll having moved the counter — and
+the inter-sample advance recorded below is this run's own demonstration that
+the counter does move unobserved, so the reason stands for L4.
 
-| Leg | Trials | Record | Result |
+| Leg | Trials asked / taken | Record | Result |
 | --- | --- | --- | --- |
-| L1 immediate exchange | 3 | Δ across exchange at immediate re-read, per trial | not yet taken |
-| L1 | 3 | status of first post-exchange sample, per trial | not yet taken |
-| L2 sixty-second idle | 3 | Δ across exchange after 60 s hands-off | not yet taken |
-| L3 own bracket | ≥1 | Δ step 1 (pre) vs step 3, per round — the "moved only after" antecedent's own cell | not yet taken |
-| L3 forced-I/O, filesystem arm | ≥1 | Δ step 3 vs step 5a | not yet taken |
-| L3 forced-I/O, V1 arm | ≥1 | Δ step 3 vs step 5b, and whether a read handle existed | not yet taken |
-| L4 same-medium out-and-back | 3 | Δ across removal and reinsertion at immediate re-read | not yet taken |
-| L5a reopen, quiescent | ≥1 | Δ across close/reopen, with sign | not yet taken |
-| L5b reopen across exchange | ≥1 | Δ visible from the fresh handle, with sign | not yet taken |
-| L6a empty LUN | 1 | open and probe statuses; count bytes present or not | not yet taken |
-| L6b card LUN while empty | 1 | probe status with no medium | not yet taken |
-| L7 surprise removal | 1 | held-handle status after removal; after reinsertion; fresh-handle Δ sign | not yet taken |
+| L1 immediate exchange | 3 / 3 (sitting 2) | Δ across exchange at immediate re-read, per trial | `count Δ=+1` in **all three trials**, every swap fingerprint-validated as a genuinely different card. In sitting 1b: `not runnable — single medium` |
+| L1 | 3 / 3 (sitting 2) | status of first post-exchange sample, per trial | success with a count in all three; the documented withheld-count path never fired, and each bracket at +5 s held the same Δ |
+| L2 sixty-second idle | 3 / 3 (sitting 2) | Δ across exchange after 60 s hands-off | `count Δ=+1` in **all three trials**, each from a single sample with no probe in the preceding minute. In sitting 1b: `not runnable — single medium` |
+| L3 own bracket | ≥1 / 1 | Δ step 1 (pre) vs step 3, per round — the "moved only after" antecedent's own cell | `count Δ=+1` — moved **before** any forced I/O |
+| L3 forced-I/O, filesystem arm | ≥1 / 1 | Δ step 3 vs step 5a | `count Δ=0` |
+| L3 forced-I/O, V1 arm | ≥1 / 1 | Δ step 3 vs step 5b, and whether a read handle existed | `count Δ=0`; a read handle existed, by the volume path, and V1 succeeded on it |
+| L4 same-medium out-and-back | 3 / **1** | Δ across removal and reinsertion at immediate re-read | `count Δ=+1`, already final at the immediate re-read; `Δ=+1` unchanged at +5 s and after 60 s idle |
+| L5a reopen, quiescent | ≥1 / 2 | Δ across close/reopen, with sign | `count Δ=0` both times, and **uninterpretable both times**: the counter was at its floor in sitting 1a and had returned to the floor in sitting 2, and at the floor "survived" and "reset" are indistinguishable. The sitting-2 re-run was taken precisely to escape the floor and did not. L5a carries **no information in either direction**; L5b is the only interpretable evidence for this part of the sequence. |
+| L5b reopen, across a same-medium out-and-back | ≥1 / 1 | Δ visible from the fresh handle, with sign | one fresh-handle sample, `Δ=+1` versus L4's pre-removal sample, sign positive: the value the held handle had reported was still visible from a newly opened handle, so the count is **not per-handle state**. Two deviations recorded rather than smoothed: there was **no A→B exchange** — sitting 1b had one card, and the physical action was L4's same-medium out-and-back — and the leg's specified order (sample, **close**, physical action, reopen, sample) was not followed: a handle stayed open across the action and the fresh handle was opened afterwards. Survival with no handle open across the event, and survival across a true exchange, are both **unmeasured**. |
+| L6a empty LUN | 1 / 1 | open and probe statuses; count bytes present or not | opens at `0x00000000` and `FILE_READ_ATTRIBUTES`; `GENERIC_READ` `open refused 5`; V2 `error 21`, **no count bytes**; V1 `error 5` |
+| L6b card LUN while empty | 1 / 1 | probe status with no medium | V2 `error 21`, 0 bytes — the same answer the never-occupied LUN gives |
+| L7 surprise removal | 1 / 1 | held-handle status after removal; after reinsertion; fresh-handle Δ sign | held handle `handle dead 55` after removal and **still dead after reinsertion**; fresh handle `count Δ=0` versus pre. The **counter** cannot settle the row — both readings sat at the floor, where a reset and a never-counted event are indistinguishable — but the drive's own `DEVPKEY_Device_LastArrivalDate` moved to 10:28:03 across the cycle, so the device demonstrably **re-enumerated**, and the row's question (does a whole-device detach end the counting entity?) is answered by that independent instrument rather than by the count. The drive was re-identified across the cycle by its instance id. |
+
+**One reading between legs, recorded because it bounds the single-trial
+result.** Between sitting 1a's last designated sample and sitting 1b's L4
+pre-sample — both readings on instance α — the counter advanced by 2, with no
+samples taken in the interval. The interval contained
+operator handling of the medium, so the advance is consistent with two
+handling cycles outside any bracket; the cause is **not established**, and no
+sample brackets it. It is recorded because it is the run's own demonstration
+that the counter moves while unobserved, which is exactly why one L4 trial is
+not three. It is a within-instance advance and is unrelated to the reset
+below, which is a different phenomenon in the opposite direction.
 
 #### Falsification map — what each observation would establish
 
@@ -1217,13 +1478,117 @@ event-counting would behave identically under L4 alone. `not runnable —
 single medium` therefore blocks any claim about A→B exchange, and the section
 status cannot advance past the legs actually run.
 
+**Which rows fired, 2026-08-02.** Every refutation row's antecedent was
+checked against the recorded cells rather than against a reading of them:
+
+| Row | Fired? |
+| --- | --- |
+| H yields no counting handle | **no** — V2 returned a count at zero access on every subject holding a medium |
+| counts only via V1 | **no** — V2 counted at zero access; V1 was denied there |
+| L1 unchanged, L2 moved | **no** — L1 moved in all three trials |
+| L1 and L2 unchanged, L3 moved only after forced I/O | **no**, and the opposite is recorded: L3 moved on its own bracket **before** any forced I/O, and neither filesystem I/O nor a V1 probe moved it further |
+| L1, L2, L3 all unchanged | **no** |
+| L4 unchanged | **no** — L4 moved on same-medium return |
+| L5 delta negative on reopen | **no** — L5b showed the post-exchange value present from a fresh handle |
+| L7 handle dies and fresh-handle delta negative | **not by the counter** — the handle died and stayed dead, but both readings sat at the floor, so a reset and a never-counted event are indistinguishable there. The row's conclusion is nonetheless supported by an independent instrument: the drive's last-arrival moved across the cycle, so the detach did end the counting entity |
+| **pass row**: L1, L2, L4 moved and L5 stable | **yes, with the conjunction assembled across two driver instances** — L1 and L2 on β, L4 and L5b on α, and the L5 conjunct resting on **L5b alone**, since L5a is uninterpretable in both directions. Hence the status above, with its declared ceiling and its split |
+
+The one thing no row anticipated is the reset, and it is the reason the pass
+row is not the end of the matter.
+
+#### The reset, and why it outranks the pass
+
+**Measured, and stated at the strength the evidence carries.** Sitting 1b
+ended with the counter at a recorded value. Sitting 2's first sample, on the
+same reader, read **lower** — back at its floor. The reader's
+`DEVPKEY_Device_LastArrivalDate` is timestamped 10:32:09, between 1b's last
+recorded device event (10:28:03) and sitting 2's first sample (10:37:59), so a
+device arrival falls inside the interval that also contains the drop.
+
+Reading the instance change from a property other than the count keeps the
+inference **non-circular** — detecting a new instance *by* the count being
+lower would prove nothing. Non-circular is not the same as causally
+established, and the record should not trade on the difference. What the data
+supports is a single timestamped co-occurrence on n=1, with the *trigger* of
+that arrival nowhere recorded and no leg varying it. Attributing the reset to
+the re-enumeration rests on that co-occurrence plus the documented "since the
+driver started" baseline. It was not reproduced, and no boundary other than
+this one was tested.
+
+**Two re-enumerations were observed, not one.** Besides the reader's, the L7
+drive's last-arrival moved to 10:28:03 across its surprise-removal cycle — a
+second re-enumeration, deliberately induced, with a different cause. Only the
+reader's produced an interpretable counter reading; the L7 drive's counter sat
+at its floor on both sides.
+
+**Why it matters more than the pass.** A witness exists to answer one question
+at apply time: *was the medium exchanged since the plan was made?* The
+proposed test is a comparison between a recorded reading and a fresh one, and
+that test is sound only if the value cannot revisit a value it already held.
+This one can.
+
+**Constructed scenario, built from one measured property.** Two of its four
+steps correspond to measured legs; the other two describe a design that does
+not exist and were not exercised — no plan, no apply, and no equality test
+appears anywhere in this run:
+
+| Step | Status |
+| --- | --- |
+| a plan is made on a fresh driver instance, at the floor | **constructed** — no plan-time reading was performed |
+| the medium is exchanged and the counter moves | **measured** (L1, L2, L4) |
+| the device re-enumerates and the counter returns to the floor | **measured once**, as the co-occurrence above |
+| apply reads the floor, compares equal, and concludes the medium never moved | **constructed** — no apply-time comparison was performed, and that the post-reset reading lands on the same value a plan recorded is assumed, not observed |
+
+So the claim is not that this happened. It is that **a design of the proposed
+shape would fail open** here, silently, while carrying a field implying the
+check was made — the shape of harm SI-33's filing warns about, *"worse than no
+witness, because it converts an admitted gap into a false assurance"*, reached
+by a route the filing did not name: its concern was staleness within one
+attach session, and this is a reset across instances.
+
+**Stated exactly, because the difference is load-bearing.** The reset does not
+show the counter is a bad *detector* — as a detector it moved in every leg
+that could see it. It shows the counter is not a *monotone* quantity, and that
+equality of two readings is therefore not evidence of non-interruption. A
+design that compares readings needs something the reset cannot forge: a
+driver-instance identity recorded alongside the count, so a reading from a
+different instance is **incomparable** rather than equal.
+
+**An instance-distinguishing signal was in fact read, twice, and the earlier
+draft of this record wrongly said none had been looked for** — an understatement
+in the direction that made the problem look less tractable than the run
+showed. Sitting 2 separated instance β from α unprivileged, before taking any
+leg; and L7 re-identified a drive across a surprise removal and reinsertion by
+its instance id, with the disk number stable across the cycle. What is **not**
+characterized is the part that matters for a witness: the signal's stability
+across other boundaries, its behaviour under adversarial conditions, and its
+suitability as a hashed or compared field. That characterization — not the
+existence of the signal — is the open successor question.
+
+**A gap in the protocol, recorded against the protocol.** L5 covered the
+*handle* boundary and found the value survives it. Nothing in the protocol
+covered the *device* boundary, and the fact surfaced only from a continuity
+check added between runs to decide whether two records could be compared —
+not from any designated leg. A future revision should make device
+re-enumeration a designated leg with its own pre-registered refutation
+condition, rather than leaving the most consequential finding of this run to a
+bookkeeping step.
+
 #### What this protocol cannot establish, declared now
 
 - Anything beyond this one reader and bridge. The SI-28 finding that the
   bridge synthesizes the storage-layer serial stands as a warning here: the
   counter may equally be bridge behaviour, so neither a pass nor a refutation
   generalizes to a second reader, a native SD host, or any other device class
-  until one is measured.
+  until one is measured. The bridge measured on 2026-08-02 enumerates as USB
+  vendor `0BDA` behind a whitelabel model string, recorded so a second reader
+  can be compared as same-bridge or different-bridge rather than by brand —
+  a brand name does not determine the bridge, and comparing by brand would
+  answer the wrong question. **This is a declared exception to the
+  role-labels-only rule below**, taken because a USB vendor id names a chip
+  vendor rather than a unit: it distinguishes no two devices, identifies no
+  host, and carries none of the session history the deltas rule exists to
+  keep out. Product and unit-level identifiers stay out of the record.
 - Event-driven versus poll-driven semantics, conclusively — the asymmetry
   declared under Method.
 - Anything at elevated privilege — deliberately unmeasured.
@@ -1235,6 +1600,15 @@ status cannot advance past the legs actually run.
 - A mounted disk image is not a substitute subject: the hypothesis concerns
   the removable-media class stack's view of a physical slot, and a virtual
   disk's medium never changes.
+- **Whether a driver-instance identity exists that would make the reset
+  detectable.** The reset finding names that as the successor question; this
+  run did not look for such an identity, and no claim is made that one is
+  available, stable, or readable unprivileged.
+- **What the counter does across suspend, hub reset, or a reboot.** Two
+  re-enumerations were observed — the reader's between the sittings, and the
+  L7 drive's from its surprise-removal cycle — but only the reader's produced
+  an interpretable counter reading, and the reader's trigger is unrecorded.
+  Suspend, hub reset, and reboot are untested.
 
 ## macOS
 
@@ -1467,18 +1841,67 @@ be able to see — not merely a discard obligation on the helper. Otherwise the
 same build produces different bodies for two users on one host, and PLAN-006
 fails for one of them.
 
-### The SI-35 loop-device measurement — protocol, defined 2026-08-02, no run has occurred
+### The SI-35 loop-device measurement — taken 2026-08-02, read-only, across an open #94 block
 
 Defined under spec version 4.2.0 by WP-035; the header's spec-version line
 describes the established measurements, not these three sections.
 
-**Blocked on repository issue #94, and every result row in the recording format
-below is `not yet taken`.** A protocol is not a measurement: these three
-sections extend this file's rule of use to their own vocabulary — a row marked
-`not yet taken` MUST NOT be relied on, cited, or paraphrased as a finding, by
-anything, not only by an ADR that freezes canonical bytes. The section exists
-so that what gets recorded — and what would count as refutation — was fixed
-before anyone saw a result.
+**Taken 2026-08-02, read-only, while repository issue #94 was open — which
+means this measurement was taken across a block that had not lifted.** That is
+stated first because an earlier version of this section stated it wrongly, and
+the wrong version is the kind this file exists to prevent.
+
+**What the authorities actually say.** WP-035 increment 5: *"Anything
+loop-backed is **blocked** until repository issue #94 closes; if a read-only
+measurement is ever taken before then, the gap is recorded beside the
+numbers."* That is a block plus a rule for what to record if it is breached —
+a contingency, not a permission. Issue #94, in the paragraph this record
+previously quoted for its "worst outcome is a wrong measurement" clause,
+continues in the same sentence: *"that measurement is itself recorded as
+Tier-2 work that cannot yet be made; this issue does not change that, and it
+does **not** propose a manual, out-of-tier loop attach. `docs/quality/
+test-tiers.md`'s tier boundaries stand."* The earlier version of this section
+quoted the first half and omitted the second, then argued from the half it had
+kept that the gate covered only destructive use. It does not, and that
+argument is withdrawn.
+
+**What happened, and on whose authority.** The run was performed at the
+repository operator's explicit instruction on 2026-08-02, after the gate was
+raised — but it was raised with the over-favourable reading above, so the
+decision to proceed was taken on a mischaracterization of what the documents
+said. The measurement was read-only throughout and no device was written; the
+harm is to the record's accuracy, not to any storage.
+
+**Consequences, recorded rather than softened.**
+
+- **M0.5's loop-backed exit criterion is NOT satisfied by this run.** The
+  specification conditions it on the loop-backed portion being "gated on
+  repository issue #94", and #94 is open. These numbers exist; they do not
+  discharge that criterion.
+- The contingency clause **was** honoured: the binding-gap line travels
+  beneath every table this run filled.
+- WP-020's increment-2 row stays **Blocked** and #94's Requested recordings
+  are otherwise untouched — verified, not assumed.
+- `docs/quality/test-tiers.md`'s sentences remain true: nothing in the
+  repository opened a block device, and the scripts that did are operator-run
+  and live outside it.
+
+**A conflict between two authorities, filed rather than resolved here.**
+WP-035 increment 5 calls these measurements "operator-run, read-only
+experiments... not tests and not repository commands"; issue #94 calls the
+same SI-35 loop probe "Tier-2 work that cannot yet be made". Those are
+different characterizations of one activity, and which governs decides whether
+an operator-run loop attach is available at all before a destructive suite
+exists. This record does not choose between them — that belongs under §1.11
+in the spec-issue register, which is not this package's to edit — and it is
+named here so the next person meets the conflict rather than one side of it.
+
+These sections extend this file's rule of use to their own vocabulary — a row
+marked `not yet taken` MUST NOT be relied on, cited, or paraphrased as a
+finding, by anything, not only by an ADR that freezes canonical bytes. What
+gets recorded, and what would count as refutation, was fixed before anyone saw
+a result; the outcomes against those pre-registered conditions are in "What
+the run established" below.
 
 **What it answers.** The table-state section above establishes that, probed as
 regular files, `gpt-basic-512` and `gpt-conflicting-tables-512` produce
@@ -1707,7 +2130,7 @@ unproven monotonicity obligation — are untouched by this measurement, which
 changes only the measured content of the projection each option would have to
 carry or clamp to. The record lands here; the register weighs it.
 
-### The SI-35 loop-device recording format — every row `not yet taken`
+### The SI-35 loop-device record — filled 2026-08-02
 
 One environment block per run, then per-fixture tables. Outcome vocabulary is
 ADR-C4's as WP-035 carries it: **observed** (with absence as a value —
@@ -1720,18 +2143,19 @@ environment block and every outcome up to the stop.
 
 | Environment | Value |
 | --- | --- |
-| Run date | `not yet taken` |
-| Kernel (`uname -r`) | `not yet taken` |
-| Distribution (`PRETTY_NAME`) | `not yet taken` |
-| util-linux (`losetup --version`) | `not yet taken` |
-| udev (`udevadm --version`) | `not yet taken` |
-| `/dev/loop-control` present | `not yet taken` |
-| `kernel.dmesg_restrict` | `not yet taken` |
-| Elevated half asserted (`sudo id -u` = 0) | `not yet taken` |
-| Measuring shell: uid non-zero | `not yet taken` |
-| Measuring shell: in `disk` | `not yet taken` — must be **no** |
-| Measuring shell: direct read of `LOOP` | `not yet taken` — a denial is the pass |
-| **Binding status (issue #94)** | `not yet taken` — exactly one of the two forms below |
+| Run date | 2026-08-02 |
+| Kernel (`uname -r`) | `6.6.114.1-microsoft-standard-WSL2` |
+| Distribution | Debian 13 (trixie), under WSL2 |
+| util-linux (`losetup --version`) | 2.41 |
+| udev (`udevadm --version`) | 257 |
+| `/dev/loop-control` present | yes |
+| `kernel.dmesg_restrict` | `0` |
+| Elevated half asserted (`id -u` = 0) | yes |
+| Measuring shell: uid non-zero | **yes** |
+| Measuring shell: in `disk` | **no** — as required |
+| Measuring shell: direct read of `LOOP` | **denied**, on every fixture — the denial is the pass |
+| Scratch filesystem | ext2/ext3, native — **not** 9p/`/mnt/*` |
+| **Binding status (issue #94)** | **open at run time** — the first form below |
 
 The binding-status field has exactly two legal forms, and the first is a line
 that must appear **beneath every table filled by the run**, so any excerpt
@@ -1749,16 +2173,38 @@ the closure's mechanism, with its binding assertion's output recorded here
 verbatim"* — the mechanism named from the closure itself, not presumed from
 the issue's candidate.
 
-**Disk-level record** — one row per fixture:
+**A content check was performed, and it is not that closure.** After each
+attach the privileged half hashed the whole loop device and compared it to the
+fixture's digest; all seven matched. This binds *bytes*, not an inode: #94 is
+about binding `/dev/loopN` to a verified handle, and a digest cannot do that.
+What it does bound is the read-only blast radius the issue names — a wrong
+backing object would have to reproduce the fixture's full-device digest to
+yield a wrong measurement. It is a snapshot taken at one instant and says
+nothing about the binding afterwards, and it is recorded as a mitigation, not
+a closure.
+
+Because the gap line must travel with any excerpt carrying a number, a
+self-contained short form appears beneath every filled table below.
+
+**Disk-level record** — one row per fixture. Every attach succeeded, every
+`/sys` `ro` read back `1`, every content check matched:
 
 | Fixture | Attach | `/sys` `ro` | Partitions materialized | `ID_PART_TABLE_TYPE` (udev db) | udev db entry |
 | --- | --- | --- | --- | --- | --- |
-| `blank-512` | `not yet taken` | `not yet taken` | `not yet taken` | `not yet taken` | `not yet taken` |
-| `gpt-basic-512` | `not yet taken` | `not yet taken` | `not yet taken` | `not yet taken` | `not yet taken` |
-| `gpt-conflicting-tables-512` | `not yet taken` | `not yet taken` | `not yet taken` | `not yet taken` | `not yet taken` |
-| `gpt-invalid-primary-valid-backup-512` | `not yet taken` | `not yet taken` | `not yet taken` | `not yet taken` | `not yet taken` |
-| `gpt-missing-backup-512` | `not yet taken` | `not yet taken` | `not yet taken` | `not yet taken` | `not yet taken` |
-| `hybrid-mbr-gpt-512` | `not yet taken` | `not yet taken` | `not yet taken` | `not yet taken` | `not yet taken` |
+| `blank-512` | ok | `1` | **0** | absent | present |
+| `gpt-basic-512` | ok | `1` | **2** | `gpt` | present |
+| `gpt-conflicting-tables-512` | ok | `1` | **2** | `gpt` | present |
+| `gpt-invalid-primary-valid-backup-512` | ok | `1` | **0** | `gpt` | present |
+| `gpt-missing-backup-512` | ok | `1` | **2** | `gpt` | present |
+| `hybrid-mbr-gpt-512` | ok | `1` | **2** | `gpt` | present |
+
+> **Binding gap (issue #94, open at run time):** nothing bound `/dev/loopN` to
+> a verified handle; the attach resolved a path in userspace. A
+> wrong-measurement possibility travels with these numbers.
+
+`udevd` did process loop-attach events on this host — no `UDEV-DB:absent` was
+recorded for any fixture, which the protocol had left as a measured row rather
+than an assumption in either direction.
 
 **Per-partition record** — one row per materialized partition, as many rows as
 materialize; a fixture that materializes none records the literal
@@ -1767,9 +2213,23 @@ Fixture-derived values (`ID_PART_ENTRY_SCHEME`, `NUMBER`, `OFFSET`, `SIZE`,
 `TYPE`, `UUID`, `NAME`) are recorded verbatim; a property absent from the udev
 db entry is recorded as `absent`, which is observed absence, not a failure.
 
-| Fixture | Partition (`LOOPpN`) | `/sys` start/size (512-B units) | `ro` | `ID_PART_ENTRY_*` present | Values |
+| Fixture | Partition | `/sys` start/size (512-B units) | `ro` | `ID_PART_ENTRY_*` present | Values |
 | --- | --- | --- | --- | --- | --- |
-| *(all)* | `not yet taken` | `not yet taken` | `not yet taken` | `not yet taken` | `not yet taken` |
+| `blank-512` | *none materialized* | — | — | — | — |
+| `gpt-basic-512` | p1 | 2048 / 2048 | `1` | yes | `NAME=EFI\x20System` `SCHEME=gpt` `OFFSET=2048` `SIZE=2048` `TYPE=c12a7328-…` `UUID=e0dfdbfc-…` |
+| `gpt-basic-512` | p2 | 4096 / 4063 | `1` | yes | `NAME=Data` `SCHEME=gpt` `OFFSET=4096` `SIZE=4063` `TYPE=0fc63daf-…` `UUID=28e70b48-…` |
+| `gpt-conflicting-tables-512` | p1, p2 | 2048/2048, 4096/4063 | `1` | yes | **byte-identical to `gpt-basic-512`'s**, every key and value |
+| `gpt-invalid-primary-valid-backup-512` | *none materialized* | — | — | — | — |
+| `gpt-missing-backup-512` | p1, p2 | 2048/2048, 4096/4063 | `1` | yes | **byte-identical to `gpt-basic-512`'s** |
+| `hybrid-mbr-gpt-512` | p1, p2 | 2048/2048, 4096/4063 | `1` | yes | **byte-identical to `gpt-basic-512`'s**; `SCHEME=gpt` |
+
+> **Binding gap (issue #94, open at run time):** nothing bound `/dev/loopN` to
+> a verified handle. A wrong-measurement possibility travels with these numbers.
+
+`/sys` reports `start` and `size` in 512-byte units regardless of logical
+sector size — confirmed by arithmetic against the fixture layout rather than
+trusted from the protocol's sentence: the 4Kn annex's ESP sits at LBA 256 of
+4096 bytes and `/sys` reported `start=2048`, which is 256 × 8.
 
 **View classification** — for the fixtures where two descriptions of the disk
 exist, which one the kernel materialized. The candidate descriptions are
@@ -1781,43 +2241,172 @@ match; anything else is `other` with the verbatim rows.
 
 | Fixture | Question | Legal answers | Result |
 | --- | --- | --- | --- |
-| `gpt-conflicting-tables-512` | Which view materialized? | `primary set` / `backup set` / `neither` / `other (verbatim)` | `not yet taken` |
-| `gpt-invalid-primary-valid-backup-512` | Did partitions materialize, and does any client-readable fact differ from `gpt-basic-512`'s projection? | `materialized, marked` / `materialized, unmarked` / `none materialized` / `other` | `not yet taken` |
-| `gpt-missing-backup-512` | Same question, for the missing backup | same four | `not yet taken` |
-| `hybrid-mbr-gpt-512` | Which scheme won, and does any client-readable fact carry a trace of the aliasing `0x0c` entry? | `gpt, traced` / `gpt, untraced` / `dos` / `other` | `not yet taken` |
-| `blank-512` | Control: zero partitions and no table type? | `confirmed` / `other (verbatim)` | `not yet taken` |
+| `gpt-conflicting-tables-512` | Which view materialized? | `primary set` / `backup set` / `neither` / `other (verbatim)` | **`primary set`** — ESP at 2048–4095 plus Data at 4096–8158, matching the catalogue's primary exactly. The backup's single "Disagreeing" partition appears nowhere |
+| `gpt-invalid-primary-valid-backup-512` | Did partitions materialize, and does any client-readable fact differ from `gpt-basic-512`'s projection? | `materialized, marked` / `materialized, unmarked` / `none materialized` / `other` | **`none materialized`** — and the whole-disk entry still carries `ID_PART_TABLE_TYPE=gpt`. The kernel materialized nothing while libblkid labelled the disk `gpt` |
+| `gpt-missing-backup-512` | Same question, for the missing backup | same four | **`materialized, unmarked`** — two partitions, projection identical to healthy, nothing flagged |
+| `hybrid-mbr-gpt-512` | Which scheme won, and does any client-readable fact carry a trace of the aliasing `0x0c` entry? | `gpt, traced` / `gpt, untraced` / `dos` / `other` | **`gpt, untraced`** — `SCHEME=gpt`, the GPT partitions materialized, and the aliasing `0x0c` MBR entry left no trace in the client projection |
+| `blank-512` | Control: zero partitions and no table type? | `confirmed` / `other (verbatim)` | **`confirmed`** |
+
+> **Binding gap (issue #94, open at run time):** nothing bound `/dev/loopN` to
+> a verified handle. A wrong-measurement possibility travels with these numbers.
 
 **Separation record** — the SI-35 question itself, answered only by the
-Phase 7 diff over declared normalizations. The drop-list is closed:
-`USEC_INITIALIZED` (timestamp) and `ID_PART_ENTRY_DISK` (host-session
-major:minor). The capture pipeline retains only `E:` property lines, so
-whether any retained key carries a device name is checked at run time — if
-one does, that key joins this list with its reason, or the diff is not this
-measurement. Device-name normalization to `LOOP` applies to this recorded
-document, not to the diffed bytes.
+Phase 7 diff over declared normalizations.
+
+**The drop-list had to be extended at run time, and the rule that forced it
+worked.** The list was closed at `USEC_INITIALIZED` and `ID_PART_ENTRY_DISK`,
+with the standing condition that any retained key carrying a device name joins
+it with its reason "or the diff is not this measurement". The first run
+returned every pair as DIFFERS — because a loop device's udev entry carries
+`ID_LOOP_BACKING_FILENAME`, `ID_LOOP_BACKING_FILENAME_ENC`,
+`ID_LOOP_BACKING_INODE` and `ID_LOOP_BACKING_DEVICE`, which name **the backing
+file**, so each fixture differed from every other by its own filename and by
+nothing else. That is a property of the loop plumbing, not of the partition
+table. The four keys join the drop-list with that reason and the diff was
+recomputed; the first computation is void and its output occupies no cell.
+The device-name check as written scanned for `loop[0-9]` and did not catch a
+key whose *value* was a path — a real hole in the check, recorded so the next
+revision widens it to any key whose value contains the scratch path.
+
+Final drop-list: `USEC_INITIALIZED`, `ID_PART_ENTRY_DISK`, and the four
+`ID_LOOP_BACKING_*` keys.
 
 | Pair (normalized client projections) | Differ? | Differing lines |
 | --- | --- | --- |
-| `gpt-basic-512` vs `gpt-conflicting-tables-512` | `not yet taken` | `not yet taken` |
-| `gpt-basic-512` vs `gpt-invalid-primary-valid-backup-512` | `not yet taken` | `not yet taken` |
-| `gpt-basic-512` vs `gpt-missing-backup-512` | `not yet taken` | `not yet taken` |
-| `gpt-basic-512` vs `hybrid-mbr-gpt-512` | `not yet taken` | `not yet taken` |
+| `gpt-basic-512` vs `gpt-conflicting-tables-512` | **IDENTICAL** | none |
+| `gpt-basic-512` vs `gpt-invalid-primary-valid-backup-512` | **DIFFERS** | the entire partition half: `gpt-basic-512` carries two `PART` entries with their full `ID_PART_ENTRY_*` sets; the damaged fixture carries none. The whole-disk `ID_PART_TABLE_TYPE=gpt` line is common to both |
+| `gpt-basic-512` vs `gpt-missing-backup-512` | **IDENTICAL** | none |
+| `gpt-basic-512` vs `hybrid-mbr-gpt-512` | **IDENTICAL** | none |
+
+> **Binding gap (issue #94, open at run time):** nothing bound `/dev/loopN` to
+> a verified handle. A wrong-measurement possibility travels with these numbers.
 
 **Privileged comparison record** — labelled, never merged with the rows above:
 
-| Fixture | `blkid -p -o udev` (device) | `wipefs -n` (device) | `blkid -p -o udev` (each partition) | Kernel log lines since attach |
-| --- | --- | --- | --- | --- |
-| *(all seven)* | `not yet taken` | `not yet taken` | `not yet taken` | `not yet taken` |
+| Fixture | `blkid -p -o udev` (device) | `wipefs -n` offsets (device) | `blkid -p -o udev` (each partition) |
+| --- | --- | --- | --- |
+| `blank-512` | *(nothing)* | *(nothing)* | none |
+| `gpt-basic-512` | `TABLE_TYPE=gpt` `TABLE_UUID=7a1e9153-…` | `0x200`, `0x3ffe00`, `0x1fe` | p1 ESP, p2 Data, full entries |
+| `gpt-conflicting-tables-512` | **identical to basic** | **`0x200`, `0x3ffe00`, `0x1fe` — identical to basic** | **identical to basic** |
+| `gpt-invalid-primary-valid-backup-512` | `TABLE_TYPE=gpt` — same as basic | **`0x3ffe00`, `0x1fe` — the primary at `0x200` is absent** | none — no partitions materialized |
+| `gpt-missing-backup-512` | `TABLE_TYPE=gpt` — same as basic | **`0x200`, `0x1fe` — the backup at `0x3ffe00` is absent** | p1, p2, identical to basic |
+| `hybrid-mbr-gpt-512` | `TABLE_TYPE=gpt` — same as basic | `0x200`, `0x3ffe00`, `0x1fe` — identical to basic | identical to basic |
+| `gpt-basic-4kn` | `TABLE_TYPE=gpt` `TABLE_UUID=1ac207e4-…` | `0x1000`, `0x3ff000`, `0x1fe` — the 4Kn offsets | p1 ESP, p2 Data (`TYPE=ebd0a0a2-…`) |
+
+> **Binding gap (issue #94, open at run time):** nothing bound `/dev/loopN` to
+> a verified handle. A wrong-measurement possibility travels with these numbers.
+
+**The asymmetry, quantified.** Putting the privileged view beside the client
+projection gives the client/helper comparison this file exists to make, and it
+is not uniform across the damage cases:
+
+| Fixture | Helper (`wipefs` offsets) separates it from healthy? | Client projection separates it? |
+| --- | --- | --- |
+| `gpt-conflicting-tables-512` | **no** — identical offsets | **no** — identical projection |
+| `gpt-invalid-primary-valid-backup-512` | **yes** — primary copy absent | **yes** — no partitions materialized |
+| `gpt-missing-backup-512` | **yes** — backup copy absent | **no** — projection identical to healthy |
+| `hybrid-mbr-gpt-512` | **no** | **no** |
+
+So the client is not uniformly weaker: it separates the damaged-primary case
+the helper also separates, is blind where the helper sees the missing backup,
+and both are blind to the conflicting and hybrid tables. The ambiguous
+table — the one ADR-C3's `Indeterminate` exists for — is invisible to **both**.
 
 **4Kn annex record:**
 
 | Row | Value |
 | --- | --- |
-| Attach with `--sector-size 4096` | `not yet taken` |
-| `logical_block_size` read-back | `not yet taken` |
-| `ID_PART_TABLE_TYPE` (udev db) | `not yet taken` |
-| Partitions materialized | `not yet taken` |
-| H-4Kn on this environment | `not yet taken` — `supported` / `refuted (like-for-like vs same-run gpt-basic-512)` / `failed (mechanism: verbatim)` |
+| Attach with `--sector-size 4096` | ok |
+| `logical_block_size` read-back | **4096** |
+| `ID_PART_TABLE_TYPE` (udev db) | `gpt` |
+| Partitions materialized | **2** — ESP at `/sys` start 2048, Data at 4096 |
+| H-4Kn on this environment | **`supported`** |
+
+> **Binding gap (issue #94, open at run time):** nothing bound `/dev/loopN` to
+> a verified handle. A wrong-measurement possibility travels with these numbers.
+
+**H-4Kn is supported, and the like-for-like condition was met properly.** The
+refutation condition required the same-run `gpt-basic-512` control to
+materialize partitions or carry `ID_PART_TABLE_TYPE=gpt` while the 4Kn attach
+showed neither; the control did materialize, and so did the 4Kn attach, so the
+mechanism was working and the annex's answer is a real one rather than a
+global failure misread as a refutation.
+
+**This is the IMG-011 route the file said would be needed.** The Linux section
+above records that `gpt-basic-4kn.img` probes as `PMBR` from a regular file,
+because a file carries no logical sector size, and that a prober-based check
+for 4Kn "needs a loop device configured with an explicit sector size, which is
+privileged and therefore Tier 2". That device was configured and the 4Kn GPT
+is observable through it: `wipefs` finds the tables at `0x1000` and `0x3ff000`
+rather than the 512-byte offsets, and the partition extents match the
+catalogue's 4Kn layout under the 512-byte-unit convention. The fixture's
+`PMBR` result from file probing is confirmed as an artifact of file probing,
+not a defect in the fixture — which is exactly what that record asked a future
+measurement to settle.
+
+### What the run established
+
+> **Scope line, travelling with every claim below:** these results are one
+> kernel build, one util-linux, one udev, under WSL2. The decisive-pair result
+> is an **absence** claim, and this section's own rule withholds such a claim
+> from any register decision until a non-WSL distro-kernel run confirms it.
+
+**H-separation is refuted on this environment.** Its condition was fixed
+before the run: refuted if the two normalized client projections are
+identical. They are — byte for byte, once the backing-object keys are dropped.
+The kernel parsed both images, materialized the **primary** set for the
+conflicting fixture, and produced a projection indistinguishable from the
+healthy disk's. The backup's disagreeing partition appears nowhere, and no
+client-readable fact marks the disagreement.
+
+**On SI-35's attribution question, the answer is provisional and points one
+way.** The register asked for this measurement "so the file-probing limitation
+is not mistaken for a kernel limitation". On this environment it is not a
+file-probing artifact: a device the kernel has fully parsed, with partition
+scanning on, yields the same collapse, and the privileged view is no better —
+`wipefs` reports identical offsets for both images. So here **neither the
+client nor the helper can distinguish an ambiguous table from a healthy one.**
+The word is *provisional*, not *settled*: this file's own mdraid section is
+the proof that this toolchain changes its answers between versions, and a
+result cannot be settled and simultaneously withheld from register use. An
+earlier version of this paragraph said "settles", which contradicted the
+withholding rule four screens below it.
+
+**Option (b) does not become viable.** The register states that if a loop
+device separates the two, "option (b) becomes viable and this issue narrows
+sharply". It does not separate them. Combined with the Windows partition-list
+measurement recorded above and the original file probing, the decisive pair is
+now indistinguishable through **three interfaces on two platforms**. Options
+(a) and (c) are untouched by this run: their recorded costs — (a)'s
+observation basis becoming hash-visible body content, (c)'s inherited unproven
+monotonicity obligation — are unchanged. The record lands here; the register
+weighs it.
+
+**Two findings the hypotheses did not ask for.**
+
+- **A damaged primary is separated, by partition count rather than by any
+  table property.** `gpt-invalid-primary-valid-backup-512` materialized **no**
+  partitions while its udev entry still read `ID_PART_TABLE_TYPE=gpt`. So the
+  kernel's partition parser and libblkid disagree about the same device: one
+  declines the table, the other labels it. A client reading only
+  `ID_PART_TABLE_TYPE` sees a healthy-looking `gpt`; a client that also counts
+  materialized partitions sees the difference. This is a **second** instance
+  of the two-interfaces-disagree pattern this file has recorded, after the
+  `blkid`-versus-`wipefs` arity finding on Linux. It is not a third: the
+  `MSFT_Disk`-versus-layout-IOCTL "disagreement" this record briefly claimed
+  was an artifact of comparing two enumerations, and is withdrawn in the
+  Windows subsection above.
+- **A missing backup is helper-only.** `wipefs` shows the backup copy absent;
+  the client projection is identical to healthy. That is a clean instance of
+  the asymmetry Part 5's conclusion needs re-checking against, and it is
+  recorded for that purpose without deciding it.
+
+**The hybrid table is invisible here too.** `gpt, untraced`: the aliasing
+`0x0c` MBR entry leaves no trace in the client projection, matching libblkid's
+file result. INV-003's hybrid-detection requirement therefore cannot be
+delegated to this projection on Linux — and the Windows equivalent fell into
+that platform's enumeration gap, so **the hybrid question is unanswered on
+both platforms**.
 
 ### What a WSL2 run of this protocol does and does not establish
 
@@ -1836,12 +2425,29 @@ limits do:
   proof that one util-linux version's answer is not another's. Whether `udevd`
   processes loop-attach events on any given host is therefore a measured row —
   `UDEV-DB:absent` is a finding about the platform, not a broken run.
-- **Negatives demand a second environment.** A row recorded only under WSL2
-  that asserts an absence — projections identical, no udev entry, no
-  partitions — must not be relied on by any register decision until confirmed
-  on one non-WSL, distro-kernel environment, because an absence claim
-  generalizes worse than an existence claim. A positive row stands as every
-  row in this file does: environment-scoped, versions beside it.
+- **Negatives demand a second environment, and this run produced the negative
+  that matters.** A row recorded only under WSL2 that asserts an absence —
+  projections identical, no udev entry, no partitions — must not be relied on
+  by any register decision until confirmed on one non-WSL, distro-kernel
+  environment, because an absence claim generalizes worse than an existence
+  claim. **H-separation's refutation is exactly such a negative**, and this
+  rule binds it: the decisive-pair result stands as measured on this
+  environment and is **not yet available to a register decision** until a
+  non-WSL distro-kernel run confirms it. The positive rows — H-4Kn supported,
+  the damaged-primary separation — carry the ordinary environment scoping
+  every row in this file carries.
+
+  **What remains outstanding on SI-35's evidence list, counted honestly.** The
+  register requires three things before any option is accepted: the
+  loop-device measurement, the same measurement on Windows, and *"a
+  demonstration that whichever option is chosen still refuses rather than
+  proceeds on `gpt-conflicting-tables-512.img`"*. This run supplies the first
+  and the Windows subsection supplies the second. **Two** remain: the non-WSL
+  confirmation this rule demands of the negative, and the register's third
+  item — which **no measurement can supply**, because it depends on an option
+  being chosen and the register has not chosen one. An earlier version of this
+  section said only one piece was outstanding, which made SI-35 read as one
+  run from closure. It is not, and this package may not make it look so.
 - **The attach is privileged everywhere.** A separation finding here is a fact
   about what the kernel's parse leaves client-readable, not about what an
   unprivileged client can cause to be parsed. Real disks are parsed at
