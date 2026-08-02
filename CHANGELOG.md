@@ -7,6 +7,22 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- WP-010's post-acceptance integrity pass reconciles four accepted ADRs with
+  the authoritative register without changing a normative decision. ADR-0002
+  and ADR-0005 now label their old blocker lists as acceptance-time snapshots;
+  ADR-0011 distinguishes its absolute multipath policy from the cases its
+  accepted detection rules currently cover and records its completed WP-035
+  follow-up; ADR-0012 states the client-visible boundary of type-level
+  protection and the helper's operative role for invisible facts that actually
+  tighten or refuse. The register now classifies withdrawn
+  SI-36 instead of leaving it outside the supposedly exhaustive class table,
+  records all three SI-35 acceptance-evidence categories as unsatisfied, and
+  removes claims of backup recovery and universal interface absence that the
+  retained measurements cannot prove. The unequal-identifier, unassembled
+  multipath residual is filed as hash-visible SI-37, an input resolved through
+  SI-11 rather than an independent direct blocker; SI-11 and SI-27 retain their
+  separate closure and naming responsibilities. No open option is selected, no
+  evidence is promoted, and no requirement text is changed by this correction.
 - The WP-035 audit closes the chassis honesty and evidence gaps it found.
   `inventory`, `topology`,
   and `capabilities` are now recognized reserved commands that return exact

@@ -3,7 +3,8 @@
 - Status: Accepted
 - Date: 2026-07-27
 - Spec version: 3.0.0
-- Work packages unblocked: WP-010 increment 3 (partially; see Scope)
+- Work packages unblocked at acceptance: WP-010 increment 3 (partially; see
+  Scope); current issue dependencies live in the register
 - Requirement IDs: MODEL-005, MODEL-004, Section 6, PLAN-006, PLAN-007,
   CONC-004, HLP-002, HLP-004, HLP-001, SEC-001, SEC-002
 - Decision owners: repository CODEOWNERS
@@ -150,10 +151,11 @@ Negative and to be managed:
   refusal on ambiguous identity is the *helper's* obligation, computed from the
   helper's own discovery, never from a client-supplied confidence value. This
   must be stated wherever that refusal is implemented.
-- MODEL-004's shape is still unresolved (SI-04): whether a provenance record can
-  hold several observations is a separate decision, and this ADR does not
-  prejudge it. Moving provenance to the envelope narrows its blast radius but
-  does not answer it.
+- At acceptance, MODEL-004's shape was still unresolved under SI-04: whether a
+  provenance record could hold several observations was a separate decision
+  this ADR did not prejudge. SI-04 later resolved in spec 3.1.0 by ADR-C4 as a
+  set of observations in the envelope, preserving rather than revising this
+  ADR's authorization boundary.
 
 ## Verification
 
@@ -169,7 +171,9 @@ Negative and to be managed:
 
 ## Revisit conditions
 
-- SI-04 resolves in a way that puts provenance back inside the hash.
+- Historical condition discharged without triggering a revisit: SI-04 resolved
+  in spec 3.1.0 by ADR-C4 with provenance remaining outside the hash. A future
+  normative change that puts provenance back inside the hash would trigger one.
 - A field appears that the helper re-derives but which must still be
   authenticated, breaking the rule's assumption that those two sets are
   disjoint.
@@ -178,6 +182,9 @@ Negative and to be managed:
 
 ## Scope
 
-This unblocks the three filed conflicts about hashing. WP-010 increment 3
-remains blocked on the other eight in `docs/spec-issues/`: SI-01, SI-02, SI-04,
-SI-07 through SI-11.
+This decision unblocked the three conflicts about hashing that it was accepted
+to resolve. **At acceptance on 2026-07-27**, WP-010 increment 3 remained blocked
+on the other eight then-open issues: SI-01, SI-02, SI-04, and SI-07 through
+SI-11. That list is retained only as an acceptance-time snapshot; the single
+authoritative source for current issue classes, counts, and states is
+`docs/spec-issues/README.md`'s **Status of every issue** table.
