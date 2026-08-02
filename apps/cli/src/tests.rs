@@ -148,6 +148,7 @@ fn exit_codes_match_the_contract_the_help_text_documents() {
 
     assert_eq!(dispatch(&["help".to_owned()]).code, EXIT_OK);
     assert_eq!(dispatch(&["version".to_owned()]).code, EXIT_OK);
+    assert_eq!(dispatch(&["export-diagnostics".to_owned()]).code, EXIT_OK);
     assert_eq!(dispatch(&["inspect".to_owned()]).code, EXIT_REFUSAL);
     assert_eq!(dispatch(&["frobnicate".to_owned()]).code, EXIT_USAGE);
     assert_eq!(dispatch(&[]).code, EXIT_USAGE);
@@ -343,4 +344,149 @@ fn version_reports_through_the_envelope() {
     let parsed: serde_json::Value = serde_json::from_str(&json.stdout).expect("envelope parses");
     assert_eq!(parsed["outcome"]["kind"], "ok");
     assert_eq!(parsed["outcome"]["version"].as_str(), Some(VERSION));
+}
+
+// Requirements: SAFE-006, INV-007, CLI-002
+//   The diagnostics bundle admits exactly the allowlisted fields — deny-by-default is the builder's type, not a filter — and the expected key set is pinned as literals so widening the allowlist is a visible reviewed edit
+// Evidence: export_diagnostics_admits_exactly_the_allowlisted_fields
+#[test]
+fn export_diagnostics_admits_exactly_the_allowlisted_fields() {
+    let json = dispatch(&["export-diagnostics".to_owned(), "--json".to_owned()]);
+    assert_eq!(json.code, EXIT_OK);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&json.stdout).expect("the bundle rides the ordinary envelope");
+    assert_eq!(parsed["outcome"]["kind"], "ok");
+
+    let bundle = parsed["outcome"]["diagnostics"]
+        .as_object()
+        .expect("the bundle is one JSON object");
+    // Pinned as literals, exactly like the exit codes: the allowlist living
+    // only in the code under test would let the code widen itself and the
+    // test agree. Extending this list is the visible reviewed edit.
+    let expected = [
+        "tool-version",
+        "envelope-schema",
+        "build-target",
+        "commands",
+        "exit-codes",
+        "discovery-evidence",
+    ];
+    let mut actual: Vec<&str> = bundle.keys().map(String::as_str).collect();
+    actual.sort_unstable();
+    let mut pinned = expected;
+    pinned.sort_unstable();
+    assert_eq!(
+        actual, pinned,
+        "the bundle's key set must equal the pinned allowlist exactly — nothing smuggled, \
+         nothing dropped"
+    );
+
+    // The human rendering carries the same fields, so the two modes cannot
+    // quietly diverge in what they disclose.
+    let human = dispatch(&["export-diagnostics".to_owned()]);
+    assert_eq!(human.code, EXIT_OK);
+    for key in expected {
+        assert!(
+            human.stdout.contains(key),
+            "human diagnostics must carry `{key}` too"
+        );
+    }
+}
+
+// Requirements: SAFE-006
+//   No output in any mode carries the host's username, home path, or computer name, nor any environment value six bytes or longer — a tripwire so the first code path that reads the environment cannot leak it silently
+// Evidence: no_output_in_any_mode_carries_an_environment_value
+#[test]
+fn no_output_in_any_mode_carries_an_environment_value() {
+    // SEC-006's deny-floor categories, probed with this host's real values.
+    // Read in the test, never in the binary: `std::env::var` here is what
+    // makes the absence assertion about a genuine secret-shaped value.
+    let mut sensitive: Vec<(String, String)> = Vec::new();
+    for name in [
+        "USERNAME",
+        "USER",
+        "USERPROFILE",
+        "HOME",
+        "COMPUTERNAME",
+        "HOSTNAME",
+        "LOGNAME",
+    ] {
+        if let Ok(value) = std::env::var(name)
+            && value.len() >= 3
+        {
+            sensitive.push((name.to_owned(), value));
+        }
+    }
+    assert!(
+        !sensitive.is_empty(),
+        "no identity-bearing environment variable exists on this host, so this tripwire \
+         would prove nothing here; extend the name list rather than letting it pass vacuously"
+    );
+    // Every other environment value long enough to be identifying. Short
+    // values ("true", "1", locale fragments) are skipped because they can
+    // collide with legitimate static output by coincidence, and a tripwire
+    // that cries wolf gets deleted.
+    for (name, value) in std::env::vars() {
+        if value.len() >= 6 {
+            sensitive.push((name, value));
+        }
+    }
+
+    for arguments in every_invocation() {
+        let outcome = dispatch(&arguments);
+        for (stream, text) in [("stdout", &outcome.stdout), ("stderr", &outcome.stderr)] {
+            for (name, value) in &sensitive {
+                assert!(
+                    !text.contains(value.as_str()),
+                    "{stream} of {arguments:?} contains the value of ${name} — an \
+                     environment value reached the output"
+                );
+            }
+        }
+    }
+}
+
+// Requirements: SEC-007
+//   The bundle is byte-identical across invocations because every field is compile-time data; nothing is read from the host, so offline is the construction rather than a mode
+// Evidence: export_diagnostics_is_byte_identical_across_invocations
+#[test]
+fn export_diagnostics_is_byte_identical_across_invocations() {
+    for arguments in [
+        vec!["export-diagnostics".to_owned()],
+        vec!["export-diagnostics".to_owned(), "--json".to_owned()],
+    ] {
+        let first = dispatch(&arguments);
+        let second = dispatch(&arguments);
+        assert_eq!(
+            first.stdout, second.stdout,
+            "two runs of {arguments:?} must produce identical bytes; a difference means \
+             something non-constant entered the bundle"
+        );
+        assert_eq!(first.code, second.code);
+    }
+}
+
+// Requirements: INV-007, Section 12
+//   The missing discovery evidence is an in-band typed refusal naming its increment — never an omission a reader could mistake for a clean bill of health
+// Evidence: missing_discovery_evidence_is_a_typed_refusal_not_an_omission
+#[test]
+fn missing_discovery_evidence_is_a_typed_refusal_not_an_omission() {
+    let json = dispatch(&["export-diagnostics".to_owned(), "--json".to_owned()]);
+    let parsed: serde_json::Value = serde_json::from_str(&json.stdout).expect("envelope parses");
+    let evidence = &parsed["outcome"]["diagnostics"]["discovery-evidence"];
+    assert_eq!(evidence["state"], "not-implemented");
+    assert_eq!(evidence["reference"], "WP-035 increment 4");
+    assert!(
+        evidence["detail"]
+            .as_str()
+            .is_some_and(|detail| detail.contains("allowlist")),
+        "the refusal must say how future evidence enters the bundle: through the allowlist"
+    );
+
+    let human = dispatch(&["export-diagnostics".to_owned()]);
+    assert!(
+        human.stdout.contains("discovery-evidence: not-implemented"),
+        "the human bundle must carry the refusal in-band too: {}",
+        human.stdout
+    );
 }
