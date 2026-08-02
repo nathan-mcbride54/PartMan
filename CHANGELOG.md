@@ -7,6 +7,27 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- WP-035 increment 1 delivers the `partman` CLI chassis: structured argument
+  parsing that owns the non-Unicode seam as a typed usage refusal instead of
+  `std::env::args()`'s panic; a documented exit-code contract (0 answered, 2
+  usage refusal, 3 typed refusal) whose literal values are pinned by test; an
+  ANSI-free, schema-versioned JSON envelope (`partman.cli.envelope/0`,
+  provisional within major version 0) wrapping every JSON emission including
+  usage refusals; and the typed refusal vocabulary — `partman inspect`
+  refuses with state, reference, and detail on stdout rather than printing a
+  plausible empty inspection. Domain payloads are absent from every surface,
+  not emitted unversioned. Two structural guards land with their reach
+  stated exactly: the shipped dependency closure is empty (asserted through
+  `cargo metadata`; dev-dependencies cannot reach the binary) and the output
+  type carries a compile-fail proof it does not implement `Hash`; `std`'s
+  own hashers used deliberately in-crate remain a named review obligation.
+  The increment was adversarially reviewed before push; the review found and
+  forced closure of a self-referential exit-code test, the argv panic seam,
+  and guard prose that claimed more than the mechanics establish. WP-035's
+  traceability converts to generated in the same change. The register
+  measurements, observation records, redaction allowlist, and dependency
+  doctor are later increments and are not claimed.
+
 - WP-030 publishes the evidence-only result of ADR-0009's bounded Slint 1.17.1
   evaluation without merging the rejected desktop runtime. A strict normalized
   manifest records immutable source/lock/artifact identities, structured
