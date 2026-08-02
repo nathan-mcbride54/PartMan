@@ -1,11 +1,40 @@
-//! Chassis tests. Every behavior is asserted through [`dispatch`] or
-//! [`dispatch_os`] as pure data; the only process any test launches is the
-//! compile-time-selected `cargo`, for the structural dependency guard.
+//! Chassis tests. Every behavior is asserted through [`dispatch_with`] over
+//! a scripted launcher, or [`dispatch_os`], as pure data. The only
+//! executable any test launches is the compile-time-selected `cargo` —
+//! twice: as the structural dependency guard's oracle, and as the real
+//! launcher's probe subject — so the tier's process set stays `git` and
+//! `cargo`, and no Tier-1 test ever launches a roster tool.
 
-use super::{
-    ALL_COMMANDS, Command, ENVELOPE_SCHEMA, EXIT_OK, EXIT_REFUSAL, EXIT_USAGE, Outcome, VERSION,
-    dispatch, dispatch_os, envelope, help_text, json_escaped,
+use super::doctor::{
+    ProbeOutcome, ProbeReport, Resolution, SystemLauncher, TestedVersion, ToolLauncher, ToolSpec,
+    doctor_human, doctor_json, examine, parse_version,
 };
+use super::facts::{FACTS, facts_human, facts_json};
+use super::{
+    ALL_COMMANDS, Command, ENVELOPE_SCHEMA, EXIT_OK, EXIT_REFUSAL, EXIT_USAGE, Outcome, Refusal,
+    VERSION, dispatch_os, dispatch_with, envelope, help_text, json_escaped,
+};
+use std::path::Path;
+
+/// A launcher that finds nothing and must never be asked to probe. The
+/// contract-wide tests run every command through it, which is what keeps
+/// the doctor's real I/O out of Tier 1.
+struct NothingInstalled;
+
+impl ToolLauncher for NothingInstalled {
+    fn exists(&self, _path: &Path) -> bool {
+        false
+    }
+    fn probe_version(&self, path: &Path) -> ProbeOutcome {
+        panic!("probe of {} without a prior existence hit", path.display());
+    }
+}
+
+/// [`dispatch_with`] over [`NothingInstalled`]: the pure dispatch every
+/// contract-wide test uses.
+fn fdispatch(arguments: &[String]) -> Outcome {
+    dispatch_with(arguments, &NothingInstalled)
+}
 
 /// One shared enumeration of invocation shapes, so every contract-wide test
 /// covers the same set. The command words are derived from [`ALL_COMMANDS`],
@@ -50,7 +79,7 @@ fn json_outcomes() -> Vec<Outcome> {
     every_invocation()
         .into_iter()
         .filter(|arguments| arguments.iter().any(|token| token == "--json"))
-        .map(|arguments| dispatch(&arguments))
+        .map(|arguments| fdispatch(&arguments))
         .collect()
 }
 
@@ -87,7 +116,7 @@ fn every_json_emission_is_one_well_formed_schema_versioned_envelope() {
 #[test]
 fn no_output_in_any_mode_contains_an_ansi_sequence() {
     for arguments in every_invocation() {
-        let outcome = dispatch(&arguments);
+        let outcome = fdispatch(&arguments);
         for (stream, text) in [("stdout", &outcome.stdout), ("stderr", &outcome.stderr)] {
             assert!(
                 !text.contains('\u{1b}'),
@@ -102,7 +131,7 @@ fn no_output_in_any_mode_contains_an_ansi_sequence() {
 // Evidence: inspect_refuses_with_a_typed_value_not_only_an_exit_code
 #[test]
 fn inspect_refuses_with_a_typed_value_not_only_an_exit_code() {
-    let human = dispatch(&["inspect".to_owned()]);
+    let human = fdispatch(&["inspect".to_owned()]);
     assert_eq!(human.code, EXIT_REFUSAL);
     for field in ["state: not-implemented", "reference: WP-035 increment 4"] {
         assert!(
@@ -111,7 +140,7 @@ fn inspect_refuses_with_a_typed_value_not_only_an_exit_code() {
         );
     }
 
-    let json = dispatch(&["inspect".to_owned(), "--json".to_owned()]);
+    let json = fdispatch(&["inspect".to_owned(), "--json".to_owned()]);
     assert_eq!(json.code, EXIT_REFUSAL);
     let parsed: serde_json::Value =
         serde_json::from_str(&json.stdout).expect("refusals parse like any envelope");
@@ -146,12 +175,12 @@ fn exit_codes_match_the_contract_the_help_text_documents() {
         "the refusal code is part of the documented contract"
     );
 
-    assert_eq!(dispatch(&["help".to_owned()]).code, EXIT_OK);
-    assert_eq!(dispatch(&["version".to_owned()]).code, EXIT_OK);
-    assert_eq!(dispatch(&["export-diagnostics".to_owned()]).code, EXIT_OK);
-    assert_eq!(dispatch(&["inspect".to_owned()]).code, EXIT_REFUSAL);
-    assert_eq!(dispatch(&["frobnicate".to_owned()]).code, EXIT_USAGE);
-    assert_eq!(dispatch(&[]).code, EXIT_USAGE);
+    assert_eq!(fdispatch(&["help".to_owned()]).code, EXIT_OK);
+    assert_eq!(fdispatch(&["version".to_owned()]).code, EXIT_OK);
+    assert_eq!(fdispatch(&["export-diagnostics".to_owned()]).code, EXIT_OK);
+    assert_eq!(fdispatch(&["inspect".to_owned()]).code, EXIT_REFUSAL);
+    assert_eq!(fdispatch(&["frobnicate".to_owned()]).code, EXIT_USAGE);
+    assert_eq!(fdispatch(&[]).code, EXIT_USAGE);
 
     let help = help_text();
     for (code, phrase) in [
@@ -171,12 +200,12 @@ fn exit_codes_match_the_contract_the_help_text_documents() {
 // Evidence: unknown_tokens_are_refused_with_their_exact_spelling
 #[test]
 fn unknown_tokens_are_refused_with_their_exact_spelling() {
-    let command = dispatch(&["frobnicate".to_owned()]);
+    let command = fdispatch(&["frobnicate".to_owned()]);
     assert_eq!(command.code, EXIT_USAGE);
     assert!(command.stderr.contains("unknown command `frobnicate`"));
     assert!(command.stdout.is_empty());
 
-    let flag = dispatch(&["--frob".to_owned(), "version".to_owned()]);
+    let flag = fdispatch(&["--frob".to_owned(), "version".to_owned()]);
     assert_eq!(flag.code, EXIT_USAGE);
     assert!(flag.stderr.contains("unknown flag `--frob`"));
 
@@ -185,7 +214,7 @@ fn unknown_tokens_are_refused_with_their_exact_spelling() {
     // said "unknown command `version`", declaring a known command unknown
     // and showing a word the user never typed — and only the exit code was
     // asserted, which is how the misreport survived review.
-    let doubled = dispatch(&["version".to_owned(), "-V".to_owned()]);
+    let doubled = fdispatch(&["version".to_owned(), "-V".to_owned()]);
     assert_eq!(doubled.code, EXIT_USAGE);
     assert!(
         doubled.stderr.contains("second command word `-V`"),
@@ -198,7 +227,7 @@ fn unknown_tokens_are_refused_with_their_exact_spelling() {
         doubled.stderr
     );
 
-    let json = dispatch(&["frobnicate".to_owned(), "--json".to_owned()]);
+    let json = fdispatch(&["frobnicate".to_owned(), "--json".to_owned()]);
     assert_eq!(json.code, EXIT_USAGE);
     let parsed: serde_json::Value =
         serde_json::from_str(&json.stdout).expect("usage refusals are envelopes too");
@@ -336,11 +365,11 @@ fn the_shipped_dependency_closure_is_empty() {
 // Evidence: version_reports_through_the_envelope
 #[test]
 fn version_reports_through_the_envelope() {
-    let human = dispatch(&["version".to_owned()]);
+    let human = fdispatch(&["version".to_owned()]);
     assert_eq!(human.code, EXIT_OK);
     assert_eq!(human.stdout, format!("partman {VERSION}\n"));
 
-    let json = dispatch(&["version".to_owned(), "--json".to_owned()]);
+    let json = fdispatch(&["version".to_owned(), "--json".to_owned()]);
     let parsed: serde_json::Value = serde_json::from_str(&json.stdout).expect("envelope parses");
     assert_eq!(parsed["outcome"]["kind"], "ok");
     assert_eq!(parsed["outcome"]["version"].as_str(), Some(VERSION));
@@ -351,7 +380,7 @@ fn version_reports_through_the_envelope() {
 // Evidence: export_diagnostics_admits_exactly_the_allowlisted_fields
 #[test]
 fn export_diagnostics_admits_exactly_the_allowlisted_fields() {
-    let json = dispatch(&["export-diagnostics".to_owned(), "--json".to_owned()]);
+    let json = fdispatch(&["export-diagnostics".to_owned(), "--json".to_owned()]);
     assert_eq!(json.code, EXIT_OK);
     let parsed: serde_json::Value =
         serde_json::from_str(&json.stdout).expect("the bundle rides the ordinary envelope");
@@ -385,7 +414,7 @@ fn export_diagnostics_admits_exactly_the_allowlisted_fields() {
     // the human rendering are caught by the byte-for-byte pin in
     // `the_human_bundle_is_pinned_byte_for_byte`, not by this containment
     // check.
-    let human = dispatch(&["export-diagnostics".to_owned()]);
+    let human = fdispatch(&["export-diagnostics".to_owned()]);
     assert_eq!(human.code, EXIT_OK);
     for key in expected {
         assert!(
@@ -462,7 +491,7 @@ fn no_output_in_any_mode_carries_an_environment_value() {
     }
 
     for arguments in every_invocation() {
-        let outcome = dispatch(&arguments);
+        let outcome = fdispatch(&arguments);
         for (stream, text) in [("stdout", &outcome.stdout), ("stderr", &outcome.stderr)] {
             for (name, value) in &sensitive {
                 assert!(
@@ -479,7 +508,7 @@ fn no_output_in_any_mode_carries_an_environment_value() {
 }
 
 // Requirements: SEC-007, SAFE-006
-//   The shipped sources contain no environment read — env::var, env::vars, and var_os are absent from lib.rs and main.rs — so an environment value cannot reach output regardless of which variables the host sets; compile-time env::consts and env! are the allowed forms
+//   The shipped sources contain no environment read — env::var, env::vars, and var_os are absent from every shipped source file the test enumerates: lib.rs, main.rs, doctor.rs, and facts.rs — so an environment value cannot reach output regardless of which variables the host sets; compile-time env::consts and env! are the allowed forms
 // Evidence: the_shipped_sources_read_no_environment_variable
 #[test]
 fn the_shipped_sources_read_no_environment_variable() {
@@ -496,6 +525,8 @@ fn the_shipped_sources_read_no_environment_variable() {
     for (file, source) in [
         ("lib.rs", include_str!("lib.rs")),
         ("main.rs", include_str!("main.rs")),
+        ("doctor.rs", include_str!("doctor.rs")),
+        ("facts.rs", include_str!("facts.rs")),
     ] {
         for needle in ["env::var", "env::vars", "var_os"] {
             assert!(
@@ -514,7 +545,7 @@ fn the_shipped_sources_read_no_environment_variable() {
 // Evidence: the_bundle_command_states_agree_with_dispatch_behavior
 #[test]
 fn the_bundle_command_states_agree_with_dispatch_behavior() {
-    let json = dispatch(&["export-diagnostics".to_owned(), "--json".to_owned()]);
+    let json = fdispatch(&["export-diagnostics".to_owned(), "--json".to_owned()]);
     let parsed: serde_json::Value = serde_json::from_str(&json.stdout).expect("envelope parses");
     let commands = parsed["outcome"]["diagnostics"]["commands"]
         .as_array()
@@ -530,7 +561,7 @@ fn the_bundle_command_states_agree_with_dispatch_behavior() {
             .find(|entry| entry["name"] == command.name())
             .unwrap_or_else(|| panic!("the bundle must list `{}`", command.name()));
         let state = entry["state"].as_str().expect("state is a string");
-        let behavior = dispatch(&[command.name().to_owned()]);
+        let behavior = fdispatch(&[command.name().to_owned()]);
         match behavior.code {
             code if code == EXIT_OK => assert_eq!(
                 state,
@@ -582,6 +613,8 @@ fn the_human_bundle_is_pinned_byte_for_byte() {
          \x20   version: answers\n\
          \x20   inspect: refuses: not-implemented until WP-035 increment 4\n\
          \x20   export-diagnostics: answers\n\
+         \x20   doctor: answers\n\
+         \x20   facts: answers\n\
          \x20 exit-codes: 0 answered, 2 usage refusal, 3 typed refusal\n\
          \x20 discovery-evidence: not-implemented (WP-035 increment 4)\n\
          \x20   the diagnostics bundle carries no discovery evidence because none exists to \
@@ -591,7 +624,7 @@ fn the_human_bundle_is_pinned_byte_for_byte() {
         os = std::env::consts::OS,
         arch = std::env::consts::ARCH,
     );
-    let human = dispatch(&["export-diagnostics".to_owned()]);
+    let human = fdispatch(&["export-diagnostics".to_owned()]);
     assert_eq!(
         human.stdout, expected,
         "the human bundle must match the pinned template byte-for-byte; a difference is \
@@ -608,8 +641,8 @@ fn export_diagnostics_is_byte_identical_across_invocations() {
         vec!["export-diagnostics".to_owned()],
         vec!["export-diagnostics".to_owned(), "--json".to_owned()],
     ] {
-        let first = dispatch(&arguments);
-        let second = dispatch(&arguments);
+        let first = fdispatch(&arguments);
+        let second = fdispatch(&arguments);
         assert_eq!(
             first.stdout, second.stdout,
             "two runs of {arguments:?} must produce identical bytes; a difference means \
@@ -624,7 +657,7 @@ fn export_diagnostics_is_byte_identical_across_invocations() {
 // Evidence: missing_discovery_evidence_is_a_typed_refusal_not_an_omission
 #[test]
 fn missing_discovery_evidence_is_a_typed_refusal_not_an_omission() {
-    let json = dispatch(&["export-diagnostics".to_owned(), "--json".to_owned()]);
+    let json = fdispatch(&["export-diagnostics".to_owned(), "--json".to_owned()]);
     let parsed: serde_json::Value = serde_json::from_str(&json.stdout).expect("envelope parses");
     let evidence = &parsed["outcome"]["diagnostics"]["discovery-evidence"];
     assert_eq!(evidence["state"], "not-implemented");
@@ -636,10 +669,413 @@ fn missing_discovery_evidence_is_a_typed_refusal_not_an_omission() {
         "the refusal must say how future evidence enters the bundle: through the allowlist"
     );
 
-    let human = dispatch(&["export-diagnostics".to_owned()]);
+    let human = fdispatch(&["export-diagnostics".to_owned()]);
     assert!(
         human.stdout.contains("discovery-evidence: not-implemented"),
         "the human bundle must carry the refusal in-band too: {}",
         human.stdout
     );
+}
+
+// Requirements: SAFE-004, Section 16
+//   The doctor probes only the roster's compiled absolute candidate paths, in order, and nothing else — there is no PATH search to influence, and an empty roster is a typed statement rather than a silent pass
+// Evidence: the_doctor_probes_only_compiled_absolute_paths
+#[test]
+fn the_doctor_probes_only_compiled_absolute_paths() {
+    use std::cell::RefCell;
+
+    struct Recording {
+        seen: RefCell<Vec<String>>,
+    }
+    impl ToolLauncher for Recording {
+        fn exists(&self, path: &Path) -> bool {
+            self.seen.borrow_mut().push(path.display().to_string());
+            false
+        }
+        fn probe_version(&self, path: &Path) -> ProbeOutcome {
+            panic!("probe of {} without an existence hit", path.display());
+        }
+    }
+
+    let recording = Recording {
+        seen: RefCell::new(Vec::new()),
+    };
+    let reports = examine(super::doctor::ROSTER, &recording);
+    let seen = recording.seen.into_inner();
+
+    if super::doctor::ROSTER.is_empty() {
+        assert!(
+            seen.is_empty() && reports.is_empty(),
+            "an empty roster probes nothing"
+        );
+        let statement = super::doctor::empty_roster_statement()
+            .expect("an empty roster must carry its typed statement");
+        assert_eq!(statement.state, "not-implemented");
+        assert!(
+            statement.reference.starts_with("WP-"),
+            "the statement names the package that registers this platform's checks"
+        );
+    } else {
+        assert!(
+            super::doctor::empty_roster_statement().is_none(),
+            "a populated roster carries no empty-roster statement"
+        );
+        let compiled: Vec<&str> = super::doctor::ROSTER
+            .iter()
+            .flat_map(|tool| tool.candidates.iter().copied())
+            .collect();
+        assert_eq!(
+            seen.len(),
+            compiled.len(),
+            "every candidate is probed exactly once when nothing exists"
+        );
+        for path in &seen {
+            assert!(
+                Path::new(path).is_absolute(),
+                "candidate `{path}` is not absolute; SAFE-004 forbids anything PATH could bend"
+            );
+            assert!(
+                compiled.contains(&path.as_str()),
+                "`{path}` was probed but is not a compiled roster candidate"
+            );
+        }
+        for report in &reports {
+            match &report.resolution {
+                Resolution::Absent { checked } => assert!(
+                    !checked.is_empty(),
+                    "an absent tool must say where PartMan looked"
+                ),
+                Resolution::Found { .. } => panic!("nothing exists in this launcher"),
+            }
+        }
+    }
+}
+
+/// A launcher whose probe follows one script; only `/probe/tool` exists.
+struct Scripted {
+    outcome: ProbeScript,
+}
+
+/// One scripted probe outcome, named so the case table stays readable.
+type ProbeScript = fn() -> ProbeOutcome;
+
+impl ToolLauncher for Scripted {
+    fn exists(&self, path: &Path) -> bool {
+        path == Path::new("/probe/tool")
+    }
+    fn probe_version(&self, _path: &Path) -> ProbeOutcome {
+        (self.outcome)()
+    }
+}
+
+/// The tool spec the scripted-launcher tests share.
+fn scripted_spec() -> ToolSpec {
+    ToolSpec {
+        name: "tool",
+        role: "test subject",
+        candidates: &["/probe/tool", "/probe/fallback"],
+        tested: TestedVersion {
+            label: "util-linux 2.41",
+            family: (2, 41),
+        },
+    }
+}
+
+// Requirements: CAP-004
+//   The doctor reports presence, version, and tested-range membership as facts with provenance — the answering path and the sanitized banner — and a probe failure is a typed state, never a guessed version
+// Evidence: the_doctor_reports_presence_version_and_range_as_facts
+#[test]
+fn the_doctor_reports_presence_version_and_range_as_facts() {
+    let cases: [(ProbeScript, &str); 5] = [
+        (
+            || ProbeOutcome::Completed {
+                stdout: b"tool from util-linux 2.41 (libblkid 2.41.0)".to_vec(),
+                stderr: Vec::new(),
+            },
+            "within-tested-range",
+        ),
+        (
+            || ProbeOutcome::Completed {
+                stdout: b"tool from util-linux 2.39.3".to_vec(),
+                stderr: Vec::new(),
+            },
+            "outside-tested-range",
+        ),
+        (
+            || ProbeOutcome::Completed {
+                stdout: b"no digits here at all".to_vec(),
+                stderr: Vec::new(),
+            },
+            "unknown",
+        ),
+        (
+            || ProbeOutcome::Completed {
+                stdout: Vec::new(),
+                stderr: b"banner on stderr: tool 2.41".to_vec(),
+            },
+            "within-tested-range",
+        ),
+        (|| ProbeOutcome::TimedOut, "timed-out"),
+    ];
+
+    for (outcome, expectation) in cases {
+        let roster = [scripted_spec()];
+        let reports = examine(&roster, &Scripted { outcome });
+        let report = reports.first().expect("one tool, one report");
+        let Resolution::Found { path, probe } = &report.resolution else {
+            panic!("the scripted launcher finds /probe/tool");
+        };
+        assert_eq!(path, "/probe/tool", "provenance names the answering path");
+        match probe {
+            ProbeReport::Answered { raw, range, .. } => {
+                assert_eq!(*range, expectation, "banner {raw:?} classified wrongly");
+                assert!(
+                    !raw.is_empty(),
+                    "the sanitized banner travels as provenance"
+                );
+            }
+            ProbeReport::Failed { state, detail } => {
+                assert_eq!(*state, expectation);
+                assert!(!detail.is_empty(), "a typed failure carries its sentence");
+            }
+        }
+        // Both renderings stay free of CAP-003 status vocabulary as bare
+        // words — the human form has no quotes for a quoted check to catch —
+        // because the range is a fact about a version, never a capability
+        // verdict.
+        let rendered = format!(
+            "{}\n{}",
+            doctor_json(&reports, None),
+            doctor_human(&reports, None)
+        );
+        for verdict in ["supported", "preview", "blocked"] {
+            assert!(
+                !rendered.to_lowercase().contains(verdict),
+                "doctor output contains the CAP-003 status word `{verdict}`; that \
+                 vocabulary is WP-050's, and SAFE-004's out-of-range-means-blocked \
+                 mapping happens there"
+            );
+        }
+        let parsed: serde_json::Value = serde_json::from_str(&doctor_json(&reports, None))
+            .expect("the doctor's JSON object must parse");
+        assert!(parsed["tools"].as_array().is_some_and(|t| t.len() == 1));
+    }
+}
+
+// Requirements: CAP-004, Section 12
+//   An absent tool's report carries every candidate path checked in both renderings and can never render as found — a missing dependency drawn as a pass would be a plausible fake success, and a mutation doing exactly that survived the suite until these pins existed
+// Evidence: an_absent_tool_reports_where_partman_looked
+#[test]
+fn an_absent_tool_reports_where_partman_looked() {
+    let roster = [ToolSpec {
+        candidates: &["/absent/one", "/absent/two"],
+        ..scripted_spec()
+    }];
+    let reports = examine(&roster, &NothingInstalled);
+    let Resolution::Absent { checked } = &reports[0].resolution else {
+        panic!("nothing exists in this launcher");
+    };
+    assert_eq!(
+        checked,
+        &["/absent/one".to_owned(), "/absent/two".to_owned()]
+    );
+
+    let human = doctor_human(&reports, None);
+    assert!(
+        human.contains("absent; checked /absent/one, /absent/two"),
+        "the human report must say where PartMan looked: {human}"
+    );
+    for fake in ["found at", "version:"] {
+        assert!(
+            !human.contains(fake),
+            "an absent tool must never render `{fake}`: {human}"
+        );
+    }
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(&doctor_json(&reports, None)).expect("doctor JSON parses");
+    let resolution = &parsed["tools"][0]["resolution"];
+    assert_eq!(resolution["state"], "absent");
+    assert_eq!(
+        resolution["candidates-checked"],
+        serde_json::json!(["/absent/one", "/absent/two"])
+    );
+    assert!(
+        resolution.get("probe").is_none(),
+        "an absent tool has no probe to report"
+    );
+}
+
+// Requirements: SAFE-004
+//   The launcher's child environment is cleared and gains exactly one written variable, LC_ALL=C — pinned as a source-text assertion because no behavioral proof fits the tier's process set, with the pin's reach stated: direct spellings, with smuggling routes closed by the empty closure and the wildcard-import lint, and the residue held by review
+// Evidence: the_launcher_clears_the_child_environment
+#[test]
+fn the_launcher_clears_the_child_environment() {
+    // A text pin, like the env-read source guard beside it, and for the
+    // same reason: a behavioral proof would need a canary process outside
+    // the tier's git-and-cargo set. A mutation replacing env_clear with an
+    // inherited environment survived every behavioral test when tried; this
+    // pin is what kills it, and its reach is exactly the direct spellings.
+    let source = include_str!("doctor.rs");
+    assert!(
+        source.contains(".env_clear()"),
+        "the launcher must clear the child environment before writing into it"
+    );
+    let writes = source.matches(".env(").count();
+    assert_eq!(
+        writes, 1,
+        "exactly one environment write is pinned; a second is a reviewed edit"
+    );
+    assert!(
+        source.contains(".env(\"LC_ALL\", \"C\")"),
+        "the one write is LC_ALL=C, so tool output is not localized"
+    );
+}
+
+// Requirements: Section 12
+//   An empty roster renders as a typed not-implemented statement naming the platform's adapter package — never as a clean bill that would read as all dependencies satisfied
+// Evidence: an_empty_roster_renders_as_a_typed_statement
+#[test]
+fn an_empty_roster_renders_as_a_typed_statement() {
+    let statement = Refusal {
+        state: "not-implemented",
+        reference: "WP-W100",
+        detail: "this platform's inventory route is a native API",
+    };
+    let json = doctor_json(&[], Some(&statement));
+    let parsed: serde_json::Value = serde_json::from_str(&json).expect("doctor JSON parses");
+    assert_eq!(parsed["roster"]["state"], "not-implemented");
+    assert_eq!(parsed["roster"]["reference"], "WP-W100");
+    assert_eq!(
+        parsed["tools"].as_array().map(Vec::len),
+        Some(0),
+        "no tools were checked and the report says so"
+    );
+    let human = doctor_human(&[], Some(&statement));
+    assert!(
+        human.contains("not-implemented (WP-W100)"),
+        "the human form carries the same typed statement: {human}"
+    );
+}
+
+// Requirements: Section 16, CAP-004
+//   A version banner parses to major.minor or stays unrecognized with its raw line preserved — never guessed — and the recorded util-linux banner shape parses to the recorded family
+// Evidence: version_banners_parse_or_stay_unrecognized_never_guessed
+#[test]
+fn version_banners_parse_or_stay_unrecognized_never_guessed() {
+    let parsed = |banner: &str| parse_version(banner).map(|v| (v.major, v.minor));
+    // The banner shape crates/fixtures' prober records for util-linux 2.41.
+    assert_eq!(
+        parsed("blkid from util-linux 2.41  (libblkid 2.41.0, 18-Mar-2025)"),
+        Some((2, 41))
+    );
+    assert_eq!(parsed("wipefs from util-linux 2.39.3"), Some((2, 39)));
+    assert_eq!(parsed("cargo 1.96.0 (abc123 2026-01-01)"), Some((1, 96)));
+    assert_eq!(
+        parsed("version v2.41"),
+        None,
+        "a v-prefixed token is not shaped digits.digits; the parser strips no prefix it \
+         was never shown a banner for, and unrecognized-with-raw-preserved beats a guess"
+    );
+    assert_eq!(
+        parsed("release 7 build 2.41"),
+        Some((2, 41)),
+        "the first digits.digits token wins even when other numbers precede it"
+    );
+    assert_eq!(parsed("no version anywhere"), None);
+    assert_eq!(parsed(""), None);
+    assert_eq!(
+        parsed("Fassung zwei Punkt einundvierzig"),
+        None,
+        "a localized banner without digits stays unrecognized rather than guessed"
+    );
+}
+
+// Requirements: SAFE-004
+//   The real launcher answers with bounded output, completing before the deadline fires, for a tool that exists, launched by absolute path with a structured argument array; the deadline's kill path is exercised by review and manual probe only, as doctor.rs states, and the probe subject is the compile-time-selected cargo, already in the tier's process set
+// Evidence: the_real_launcher_answers_bounded_with_provenance
+#[test]
+fn the_real_launcher_answers_bounded_with_provenance() {
+    let cargo = Path::new(env!("CARGO"));
+    assert!(cargo.is_absolute(), "cargo's compile-time path is absolute");
+    let launcher = SystemLauncher;
+    assert!(
+        launcher.exists(cargo),
+        "the toolchain that built this test exists"
+    );
+    match launcher.probe_version(cargo) {
+        ProbeOutcome::Completed { stdout, .. } => {
+            assert!(!stdout.is_empty(), "cargo --version banners on stdout");
+            assert!(stdout.len() <= 4096, "output stayed within the bound");
+            let banner = super::doctor::sanitized_first_line(&stdout);
+            assert!(
+                banner.contains("cargo"),
+                "provenance keeps the raw line: {banner}"
+            );
+            assert!(
+                parse_version(&banner).is_some(),
+                "a real toolchain banner parses: {banner}"
+            );
+        }
+        other => panic!(
+            "cargo --version must complete within the limits; got {}",
+            match other {
+                ProbeOutcome::TimedOut => "timed-out",
+                ProbeOutcome::OverOutputLimit => "over-output-limit",
+                ProbeOutcome::LaunchFailed(_) => "launch-failed",
+                ProbeOutcome::Completed { .. } => unreachable!(),
+            }
+        ),
+    }
+}
+
+// Requirements: FS-007
+//   Every shipped fact names a technology, an operation, a limit, and a checkable basis, and neither rendering contains CAP-003 status vocabulary — the facts are inputs to blocked reasons, and the blocked-reason surface is WP-050's
+// Evidence: facts_are_technology_properties_without_status_vocabulary
+#[test]
+fn facts_are_technology_properties_without_status_vocabulary() {
+    // Pinned as literals like every other contract: adding a fact is a
+    // visible reviewed edit, and the first entry is FS-007's own example.
+    let pinned: Vec<(&str, &str)> = vec![
+        ("xfs", "shrink"),
+        ("ext4", "shrink while mounted"),
+        ("linux-swap", "resize in place"),
+        ("fat32", "hold a file of 4 GiB or larger"),
+        (
+            "fat32",
+            "address a volume beyond 2 TiB with 512-byte sectors",
+        ),
+    ];
+    let actual: Vec<(&str, &str)> = FACTS
+        .iter()
+        .map(|fact| (fact.technology, fact.operation))
+        .collect();
+    assert_eq!(actual, pinned, "the fact roster is a pinned contract");
+
+    for fact in FACTS {
+        for (field, value) in [
+            ("technology", fact.technology),
+            ("operation", fact.operation),
+            ("limit", fact.limit),
+            ("basis", fact.basis),
+        ] {
+            assert!(
+                !value.is_empty(),
+                "a fact with an empty {field} is not a fact"
+            );
+        }
+    }
+
+    let json = facts_json();
+    let parsed: serde_json::Value = serde_json::from_str(&json).expect("facts JSON parses");
+    assert_eq!(parsed.as_array().map(Vec::len), Some(FACTS.len()));
+
+    let rendered = format!("{json}\n{}", facts_human());
+    for verdict in ["supported", "preview", "unsupported", "blocked"] {
+        assert!(
+            !rendered.to_lowercase().contains(verdict),
+            "facts output contains the CAP-003 status word `{verdict}`; a fact is a \
+             property of a technology, never a verdict about a target"
+        );
+    }
 }
