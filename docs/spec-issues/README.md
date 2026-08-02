@@ -70,7 +70,7 @@ simply "undecided":
 
 | Issue | Hash-visible | State |
 | --- | --- | --- |
-| SI-11 | no | Open, axis decided. ADR-0012 (spec 4.4.0) makes a mutating step naming a client-visible Section 2.1 non-goal node unrepresentable and retains helper recomputation. Round four still includes total fail-closed verdicts, downward reach without sibling capture, device-scope inheritance, per-operation status, step construction and decode checks over structural effects, exhaustive PART-014 classification, and the affected-set/bind-set obligations retained in Part 6. SI-29 and SI-30 retain the Storage Spaces and sealed-volume classification cases; SI-37 supplies the unequal-identifier multipath coverage case. SI-27 retains naming and edge typing; SI-34 retains verdict placement |
+| SI-11 | yes | Open, axis decided. ADR-0012 (spec 4.4.0) makes a mutating step naming a client-visible Section 2.1 non-goal node unrepresentable and retains helper recomputation. Round four still includes total fail-closed verdicts, downward reach without sibling capture, device-scope inheritance, per-operation status, step construction and decode checks over structural effects, exhaustive PART-014 classification, and the affected-set/bind-set obligations retained in Part 6. SI-29 and SI-30 retain the Storage Spaces and sealed-volume classification cases; SI-37 supplies the unequal-identifier multipath coverage case. SI-27 retains naming and edge typing; SI-34 retains verdict placement |
 | SI-27 | yes | Open. SI-12 resolved in 4.3.0 (ADR-0011), so the naming round proceeds without product deduplication. It must name both Weak and Strong equal-identifier simultaneous collisions without merging them, type the kernel-reported multipath membership edge, and preserve node identity under the accepted stability rules. SI-37, not SI-27, owns the fail-closed detection gap for unassembled paths whose identifiers differ |
 | SI-28 | yes | **Mitigated-open.** An interim conservative floor is in force and does not resolve it; Part 7 |
 | SI-33 | no | Open. The route by which SI-28's floor may later be relaxed |
@@ -107,17 +107,18 @@ survived every round and is not in question.
 Whether the derived verdict is **frozen into the hashed body** is open again.
 Round two justified it by concluding that every client/helper asymmetry is a
 roster-identity fact, so the two sides would always compute the same graph. **A
-fixture measured in WP-020 falsifies that premise:** on a device carrying a live
-ext4 superblock and a stale mdraid 0.90 superblock, an unprivileged client reads
-one signature from udev's cache while a privileged helper's direct probe sees
-both. Signature presence feeds a verdict, and that difference is not roster
-identity.
+fixture measured in WP-020 refutes that universal premise within one named
+finite projection:** on bytes carrying a live ext4 superblock and a stale
+mdraid 0.90 superblock, the retained single-answer interface reports only the
+stale signature while the retained enumerating interface reports both. That
+observation difference is not roster identity.
 
-Be precise about what the fixture does and does not prove. It falsifies the
-*universal symmetry premise* that justified freezing. It does **not** prove that
-the two sides reach different *verdicts* — that remains untested, and
-`docs/quality/observability.md` states the distinction. Neither "S1 is disproved"
-nor "the fixture changes the verdict" is a correct reading.
+Be precise about what the fixture does and does not prove. It refutes the
+*universal roster-identity premise* for that named projection. It does **not**
+establish an actual cross-privilege difference between the complete client and
+helper graphs, or that the two sides reach different *verdicts* — both remain
+untested, and `docs/quality/observability.md` states the distinction. Neither
+"S1 is disproved" nor "the fixture changes the verdict" is a correct reading.
 
 What remains is therefore mechanism **and** one reopened decision, filed as
 SI-34.
@@ -322,9 +323,9 @@ Whether `SnapshotKind` must cover VSS and Btrfs is a specification question.
 > and edge typing; SI-34 retains verdict body placement; later recovery and
 > ruleset interaction remains with SI-20 through SI-22.
 
-**Requirements:** Section 2.1, SAFE-005, PART-014, CAP-001, CAP-002, CAP-003,
-CAP-005, HLP-002, PLAN-004, CONC-001, CONC-005, PART-009, PART-012,
-Section 20, Section 0.2 · **Blocks 3**
+**Requirements:** Section 2.1, Section 6, SAFE-005, PART-014, CAP-001, CAP-002,
+CAP-003, CAP-005, HLP-002, MODEL-005, PLAN-004, CONC-001, CONC-005, PART-009,
+PART-012, Section 20, Section 0.2 · **Blocks 3, hash-visible**
 
 Section 2.1 says the product MUST NOT mutate ZFS, Storage Spaces, LDM, or
 Fusion — absolute. The mechanism it supplies, PART-014 protected objects, is
@@ -564,8 +565,8 @@ pass, so fold all three into one spec change rather than three.
 **Requirements:** MODEL-005, PLAN-006, HLP-002, CAP-007, SAFE-005, Section 0.2 · **Blocks 3, hash-visible**
 
 Filed after a project review, and after the measurement that reopened it. This
-issue exists because the answer was previously treated as settled and the
-justification for it has since been falsified.
+issue exists because the answer was previously treated as settled using a
+universal justification that one named finite projection has since refuted.
 
 **What is not in question.** Protection is derived from discovered evidence and
 the graph, and the helper recomputes it independently. A client cannot declare an
@@ -574,11 +575,15 @@ it.
 
 **What is.** Round two justified freezing the helper's exact derived verdict into
 the hashed body by concluding that every client/helper asymmetry is a
-roster-identity fact. WP-020's stale-signature fixture shows that is false: the
-client's udev-cached view and the helper's direct probe disagree about which
-signatures a device carries, and signature presence feeds a verdict. If the
-verdict is body content and the two graphs differ, body hashes differ on
-unchanged hardware — the PLAN-006 unsatisfiability ADR-C2 exists to prevent.
+roster-identity fact. Within the retained regular-file projection, WP-020's
+stale-signature fixture refutes that universal premise: the single-answer
+interface reports only the stale mdraid signature while the enumerating
+interface reports both it and the live ext4 signature. That finite observation
+asymmetry is not roster identity. The fixture does not by itself establish that
+a real client and helper produce different complete graphs or final protection
+verdicts. If a qualified implementation later establishes such a graph
+difference while the verdict is body content, unchanged hardware can produce
+different body hashes — the PLAN-006 unsatisfiability ADR-C2 exists to prevent.
 
 **Options:**
 
@@ -909,9 +914,12 @@ multipath should become writable.
 > edge kind — the product infers no cross-path sameness of its own, and
 > mutation reports CAP-003 `unsupported` with a multipath reason. Equal
 > stable identifiers with no platform-assembled multipath node are SAFE-005
-> ambiguity, `blocked`; the ADR records the population this check cannot
-> reach (unequal cross-path identifier bytes, per the bridge-synthesis
-> measurements) as an uncovered residual, not as covered. The path-set
+> ambiguity, `blocked`. The retained bridge-synthesis and two-layer-serial
+> measurements establish only that identifier equality cannot be assumed
+> across bridges or observation layers; no retained run measured one LUN on
+> two simultaneous paths with unequal identifiers. That unassembled-and-
+> unequal population remains an unmeasured, uncovered residual filed as SI-37,
+> not as covered. The path-set
 > encoding — including its body-versus-envelope placement, itself part of
 > what this issue left undecided — is deferred behind a MODEL-003 version
 > bump to the spec change that first makes multipath a supported target,
@@ -1671,21 +1679,21 @@ list recorded the designator table as untested and the design built on it anyway
    is the kernel's own view — on Windows the complete partition list with each
    partition's offset, size, type and GUID; on Linux `/proc/partitions`, sysfs
    geometry, and the world-readable udev database carrying serial, WWN, bus and
-   path. **Part 5's conclusion is now falsified for one case, measured rather than
-   argued.** WP-020's generator builds a device carrying a live ext4 superblock
-   at `0x438` and a stale mdraid 0.90 superblock in the last 64 KiB-aligned
-   block — the end-of-device metadata that start-of-device formatting never
-   reaches. On it, `wipefs -n` reports **both** signatures while
-   `blkid -p -o udev`, the form udev's builtin uses, reports exactly one:
-   `linux_raid_member`. **`ID_FS_AMBIVALENT` did not fire**, so a client does not
-   even see "ambiguous" — and the single answer it does see is the *stale*
-   signature, not the live file system.
+   path. **Part 5's universal roster-identity conclusion is refuted within one
+   named finite projection, measured rather than argued.** WP-020's regular-file
+   fixture carries a live ext4 superblock at `0x438` and a stale mdraid 0.90
+   superblock in the last 64 KiB-aligned block — the end-of-device metadata that
+   start-of-device formatting never reaches. On those bytes, `wipefs -n` reports
+   **both** signatures while `blkid -p -o udev`, the form udev's builtin uses,
+   reports exactly one: `linux_raid_member`. **`ID_FS_AMBIVALENT` did not fire**;
+   the single answer is the *stale* signature, not the live file system.
 
-   That is an asymmetry which is not roster identity, and signature presence
-   feeds a protection verdict. An unprivileged client would call this device a
-   RAID member; a helper that probes directly sees an ext4 file system as well.
-   Round four must treat client-and-helper signature agreement as something to be
-   established, not assumed. (One earlier finding survives and narrows the
+   That finite interface asymmetry is not roster identity, and signature
+   presence can feed a protection verdict. It does not by itself establish an
+   actual cross-privilege difference between complete client and helper graphs,
+   or a different final verdict. Round four must therefore establish rather
+   than assume client-and-helper signature agreement. (One earlier finding
+   survives and narrows the
    collision families: a partition reformatted by a *current* tool does not
    retain its old file-system signature, because `mkfs` and `mkswap` erase
    competing ones.)

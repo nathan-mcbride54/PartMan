@@ -7,6 +7,13 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- WP-010's authorized metadata and historical-fidelity repair marks SI-11 as
+  hash-visible and ties its retained plan/snapshot obligations to MODEL-005 and
+  Section 6; narrows SI-12 and spec 4.3.0 to the evidence actually retained for
+  unequal multipath identifiers; and limits SI-34's stale-signature result to
+  the named finite projection it measured. No option, issue state, class,
+  dependency, normative requirement, specification version, or evidence status
+  changes.
 - WP-010's post-acceptance integrity pass reconciles four accepted ADRs with
   the authoritative register without changing a normative decision. ADR-0002
   and ADR-0005 now label their old blocker lists as acceptance-time snapshots;
