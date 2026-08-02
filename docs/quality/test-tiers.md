@@ -1,7 +1,7 @@
 # Test tiers
 
 The test-tier definitions come from Section 11.3 of
-`AGENT_BUILD_SPEC.md` 4.1.0.
+`AGENT_BUILD_SPEC.md` 4.2.0.
 
 ## Tier 1
 
@@ -45,8 +45,39 @@ schema files and temporary directories. That stopped being true as gates were
 added, and a boundary description that lags the code is worse than none — it is
 the sentence a reader would rely on to decide the tier is safe.*
 
-**No test opens a block device at any tier.** That has been true throughout and
-is the claim this section exists to make.
+**No code in this repository opens a block device with write intent, at any
+tier, and no command launches an external tool against a block device** — an
+open performed by a tool this repository launches counts as this repository's
+open. This sentence changed in two directions on 2026-08-01: its subject
+widened from tests to all code — verified by inspection, nothing in the
+repository opens or enumerates a device today — and its predicate narrowed to
+write intent, ahead of the read-only inspection package (WP-035, created by
+the 4.2.0 spec change), whose inspector will read device state through
+unprivileged interfaces. The narrowing lands before the first device-reading
+commit rather than being discovered false after it, for the reason recorded in
+the paragraph above: the boundary sentence is what a reader relies on to
+decide a tier is safe, and one that lags the code is worse than none. The
+write-intent boundary must be enforced by an open-flags assertion and a test
+that proves the assertion can fail — an obligation recorded on WP-035, whose
+first device-reading increment is not complete without it — and it holds until
+a destructive tier lands inside SAFE-007's interlock, which will renarrow this
+sentence again before its first device-writing commit.
+
+**At Tier 1 the stronger claim does not expire: no Tier-1 test opens a block
+device at all, read or write.** Regular files are all SAFE-001 permits there —
+SI-35's filing records that limitation directly — and device reads, when they
+arrive, are operator-run or Tier-2 work, never Tier-1 tests.
+
+**SAFE-007's interlock provides zero coverage for the read path.** A read-only
+inspector never calls `authorize`, so nothing about the interlock's strength —
+the held handles, the share modes, the byte verification — protects a read.
+Stated as a decision rather than left to be inferred (recorded in the
+2026-08-01 review handoff and carried into WP-035's assignment): the interlock
+gates writes to disposable targets, and the read path's safety must rest on
+the write-intent boundary above, on SAFE-004's rules wherever external tools
+are invoked, and on INV-006's no-repair/no-auto-mount discipline. The
+loop-device binding question on the destructive path remains open and is
+tracked as issue #94.
 Later packages may add pure planner, validator, and regular-file fixture tests.
 
 Run it with:
@@ -114,6 +145,11 @@ deliberate: a green destructive tier is exactly the signal someone would trust
 when deciding whether the interlock works, so it must never be produced by a run
 of nothing (Section 12, Section 16).
 
-No command in this repository enumerates, opens, or writes a block device, at
-any tier. Filesystem access is limited to repository-controlled files and to the
-generated fixture tree under `tests/generated/`, which `.gitignore` excludes.
+No command in this repository writes a block device or opens one with write
+intent, at any tier. Today none enumerates or opens one at all; that stronger
+sentence is retired deliberately ahead of the read-only inspection package
+(WP-035) — see the Tier 1 section for the narrowing, its subprocess rule, and
+its reason. Filesystem access remains limited to repository-controlled files
+and to the generated fixture tree under `tests/generated/`, which `.gitignore`
+excludes, until that package lands with the boundary statement its assignment
+obliges it to carry.
