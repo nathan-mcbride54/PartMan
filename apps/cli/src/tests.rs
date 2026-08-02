@@ -138,7 +138,7 @@ fn inspect_answers_with_typed_statements_not_a_fake_topology() {
         "adapters: not-implemented",
         "identity-strength: not-established (SI-28)",
         "partition-table-state: not-established (SI-35)",
-        "same-device-claims: not-established (SI-12)",
+        "same-device-claims: never-inferred (ADR-0011)",
     ] {
         assert!(
             human.stdout.contains(fragment),
@@ -170,16 +170,24 @@ fn inspect_answers_with_typed_statements_not_a_fake_topology() {
         .iter()
         .filter_map(|entry| entry["gate"].as_str())
         .collect();
-    for gate in ["SI-28", "SI-35", "SI-12"] {
+    for gate in ["SI-28", "SI-35", "ADR-0011"] {
         assert!(
             gate_ids.contains(&gate),
             "the gated list must carry {gate}: {gate_ids:?}"
         );
     }
     for entry in gated {
+        // The two open questions read `not-established`; the resolved one
+        // reads `never-inferred` under its deciding ADR — a decision is not
+        // an open question, and rendering it as one would misattribute.
+        let expected = if entry["surface"] == "same-device-claims" {
+            "never-inferred"
+        } else {
+            "not-established"
+        };
         assert_eq!(
-            entry["state"], "not-established",
-            "a gated surface is not-established, never silently omitted"
+            entry["state"], expected,
+            "a gated surface carries its state in-band, never silently omitted"
         );
     }
 }
@@ -1532,7 +1540,7 @@ fn inspect_reports_bytes_never_classifications() {
     for fragment in [
         "identity-strength: not-established (SI-28)",
         "partition-table-state: not-established (SI-35)",
-        "same-device-claims: not-established (SI-12)",
+        "same-device-claims: never-inferred (ADR-0011)",
     ] {
         assert!(
             human.stdout.contains(fragment),

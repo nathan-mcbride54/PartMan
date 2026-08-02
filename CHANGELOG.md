@@ -5,6 +5,23 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ## Unreleased
 
+### Changed
+
+- The inspect chassis's standing gated list re-attributes its
+  `same-device-claims` entry from SI-12 to ADR-0011, completing the follow-up
+  the ADR's Consequences named: SI-12 resolved in spec 4.3.0, and a live
+  surface citing a resolved issue as an open gate is the count-drift the
+  register's sole-authority rule exists to prevent. The prohibition itself is
+  unchanged — the inspector still never claims two paths are or are not the
+  same device — but its state renders as `never-inferred` under the deciding
+  ADR rather than `not-established` under a question that no longer exists,
+  in both the JSON and human renderings, with the pinned tests moved to the
+  new strings and the JSON state assertion now per-surface. README's two
+  restatements of the gated list and WP-035's two boundary citations move
+  with it; the `partman.cli.envelope/0` schema is provisional within major
+  version 0, and this is the kind of deliberate change that provisionality
+  exists for.
+
 ### Added
 
 - The SI-35 **loop-device measurement** was taken read-only on 2026-08-02,

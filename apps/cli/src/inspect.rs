@@ -128,12 +128,19 @@ pub const PROBES: &[(u64, u64)] = &[(0, 16), (510, 2), (512, 16), (1024, 16)];
 
 /// The standing gated-surface list, rendered in every inspect answer —
 /// observation answers and refusals alike — so what the inspector will not
-/// say is stated in-band, never inferred from silence. Each entry names
-/// the register issue that gates it.
-pub const GATED: &[(&str, &str)] = &[
-    ("identity-strength", "SI-28"),
-    ("partition-table-state", "SI-35"),
-    ("same-device-claims", "SI-12"),
+/// say is stated in-band, never inferred from silence. Each entry carries
+/// its state and names the authority that gates it: an open register issue
+/// for the surfaces still undecided, and an accepted decision for a surface
+/// whose question has been resolved. ADR-0011 (spec 4.3.0) resolved SI-12
+/// by making no-cross-path-sameness-inference a standing rule, so
+/// `same-device-claims` is `never-inferred` by decision rather than
+/// `not-established` by open question — the prohibition is identical; its
+/// authority changed from a question to an answer, and citing the retired
+/// question would be the drift the register's sole-authority rule forbids.
+pub const GATED: &[(&str, &str, &str)] = &[
+    ("identity-strength", "not-established", "SI-28"),
+    ("partition-table-state", "not-established", "SI-35"),
+    ("same-device-claims", "never-inferred", "ADR-0011"),
 ];
 
 /// The session-local selector for the one replayed object. One constant,
@@ -353,10 +360,11 @@ fn outcome_json(outcome: &Outcome) -> String {
 pub fn gated_json() -> String {
     let entries: Vec<String> = GATED
         .iter()
-        .map(|(surface, gate)| {
+        .map(|(surface, state, gate)| {
             format!(
-                "{{\"surface\":{surface},\"state\":\"not-established\",\"gate\":{gate}}}",
+                "{{\"surface\":{surface},\"state\":{state},\"gate\":{gate}}}",
                 surface = json_escaped(surface),
+                state = json_escaped(state),
                 gate = json_escaped(gate),
             )
         })
@@ -448,8 +456,8 @@ pub fn gated_block() -> String {
 fn gated_human(out: &mut String) {
     use std::fmt::Write as _;
     let _ = writeln!(out, "  gated (the inspector will not say, and names why):");
-    for (surface, gate) in GATED {
-        let _ = writeln!(out, "    {surface}: not-established ({gate})");
+    for (surface, state, gate) in GATED {
+        let _ = writeln!(out, "    {surface}: {state} ({gate})");
     }
 }
 
