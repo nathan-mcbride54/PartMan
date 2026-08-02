@@ -27,6 +27,12 @@ path = "src/main.rs"
 # dev-dependency cannot reach the shipped binary; the guard test states which
 # dependency kinds it excludes and why.
 serde_json = "1.0"
+# Test-only, for the increment-4 replay goldens: the assignment's words are
+# "fixture-backed replay over WP-020's deterministic images", and this is
+# that crate — a single catalogue image is synthesized in memory, written to
+# a test-owned temporary file, and replayed. Dev-only, so the shipped
+# closure stays empty and the guard test keeps proving it.
+partman-fixtures = { path = "../../crates/fixtures" }
 
 [lints]
 workspace = true
