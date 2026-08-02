@@ -22,11 +22,18 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   **M0.5's loop-backed exit criterion is not satisfied by this run.** The
   contingency was honoured: the binding-gap line travels beneath every table
   filled, WP-020's increment-2 row stays Blocked, and test-tiers.md's
-  sentences remain true because nothing in the repository opened a device. A
-  conflict between the two authorities — WP-035 calling these operator-run
-  experiments and not tier work, #94 calling the same probe Tier-2 work that
-  cannot yet be made — is named for filing under §1.11 rather than resolved
-  here. A content check — hashing the whole loop device against
+  sentences remain true because nothing in the repository opened a device,
+  though the environment was not §11.3's either — T2 is defined as disposable
+  VMs and this ran on the operator's working WSL2 instance. The two
+  authorities characterize the activity differently — WP-035 calling these
+  operator-run experiments and not tier work, #94 calling the same probe
+  Tier-2 work that cannot yet be made — and §11.3, cited by neither, places
+  `loop` under T2 while restricting only *destructive suites* to T2 and T3.
+  That is a documentation inconsistency, not a conflict between requirements,
+  so it is **not** a §1.11 filing; an earlier version of this entry said it
+  was, and filing it would have inflated the register's counts with a
+  miscategorization. It is recorded on issue #94 instead. A content check —
+  hashing the whole loop device against
   the fixture digest, all seven matching — is recorded as a mitigation of the
   read-only blast radius and explicitly **not** as #94's closure, since a
   digest binds bytes and #94 is about binding an inode. **H-separation is

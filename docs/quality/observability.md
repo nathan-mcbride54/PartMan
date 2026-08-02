@@ -1885,16 +1885,34 @@ harm is to the record's accuracy, not to any storage.
 - `docs/quality/test-tiers.md`'s sentences remain true: nothing in the
   repository opened a block device, and the scripts that did are operator-run
   and live outside it.
+- **The environment was not §11.3's.** T2 is defined as "disposable VMs per
+  OS"; this ran on the operator's working WSL2 instance, which is not
+  disposable. Recorded as a second respect in which the run sat outside the
+  arrangement its subject matter belongs to, independent of the #94 block.
 
-**A conflict between two authorities, filed rather than resolved here.**
-WP-035 increment 5 calls these measurements "operator-run, read-only
-experiments... not tests and not repository commands"; issue #94 calls the
-same SI-35 loop probe "Tier-2 work that cannot yet be made". Those are
-different characterizations of one activity, and which governs decides whether
-an operator-run loop attach is available at all before a destructive suite
-exists. This record does not choose between them — that belongs under §1.11
-in the spec-issue register, which is not this package's to edit — and it is
-named here so the next person meets the conflict rather than one side of it.
+**Two project documents characterize this activity differently, and the
+specification text neither of them cites is the one that matters.** WP-035
+increment 5 calls these measurements "operator-run, read-only experiments...
+not tests and not repository commands"; issue #94 calls the same SI-35 loop
+probe "Tier-2 work that cannot yet be made". **§11.3** of the specification —
+cited by neither — places `loop` under T2, *"Privileged, disposable VMs per
+OS"*, while stating its restriction more narrowly than either document
+assumes: **"Destructive suites run only here or in T3, gated by SAFE-007."**
+A read-only loop attach is not a destructive suite, so §11.3 does not forbid
+this run outright; what it does establish is that loop work belongs to a tier
+whose environment is a disposable VM, and this ran on the operator's working
+WSL2 instance, which is not disposable.
+
+**This is not a §1.11 filing, and an earlier version of this record said it
+was.** The spec-issue register exists for conflicts *between requirements* —
+its own rule is that each entry "states the requirements that disagree" — and
+here the disagreement is between two project documents, with the one genuine
+requirement (§11.3) silent on the read-only case rather than in conflict with
+anything. Filing it in the register would have miscategorized a documentation
+inconsistency as a specification conflict and inflated the register's counts,
+which that document names as its own characteristic failure. The
+reconciliation belongs with the two documents that disagree, and is recorded
+on issue #94 where the stricter characterization lives.
 
 These sections extend this file's rule of use to their own vocabulary — a row
 marked `not yet taken` MUST NOT be relied on, cited, or paraphrased as a
