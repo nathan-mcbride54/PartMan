@@ -78,11 +78,12 @@ shapes the type, and reversing it after hashes are issued has no cheap exit.
   three's downward dependency rule and fail-open residual — remain
   undecided and remain SI-11's. *Second, client observability.*
   Unrepresentability binds relative to client-visible topology; the
-  measured single-signature udev view is a case where the client cannot see
-  the protecting fact, the plan constructs bug-free, and the retained
-  runtime layer is the operative one. Whether verdicts actually diverge
-  there is untested, as the register is careful to say. **This ADR removes
-  the guard-bug failure class for client-visible facts, and no more.**
+  measured single-signature udev view establishes that a protection input can
+  be invisible to the client. **If** that helper-only input changes the
+  verdict, a plan may construct without a client bug and helper refusal becomes
+  the operative layer. Whether it changes the verdict is untested, as the
+  register is careful to say. **This ADR removes the guard-bug failure class
+  for client-visible facts, and no more.**
 - **Ambiguity remains fail-closed.** SAFE-005 and the round-three Regime A′
   mapping are untouched: an object that cannot be positively classified is
   blocked, not defaulted.
@@ -100,10 +101,15 @@ bug. Round three's mechanism failed partly by collapsing to this.
 
 ### Option B — type-level unrepresentability, runtime layer retained (accepted)
 
-A mutating plan step whose target resolves to a Section 2.1 non-goal node is
-unrepresentable in the plan type: constructing it is a type error, not a
-validation failure. The helper's independent recomputation remains as the
-second layer. The guarantee rests on the first.
+A mutating plan step whose target resolves, from the client's visible topology,
+to a Section 2.1 non-goal node is unrepresentable in the plan type: constructing
+it is a type error, not a validation failure. The helper's independent
+recomputation remains as the second layer. For client-visible protecting facts,
+the construction layer is the primary guarantee. For bugs outside the shared
+verdict computation, client-side construction and helper-side recomputation are
+separate chances to refuse before a violating write. Where the protecting fact
+is invisible to the client, a plan can construct without a client bug and the
+helper is the operative layer.
 
 ### Option C — either layer suffices, unspecified which
 
@@ -119,16 +125,23 @@ plan — unrepresentable by construction — and the helper's independent
 recomputation under HLP-002 remains as an unweakened second layer.
 
 **SI-11 stays open.** This decides the axis the register filed and nothing
-else; the closure rules that killed three rounds are round four's work, now
-with a fixed foundation. Recording SI-11 as resolved on the strength of this
-ADR would repeat the exact overclaim this project's register discipline
-exists to prevent.
+else; the remaining protection-construction, closure, residual, and status
+obligations exposed across the three rejected rounds are round four's work, now
+with a fixed foundation. Round one was rejected for a PART-014/MAC-009 status
+conflict, round two for sibling capture and the separate SI-27 naming gap, and
+round three for six recorded defects including closure and residual failures.
+Recording SI-11 as resolved on the strength of this ADR would repeat the exact
+overclaim this project's register discipline exists to prevent.
 
 ## Consequences
 
-- Positive: the guard-bug failure class is structurally eliminated; round
-  four starts from a fixed axis instead of re-litigating it; the plan type's
-  shape gains a hard constraint before it is written, not after.
+- Positive: once shared computation correctly marks a client-visible protecting
+  fact, a mutating step for it is structurally unavailable. The retained helper
+  supplies a second refusal opportunity for later client-only defects. Round
+  four starts from a fixed axis instead of re-litigating it, and the plan type's
+  shape gains a hard constraint before it is written, not after. Client-
+  invisible protecting facts and shared-classification defects retain the
+  limits stated in Safety analysis.
 - Negative: unrepresentability must be *provable* in the implementation — a
   compile-fail or construction-refusal proof, in the style the CLI chassis
   already set with its non-`Hash` output type — which is more work than an

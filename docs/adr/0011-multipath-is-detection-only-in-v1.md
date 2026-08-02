@@ -3,7 +3,8 @@
 - Status: Accepted
 - Date: 2026-08-02
 - Spec version: 4.3.0
-- Work packages blocked: WP-010 increment 3 (via SI-27), WP-050, WP-L100
+- Work packages blocked at acceptance: WP-010 increment 3 (via SI-27), WP-050,
+  WP-L100; current issue dependencies live in the register
 - Requirement IDs: SAFE-003, SAFE-005, LIN-006, INV-001, CAP-001, CAP-003,
   MODEL-003, MODEL-005, PLAN-006, Section 2.1
 - Decision owners: Nate McBride
@@ -47,12 +48,18 @@ three design rounds.
 
 ## Safety analysis
 
-- **Device identity.** No multipath device is ever a bound target in v1, so no
-  path field enters any hashed body, and the PLAN-006 instability SI-12
-  describes cannot occur. This is consistent with MODEL-005's body-stability
-  rule (4.0.0): a hashed body may carry only facts invariant under re-probe of
-  unchanged hardware, and a path set derived from enumeration is not yet
-  proven to be such a fact.
+- **Device identity.** A multipath device or member **recognized through the
+  platform relation**, or an unassembled equal-identifier pair caught by
+  SAFE-005 ambiguity, is never a bound **mutating** target in v1. This decision
+  therefore adds no multipath path-set field to a mutating plan body, so the
+  PLAN-006 path-set instability SI-12 describes cannot occur for the covered
+  population. Detection and read/copy-as-source representations remain in
+  scope and are not claimed to be absent from topology or envelope data. This
+  is consistent with MODEL-005's body-stability rule (4.0.0): a hashed body may
+  carry only facts invariant under re-probe of unchanged hardware, and a path
+  set derived from enumeration is not yet proven to be such a fact. The
+  unassembled unequal-identifier population described below is not covered by
+  that statement; its missing detection and refusal rule is filed as SI-37.
 - **The undetected-multipath residual, stated at its real width.** The
   refusal is only as strong as the detection, and the unassembled case is
   wider than a first reading suggests. When no multipath node is assembled,
@@ -63,24 +70,27 @@ three design rounds.
   round-three Regime A′ mapping, reporting `blocked` — which fails closed
   without claiming the two are one device. That check fires only when both
   paths are enumerated simultaneously **and** present bytewise-equal
-  identifiers from the same layer, and the repository's own measurements
-  show that premise cannot be assumed: a USB bridge synthesizes a
-  storage-layer serial different from its descriptor serial, one device
-  offers different identifier strings from different layers, and serial/WWN
-  forms (`naa.…`, `0x…`, bare) are uncanonicalized until the round-four
-  repair lands. Two paths through different HBAs or bridges can therefore
-  present unequal identifier bytes and classify as two Strong, fully mutable
-  plain disks. That population is protected by neither mitigation, and this
-  ADR says so rather than rounding the residual up to covered. A refusal on
-  ambiguity is not a same-device claim; it is a refusal to proceed while the
-  question is open.
+  identifiers from the same layer. The retained bridge/layer measurements do
+  not establish a real multipath instance; they show only that identifier
+  equality cannot be assumed across observation layers. Serial/WWN forms
+  (`naa.…`, `0x…`, bare) are also uncanonicalized until the round-four repair
+  lands. If two unassembled paths expose unequal selected identifier bytes,
+  both can classify as Strong, fully mutable plain disks. That unmeasured but
+  admissible population is protected by neither mitigation, and this ADR says
+  so rather than rounding the residual up to covered. A refusal on ambiguity is
+  not a same-device claim; it is a refusal to proceed while the question is
+  open. SI-37 gives this residual a fail-closed design home without reopening
+  SI-12's path-set or deduplication decision.
 - **Privilege boundaries, journaling, recovery, secrets, hostile inputs:**
   unchanged. Nothing here adds a privileged surface or a parser.
-- **No MUST is weakened.** LIN-006's detection MUST is satisfied by
-  representation; INV-001's discovery MUST is satisfied because detection-only
-  devices are still discovered and represented; SAFE-003 is untouched — its
-  single-path identity record continues to describe every device v1 can bind,
-  which after this decision is every supported write target.
+- **The accepted policy weakens no MUST; its current coverage is incomplete.**
+  LIN-006's detection rule represents platform-recognized multipath;
+  INV-001's discovery rule represents those detection-only devices; and
+  SAFE-003's single-path identity record describes ordinary targets the current
+  rules allow the product to bind for mutation. Section 2.1's prohibition
+  remains absolute, including for an unassembled unequal-identifier population
+  that those rules do not recognize. SI-37 records that uncovered enforcement
+  gap; this ADR does not treat the gap as permission to bind such a target.
 
 ## Options considered
 
@@ -128,16 +138,21 @@ is the same case).
 
 ## Decision
 
-Option C. v1 represents multipath detection-only, refuses it as a write
-target via CAP-003 `unsupported` with a reason, and **defers the path-set
-encoding** — including its body-versus-envelope placement — to the
-specification change that first makes a multipath device a supported write
-target, where it will land behind a MODEL-003 schema version bump rather
-than as a silent widening, informed by measurements of real multipath
-systems that do not yet exist. The normative home is a **Section 2.1
-non-goal entry** (platform-neutral, and after ADR-0012 enforced by
-unrepresentability like every other Section 2.1 entry), with LIN-006
-carrying the Linux-specific detection mechanics.
+Option C. For **platform-recognized multipath devices and recognized members**,
+v1 uses a detection-only representation and refuses mutation via CAP-003
+`unsupported` with a reason. Equal-identifier devices without a platform-
+assembled node remain SAFE-005 ambiguity and are `blocked`. The decision
+**defers the path-set encoding** — including its body-versus-envelope placement
+— to the specification change that first makes a multipath device a supported
+write target, where it will land behind a MODEL-003 schema version bump rather
+than as a silent widening, informed by measurements of real multipath systems
+that do not yet exist. The normative home is a **Section 2.1 non-goal entry**
+(platform-neutral; ADR-0012 makes client-visible recognized facts
+unrepresentable and retains helper refusal for facts visible only during
+privileged rediscovery), with LIN-006 carrying the Linux-specific detection
+mechanics. This decision does not supply detection or refusal for the
+unassembled unequal-identifier population recorded in Safety analysis; SI-37
+files that gap without reopening SI-12's path-set or deduplication decision.
 
 This resolves SI-12 and removes its transitive block on SI-27. SI-27's
 naming round proceeds **without a deduplication question** — the pair is two
@@ -150,30 +165,28 @@ inferred by the product.
 
 ## Consequences
 
-- Positive: SI-27's naming round unblocks; no hash-visible guess is made; the
-  refusal surface is honest (`unsupported` is the true state); the kernel's
-  own multipath assembly is represented rather than second-guessed.
-- Negative: v1 cannot repartition SAN or multipath storage. For the desktop
-  population this is a near-zero cost; for enterprise use it is a real
-  deferral, and it is deliberate.
+- Positive: SI-27's naming round unblocks; no hash-visible path-set guess is
+  made; for recognized multipath the refusal surface is honest (`unsupported`
+  is the true state); and the kernel's own assembly is represented rather than
+  second-guessed.
+- Negative: v1 cannot repartition **recognized** SAN or multipath storage. The
+  current rules do not reliably recognize an unassembled unequal-identifier
+  presentation; SI-37 blocks treating that uncovered population as safely
+  mutable. For the desktop population the supported-scope cost is near zero;
+  for enterprise use it is a real, deliberate deferral.
 - The eventual path-set decision inherits an evidence obligation: multipath
   observability rows — which interfaces expose which path facts, at which
   privilege, **and whether two paths to one device present bytewise-equal
   identifiers, per layer and per form** — before any encoding is chosen.
-- ACC/UI surfaces show a typed refusal for multipath targets rather than an
-  absent device — consistent with the inspect chassis's refusal discipline.
-- **A named follow-up owned by WP-035**, which this ADR cannot edit under
-  WP-010's grant: the inspect chassis's in-band gated list currently emits
-  `same-device-claims` gated on SI-12 as an open question, its pinned tests
-  pin that string, README restates the list twice, and WP-035's boundary
-  cites SI-12 in two lines. Those surfaces re-attribute from SI-12 (open
-  question) to this ADR (standing decision — the prohibition on inferring
-  sameness survives; its authority changes), and WP-035's boundary lines
-  re-cite SI-27 alone for handles and this ADR for the sameness rule. Until
-  that lands, the repository's live surfaces disagree with the register's
-  sole-authority table, which is the drift its 2026-07-28 rule exists to
-  prevent — so the follow-up is part of this resolution, not optional
-  cleanup.
+- For recognized multipath targets, ACC/UI surfaces show a typed refusal rather
+  than an absent device — consistent with the inspect chassis's refusal
+  discipline. SI-37 must establish that the unrecognized residual also cannot
+  become a mutating plan target.
+- **WP-035 follow-up completed 2026-08-02.** The inspect chassis's in-band
+  gated list, its pinned tests, README's two restatements, and WP-035's boundary
+  now attribute the no-cross-path-sameness rule to this ADR rather than treating
+  SI-12 as open. Stable-handle work remains assigned to SI-27. The prohibition
+  did not change; only its authority and rendered state did.
 
 ## Verification
 
@@ -194,8 +207,8 @@ inferred by the product.
 - Register: SI-12 recorded Resolved by this ADR and spec 4.3.0; SI-27's
   blocked-by-SI-12 state cleared, with the equal-identifier collision family
   assigned to SI-27's scope.
-- The WP-035 follow-up named in Consequences lands, so no live surface
-  cites SI-12 as an open gate.
+- Completed 2026-08-02: the WP-035 follow-up named in Consequences landed, so
+  no live WP-035 surface cites SI-12 as an open gate.
 
 ## Revisit conditions
 

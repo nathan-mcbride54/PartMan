@@ -52,30 +52,30 @@ SI-31 — which made the register unusable as the dependency gate Section 1.11
 requires it to be. Counts drift; a table that must be edited to add a row does
 not.
 
-Every issue appears exactly once. **Eight items gate increment 3**: six
-direct and two inputs. The former transitive blocker, SI-12, resolved in spec
-4.3.0 by ADR-0011.
+Every issue appears exactly once. **Nine items gate increment 3**: six direct
+and three inputs. The former transitive blocker, SI-12, resolved in spec 4.3.0
+by ADR-0011. SI-36 is withdrawn and gates nothing.
 
 | Class | Meaning | Issues |
 | --- | --- | --- |
 | **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-12, SI-31, SI-32 |
 | **Direct blocker** | Must be decided before increment 3 writes a type | SI-11, SI-27, SI-28, SI-33, SI-34, SI-35 |
-| **Transitive blocker** | Blocks a direct blocker, so it blocks the increment | *(none)* |
-| **Input** | Feeds a direct blocker; not itself a decision | SI-29, SI-30 (both to SI-11) |
+| **Transitive blocker** | A separately sequenced prerequisite decision that must resolve before a direct blocker can be decided | *(none)* |
+| **Input** | A subquestion or evidence case resolved within the consuming direct blocker's decision | SI-29, SI-30, SI-37 (all to SI-11) |
 | **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-15, SI-16, SI-17, SI-18, SI-19, SI-20, SI-21, SI-22, SI-23, SI-24, SI-25, SI-26 |
+| **Withdrawn** | Retained as history after the filing was shown not to be a conflict | SI-36 |
 
-The direct blockers, with the state each is actually in — the distinctions
-matter, because one of the six is *not* simply "undecided":
+The direct blockers, with the state each is actually in — not all six are
+simply "undecided":
 
 | Issue | Hash-visible | State |
 | --- | --- | --- |
-| SI-11 | no | Open, axis decided. ADR-0012 (spec 4.4.0) commits enforcement to unrepresentability in the plan type, with the runtime layer retained; what remains open is what each round actually died on — round one a PART-014/MAC-009 status-mapping conflict (Part 4), round two sibling capture and the SI-27 naming gap (Part 5), round three the missing downward production rule and the fail-open residual (Part 6) — and round four starts from the fixed axis, owing those closure rules |
-| SI-27 | yes | Open. Its transitive blocker SI-12 resolved in 4.3.0 (ADR-0011): inventory nodes mirror kernel-materialized block devices, so the naming round proceeds **without a deduplication question** — while the equal-identifier simultaneous pair (two present devices, byte-equal identity fields, only excluded-from-naming paths to tell apart, Strong identity included per the ADR's unassembled case) is assigned to this issue's collision-behaviour scope, and the membership relation's edge kind is this round's to type |
+| SI-11 | no | Open, axis decided. ADR-0012 (spec 4.4.0) makes a mutating step naming a client-visible Section 2.1 non-goal node unrepresentable and retains helper recomputation. Round four still includes total fail-closed verdicts, downward reach without sibling capture, device-scope inheritance, per-operation status, step construction and decode checks over structural effects, exhaustive PART-014 classification, and the affected-set/bind-set obligations retained in Part 6. SI-29 and SI-30 retain the Storage Spaces and sealed-volume classification cases; SI-37 supplies the unequal-identifier multipath coverage case. SI-27 retains naming and edge typing; SI-34 retains verdict placement |
+| SI-27 | yes | Open. SI-12 resolved in 4.3.0 (ADR-0011), so the naming round proceeds without product deduplication. It must name both Weak and Strong equal-identifier simultaneous collisions without merging them, type the kernel-reported multipath membership edge, and preserve node identity under the accepted stability rules. SI-37, not SI-27, owns the fail-closed detection gap for unassembled paths whose identifiers differ |
 | SI-28 | yes | **Mitigated-open.** An interim conservative floor is in force and does not resolve it; Part 7 |
 | SI-33 | no | Open. The route by which SI-28's floor may later be relaxed |
 | SI-34 | yes | Open. Reopens whether the protection verdict belongs in the hashed body at all |
-| SI-35 | yes | Open. ADR-C3's three table states are not all observable through the interface a client reads |
-| SI-36 | no | **Withdrawn.** Not a conflict: SAFE-009 permits `unsafe` *only* in adapter/FFI/helper crates, which forbids it in `crates/fixtures` and names the route. Filing it read an omission as permission |
+| SI-35 | yes | Open. None of its three acceptance-evidence categories is complete: the Windows run omitted reachable layout rows and retained incomplete status surfaces; the WSL2 loop run is non-qualifying under issue #94 and a post-hoc normalizer; and no chosen-option refusal implementation exists yet. The retained finite projections did not separate the decisive pair, but do not prove that no client-readable interface can |
 
 **SI-31 is resolved in spec 4.1.0 by ADR-C6.** Its answer is plain unsigned
 bytewise ordering over each element's full canonical encoding, for
@@ -306,20 +306,25 @@ Whether `SnapshotKind` must cover VSS and Btrfs is a specification question.
 ## SI-11 Is non-goal protection a type-level impossibility or a runtime guard?
 
 > **Axis decided 2026-08-02 in spec 4.4.0 by ADR-0012; the issue stays open.**
-> The answer to the question this entry's title asks is: a type-level
-> impossibility — a mutating step naming a Section 2.1 non-goal node is
-> unrepresentable in the plan type, with the helper's independent
-> recomputation retained as an unweakened second layer. What stays open, and
-> keeps this a direct blocker, is what the rejected rounds actually died on,
-> per round: one on a PART-014/MAC-009 status-mapping conflict, two on
-> sibling capture and the SI-27 naming gap, three on the missing downward
-> production rule and a fail-open residual. A closure that wrongly computes
-> permitted leaves the node unmarked and defeats both axes identically; a
-> closure that produces no verdict is the fail-closed-residual space, where
-> the chosen axis can refuse construction outright — round four's to design.
-> Round four starts from the fixed axis and owes those rules.
+> A mutating step naming a client-visible Section 2.1 non-goal node is
+> unrepresentable in the plan type, with the helper's recomputation retained.
+> The three rejected rounds are history, not three instances of one closure
+> failure: round one failed on PART-014/MAC-009 status mapping, round two on
+> sibling capture plus SI-27's naming gap, and round three on the six defects
+> listed in Part 6. SI-11's surviving work includes the protection construction
+> those reviews exposed: total fail-closed verdicts, downward reach without sibling
+> capture, device-scope inheritance, per-operation status, step-level
+> construction and decode checks over structural effects, and exhaustive
+> PART-014 classification. Part 6 retains the full affected-set, bind-set,
+> table-extent, and host-qualified-extent review checklist. SI-29 and SI-30
+> retain the Storage Spaces and sealed-volume classification cases; SI-37
+> supplies the unequal-identifier multipath coverage case. SI-27 retains naming
+> and edge typing; SI-34 retains verdict body placement; later recovery and
+> ruleset interaction remains with SI-20 through SI-22.
 
-**Requirements:** Section 2.1, PART-014, Section 20, Section 0.2 · **Blocks 3**
+**Requirements:** Section 2.1, SAFE-005, PART-014, CAP-001, CAP-002, CAP-003,
+CAP-005, HLP-002, PLAN-004, CONC-001, CONC-005, PART-009, PART-012,
+Section 20, Section 0.2 · **Blocks 3**
 
 Section 2.1 says the product MUST NOT mutate ZFS, Storage Spaces, LDM, or
 Fusion — absolute. The mechanism it supplies, PART-014 protected objects, is
@@ -328,9 +333,11 @@ bypassable by construction; and PART-014's enumerated list does not include pool
 members, ZFS, Storage Spaces, or LDM at all. Section 0.2 grants override
 authority to Section 3, and Section 2.1 is not in Section 3.
 
-This decides whether a detect-only marking makes a plan step naming such a node
-**unrepresentable**, or merely rejected at runtime. The two are not
-interchangeable, and only the first survives a bug in the guard.
+ADR-0012 decided that the client-visible case is **unrepresentable** rather than
+merely rejected at runtime. Part 6's next-attempt list is the recorded review
+checklist a next design must address in the remaining closure, construction,
+residual, and status work; it did not absorb the separately owned naming,
+placement, recovery, or ruleset questions.
 
 ## Filed by round three
 
@@ -619,87 +626,99 @@ that changes nothing must proceed and be journaled; a client claiming
 `permitted` must lose to the helper's `refused`; and Windows, real partitioned
 Linux hardware, and macOS observability must all be established first.
 
-## SI-35 ADR-C3's three table states are not all observable
+## SI-35 The measured client projections do not separate ADR-C3's three table states
 
-**Requirements:** ADR-C3, MODEL-005, PLAN-006, INV-003, SAFE-005, HLP-002 · **Blocks 3, hash-visible**
+**Requirements:** ADR-C3, MODEL-005, PLAN-006, INV-003, SAFE-005, HLP-002 ·
+**Blocks 3, hash-visible**
+
+> **Evidence status 2026-08-02: all three acceptance categories remain
+> unsatisfied.** The Windows procedure omitted reachable layout rows and
+> retained incomplete status surfaces. The historical WSL2 loop run is
+> non-qualifying under issue #94 and used a post-hoc normalizer. A refusal proof
+> for the chosen option cannot exist until an option and implementation exist.
+> The finite retained projections did not separate the decisive pair; that does
+> not prove that no client-readable interface can do so.
 
 Filed 2026-07-28 from a measurement, not from a reading. Part 6's precondition 1
 already requires an ADR-C3 amendment fixing **what `Present { checksum }` is
-computed over**, and treats that as a free choice between raw sectors and the
-kernel's logical view. It is less free than that.
+computed over**. The measurements constrain that choice without deciding it.
 
-**What was measured.** `libblkid` 2.41 was run over the whole WP-020 catalogue,
-which is the first time it had been asked about anything but the multi-signature
-fixture. `gpt-basic-512.img` and `gpt-conflicting-tables-512.img` produce
-**byte-identical output from both `blkid -p -o udev` and `wipefs -n`.** The
-first has two agreeing tables. The second has two independently valid tables
-describing different partitions — which is the definition ADR-C3 gives for a
-table that parses ambiguously. `ID_FS_AMBIVALENT` does not fire. The full table
-is in `docs/quality/observability.md`.
+**What the retained measurements establish.** On regular files under
+libblkid 2.41, `gpt-basic-512.img` and
+`gpt-conflicting-tables-512.img` produced byte-identical output from both
+`blkid -p -o udev` and `wipefs -n`. The first has two agreeing tables; the
+second has two independently valid tables describing different partitions.
+That finite projection therefore did not encode ADR-C3's distinction between
+`Present` and `Indeterminate`. `ID_FS_AMBIVALENT` did not fire. The full table
+and the later runs' validity limits are in `docs/quality/observability.md`.
 
-The same run shows a damaged primary reported as an ordinary `gpt` (recovered
-silently from the backup) and a hybrid MBR/GPT reported as plain `gpt`.
+The same file probe labelled a damaged-primary image as `gpt`; only the retained
+`wipefs` offsets exposed the missing primary signature. That does not establish
+silent backup recovery: the record cannot distinguish use of the valid backup
+from parsing primary bytes without validating the CRC. Windows likewise
+retained the same two partition rows as the healthy fixture, but no fact
+identifying which copy it used or whether it validated the primary CRC. The
+hybrid image's regular-file projection was also plain `gpt`.
 
-**The conflict.** ADR-C3 requires three distinguishable partition-table states,
-and INV-003 requires detecting inconsistent and hybrid tables. The interface an
-unprivileged client can actually read — the udev database, per the Linux section
-of the observability record — collapses `Present` and `Indeterminate` onto one
-value. Distinguishing them requires reading both tables and comparing them, which
-is a raw sector read, which **both** measured platforms deny unprivileged.
+**The conflict.** ADR-C3 requires three partition-table states, INV-003 requires
+detecting inconsistent and hybrid tables, and the future design must say which
+observer computes which state from which contract. The named regular-file
+projection collapses a decisive pair. The Windows run did not produce a
+decision-complete counterexample because its wrapper skipped reachable layout
+queries for two enumeration-gap fixtures and discarded queried
+`MSFT_PhysicalDisk` properties. The historical loop projection cannot repair
+either gap because its attach was not descriptor-bound and its normalizer was
+changed after the first result.
 
-So ADR-C3's state is not a free choice of projection:
-
-- Computed over **raw sectors**, an unprivileged client cannot compute it at all,
-  and every unprivileged record becomes `Indeterminate`. Part 6 already records
-  where that leads: Weak identity everywhere, UI-009 typed confirmation
-  universal, unattended apply refused universally.
-- Computed over the **kernel/udev projection**, `Indeterminate` has no encoding,
-  so the state ADR-C3 exists to distinguish cannot be represented. A conflicting
-  table would be recorded as `Present` with a checksum — a positive claim about a
-  table that cannot be positively determined, which is the SAFE-005 fail-closed
-  violation ADR-C3 was written to prevent.
-
-**Neither option is acceptable as stated, and that is the issue.** This is not a
-request to pick one.
+Raw-sector computation also has a privilege boundary: the retained
+non-elevated Windows and Linux environments denied direct device reads. That is
+evidence about those environments, not a universal statement that every
+client-readable interface lacks a separating fact. Consequently neither raw
+sectors nor an unspecified "kernel view" can be selected without naming the
+platform contract and the fail-closed behavior when it is absent.
 
 **Options, none decided:**
 
 (a) **Privilege-tagged state.** `Present`/`Absent`/`Indeterminate` gains a
 recorded observation basis, so "indeterminate *from here*" is distinct from
 "indeterminate". Costs: the basis is body content and hash-visible, and two
-observers at different privilege still produce different bodies — the PLAN-006
-problem ADR-C2 exists to prevent, and the same problem SI-34 is open on.
+observers at different privilege may still produce different bodies — the
+PLAN-006 problem ADR-C2 exists to prevent, and the same placement problem SI-34
+is open on.
 
-(b) **Clamp to the weaker view.** Both sides compute over the projection a
-non-elevated client can reproduce, and `Indeterminate` is reachable only through
-facts that projection can carry. Requires establishing that some client-readable
-fact separates a conflicting table from a healthy one; **this measurement is
-evidence that none does**, at least for files under libblkid 2.41.
+(b) **Clamp to a named reproducible client projection.** Both sides compute
+over a precisely specified projection a non-elevated client can reproduce, and
+`Indeterminate` is reachable only through facts that projection carries. This
+requires positive evidence that the selected contract separates every state in
+scope, plus a fail-closed answer where it does not. Equality in one finite
+libblkid projection neither supplies that contract nor refutes the existence of
+another client-readable fact.
 
 (c) **`Indeterminate` becomes helper-only.** The client never claims the state;
 the helper, which can read sectors, computes it and may only tighten. This is
-SI-34's option (c) applied to a second field, and it inherits SI-34's unproven
-monotonicity obligation.
+SI-34's option (c) applied to a second field and inherits SI-34's unproven
+monotonicity and placement obligations.
 
-**Bearing on SI-34.** SI-34 was filed on a signature-layer asymmetry. This is a
-second, independent instance in the *partition-table* layer, which ADR-C3 already
-accepted and froze. Two independent instances make "asymmetry is a special case
-of the signature layer" untenable, and any option chosen for SI-34 should be
-checked against this case before it is accepted.
+**Bearing on SI-34.** SI-34 was filed on a signature-layer asymmetry. The
+partition-table measurements provide a separate finite projection in which
+decisive bytes are not reflected in the retained client view. That is enough to
+reject an assumed universal client/helper symmetry; it is not enough to claim
+that every partition-table interface is asymmetric or that the resulting
+protection verdicts differ.
 
-**What this does not establish.** The probe was of regular files, which is all
-SAFE-001 permits at Tier 1. A loop device may populate `ID_PART_ENTRY_*` and
-separate the two images; that is a Tier-2 measurement and it is **open**. If it
-does separate them, option (b) becomes viable and this issue narrows sharply. The
-result is also specific to libblkid 2.41's priority resolution, which is
-implementation behaviour rather than a specified interface.
+**What this does not establish.** The regular-file probe is not a kernel parse.
+The WSL2 loop run is historical and non-qualifying, so it establishes neither a
+positive separating contract nor a universal negative. The Windows procedure
+ran on attached fixtures but is incomplete for its pre-registered hypotheses.
+A descriptor-bound non-WSL loop rerun and a decision-complete Windows rerun are
+still outstanding.
 
-**Evidence required before any option is accepted:** the loop-device measurement
-above, so the file-probing limitation is not mistaken for a kernel limitation;
-the same measurement on Windows, whose partition-list interface exposes per-
-partition detail that Linux's whole-disk probe does not, and may therefore
-separate the states where Linux cannot; and a demonstration that whichever option
-is chosen still refuses rather than proceeds on `gpt-conflicting-tables-512.img`.
+**Evidence required before any option is accepted:** (1) the descriptor-bound,
+non-WSL loop-device measurement, so the file-probing limitation is not mistaken
+for a kernel limitation; (2) the decision-complete Windows equivalent,
+including every reachable layout and retained status surface; and (3) a
+demonstration that the chosen option refuses rather than proceeds on
+`gpt-conflicting-tables-512.img`. None is presently satisfied.
 
 ## SI-33 A continuity witness for media that cannot be told apart
 
@@ -732,6 +751,148 @@ real hardware, this is a hypothesis.
 Placement is also open: a witness is compared rather than re-derived, so ADR-C2's
 rule argues for the body, but a witness that changes on every attach makes
 PLAN-006 unsatisfiable if hashed naively.
+
+## SI-37 The multipath refusal has no fail-closed rule for unassembled paths with unequal identifiers
+
+**Requirements:** Section 2.1, ADR-0011, ADR-0012, SAFE-003, SAFE-005,
+MODEL-003, MODEL-004, MODEL-005, PLAN-006, INV-001, INV-008, CAP-001,
+CAP-003, HLP-002, LIN-006 · **Input to SI-11; gates 3 through SI-11,
+hash-visible**
+
+Filed 2026-08-02 by the post-acceptance integrity review of ADR-0011.
+
+> **This does not reopen SI-12 or withdraw ADR-0011.** ADR-0011's accepted
+> answers remain in force: a platform-recognized multipath node and its
+> recognized members are detection-only and `unsupported` as write targets;
+> an unassembled pair presenting byte-equal stable identifiers is SAFE-005
+> ambiguity and `blocked`; the product does not infer cross-path sameness of
+> its own; and supported multipath mutation remains deferred. This filing gives
+> the residual that ADR-0011 recorded, but did not assign to an open register
+> item, a fail-closed design home.
+
+**What is established, and what is not.** The observability record establishes
+that one physical device can expose different identifier strings through
+different layers and that bridges can synthesize identifiers. It therefore
+refutes an assumption that byte equality across every relevant observation
+layer is automatic. No retained measurement establishes that one real
+multipathed LUN presents unequal identifiers on two simultaneous paths. The
+population below is an admissible, safety-relevant counterexample already named
+by ADR-0011, not a measured prevalence claim. Its existence on supported hosts
+must be measured; its absence must not be assumed.
+
+**The exact conflict.** Section 2.1 requires the product to detect, correctly
+represent, and protect every multipathed attachment and never mutate it.
+ADR-0011 specifies two enforceable cases:
+
+1. the platform assembles a multipath node and reports its member paths; or
+2. no node is assembled, but two devices present byte-equal stable identifiers,
+   making both SAFE-005 ambiguity.
+
+Neither rule covers this permitted observation:
+
+- the host exposes nodes `P` and `Q` for two paths to one LUN;
+- no platform multipath framework supplies an assembled node or membership
+  relation;
+- the stable-identifier bytes selected for `P` and `Q` differ because the
+  paths, HBAs, bridges, layers, or representations transform them differently;
+- each record independently carries a stable identifier, size, both sector
+  sizes, and a positively determined partition-table state.
+
+Under SAFE-003, strength is a property of one record, so both records can be
+`Strong`. Their identifier bytes are unequal, so ADR-0011's equal-identifier
+ambiguity rule does not fire. No platform membership relation exists, and
+ADR-0011 correctly forbids the product from inventing a same-device claim.
+SAFE-005 supplies the required result once identity is known to be ambiguous,
+but no requirement supplies the predicate that makes this pair ambiguous.
+
+The client can therefore classify `P` and `Q` as ordinary mutable disks. The
+ADR-0012 constructor then has no protected node to make unrepresentable.
+HLP-002 does not close the gap by itself: independent rediscovery can reproduce
+the same classification without a bug, and no normative helper-only rule
+supplies the missing membership fact. A mutating capability may consequently
+remain `supported` while the physical target belongs to Section 2.1's absolute
+non-goal.
+
+This is a coverage failure in the protection classifier, not a reversal of the
+detection-only policy. Treating unequal identifier bytes as proof that the
+devices are distinct would turn missing evidence into permission. Treating
+similar model, size, or path text as proof of sameness would violate ADR-0011.
+Neither is an available default.
+
+**Why this gates increment 3 and is conservatively hash-visible.** SI-11 owns
+the closure that decides which nodes Section 2.1 reaches; this case must be one
+of its explicit inputs. Option (c), or any answer placing a durable membership
+fact in the topology, would change the snapshot body and canonical bytes under
+MODEL-005. Options that keep the fact helper-derived may avoid that change;
+choosing among those placements before increment 3 is why the issue is marked
+hash-visible rather than silently settled by implementing no field.
+
+**Options, none decided:**
+
+(a) **Require a platform-authoritative membership or single-path assertion.**
+For each supported platform and transport, name an API and value whose contract
+either reports platform-owned membership or positively rules out another path
+to the same target. Unavailable, conflicting, or non-authoritative answers are
+`blocked`. Cost: the supported write population is bounded by what each
+platform can positively attest.
+
+(b) **Fail closed over an explicitly bounded host/transport population.** Where
+multiple paths are possible and no authoritative framework proves membership
+or single-path status, every affected mutating capability is `blocked` with a
+remediation such as enabling the platform multipath framework or removing the
+redundant path. Cost: potentially broad refusal, including legitimate distinct
+disks. The population must be defined from observable properties; "SAN-like"
+or "might be multipath" is not an implementable predicate.
+
+(c) **Represent membership uncertainty explicitly.** Add a closed state such as
+`recognized`, `ruled-out`, or `indeterminate`, backed by typed observations;
+only `ruled-out` permits ordinary mutation, while `recognized` is
+`unsupported` and `indeterminate` is `blocked`. Cost: likely Section 5 and
+canonical-schema additions, a MODEL-003 versioned surface, a body-versus-
+envelope decision under MODEL-005/HLP-002, and coordination with SI-27 if a new
+node or relation must be named. `Indeterminate` records uncertainty; it must not
+assert that two paths are the same device.
+
+Not an option: allowing mutation merely because identifiers differ, relying on
+an unspecified helper check, or deduplicating by model, capacity, connection
+text, or another heuristic.
+
+**Evidence required before any option is accepted:**
+
+1. A per-platform matrix using one LUN exposed through at least two real or
+   faithfully virtualized paths, measured with the native multipath framework
+   both assembled and deliberately absent or disabled. Record raw identifier
+   bytes by source API and layer, the platform membership relation, and the
+   privilege needed to read each fact.
+2. Distinct-LUN negative controls matched as closely as practical in model,
+   capacity, sector geometry, controller, and transport, so the availability
+   cost of a conservative rule is measured rather than hidden.
+3. Repeated probes across path addition and removal, enumeration-order changes,
+   framework restart, and host reboot. Any proposed body field must be stable on
+   unchanged hardware and satisfy PLAN-006.
+4. Separate unprivileged-client and privileged-helper projections. If only the
+   helper sees the decisive fact, the design must state how the client remains
+   conservative and how the helper tightens without claiming type-level
+   enforcement of an invisible fact.
+5. A documented positive contract for any proposed single-path assertion.
+   Absence of an assembled node, a second enumerated path, or equal identifier
+   bytes is not negative proof.
+6. If a new field or state is selected, exact body/envelope placement,
+   provenance, canonicalization, shared Rust/TypeScript vectors, and schema
+   versioning evidence.
+7. Fixture-backed tests proving that a client-visible decisive fact yields
+   neither a mutating `supported` capability nor a constructible mutating step;
+   that a helper-only decisive fact causes every client-constructed or
+   hand-forged artifact to be refused before the first write; and that distinct-
+   LUN controls retain exactly the availability the accepted option promises.
+
+**Dependencies.** SI-11 consumes this issue; its round-four closure may resolve
+SI-37 only by naming this case explicitly and carrying the required evidence.
+SI-27 does not decide sameness: its equal-identifier collision and membership-
+edge naming work remain, and it consumes a future SI-37 node or relation only
+after that mechanism is accepted. SI-12 remains Resolved; SI-37 concerns proof
+that a target belongs to its protected population, not whether recognized
+multipath should become writable.
 
 ---
 
@@ -1099,7 +1260,8 @@ That is a new blocking gap, filed below as SI-27.
 
 ## SI-27 The hashed body has no node-naming rule
 
-**Requirements:** MODEL-005, ADR-C2, SAFE-003, ADR-C3 · **Blocks 3, hash-visible**
+**Requirements:** Section 5, MODEL-002, MODEL-005, ADR-C2, SAFE-003, ADR-C3,
+LIN-006, ADR-0011 · **Blocks 3, hash-visible**
 
 Until now the body was a bag of values with no internal references, so node
 identity never had to be canonical. Any protection closure, and any faithful
@@ -1110,8 +1272,19 @@ collision-free across simultaneously present devices.
 Section 5 lists no such type and neither ADR-C2 nor ADR-C4 addresses naming.
 The four obvious schemes each fail, as above. A resolution must state the
 derivation, its stability guarantee, and its behaviour when two Weak-identity
-devices are indistinguishable — including whether an indistinguishable pair is
-an error that fails closed rather than a silent merge.
+devices are indistinguishable. That behavior must still produce a snapshot: it
+may neither silently merge the devices nor refuse discovery for the whole host,
+and any fail-closed limitation must attach to the affected target or targets.
+
+ADR-0011 removes product deduplication from this issue; it does not remove the
+collision family. SI-27 must define stable, collision-safe `NodeId` behavior for
+simultaneously present records whose identity bytes are equal, whether their
+individual strength is Weak or Strong, without silently merging two devices.
+It must also type and name the platform-reported membership edge between a
+recognized multipath node and its materialized members. The separate question
+of how to fail closed when unassembled paths to one LUN present unequal
+identifiers is SI-37, an input to SI-11; SI-27 must not infer sameness to close
+that gap.
 
 ---
 
@@ -1427,8 +1600,13 @@ contents were considered.
 
 **What the next attempt needs.**
 
-1. **Resolve SI-12 first.** Multipath is a prerequisite, not a parallel question,
-   and SI-12 is reclassified in Part 2 accordingly.
+1. **SI-12 was the first prerequisite and resolved on 2026-08-02.** ADR-0011
+   removes product deduplication from this round: platform-recognized multipath
+   membership is detection-only, while an unassembled equal-identifier pair is
+   SAFE-005 ambiguity. SI-27 still owns collision-safe names and the membership
+   edge. The unequal-identifier unassembled residual discovered by the
+   post-acceptance review is now SI-37, an input to SI-11 rather than a naming
+   inference SI-27 is allowed to make.
 2. **A naming input for virtual devices that is the backing object's identity**,
    which requires a **fourth edge kind** for host-backed virtual devices (loop,
    dm-linear, plain dm-crypt, VHD/VHDX, attached images) — none of which has an
@@ -1480,11 +1658,12 @@ list recorded the designator table as untested and the design built on it anyway
 
 1. **A per-platform observability record, established empirically and
    non-elevated, before any ADR freezes bytes.** Started in
-   `docs/quality/observability.md`; **Windows is established, Linux is partly
-   established, macOS is not.** (Round three proposed `docs/capabilities/`; it
-   lives under `docs/quality/` instead, because `docs/capabilities/` is where
-   DOC-003's generated matrix belongs and Section 11.7 forbids hand-editing
-   that.)
+   `docs/quality/observability.md`; **Windows has hardware rows but SI-35's
+   Windows category is incomplete, Linux is partly established and its WSL2
+   loop record is non-qualifying, and macOS is not established.** (Round three
+   proposed `docs/capabilities/`; it lives under `docs/quality/` instead,
+   because `docs/capabilities/` is where DOC-003's generated matrix belongs and
+   Section 11.7 forbids hand-editing that.)
 
    Measured so far, on both Windows and Debian: an unprivileged client **cannot**
    read raw partition-table sectors, and on Linux it cannot probe a device for

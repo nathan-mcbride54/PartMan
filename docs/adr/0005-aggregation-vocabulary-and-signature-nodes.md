@@ -3,12 +3,14 @@
 - Status: Accepted
 - Date: 2026-07-28
 - Spec version: 4.0.0
-- Work packages blocked: WP-010 increment 3 (**partially; see Scope**)
+- Work packages blocked at acceptance: WP-010 increment 3 (**partially; see
+  Scope**); current issue dependencies live in the register
 - Requirement IDs: Section 5, MODEL-002, MODEL-003, MODEL-005, MAC-002,
   MAC-003, MAC-009, MAC-010, FS-003, FS-004, LIN-004, LIN-005, LIN-006,
   PART-014, PART-015, INV-004, INV-008, CAP-001, CAP-002, RPC-002, Section 20
 - Resolves: SI-07, SI-08, SI-09, SI-10
-- Does **not** resolve: SI-11, SI-27. **WP-010 increment 3 remains blocked.**
+- Did **not** resolve at acceptance: SI-11, SI-27. **WP-010 increment 3 remained
+  blocked.** Current issue dependencies live in the register.
 - Decision owners: repository CODEOWNERS
 
 Acceptance basis: filed under Section 1.11. Round one's answer to these four was
@@ -398,10 +400,14 @@ Negative and to be managed:
   while changing SAFE-003's definition of identity strength. Nothing in this ADR
   depends on the answer, but it should be settled deliberately rather than
   inherited.
-- **WP-010 increment 3 remains blocked.** These four decisions fix the
-  vocabulary; the types cannot be written until SI-11 supplies the verdict and
-  SI-27 supplies the naming inputs, both of which add hash-visible fields to the
-  very types fixed here.
+- **At acceptance, WP-010 increment 3 remained blocked.** These four decisions
+  fixed the vocabulary; SI-11 still had to supply the protection construction
+  and SI-27 the naming inputs. The accepted record did not establish that both
+  necessarily add hash-visible fields: SI-27's naming decision is hash-visible,
+  while whether a derived protection verdict is frozen into the body is the
+  separate open question filed as SI-34. This is an acceptance-time statement;
+  current issue classes and states live only in the register's authoritative
+  table.
 
 ## Verification
 
@@ -487,10 +493,13 @@ every byte-count field, and one vector per `Unrecognized { probe_tag }` variant.
 
 ## Scope
 
-This resolves four of the six conflicts blocking WP-010 increment 3. Increment 3
-stays blocked on SI-11 and SI-27, and on the filings this round produced: SI-28
-through SI-32 in `docs/spec-issues/README.md`. SI-28 is a data-destruction path
-in an already-accepted decision and should be read first.
+At acceptance on 2026-07-28, this resolved four of the six conflicts then
+blocking WP-010 increment 3. At that time the increment remained blocked on
+SI-11 and SI-27 and on the new filings SI-28 through SI-32; SI-28 recorded the
+most immediate data-destruction path. That list is preserved as an
+acceptance-time snapshot, not a current dependency statement. The single
+authoritative source for current issue classes, counts, and states is
+`docs/spec-issues/README.md`'s **Status of every issue** table.
 
 Accepting this ADR implies a spec change to Section 5, MODEL-002, and Section 20,
 which is not included here: the repository's practice is that an ADR is accepted
