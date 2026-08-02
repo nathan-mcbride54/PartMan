@@ -69,7 +69,7 @@ matter, because one of the six is *not* simply "undecided":
 
 | Issue | Hash-visible | State |
 | --- | --- | --- |
-| SI-11 | no | Open. Three design rounds, three rejections; Parts 4–6 |
+| SI-11 | no | Open, axis decided. ADR-0012 (spec 4.4.0) commits enforcement to unrepresentability in the plan type, with the runtime layer retained; what remains open is what each round actually died on — round one a PART-014/MAC-009 status-mapping conflict (Part 4), round two sibling capture and the SI-27 naming gap (Part 5), round three the missing downward production rule and the fail-open residual (Part 6) — and round four starts from the fixed axis, owing those closure rules |
 | SI-27 | yes | Open. Its transitive blocker SI-12 resolved in 4.3.0 (ADR-0011): inventory nodes mirror kernel-materialized block devices, so the naming round proceeds **without a deduplication question** — while the equal-identifier simultaneous pair (two present devices, byte-equal identity fields, only excluded-from-naming paths to tell apart, Strong identity included per the ADR's unassembled case) is assigned to this issue's collision-behaviour scope, and the membership relation's edge kind is this round's to type |
 | SI-28 | yes | **Mitigated-open.** An interim conservative floor is in force and does not resolve it; Part 7 |
 | SI-33 | no | Open. The route by which SI-28's floor may later be relaxed |
@@ -304,6 +304,20 @@ despite FS-003 and LIN-006 requiring Btrfs support.
 Whether `SnapshotKind` must cover VSS and Btrfs is a specification question.
 
 ## SI-11 Is non-goal protection a type-level impossibility or a runtime guard?
+
+> **Axis decided 2026-08-02 in spec 4.4.0 by ADR-0012; the issue stays open.**
+> The answer to the question this entry's title asks is: a type-level
+> impossibility — a mutating step naming a Section 2.1 non-goal node is
+> unrepresentable in the plan type, with the helper's independent
+> recomputation retained as an unweakened second layer. What stays open, and
+> keeps this a direct blocker, is what the rejected rounds actually died on,
+> per round: one on a PART-014/MAC-009 status-mapping conflict, two on
+> sibling capture and the SI-27 naming gap, three on the missing downward
+> production rule and a fail-open residual. A closure that wrongly computes
+> permitted leaves the node unmarked and defeats both axes identically; a
+> closure that produces no verdict is the fail-closed-residual space, where
+> the chosen axis can refuse construction outright — round four's to design.
+> Round four starts from the fixed axis and owes those rules.
 
 **Requirements:** Section 2.1, PART-014, Section 20, Section 0.2 · **Blocks 3**
 
