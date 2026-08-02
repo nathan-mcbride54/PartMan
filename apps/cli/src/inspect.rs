@@ -149,6 +149,19 @@ pub const GATED: &[(&str, &str, &str)] = &[
 /// (SI-27), and the parser refuses a second object per invocation.
 pub const REPLAY_SELECTOR: &str = "replay:0";
 
+/// `O_NONBLOCK | O_NOCTTY` in Linux's userspace ABI.
+#[cfg(target_os = "linux")]
+pub(crate) const REPLAY_OPEN_FLAGS: i32 = 0x0000_0800 | 0x0000_0100;
+
+/// `O_NONBLOCK | O_NOCTTY` in Darwin's userspace ABI. Darwin assigns the
+/// Linux values to `O_EXCL | O_NOFOLLOW`; keeping this target-specific is a
+/// safety property, not a portability cosmetic.
+#[cfg(target_os = "macos")]
+pub(crate) const REPLAY_OPEN_FLAGS: i32 = 0x0000_0004 | 0x0002_0000;
+
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
+compile_error!("fixture replay open flags have not been reviewed for this Unix target");
+
 /// Replay one regular file through the fixture-replay adapter.
 ///
 /// # Errors
@@ -189,10 +202,9 @@ fn open_for_replay(path: &Path) -> std::io::Result<std::fs::File> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt as _;
-        // O_NONBLOCK = 0x800, O_NOCTTY = 0x100 on Linux; fixed kernel ABI.
         std::fs::OpenOptions::new()
             .read(true)
-            .custom_flags(0x800 | 0x100)
+            .custom_flags(REPLAY_OPEN_FLAGS)
             .open(path)
     }
     #[cfg(not(unix))]

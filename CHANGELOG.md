@@ -7,6 +7,34 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- The WP-035 audit closes the chassis honesty and evidence gaps it found.
+  `inventory`, `topology`,
+  and `capabilities` are now recognized reserved commands that return exact
+  schema-versioned typed refusals at exit 3, naming the spec issues or CAP-005
+  requirement that prevents each domain payload; they are no longer parser
+  usage errors. The dependency doctor now preserves a real tool's nonzero exit
+  as `nonzero-exit` failure rather than allowing its output to become version
+  evidence, with Git supplying both deterministic success and failure launcher
+  proofs at reviewed absolute paths. Human output uses an injective visible
+  encoding for caller controls and backslashes, JSON escapes every Unicode
+  control, and tests pin record boundaries against C0, DEL, and C1 injection.
+  Replay opens now use the reviewed target ABI values — Linux
+  `O_NONBLOCK|O_NOCTTY=0x900`, Darwin `0x20004` — with a source-use guard that
+  keeps the constant wired into the actual open. The advertised non-`Hash`
+  boundary is now a regular Tier-1 compile-time assertion rather than a doctest
+  the tier did not execute, and generated traceability now carries direct
+  INV-006 evidence without claiming WP-050's CAP-005 capability engine.
+- The SI-33/SI-35 evidence record is corrected to the retained evidence's
+  actual reach. SI-33's close-before-event/reopen arm remains unmeasured; its H
+  matrix and L6a have no retained transcript, L4 reached only one of three
+  trials, and the lower later reading does not characterize a counter epoch or
+  prove an actual fail-open comparison. Windows SI-35 discarded queried
+  PhysicalDisk property values, so equal retained fields do not satisfy the
+  pre-registered existential refutation conditions. The historical WSL2 loop
+  output is non-qualifying under issue #94 and a post-hoc normalizer. A new
+  all-`not yet taken` protocol specifies descriptor-bound, replicated,
+  order-balanced confirmation in a disposable non-WSL VM; it records no new
+  measurement.
 - The inspect chassis's standing gated list re-attributes its
   `same-device-claims` entry from SI-12 to ADR-0011, completing the follow-up
   the ADR's Consequences named: SI-12 resolved in spec 4.3.0, and a live
@@ -49,128 +77,109 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   That is a documentation inconsistency, not a conflict between requirements,
   so it is **not** a §1.11 filing; an earlier version of this entry said it
   was, and filing it would have inflated the register's counts with a
-  miscategorization. It is recorded on issue #94 instead. A content check —
-  hashing the whole loop device against
-  the fixture digest, all seven matching — is recorded as a mitigation of the
-  read-only blast radius and explicitly **not** as #94's closure, since a
-  digest binds bytes and #94 is about binding an inode. **H-separation is
-  refuted**: the normalized client projections of `gpt-conflicting-tables-512`
-  and `gpt-basic-512` are byte-identical, the kernel having materialized the
-  primary set and left the disagreeing backup nowhere visible. On this
-  environment the collapse is therefore **not** a file-probing artifact, since
-  a fully kernel-parsed device with partition scanning reproduces it, and the
-  privileged view is no better — `wipefs` reports identical offsets for both.
-  The register's attribution answer is *provisional*, not settled: it is an
-  absence claim on one kernel, one util-linux and one udev under WSL2, and
-  this section's own rule withholds it from register use until a non-WSL
-  distro-kernel run confirms it. So the decisive pair is indistinguishable
-  through three interfaces on two platforms, and SI-35's option (b) does not
-  become viable on the evidence so far. Two items of the register's
-  three-item evidence list remain outstanding — that non-WSL confirmation, and
-  the demonstration that whichever option is chosen still refuses on
-  `gpt-conflicting-tables-512.img`, which no measurement can supply. **H-4Kn is supported**, with the
-  like-for-like control met: a loop device with `--sector-size 4096` makes the
-  4Kn GPT observable where file probing reported `PMBR`, which is the IMG-011
-  route the Linux section said would be needed and confirms the fixture's
-  `PMBR` result as a probing artifact rather than a defect. Two unasked-for
-  findings: a damaged primary **is** separated, by materializing no partitions
-  while libblkid still labels the disk `gpt` — a third instance of this file's
-  two-interfaces-disagree pattern — and a missing backup is **helper-only**,
-  visible to `wipefs` and invisible to the client. The hybrid table is
-  untraced here as in file probing, and unanswered on Windows, so INV-003's
-  hybrid question is open on both platforms. Recorded against the protocol:
-  the declared normalization drop-list was incomplete — a loop device's udev
-  entry carries `ID_LOOP_BACKING_*` keys naming the backing file, so the first
-  diff returned every pair as differing by filename alone. The audit rule that
-  says such a key joins the list "or the diff is not this measurement" is what
-  caught it; the first computation is void and occupies no cell, and the
-  device-name check's hole — it scanned key names, not values — is recorded
-  for the next revision. The decisive-pair refutation is a negative taken
-  under WSL2, and this section's own rule withholds it from any register
-  decision until a non-WSL distro-kernel run confirms it.
+  miscategorization. It is recorded on issue #94 instead. A post-attach
+  run-time content check retained `matched` for all seven fixtures, but it was
+  not part of the pre-registered phases and occurred after attach, partition
+  scanning, and udev settlement; it cannot bind pathname resolution, those
+  earlier events, or later rebinding. On this WSL2 run, the post-hoc-normalized
+  client projections of conflict and healthy were identical, and the retained
+  `blkid` properties and `wipefs` offsets did not separate them. This is
+  historical, non-qualifying evidence while #94 remains open. The negative is
+  also withheld pending a descriptor-bound non-WSL rerun. Every named retained
+  reading taken so far — Windows CIM/layout IOCTL and Linux file/loop
+  projections — failed to separate the decisive pair, but the Linux readings
+  share libblkid 2.41 and are not independent. This gives option (b) no
+  support; it does not decide viability. None of the register's three evidence
+  categories is decision-complete: the Windows procedure ran but retained an
+  incomplete surface, the loop run is non-qualifying, and the chosen option's
+  refusal demonstration cannot exist before an option is implemented.
+  Separately, this record requires the non-WSL confirmation, and M0.5 requires
+  #94's closure. The historical WSL2 run recorded H-4Kn
+  supported: a loop configured with a 4096-byte logical sector size exposed
+  the GPT where file probing reported `PMBR`, consistent with the file result
+  being a probing artifact. Because #94 was open, it does not qualify as the
+  confirmation. The damaged-primary client projection differed from healthy
+  by materializing no partitions while its udev entry still said `gpt`; that
+  is a content difference, not an explicit damaged-state marker. Retained
+  `wipefs` offsets exposed the missing backup while the client projection did
+  not. The client projection carried no hybrid trace; helper-side hybrid
+  classification was unmeasured because only offsets, not signature types,
+  were retained. The initial diffs exposed backing filename,
+  encoded-filename, inode, and device plumbing. The recomputation dropped all
+  four `ID_LOOP_BACKING_*` keys post hoc; the retained summary does not show
+  that every key differed in every pair. The first computation is void, and
+  post-hoc normalizer extension is not a qualifying method; the future
+  protocol freezes normalization and voids on undeclared plumbing. Equality of
+  this finite projection is not a refutation of the existential claim that
+  some other client-readable fact may separate the pair.
 
 - The SI-35 **Windows partition-list measurement** was taken on 2026-08-02,
   seven WP-020 fixtures attached one at a time as read-only fixed VHDs by an
   elevated console while an ordinary non-elevated console did the measuring,
-  every post-detach digest unchanged so no fixture's bytes were altered. The
-  headline is a refutation: **no unprivileged surface separated an ambiguous,
-  silently recovered, or inconsistent table from a healthy one.**
-  `gpt-conflicting-tables-512` and `gpt-basic-512` produced identical values
-  on every surface measured — partition style, disk GUID, offline state and
-  reason, operational and health status, and both partition rows including
-  their GUIDs — so the valid primary was parsed and the disagreeing backup
-  appears nowhere (W-H1 refuted). The damaged-primary and missing-backup
-  fixtures were likewise indistinguishable from healthy (W-H2, W-H3 refuted),
-  the Windows analogue of libblkid's silent recovery already recorded for
-  Linux. `blank-512` is distinguishable. So on this build, for a file-backed
-  virtual disk, the unprivileged interface collapses `Present` and
-  `Indeterminate` exactly as the Linux udev projection does for files, and
-  SI-35's option (b) now has **no measured platform** whose client-readable
-  projection separates the states. Two further observations the protocol did
-  not anticipate. Two fixtures — precisely the two whose MBR carries a
-  non-protective partition entry — produced no `MSFT_Disk` row at all, while
-  `Win32_DiskDrive` and `Get-DiskImage` enumerated the same attached disk from
-  the same unprivileged session: not a privilege asymmetry but two interfaces
-  available to one client disagreeing about whether a disk exists, reproduced
-  twice each, with the attach, the device-layer presence, the selection
-  predicate and a settling race each ruled out by measurement. The correlation
-  with the MBR entry is offered as a correlation, not a mechanism. The hybrid
-  fixture produced no `MSFT_Disk` row, and its question is recorded as **not
-  attempted** rather than unanswerable: a device index was available from
-  `Win32_DiskDrive` in the same session and the zero-access layout IOCTL is
-  readable at such an index, so the probe that would have answered which
-  scheme the stack privileged was simply not run. The damaged-primary result
-  is recorded without attributing a mechanism — both GPT copies of that
-  fixture describe the same partitions, so the run cannot distinguish recovery
-  from the backup from parsing the primary without validating its CRC.
+  with the executed wrapper reporting every post-detach digest `UNCHANGED`.
+  The underlying pairs were not retained, so that verdict is not independently
+  auditable and does not prove the bytes never changed transiently. No retained
+  field from `MSFT_Disk`/`MSFT_Partition`, `MSFT_PhysicalDisk` row presence, or
+  the layout IOCTL separated conflicting, damaged-primary, or missing-backup
+  from healthy GPT. The wrapper retained `IsReadOnly=True` and PhysicalDisk
+  `rows=1` for all five CIM-visible fixtures, but discarded queried
+  PhysicalDisk property values; the declared W-H1/W-H2/W-H3 refutation
+  conditions are therefore unevaluable and their broader existential
+  hypotheses remain inconclusive. The damaged-primary rows cannot distinguish
+  backup recovery from parsing the primary without CRC validation. The run
+  gives option (b) no support on the retained Windows projection; it does not
+  establish that Windows has no separating client-readable surface.
+  `blank-512` remains distinct. Two fixtures — precisely those whose MBR has a
+  non-protective entry — produced no `MSFT_Disk` row while `Win32_DiskDrive`
+  and `Get-DiskImage` enumerated the attachment. That absence reproduced for
+  each fixture in two runs about three minutes apart, but the host device set
+  changed between runs. Both 800 ms and 3 s waits produced no row; longer
+  settling remains untested. Because the executed wrapper returned on zero
+  `MSFT_Disk` candidates, it never queried `MSFT_PhysicalDisk` or
+  `MSFT_Partition` for those fixtures, and the reachable layout IOCTL was not
+  run. The MBR-entry relationship is a correlation, not a mechanism, and the
+  hybrid question is **not attempted**, not unanswerable.
 
 - The SI-33 media-change-counter liveness experiment was **taken** on
   2026-08-02, on a card reader and two identical flash drives, entirely
   unprivileged and read-only, and its results are recorded in
-  `docs/quality/observability.md`. Every part of the register's three-part
-  liveness sequence was satisfied — the immediate re-read moved in all three
-  L1 trials, the sixty-second-idle repeat moved in all three L2 trials, and
-  L5b showed the count is not per-handle state — but the parts were taken on
-  **two different driver instances**, so no single instance carried the whole
-  sequence, and reading them as one sequence assumes an instance-to-instance
-  equivalence that was not measured. The ceiling the protocol declared before
-  any data existed stands: prompt movement cannot be attributed to
-  exchange-synchronous detection. What no pre-registered row anticipated is
-  that the counter is **not monotone across driver instances** — a fresh
-  instance reads a value the previous one had already passed. A device
-  arrival is timestamped inside the interval containing the drop, which keeps
-  the inference non-circular; attribution still rests on that single
-  co-occurrence plus the documented "since the driver started" baseline, and
-  was not reproduced. Since the value can revisit a value it already held, a
-  witness of the proposed shape **would** fail open — recorded as a
-  constructed scenario with its measured and unmeasured steps marked, because
-  no plan-time or apply-time comparison exists to have failed. Separately, an
-  empty slot makes the probe fail outright (`ERROR_NOT_READY`, no count
-  bytes) rather than merely report nothing; a read-access handle is grantable
-  unprivileged by the volume path though refused on every `PhysicalDrive`;
-  and an instance-distinguishing signal was read twice, so characterizing it
-  — not finding one — is the successor question. Recorded against the
-  protocol itself: L5 covered the handle boundary and nothing covered the
-  device boundary, so the most consequential finding surfaced from a
-  bookkeeping continuity check rather than a designated leg. An earlier L4
-  attempt is recorded as discarded: its fixed-window script measured a leg in
-  which the physical action never happened, and read as a result it would
-  have reported the L4 refutation from an exchange that did not occur. The
-  empty-slot assertion caught it, it occupies no cell, and the operator
-  scripts were rewritten to validate every physical step. The SI-35
-  measurements remain not taken.
-- WP-035 increment 5 records the register measurement instruments:
+  `docs/quality/observability.md`. L1 immediate exchanges and L2
+  sixty-second-idle exchanges moved in 3/3 trials, but the full register
+  sequence did not pass: L5b kept the original handle open across the event
+  before opening a fresh handle, and retained L5a was floor-to-floor and
+  uninterpretable. The close-before-event/reopen arm is unmeasured. L4 moved in
+  its sole retained trial (1/1 taken of 3 requested), so its replication
+  requirement is unmet. Prompt movement still cannot be attributed to
+  exchange-synchronous detection. A later reading was lower across an interval
+  containing a timestamped PnP arrival, so global monotonicity cannot be
+  assumed; LastArrival is an event marker, not a driver-incarnation token, and
+  reset causation was not established. The fail-open example remains explicitly
+  constructed: the run establishes a decrease, not a repeated plan/apply floor
+  equality or an actual witness failure. No incarnation signal was
+  characterized: the run-2 same-instance Boolean was derived from the counter,
+  PNPDeviceID persisted across L7 replug, and LastArrival identifies an arrival
+  only. The H matrix and L6a survive only as operator reports without a retained
+  transcript or group-membership record; durable evidence is limited to the
+  narrower retained legs. L3's V1 step followed filesystem I/O in the same
+  round instead of replacing it, so that arm also needs the specified rerun.
+  An earlier L4 attempt whose physical action never happened was discarded and
+  occupies no cell. The later SI-35 run records and their current limits are
+  recorded in the newer entries above.
+- At the time WP-035 increment 5 first landed — before the later operator runs
+  recorded above — it recorded the register measurement instruments:
   protocols and recording formats for the SI-33 media-change-counter
   liveness experiment and the SI-35 loop-device and Windows partition-list
   measurements, spliced into `docs/quality/observability.md` beside the
   established rows they extend. The experiments are operator-run and
-  read-only — not tests, not repository commands — and no measurement has
-  been taken: every cell a run can fill reads `not yet taken`, each section
-  extends the file's rule of use so such a cell cannot be relied on, cited,
-  or paraphrased as a finding, and every hypothesis carries its refutation
-  condition fixed before any run — with the degraded-state questions named
-  as questions, not hypotheses — so no conclusion can be fitted to data
-  afterward. The SI-33 protocol probes both CHECK_VERIFY variants across an
+  read-only — not tests, not repository commands — and no measurement had yet
+  been taken: every cell a run could fill initially read `not yet taken`. Each
+  section extends the file's rule of use so such a cell cannot be relied on,
+  cited, or paraphrased as a finding, and each hypothesis carried a
+  preregistered outcome rule — with the degraded-state questions named as
+  questions, not hypotheses — so no conclusion could be fitted to data
+  afterward. The later review withdrew H-separation's finite-projection
+  equality rule because it could not refute an existential hypothesis. The
+  SI-33 protocol probes both CHECK_VERIFY variants across an
   access matrix from zero-access up, quarantines the device-reaching variant
   from the liveness legs, and records counter movement only as deltas and signs
   because an absolute count is session history of real hardware (SEC-006);
@@ -178,8 +187,9 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   holds — is named as the hypothesis under test, not asserted in either
   direction. The SI-35 Windows protocol reaches the storage stack through
   a byte-deterministic fixed-VHD conversion (payload untouched, every free
-  footer field pinned, digest-bracketed on both sides of a read-only
-  attach), splits the privileged setup from the unprivileged measurement
+  footer field pinned, with an intended digest bracket on both sides of a
+  read-only attach), splits the privileged setup from the unprivileged
+  measurement
   with both elevation states asserted, and makes the content-versus-state
   distinction load-bearing: the conflicting fixture's primary table is
   row-identical to the healthy one's, so no partition-list shape can be
@@ -242,11 +252,12 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   present or absent with every candidate path checked, the sanitized version
   banner, the parsed version, and whether it falls inside the one recorded
   tested family (util-linux 2.41, the version the fixture prober measured) —
-  under SAFE-004's launch discipline: compiled absolute candidate paths as
-  the executable allow-list, no PATH search, structured argument arrays, a
-  cleared child environment, bounded output, and a time limit. Mapping an
-  out-of-range version to a `blocked` capability is SAFE-004's own last
-  clause and stays with WP-050's capability engine; a test refuses the
+  under SAFE-004-derived controls: compiled absolute candidate paths as the
+  executable allow-list, no PATH search, structured argument arrays, a cleared
+  child environment, bounded output, and a time limit. Executable identity is
+  not verified beyond the absolute path. Mapping an out-of-range version to a
+  `blocked` capability is SAFE-004's own last clause and stays with WP-050's
+  capability engine; a test refuses the
   CAP-003 status vocabulary in every doctor and facts rendering. The Windows
   and macOS rosters are deliberately empty and render as a typed
   not-implemented statement naming the adapter package that will populate
@@ -254,9 +265,10 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   FS-007's inputs: five immutable technology limits (led by the
   specification's own example, XFS not shrinking), each carrying the basis a
   reader can check, pinned as a literal contract. The doctor's I/O goes
-  through an injected launcher seam, so Tier-1 tests launch no roster tool
-  and the tier's process set stays `git` and the compile-time-selected
-  `cargo` — which is also the real launcher's one test subject. The shipped
+  through an injected launcher seam, so WP-035's Tier-1 tests launch no roster tool.
+  WP-035's direct test subprocess classes are Git and the compile-time-selected
+  Cargo; Git supplies the real launcher's success and nonzero-exit subjects.
+  The shipped
   binary's I/O statement grew with the increment and says so: existence
   checks and version probes of roster tools, and nothing else. A banner that
   does not parse stays unrecognized with its raw line preserved, never
@@ -304,7 +316,8 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   not emitted unversioned. Two structural guards land with their reach
   stated exactly: the shipped dependency closure is empty (asserted through
   `cargo metadata`; dev-dependencies cannot reach the binary) and the output
-  type carries a compile-fail proof it does not implement `Hash`; `std`'s
+  type carries a Tier-1 compile-time ambiguity proof that it does not implement
+  `Hash`; `std`'s
   own hashers used deliberately in-crate remain a named review obligation.
   The increment was adversarially reviewed before push; the review found and
   forced closure of a self-referential exit-code test, the argv panic seam,

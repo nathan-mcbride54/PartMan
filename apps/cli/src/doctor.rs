@@ -124,11 +124,22 @@ const OUTPUT_LIMIT: usize = 4096;
 
 /// How a launch attempt ended, before any interpretation.
 pub enum ProbeOutcome {
-    /// The tool ran to completion within the limits; both streams captured.
+    /// The tool exited successfully within the limits; both streams captured.
     Completed {
         /// Bounded bytes from stdout.
         stdout: Vec<u8>,
         /// Bounded bytes from stderr, kept because some tools banner there.
+        stderr: Vec<u8>,
+    },
+    /// The tool exited unsuccessfully within the limits. Its output remains
+    /// bounded provenance, but it is never parsed as an answer.
+    NonzeroExit {
+        /// The numeric exit code, or `None` when the platform supplied none
+        /// (for example, termination by a Unix signal).
+        code: Option<i32>,
+        /// Bounded bytes from stdout.
+        stdout: Vec<u8>,
+        /// Bounded bytes from stderr.
         stderr: Vec<u8>,
     },
     /// The tool exceeded [`LAUNCH_TIME_LIMIT`] and was killed.
@@ -143,14 +154,13 @@ pub enum ProbeOutcome {
 ///
 /// Tests inject a fake so Tier 1 never launches a roster tool — the tier's
 /// process set stays `git`, the compile-time-selected `cargo`, and nothing
-/// else. The real implementation is [`SystemLauncher`], and the one Tier-1
-/// test that exercises it probes the compile-time-selected `cargo` itself,
-/// which is already in that set.
+/// else. The real implementation is [`SystemLauncher`]; Tier 1 exercises it
+/// against Git at a reviewed absolute path, already in that set.
 pub trait ToolLauncher {
     /// Whether a regular file exists at this compiled absolute path.
     fn exists(&self, path: &Path) -> bool;
-    /// Launch `path --version` under the SAFE-004 discipline and report
-    /// how it ended.
+    /// Launch `path --version` under the SAFE-004-derived controls described
+    /// above and report how it ended.
     fn probe_version(&self, path: &Path) -> ProbeOutcome;
 }
 
@@ -169,70 +179,85 @@ impl ToolLauncher for SystemLauncher {
     }
 
     fn probe_version(&self, path: &Path) -> ProbeOutcome {
-        let mut command = std::process::Command::new(path);
-        command
-            .arg("--version")
-            .env_clear()
-            .env("LC_ALL", "C")
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped());
-        let mut child = match command.spawn() {
-            Ok(child) => child,
-            Err(error) => return ProbeOutcome::LaunchFailed(error.to_string()),
-        };
+        launch_bounded(path, &["--version"])
+    }
+}
 
-        // Drain both pipes on threads. Each drain keeps reading past the cap
-        // (discarding the excess) so a chatty child can flush, exit, and be
-        // reported over-output-limit rather than stalling on a full pipe
-        // until the deadline mislabels it timed-out. Results come back over
-        // channels rather than joins, because a join is unbounded: a
-        // descendant process that inherited the pipe keeps it open after the
-        // child exits, and the doctor must not hang on someone else's
-        // daemon — an expired drain window is reported timed-out, and the
-        // reader thread dies with the process.
-        let stdout_pipe = child.stdout.take();
-        let stderr_pipe = child.stderr.take();
-        let (stdout_sender, stdout_receiver) = std::sync::mpsc::channel();
-        let (stderr_sender, stderr_receiver) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let _ = stdout_sender.send(drain_bounded(stdout_pipe));
-        });
-        std::thread::spawn(move || {
-            let _ = stderr_sender.send(drain_bounded(stderr_pipe));
-        });
+/// Launch one absolute executable with a structured argument array under the
+/// doctor's limits. Split out privately so Tier 1 can prove both successful
+/// and unsuccessful exits without adding another executable class.
+fn launch_bounded(path: &Path, arguments: &[&str]) -> ProbeOutcome {
+    let mut command = std::process::Command::new(path);
+    command
+        .args(arguments)
+        .env_clear()
+        .env("LC_ALL", "C")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(error) => return ProbeOutcome::LaunchFailed(error.to_string()),
+    };
 
-        let deadline = Instant::now() + LAUNCH_TIME_LIMIT;
-        loop {
-            match child.try_wait() {
-                Ok(Some(_status)) => break,
-                Ok(None) => {
-                    if Instant::now() >= deadline {
-                        let _ = child.kill();
-                        let _ = child.wait();
-                        return ProbeOutcome::TimedOut;
-                    }
-                    std::thread::sleep(Duration::from_millis(10));
-                }
-                Err(error) => {
+    // Drain both pipes on threads. Each drain keeps reading past the cap
+    // (discarding the excess) so a chatty child can flush, exit, and be
+    // reported over-output-limit rather than stalling on a full pipe
+    // until the deadline mislabels it timed-out. Results come back over
+    // channels rather than joins, because a join is unbounded: a
+    // descendant process that inherited the pipe keeps it open after the
+    // child exits, and the doctor must not hang on someone else's
+    // daemon — an expired drain window is reported timed-out, and the
+    // reader thread dies with the process.
+    let stdout_pipe = child.stdout.take();
+    let stderr_pipe = child.stderr.take();
+    let (stdout_sender, stdout_receiver) = std::sync::mpsc::channel();
+    let (stderr_sender, stderr_receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = stdout_sender.send(drain_bounded(stdout_pipe));
+    });
+    std::thread::spawn(move || {
+        let _ = stderr_sender.send(drain_bounded(stderr_pipe));
+    });
+
+    let deadline = Instant::now() + LAUNCH_TIME_LIMIT;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if Instant::now() >= deadline {
                     let _ = child.kill();
-                    return ProbeOutcome::LaunchFailed(error.to_string());
+                    let _ = child.wait();
+                    return ProbeOutcome::TimedOut;
                 }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => {
+                let _ = child.kill();
+                return ProbeOutcome::LaunchFailed(error.to_string());
             }
         }
+    };
 
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        let Ok((stdout, stdout_overflowed)) = stdout_receiver.recv_timeout(remaining) else {
-            return ProbeOutcome::TimedOut;
-        };
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        let Ok((stderr, stderr_overflowed)) = stderr_receiver.recv_timeout(remaining) else {
-            return ProbeOutcome::TimedOut;
-        };
-        if stdout_overflowed || stderr_overflowed {
-            return ProbeOutcome::OverOutputLimit;
-        }
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    let Ok((stdout, stdout_overflowed)) = stdout_receiver.recv_timeout(remaining) else {
+        return ProbeOutcome::TimedOut;
+    };
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    let Ok((stderr, stderr_overflowed)) = stderr_receiver.recv_timeout(remaining) else {
+        return ProbeOutcome::TimedOut;
+    };
+    if stdout_overflowed || stderr_overflowed {
+        return ProbeOutcome::OverOutputLimit;
+    }
+    if status.success() {
         ProbeOutcome::Completed { stdout, stderr }
+    } else {
+        ProbeOutcome::NonzeroExit {
+            code: status.code(),
+            stdout,
+            stderr,
+        }
     }
 }
 
@@ -355,7 +380,8 @@ pub enum ProbeReport {
     },
     /// The probe failed; the state word says how.
     Failed {
-        /// `timed-out`, `over-output-limit`, or `launch-failed`.
+        /// `nonzero-exit`, `timed-out`, `over-output-limit`, or
+        /// `launch-failed`.
         state: &'static str,
         /// One sentence of detail.
         detail: String,
@@ -414,6 +440,31 @@ fn interpret(tool: &ToolSpec, outcome: ProbeOutcome) -> ProbeReport {
                 raw,
                 version,
                 range,
+            }
+        }
+        ProbeOutcome::NonzeroExit {
+            code,
+            stdout,
+            stderr,
+        } => {
+            let banner = if stderr.iter().any(|b| !b.is_ascii_whitespace()) {
+                stderr
+            } else {
+                stdout
+            };
+            let raw = sanitized_first_line(&banner);
+            let status = code.map_or_else(
+                || "without a numeric exit code".to_owned(),
+                |code| format!("with exit code {code}"),
+            );
+            let provenance = if raw.is_empty() {
+                "no output was captured".to_owned()
+            } else {
+                format!("first output line: {raw}")
+            };
+            ProbeReport::Failed {
+                state: "nonzero-exit",
+                detail: format!("version probe exited {status}; {provenance}"),
             }
         }
         ProbeOutcome::TimedOut => ProbeReport::Failed {
@@ -570,4 +621,70 @@ pub fn doctor_human(reports: &[ToolReport], empty: Option<&Refusal>) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod launcher_tests {
+    use super::{ProbeOutcome, launch_bounded, sanitized_first_line};
+    use std::path::Path;
+
+    #[cfg(windows)]
+    const TEST_GIT: &[&str] = &[
+        r"C:\Program Files\Git\cmd\git.exe",
+        r"C:\Program Files\Git\bin\git.exe",
+    ];
+    #[cfg(target_os = "linux")]
+    const TEST_GIT: &[&str] = &["/usr/bin/git", "/bin/git", "/usr/local/bin/git"];
+    #[cfg(target_os = "macos")]
+    const TEST_GIT: &[&str] = &[
+        "/Library/Developer/CommandLineTools/usr/bin/git",
+        "/Applications/Xcode.app/Contents/Developer/usr/bin/git",
+        "/opt/homebrew/bin/git",
+        "/usr/local/bin/git",
+        "/usr/bin/git",
+    ];
+
+    fn test_git() -> &'static Path {
+        TEST_GIT
+            .iter()
+            .map(Path::new)
+            .find(|path| path.is_file())
+            .expect("Tier 1 requires Git at one reviewed absolute path")
+    }
+
+    // Requirements: SAFE-004, CAP-004
+    //   The real bounded launcher distinguishes an unsuccessful process exit
+    //   from a successful answer, preserving only a bounded, terminal-safe
+    //   first line as provenance; an invalid structured Git option supplies a
+    //   deterministic nonzero exit without adding a Tier-1 executable class
+    // Evidence: the_real_launcher_preserves_a_nonzero_exit_as_failure
+    #[test]
+    fn the_real_launcher_preserves_a_nonzero_exit_as_failure() {
+        match launch_bounded(test_git(), &["--partman-intentional-invalid-option"]) {
+            ProbeOutcome::NonzeroExit {
+                code,
+                stdout,
+                stderr,
+            } => {
+                let code = code.expect("Git's ordinary invalid-option exit has a numeric code");
+                assert_ne!(code, 0);
+                assert!(stdout.len() <= super::OUTPUT_LIMIT);
+                assert!(stderr.len() <= super::OUTPUT_LIMIT);
+                let evidence = if stderr.is_empty() { &stdout } else { &stderr };
+                let first_line = sanitized_first_line(evidence);
+                assert!(!first_line.is_empty(), "Git's refusal carries provenance");
+                assert!(!first_line.chars().any(char::is_control));
+            }
+            other => panic!(
+                "an invalid Git option must be a completed nonzero exit, got {}",
+                match other {
+                    ProbeOutcome::Completed { .. } => "completed-successfully",
+                    ProbeOutcome::TimedOut => "timed-out",
+                    ProbeOutcome::OverOutputLimit => "over-output-limit",
+                    ProbeOutcome::LaunchFailed(_) => "launch-failed",
+                    ProbeOutcome::NonzeroExit { .. } => unreachable!(),
+                }
+            ),
+        }
+    }
 }
