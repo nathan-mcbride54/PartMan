@@ -1,15 +1,21 @@
 //! The dependency doctor (CAP-004): which external tools this host offers,
 //! at which versions, resolved from compiled absolute paths only.
 //!
-//! SAFE-004's launch discipline, adopted wholesale even though a `--version`
-//! probe is not storage execution: structured argument arrays, a fixed
+//! SAFE-004's launch discipline, adopted in every clause but two, and the
+//! two are named rather than implied: structured argument arrays, a fixed
 //! executable allow-list (the roster *is* the allow-list), trusted absolute
 //! locations and never a user-controlled `PATH`, bounded output, a time
-//! limit, and a sanitized child environment. The doctor reports presence,
+//! limit, and a sanitized child environment — but **executable identity is
+//! not verified beyond the trusted absolute path**: presence and the version
+//! banner are checked, no digest or signature is, and a symlinked candidate
+//! executes whatever it resolves to. Identity verification arrives with the
+//! packages that execute tools against storage, where SAFE-004 demands it;
+//! a `--version` probe records that gap instead of claiming it closed. The
+//! second carve-out: mapping an out-of-range version to a `blocked`
+//! capability is SAFE-004's own last clause, and that mapping belongs to
+//! WP-050's capability engine, not here. The doctor reports presence,
 //! version, and tested-range membership as **facts with provenance** — which
-//! path answered, what the tool printed. Mapping an out-of-range version to
-//! a `blocked` capability is SAFE-004's own last clause, and that mapping
-//! belongs to WP-050's capability engine, not here.
+//! path answered, what the tool printed.
 //!
 //! **This module is why the shipped binary's I/O statement changed in
 //! increment 3.** Its exact reach: existence checks (`fs::metadata`) and
@@ -38,15 +44,21 @@ pub struct ToolSpec {
     /// Why PartMan will want it, in one clause.
     pub role: &'static str,
     /// Compiled absolute candidate paths, probed in order. This list is the
-    /// SAFE-004 allow-list: nothing outside it is ever touched, and no
-    /// `PATH` entry can add to it.
+    /// SAFE-004 allow-list: no path outside it is ever probed, and no
+    /// `PATH` entry can add to it. What a candidate resolves to — a
+    /// symlink's target — is executed as that path; see the module doc's
+    /// identity carve-out.
     pub candidates: &'static [&'static str],
     /// The version this repository has recorded expectations against.
     pub tested: TestedVersion,
 }
 
-/// The tested range, stated as exactly what it is: one recorded
-/// major.minor family, not an interval nobody measured.
+/// The tested range, stated as exactly what it is: one measured build
+/// extended to its patch family. The prober measured libblkid 2.41.0 on
+/// 2026-07-28, and `crates/fixtures`' prober records why the family
+/// extension is safe there — a patch release has not changed one of the
+/// recorded answers — so `within-tested-range` for an unmeasured 2.41.x
+/// means "in the measured build's patch family", never "measured".
 pub struct TestedVersion {
     /// Human name of the recorded version, e.g. `util-linux 2.41`.
     pub label: &'static str,
@@ -170,13 +182,25 @@ impl ToolLauncher for SystemLauncher {
             Err(error) => return ProbeOutcome::LaunchFailed(error.to_string()),
         };
 
-        // Drain both pipes on threads so a chatty child cannot deadlock
-        // against a full pipe while we wait for it; `take` bounds the read.
+        // Drain both pipes on threads. Each drain keeps reading past the cap
+        // (discarding the excess) so a chatty child can flush, exit, and be
+        // reported over-output-limit rather than stalling on a full pipe
+        // until the deadline mislabels it timed-out. Results come back over
+        // channels rather than joins, because a join is unbounded: a
+        // descendant process that inherited the pipe keeps it open after the
+        // child exits, and the doctor must not hang on someone else's
+        // daemon — an expired drain window is reported timed-out, and the
+        // reader thread dies with the process.
         let stdout_pipe = child.stdout.take();
         let stderr_pipe = child.stderr.take();
-        let cap = u64::try_from(OUTPUT_LIMIT).expect("the limit fits") + 1;
-        let stdout_reader = std::thread::spawn(move || bounded_read(stdout_pipe, cap));
-        let stderr_reader = std::thread::spawn(move || bounded_read(stderr_pipe, cap));
+        let (stdout_sender, stdout_receiver) = std::sync::mpsc::channel();
+        let (stderr_sender, stderr_receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = stdout_sender.send(drain_bounded(stdout_pipe));
+        });
+        std::thread::spawn(move || {
+            let _ = stderr_sender.send(drain_bounded(stderr_pipe));
+        });
 
         let deadline = Instant::now() + LAUNCH_TIME_LIMIT;
         loop {
@@ -186,8 +210,6 @@ impl ToolLauncher for SystemLauncher {
                     if Instant::now() >= deadline {
                         let _ = child.kill();
                         let _ = child.wait();
-                        let _ = stdout_reader.join();
-                        let _ = stderr_reader.join();
                         return ProbeOutcome::TimedOut;
                     }
                     std::thread::sleep(Duration::from_millis(10));
@@ -199,22 +221,37 @@ impl ToolLauncher for SystemLauncher {
             }
         }
 
-        let stdout = stdout_reader.join().unwrap_or_default();
-        let stderr = stderr_reader.join().unwrap_or_default();
-        if stdout.len() > OUTPUT_LIMIT || stderr.len() > OUTPUT_LIMIT {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let Ok((stdout, stdout_overflowed)) = stdout_receiver.recv_timeout(remaining) else {
+            return ProbeOutcome::TimedOut;
+        };
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let Ok((stderr, stderr_overflowed)) = stderr_receiver.recv_timeout(remaining) else {
+            return ProbeOutcome::TimedOut;
+        };
+        if stdout_overflowed || stderr_overflowed {
             return ProbeOutcome::OverOutputLimit;
         }
         ProbeOutcome::Completed { stdout, stderr }
     }
 }
 
-/// Read at most `cap` bytes from a pipe, tolerating its absence.
-fn bounded_read(pipe: Option<impl Read>, cap: u64) -> Vec<u8> {
+/// Read up to [`OUTPUT_LIMIT`] bytes from a pipe, then keep draining and
+/// discarding so the writer can finish. Returns the bounded bytes and
+/// whether the limit was exceeded.
+fn drain_bounded(pipe: Option<impl Read>) -> (Vec<u8>, bool) {
     let mut buffer = Vec::new();
-    if let Some(pipe) = pipe {
-        let _ = pipe.take(cap).read_to_end(&mut buffer);
+    let Some(mut pipe) = pipe else {
+        return (buffer, false);
+    };
+    let cap = u64::try_from(OUTPUT_LIMIT).expect("the limit fits");
+    let _ = pipe.by_ref().take(cap + 1).read_to_end(&mut buffer);
+    let overflowed = buffer.len() > OUTPUT_LIMIT;
+    if overflowed {
+        buffer.truncate(OUTPUT_LIMIT);
+        let _ = std::io::copy(&mut pipe, &mut std::io::sink());
     }
-    buffer
+    (buffer, overflowed)
 }
 
 /// A version the banner parser recognized.
@@ -228,16 +265,22 @@ pub struct ParsedVersion {
 
 /// Extract `major.minor` from a version banner, or decline.
 ///
-/// The first token shaped like digits`.`digits wins; anything else is
-/// **unrecognized, never guessed** — an unparseable banner is reported raw
-/// with an unknown range, not rounded to a number. Duplicated in spirit
-/// from `crates/fixtures`' prober; see the module doc for why it is not
-/// imported.
+/// The exact shape, stated rather than rounded: the winning token's first
+/// dot-separated part is pure ASCII digits, and its second part begins with
+/// digits — the minor's non-digit tail (`2.41-rc1`, `2.41beta`) is dropped,
+/// because a build suffix is presentation and its leading number is the
+/// version, while the raw banner always travels alongside as provenance.
+/// Anything else is **unrecognized, never guessed** — an unparseable banner
+/// is reported raw with an unknown range, not rounded to a number.
+/// Duplicated in spirit from `crates/fixtures`' prober; see the module doc
+/// for why it is not imported.
 #[must_use]
 pub fn parse_version(banner: &str) -> Option<ParsedVersion> {
     for token in banner.split(|c: char| c.is_whitespace() || c == '(' || c == ')' || c == ',') {
         let mut parts = token.split('.');
         if let (Some(major), Some(minor)) = (parts.next(), parts.next())
+            && !major.is_empty()
+            && major.bytes().all(|b| b.is_ascii_digit())
             && let Ok(major) = major.parse::<u32>()
             && let Ok(minor) = minor
                 .split(|c: char| !c.is_ascii_digit())
@@ -251,18 +294,21 @@ pub fn parse_version(banner: &str) -> Option<ParsedVersion> {
     None
 }
 
-/// The banner's first line, made safe for human output: control bytes
-/// replaced, length capped. Raw evidence with stated limits, per Section 16.
+/// The banner's first non-empty line, made safe for human output: control
+/// characters — C0, DEL, and C1, so neither an escape byte nor a single-byte
+/// CSI reaches a terminal — replaced with U+FFFD, and length capped at 200
+/// characters. Raw evidence with stated limits, per Section 16.
 #[must_use]
 pub fn sanitized_first_line(bytes: &[u8]) -> String {
     let text = String::from_utf8_lossy(bytes);
-    let line = text.lines().next().unwrap_or_default();
-    let mut cleaned: String = line
-        .chars()
-        .map(|c| if (c as u32) < 0x20 { '\u{fffd}' } else { c })
-        .collect();
-    cleaned.truncate(200);
-    cleaned
+    let line = text
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or_default();
+    line.chars()
+        .take(200)
+        .map(|c| if c.is_control() { '\u{fffd}' } else { c })
+        .collect()
 }
 
 /// One tool's report: what was looked for, what answered, what it said.

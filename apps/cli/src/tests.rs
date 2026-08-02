@@ -508,7 +508,7 @@ fn no_output_in_any_mode_carries_an_environment_value() {
 }
 
 // Requirements: SEC-007, SAFE-006
-//   The shipped sources contain no environment read — env::var, env::vars, and var_os are absent from lib.rs and main.rs — so an environment value cannot reach output regardless of which variables the host sets; compile-time env::consts and env! are the allowed forms
+//   The shipped sources contain no environment read — env::var, env::vars, and var_os are absent from every shipped source file the test enumerates: lib.rs, main.rs, doctor.rs, and facts.rs — so an environment value cannot reach output regardless of which variables the host sets; compile-time env::consts and env! are the allowed forms
 // Evidence: the_shipped_sources_read_no_environment_variable
 #[test]
 fn the_shipped_sources_read_no_environment_variable() {
@@ -839,23 +839,21 @@ fn the_doctor_reports_presence_version_and_range_as_facts() {
                 assert!(!detail.is_empty(), "a typed failure carries its sentence");
             }
         }
-        // Both renderings stay free of CAP-003 status vocabulary: the range
-        // is a fact about a version, never a capability verdict.
+        // Both renderings stay free of CAP-003 status vocabulary as bare
+        // words — the human form has no quotes for a quoted check to catch —
+        // because the range is a fact about a version, never a capability
+        // verdict.
         let rendered = format!(
             "{}\n{}",
             doctor_json(&reports, None),
             doctor_human(&reports, None)
         );
-        for verdict in [
-            "\"supported\"",
-            "\"preview\"",
-            "\"unsupported\"",
-            "\"blocked\"",
-        ] {
+        for verdict in ["supported", "preview", "blocked"] {
             assert!(
-                !rendered.contains(verdict),
-                "doctor output contains the CAP-003 status {verdict}; that vocabulary is \
-                 WP-050's, and SAFE-004's out-of-range-means-blocked mapping happens there"
+                !rendered.to_lowercase().contains(verdict),
+                "doctor output contains the CAP-003 status word `{verdict}`; that \
+                 vocabulary is WP-050's, and SAFE-004's out-of-range-means-blocked \
+                 mapping happens there"
             );
         }
         let parsed: serde_json::Value = serde_json::from_str(&doctor_json(&reports, None))
@@ -864,8 +862,8 @@ fn the_doctor_reports_presence_version_and_range_as_facts() {
     }
 }
 
-// Requirements: CAP-004
-//   An absent tool's report carries every candidate path checked, so the reader is told where PartMan looked rather than only that it failed
+// Requirements: CAP-004, Section 12
+//   An absent tool's report carries every candidate path checked in both renderings and can never render as found — a missing dependency drawn as a pass would be a plausible fake success, and a mutation doing exactly that survived the suite until these pins existed
 // Evidence: an_absent_tool_reports_where_partman_looked
 #[test]
 fn an_absent_tool_reports_where_partman_looked() {
@@ -880,6 +878,57 @@ fn an_absent_tool_reports_where_partman_looked() {
     assert_eq!(
         checked,
         &["/absent/one".to_owned(), "/absent/two".to_owned()]
+    );
+
+    let human = doctor_human(&reports, None);
+    assert!(
+        human.contains("absent; checked /absent/one, /absent/two"),
+        "the human report must say where PartMan looked: {human}"
+    );
+    for fake in ["found at", "version:"] {
+        assert!(
+            !human.contains(fake),
+            "an absent tool must never render `{fake}`: {human}"
+        );
+    }
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(&doctor_json(&reports, None)).expect("doctor JSON parses");
+    let resolution = &parsed["tools"][0]["resolution"];
+    assert_eq!(resolution["state"], "absent");
+    assert_eq!(
+        resolution["candidates-checked"],
+        serde_json::json!(["/absent/one", "/absent/two"])
+    );
+    assert!(
+        resolution.get("probe").is_none(),
+        "an absent tool has no probe to report"
+    );
+}
+
+// Requirements: SAFE-004
+//   The launcher's child environment is cleared and gains exactly one written variable, LC_ALL=C — pinned as a source-text assertion because no behavioral proof fits the tier's process set, with the pin's reach stated: direct spellings, with smuggling routes closed by the empty closure and the wildcard-import lint, and the residue held by review
+// Evidence: the_launcher_clears_the_child_environment
+#[test]
+fn the_launcher_clears_the_child_environment() {
+    // A text pin, like the env-read source guard beside it, and for the
+    // same reason: a behavioral proof would need a canary process outside
+    // the tier's git-and-cargo set. A mutation replacing env_clear with an
+    // inherited environment survived every behavioral test when tried; this
+    // pin is what kills it, and its reach is exactly the direct spellings.
+    let source = include_str!("doctor.rs");
+    assert!(
+        source.contains(".env_clear()"),
+        "the launcher must clear the child environment before writing into it"
+    );
+    let writes = source.matches(".env(").count();
+    assert_eq!(
+        writes, 1,
+        "exactly one environment write is pinned; a second is a reviewed edit"
+    );
+    assert!(
+        source.contains(".env(\"LC_ALL\", \"C\")"),
+        "the one write is LC_ALL=C, so tool output is not localized"
     );
 }
 
@@ -943,7 +992,7 @@ fn version_banners_parse_or_stay_unrecognized_never_guessed() {
 }
 
 // Requirements: SAFE-004
-//   The real launcher answers with bounded output under a time limit for a tool that exists, launched by absolute path with a structured argument array; the probe subject is the compile-time-selected cargo, already in the tier's process set
+//   The real launcher answers with bounded output, completing before the deadline fires, for a tool that exists, launched by absolute path with a structured argument array; the deadline's kill path is exercised by review and manual probe only, as doctor.rs states, and the probe subject is the compile-time-selected cargo, already in the tier's process set
 // Evidence: the_real_launcher_answers_bounded_with_provenance
 #[test]
 fn the_real_launcher_answers_bounded_with_provenance() {

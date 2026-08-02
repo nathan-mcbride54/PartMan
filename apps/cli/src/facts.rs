@@ -31,8 +31,11 @@ pub const FACTS: &[TechnologyFact] = &[
     TechnologyFact {
         technology: "xfs",
         operation: "shrink",
-        limit: "XFS provides no shrink operation; the filesystem grows only",
-        basis: "xfs_growfs(8), which offers growth and no reverse; FS-007's own example",
+        limit: "XFS offers no general shrink; the only shrink implemented trims unused space \
+                at the tail of the last allocation group, which cannot make room for \
+                repartitioning",
+        basis: "xfs_growfs(8), whose shrink note limits it to the last AG; FS-007's own \
+                example",
     },
     TechnologyFact {
         technology: "ext4",
