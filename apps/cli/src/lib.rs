@@ -29,8 +29,18 @@
 //! `NO_COLOR` (CLI-008) is honored by having nothing to disable. If colour
 //! is ever added it arrives behind `NO_COLOR` and non-TTY detection, and the
 //! no-ANSI test moves from "always" to "when disabled".
+//!
+//! I/O reach, restated each time it grows (increment 3 grew it): the shipped
+//! binary opens no socket and reads no environment variable; its only
+//! file-system reads and process launches are the doctor's — existence
+//! checks and `--version` probes of roster tools at compiled absolute
+//! paths, under SAFE-004's launch discipline. The exact statement lives in
+//! [`doctor`]'s module doc, beside the code it describes.
 
 use std::ffi::OsString;
+
+pub mod doctor;
+pub mod facts;
 
 /// The schema identifier every JSON emission carries.
 ///
@@ -89,6 +99,13 @@ pub enum Command {
     /// states, admitted field-by-field through the deny-by-default
     /// allowlist, on stdout.
     ExportDiagnostics,
+    /// The dependency doctor: roster tools at compiled absolute paths —
+    /// present, version, in or out of the tested range — as facts with
+    /// provenance, never capability verdicts.
+    Doctor,
+    /// Immutable technology limits with the basis for each: FS-007's
+    /// inputs, with the blocked-reason surface left to WP-050.
+    Facts,
 }
 
 /// Every command, for contract-wide tests. Kept beside [`Command::name`],
@@ -96,11 +113,13 @@ pub enum Command {
 /// added: the new variant fails that match until it is handled, and
 /// extending this array in the same edit is a review obligation — stated as
 /// one, not claimed as a compiler guarantee.
-pub const ALL_COMMANDS: [Command; 4] = [
+pub const ALL_COMMANDS: [Command; 6] = [
     Command::Help,
     Command::Version,
     Command::Inspect,
     Command::ExportDiagnostics,
+    Command::Doctor,
+    Command::Facts,
 ];
 
 impl Command {
@@ -114,6 +133,8 @@ impl Command {
             Self::Version => "version",
             Self::Inspect => "inspect",
             Self::ExportDiagnostics => "export-diagnostics",
+            Self::Doctor => "doctor",
+            Self::Facts => "facts",
         }
     }
 }
@@ -177,14 +198,14 @@ impl UsageRefusal {
 /// honestly; a `not-established` state carrying a spec-issue gate arrives
 /// with the first surface the register actually gates (increment 4's
 /// observation records), not before there is something for it to be true of.
-struct Refusal {
+pub struct Refusal {
     /// The state word, from the vocabulary above.
-    state: &'static str,
+    pub state: &'static str,
     /// What a reader follows to see the gate: an assignment increment today,
     /// a spec-issue id when a register-gated surface exists.
-    reference: &'static str,
+    pub reference: &'static str,
     /// One sentence a human can act on.
-    detail: &'static str,
+    pub detail: &'static str,
 }
 
 /// The refusal `partman inspect` gives while there is nothing honest for it
@@ -343,7 +364,11 @@ impl DiagnosticField {
 /// What state a command answers in, for the diagnostics surface list.
 fn command_state(command: Command) -> &'static str {
     match command {
-        Command::Help | Command::Version | Command::ExportDiagnostics => "answers",
+        Command::Help
+        | Command::Version
+        | Command::ExportDiagnostics
+        | Command::Doctor
+        | Command::Facts => "answers",
         Command::Inspect => "refuses: not-implemented until WP-035 increment 4",
     }
 }
@@ -429,6 +454,9 @@ fn help_text() -> String {
          \x20 inspect              refuses with a typed value until observation records exist\n\
          \x20 export-diagnostics   this build's identity and surface states, admitted\n\
          \x20                      field-by-field through a deny-by-default allowlist\n\
+         \x20 doctor               roster tools at compiled absolute paths — present,\n\
+         \x20                      version, in or out of the tested range; never a verdict\n\
+         \x20 facts                immutable technology limits, each with its basis\n\
          \n\
          Flags:\n\
          \x20 --json     one schema-versioned JSON envelope on stdout ({ENVELOPE_SCHEMA});\n\
@@ -465,6 +493,8 @@ fn parse(arguments: &[String]) -> Result<Invocation, UsageRefusal> {
             "export-diagnostics" => {
                 set_command(&mut command, Command::ExportDiagnostics, token)?;
             }
+            "doctor" => set_command(&mut command, Command::Doctor, token)?,
+            "facts" => set_command(&mut command, Command::Facts, token)?,
             flag if flag.starts_with('-') => {
                 return Err(UsageRefusal::UnknownFlag(flag.to_owned()));
             }
@@ -490,8 +520,11 @@ fn set_command(
     Ok(())
 }
 
-/// Run one parsed invocation. Pure: no I/O, no environment, no process.
-fn run(invocation: &Invocation) -> Outcome {
+/// Run one parsed invocation. Every arm but the doctor's is pure — no I/O,
+/// no environment, no process; the doctor's I/O goes through the injected
+/// launcher, which is how Tier-1 tests keep their process set at `git` and
+/// the compile-time-selected `cargo`.
+fn run(invocation: &Invocation, launcher: &dyn doctor::ToolLauncher) -> Outcome {
     match invocation.command {
         Command::Help => Outcome {
             stdout: if invocation.json {
@@ -529,6 +562,37 @@ fn run(invocation: &Invocation) -> Outcome {
                 )
             } else {
                 diagnostics_human()
+            },
+            stderr: String::new(),
+            code: EXIT_OK,
+        },
+        Command::Doctor => {
+            let reports = doctor::examine(doctor::ROSTER, launcher);
+            let empty = doctor::empty_roster_statement();
+            Outcome {
+                stdout: if invocation.json {
+                    envelope(
+                        Some(Command::Doctor),
+                        &format!(
+                            "{{\"kind\":\"ok\",\"doctor\":{}}}",
+                            doctor::doctor_json(&reports, empty)
+                        ),
+                    )
+                } else {
+                    doctor::doctor_human(&reports, empty)
+                },
+                stderr: String::new(),
+                code: EXIT_OK,
+            }
+        }
+        Command::Facts => Outcome {
+            stdout: if invocation.json {
+                envelope(
+                    Some(Command::Facts),
+                    &format!("{{\"kind\":\"ok\",\"facts\":{}}}", facts::facts_json()),
+                )
+            } else {
+                facts::facts_human()
             },
             stderr: String::new(),
             code: EXIT_OK,
@@ -591,15 +655,22 @@ fn usage_outcome(refusal: &UsageRefusal, json: bool) -> Outcome {
     }
 }
 
-/// Parse and run one argument list, producing the outcome the binary
-/// prints. Public so every behavior is assertable without spawning a
+/// Parse and run one argument list through an injected launcher, producing
+/// the outcome the binary prints. Public so every behavior — including the
+/// doctor's, against a scripted launcher — is assertable without spawning a
 /// process.
 #[must_use]
-pub fn dispatch(arguments: &[String]) -> Outcome {
+pub fn dispatch_with(arguments: &[String], launcher: &dyn doctor::ToolLauncher) -> Outcome {
     match parse(arguments) {
-        Ok(invocation) => run(&invocation),
+        Ok(invocation) => run(&invocation, launcher),
         Err(refusal) => usage_outcome(&refusal, wants_json(arguments)),
     }
+}
+
+/// [`dispatch_with`] over the real system launcher — the binary's own path.
+#[must_use]
+pub fn dispatch(arguments: &[String]) -> Outcome {
+    dispatch_with(arguments, &doctor::SystemLauncher)
 }
 
 /// The binary's real entry seam: raw `OsString` arguments, exactly as the

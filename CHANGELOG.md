@@ -7,6 +7,33 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- WP-035 increment 3 delivers the dependency doctor and the technology
+  facts. `partman doctor` reports each roster tool as facts with provenance —
+  present or absent with every candidate path checked, the sanitized version
+  banner, the parsed version, and whether it falls inside the one recorded
+  tested family (util-linux 2.41, the version the fixture prober measured) —
+  under SAFE-004's launch discipline: compiled absolute candidate paths as
+  the executable allow-list, no PATH search, structured argument arrays, a
+  cleared child environment, bounded output, and a time limit. Mapping an
+  out-of-range version to a `blocked` capability is SAFE-004's own last
+  clause and stays with WP-050's capability engine; a test refuses the
+  CAP-003 status vocabulary in every doctor and facts rendering. The Windows
+  and macOS rosters are deliberately empty and render as a typed
+  not-implemented statement naming the adapter package that will populate
+  them — never as "all dependencies satisfied". `partman facts` ships
+  FS-007's inputs: five immutable technology limits (led by the
+  specification's own example, XFS not shrinking), each carrying the basis a
+  reader can check, pinned as a literal contract. The doctor's I/O goes
+  through an injected launcher seam, so Tier-1 tests launch no roster tool
+  and the tier's process set stays `git` and the compile-time-selected
+  `cargo` — which is also the real launcher's one test subject. The shipped
+  binary's I/O statement grew with the increment and says so: existence
+  checks and version probes of roster tools, and nothing else. A banner that
+  does not parse stays unrecognized with its raw line preserved, never
+  guessed; the launcher's time-limit path is exercised by review and manual
+  probe rather than by a Tier-1 test, a stated trade rather than a hidden
+  one.
+
 - WP-035 increment 2 delivers the deny-by-default redaction allowlist and the
   redacted `export-diagnostics` command. The allowlist is the bundle
   builder's type, not a filter: a closed field enum is the only route into
