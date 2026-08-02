@@ -1,0 +1,30 @@
+[package]
+name = "partman-cli"
+description = "The WP-035 read-only CLI chassis: structured argv, a documented exit-code contract, a schema-versioned JSON envelope, and a typed refusal vocabulary"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "partman"
+path = "src/main.rs"
+
+# No `[dependencies]` section, and that is a guard rather than an omission:
+# `the_shipped_dependency_closure_is_empty` asserts it through `cargo
+# metadata`, which is what keeps a hash function unreachable from inspector
+# output and keeps every plan type out of this binary's reach. Widening it is
+# a reviewed decision, not a convenience.
+
+[dev-dependencies]
+# Test-only, for parsing `cargo metadata` in the structural guard — a
+# hand-rolled scan of that JSON would be the fourth text scanner this
+# repository watched get defeated. Already in the workspace lock through
+# `partman-tokens`, so this adds an edge, not new supply-chain surface, and a
+# dev-dependency cannot reach the shipped binary; the guard test states which
+# dependency kinds it excludes and why.
+serde_json = "1.0"
+
+[lints]
+workspace = true
