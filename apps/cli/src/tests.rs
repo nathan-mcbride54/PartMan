@@ -179,15 +179,53 @@ fn inspect_answers_with_typed_statements_not_a_fake_topology() {
 
 // Requirements: SAFE-005
 //   Replay opens are non-blocking on every supported Unix target using that
-//   target's reviewed ABI values; Linux and Darwin intentionally disagree,
-//   so a shared literal is mechanically rejected by the target-specific pins;
+//   target's reviewed ABI values; Linux itself has generic, MIPS, and SPARC
+//   families, and Darwin differs again, so a shared literal is mechanically rejected;
 //   a source-use guard keeps that constant wired into the actual open call
 // Evidence: replay_open_flags_match_the_supported_target_abi
 #[cfg(unix)]
 #[test]
 fn replay_open_flags_match_the_supported_target_abi() {
     #[cfg(target_os = "linux")]
-    assert_eq!(super::inspect::REPLAY_OPEN_FLAGS, 0x0000_0900);
+    {
+        assert_eq!(super::inspect::LINUX_GENERIC_REPLAY_OPEN_FLAGS, 0x0900);
+        assert_eq!(super::inspect::LINUX_MIPS_REPLAY_OPEN_FLAGS, 0x0880);
+        assert_eq!(super::inspect::LINUX_SPARC_REPLAY_OPEN_FLAGS, 0xc000);
+    }
+    #[cfg(all(
+        target_os = "linux",
+        any(
+            target_arch = "aarch64",
+            target_arch = "arm",
+            target_arch = "csky",
+            target_arch = "hexagon",
+            target_arch = "loongarch64",
+            target_arch = "m68k",
+            target_arch = "powerpc",
+            target_arch = "powerpc64",
+            target_arch = "riscv32",
+            target_arch = "riscv64",
+            target_arch = "s390x",
+            target_arch = "x86",
+            target_arch = "x86_64"
+        )
+    ))]
+    assert_eq!(super::inspect::REPLAY_OPEN_FLAGS, 0x0900);
+    #[cfg(all(
+        target_os = "linux",
+        any(
+            target_arch = "mips",
+            target_arch = "mips32r6",
+            target_arch = "mips64",
+            target_arch = "mips64r6"
+        )
+    ))]
+    assert_eq!(super::inspect::REPLAY_OPEN_FLAGS, 0x0880);
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "sparc", target_arch = "sparc64")
+    ))]
+    assert_eq!(super::inspect::REPLAY_OPEN_FLAGS, 0xc000);
     #[cfg(target_os = "macos")]
     assert_eq!(super::inspect::REPLAY_OPEN_FLAGS, 0x0002_0004);
 

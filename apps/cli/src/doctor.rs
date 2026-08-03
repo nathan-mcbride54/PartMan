@@ -117,10 +117,13 @@ const EMPTY_ROSTER: Refusal = Refusal {
 /// How long one `--version` launch may run before it is killed.
 const LAUNCH_TIME_LIMIT: Duration = Duration::from_secs(5);
 
-/// How many output bytes one launch may produce before the rest is refused.
+/// How many output bytes one stream may produce before the rest is refused.
 /// Section 16 forbids logging raw tool output without size limits; a
 /// version banner is one line, so the bound is generous, not permissive.
-const OUTPUT_LIMIT: usize = 4096;
+const OUTPUT_LIMIT_PER_STREAM: usize = 4096;
+
+/// Maximum aggregate bytes retained from stdout and stderr for one launch.
+const OUTPUT_CAPTURE_LIMIT: usize = OUTPUT_LIMIT_PER_STREAM * 2;
 
 /// How a launch attempt ended, before any interpretation.
 pub enum ProbeOutcome {
@@ -144,7 +147,8 @@ pub enum ProbeOutcome {
     },
     /// The tool exceeded [`LAUNCH_TIME_LIMIT`] and was killed.
     TimedOut,
-    /// The tool produced more than [`OUTPUT_LIMIT`] bytes and was refused.
+    /// One tool-output stream produced more than [`OUTPUT_LIMIT_PER_STREAM`]
+    /// bytes and was refused. At most [`OUTPUT_CAPTURE_LIMIT`] bytes are retained.
     OverOutputLimit,
     /// The launch itself failed.
     LaunchFailed(String),
@@ -261,7 +265,7 @@ fn launch_bounded(path: &Path, arguments: &[&str]) -> ProbeOutcome {
     }
 }
 
-/// Read up to [`OUTPUT_LIMIT`] bytes from a pipe, then keep draining and
+/// Read up to [`OUTPUT_LIMIT_PER_STREAM`] bytes from a pipe, then keep draining and
 /// discarding so the writer can finish. Returns the bounded bytes and
 /// whether the limit was exceeded.
 fn drain_bounded(pipe: Option<impl Read>) -> (Vec<u8>, bool) {
@@ -269,11 +273,11 @@ fn drain_bounded(pipe: Option<impl Read>) -> (Vec<u8>, bool) {
     let Some(mut pipe) = pipe else {
         return (buffer, false);
     };
-    let cap = u64::try_from(OUTPUT_LIMIT).expect("the limit fits");
+    let cap = u64::try_from(OUTPUT_LIMIT_PER_STREAM).expect("the limit fits");
     let _ = pipe.by_ref().take(cap + 1).read_to_end(&mut buffer);
-    let overflowed = buffer.len() > OUTPUT_LIMIT;
+    let overflowed = buffer.len() > OUTPUT_LIMIT_PER_STREAM;
     if overflowed {
-        buffer.truncate(OUTPUT_LIMIT);
+        buffer.truncate(OUTPUT_LIMIT_PER_STREAM);
         let _ = std::io::copy(&mut pipe, &mut std::io::sink());
     }
     (buffer, overflowed)
@@ -477,7 +481,8 @@ fn interpret(tool: &ToolSpec, outcome: ProbeOutcome) -> ProbeReport {
         ProbeOutcome::OverOutputLimit => ProbeReport::Failed {
             state: "over-output-limit",
             detail: format!(
-                "more than {OUTPUT_LIMIT} bytes of version output; refused rather than logged"
+                "more than {OUTPUT_LIMIT_PER_STREAM} bytes on one version-output stream; \
+                 refused rather than logged (aggregate capture ceiling {OUTPUT_CAPTURE_LIMIT} bytes)"
             ),
         },
         ProbeOutcome::LaunchFailed(detail) => ProbeReport::Failed {
@@ -625,8 +630,32 @@ pub fn doctor_human(reports: &[ToolReport], empty: Option<&Refusal>) -> String {
 
 #[cfg(test)]
 mod launcher_tests {
-    use super::{ProbeOutcome, launch_bounded, sanitized_first_line};
+    use super::{
+        OUTPUT_CAPTURE_LIMIT, OUTPUT_LIMIT_PER_STREAM, ProbeOutcome, drain_bounded, launch_bounded,
+        sanitized_first_line,
+    };
+    use std::io::Cursor;
     use std::path::Path;
+
+    // Requirements: SAFE-004, SEC-007
+    //   Each child-output stream is independently bounded at 4096 bytes and
+    //   the aggregate retained capture is therefore at most 8192 bytes.
+    // Evidence: output_capture_limits_are_per_stream_and_fail_closed
+    #[test]
+    fn output_capture_limits_are_per_stream_and_fail_closed() {
+        assert_eq!(OUTPUT_LIMIT_PER_STREAM, 4096);
+        assert_eq!(OUTPUT_CAPTURE_LIMIT, 8192);
+
+        let (at_limit, overflowed) =
+            drain_bounded(Some(Cursor::new(vec![b'x'; OUTPUT_LIMIT_PER_STREAM])));
+        assert_eq!(at_limit.len(), OUTPUT_LIMIT_PER_STREAM);
+        assert!(!overflowed);
+
+        let (truncated, overflowed) =
+            drain_bounded(Some(Cursor::new(vec![b'x'; OUTPUT_LIMIT_PER_STREAM + 1])));
+        assert_eq!(truncated.len(), OUTPUT_LIMIT_PER_STREAM);
+        assert!(overflowed);
+    }
 
     #[cfg(windows)]
     const TEST_GIT: &[&str] = &[
@@ -668,8 +697,8 @@ mod launcher_tests {
             } => {
                 let code = code.expect("Git's ordinary invalid-option exit has a numeric code");
                 assert_ne!(code, 0);
-                assert!(stdout.len() <= super::OUTPUT_LIMIT);
-                assert!(stderr.len() <= super::OUTPUT_LIMIT);
+                assert!(stdout.len() <= super::OUTPUT_LIMIT_PER_STREAM);
+                assert!(stderr.len() <= super::OUTPUT_LIMIT_PER_STREAM);
                 let evidence = if stderr.is_empty() { &stdout } else { &stderr };
                 let first_line = sanitized_first_line(evidence);
                 assert!(!first_line.is_empty(), "Git's refusal carries provenance");
