@@ -7,6 +7,17 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- The SI-35 Windows completion rerun is preregistered in the observability
+  record, all cells `not yet taken`: three hardened gates — total retention
+  (query-and-discard, the recorded defect that made W-H1/H2/H3 unevaluable,
+  now voids the sitting), the restored before/after digest bracket
+  (wrapper prose is not a digest), and a mandatory layout-IOCTL
+  index-fallback probe for `MSFT_Disk`-invisible fixtures — plus the W-Q4
+  hybrid answer against its MBR control. The parent protocol's hypotheses,
+  mechanics, and scope limits are inherited unchanged; W-H2's
+  which-GPT-copy question is recorded as needing a WP-020 discriminating
+  fixture and is not preregistered across that package boundary. No
+  measurement is taken and no disposition changes.
 - The SI-33/SI-28 successor protocol is preregistered in the observability
   record, all cells `not yet taken`: the close-before-event/reopen survival
   arm with a true process-local no-handle window and epoch-boundary

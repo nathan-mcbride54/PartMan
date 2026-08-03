@@ -12,7 +12,8 @@
   #94. Its WSL2 decisive-pair negative remains unavailable to a register
   decision until a non-WSL distro-kernel run confirms it through the future
   handle-bound protocol. Increment 6's macOS and real-partitioned-Linux
-  matrices are preregistered below with every cell `not yet taken`;
+  matrices, the SI-33/SI-28 successor protocol, and the SI-35 Windows
+  completion rerun are preregistered below with every cell `not yet taken`;
   they are instruments, not evidence, and establish nothing until executed.
 
 ## Why this document exists
@@ -957,6 +958,54 @@ these bounded observations rather than a platform-wide refutation.
   digest bracket would have bounded endpoint content, but the missing pairs
   mean this record does not independently establish even that; it never bound
   the attach window.
+
+#### Completion rerun — preregistered, not yet taken
+
+Protocol recorded 2026-08-02 under WP-035's SI-35 share. Status: **not yet
+taken**; an instrument, not evidence. It reruns exactly what the 2026-08-02
+execution left unevaluable — nothing else, and executing it may not add
+hypotheses. W-H1, W-H2, and W-H3 stand as pre-registered above, existential
+*surface* wording included; W-Q5 is answered and is not rerun. Every
+mechanic of the parent protocol is inherited unchanged: one-at-a-time
+attach, the declared elevated S3 attach in its separate console, the
+non-elevated measurement session with its recorded assertion, the
+non-answer recordings, and every declared scope limit (file-backed bus
+type, one build, 512-byte sectors, 4Kn out of reach). This subsection adds
+three gates and the cells they make evaluable:
+
+- **R1 — total retention.** Every property value any step queries is
+  retained verbatim in the transcript; query-and-discard — the recorded
+  defect that made all three hypotheses unevaluable — voids the sitting.
+  The capture script's digest is recorded before the first attach, and the
+  script must be reviewed against this gate before privilege.
+- **R2 — digest bracket restored.** The before-attach and after-detach
+  fixture digest pairs are retained for every fixture; a missing pair voids
+  that fixture's rows. Wrapper prose such as `UNCHANGED` is not a digest
+  and satisfies nothing.
+- **R3 — mandatory index-fallback probe.** The parent's "a layout probe is
+  attempted only if another unprivileged roster supplies a device index"
+  becomes a MUST: for any fixture without an `MSFT_Disk` row, the
+  zero-access layout IOCTL runs at every `Win32_DiskDrive`-supplied index
+  for that disk in the same session. An index available and unprobed —
+  the recorded W-Q4 execution gap — voids that fixture's cells.
+
+| Cell | Result |
+| --- | --- |
+| W-H1 refutation condition evaluated over complete retained surfaces | `not yet taken` |
+| W-H2 same, with the which-copy limit below | `not yet taken` |
+| W-H3 same | `not yet taken` |
+| W-Q4: layout-IOCTL scheme answer for `hybrid-mbr-gpt-512` against the `mbr-basic-512` control | `not yet taken` |
+| Complete `MSFT_PhysicalDisk` / `IsReadOnly` surface retention for all seven fixtures | `not yet taken` |
+
+Declared limits: W-H2's which-GPT-copy question remains unmeasured even by
+a valid rerun — both copies of that fixture describe identical partitions,
+and the discriminating fixture variant that would separate backup use from
+primary parsing belongs to WP-020's catalogue, recorded here as a boundary
+rather than preregistered across a package boundary. Transcript custody
+and second-reader readback are as the increment 6 matrices define. A valid
+rerun makes the three declared refutation conditions evaluable and answers
+W-Q4; it decides no SI-35 option and supplies no chosen-option refusal
+proof.
 
 ### SI-33 media-change-counter liveness — measured 2026-08-02
 
