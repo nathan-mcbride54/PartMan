@@ -7,7 +7,8 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
-- WP-020 increment 2e is in progress: it introduces the sole runnable
+- WP-020 increment 2e is **Delivered** and repository issue #94 is **closed**:
+  it introduces the sole runnable
   higher-tier acceptance,
   `cargo xtask test --tier 2 --profile destructive --acceptance
   linux-loop-read-only`, while every generic destructive Tier-2 request and
@@ -36,8 +37,40 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   guarantee. This exception grants SAFE-007
   coverage only to this named acceptance: it does not change Tier 1 or the
   product inspector's read-path boundary and it does not register a destructive
-  suite. Issue #94 remains open, and increment 2e is not Delivered, pending code
-  review and a passing real run in a disposable Proxmox-hosted non-WSL Linux VM.
+  suite.
+
+  The acceptance **passed** on 2026-08-03 on commit `2dbf601` in a disposable
+  Proxmox VE 9.2.4 guest — stock Ubuntu 22.04.5, kernel 5.15.0-186-generic,
+  base image verified against Canonical's published `SHA256SUMS`, no USB or PCI
+  passthrough, a `pre-acceptance` snapshot as the revert boundary. Two legs were
+  configured and detached, the adversarial `LOOP_CHANGE_FD` rebind was detected
+  and its observation discarded, partition teardown was confirmed, both
+  fixtures' initial digests matched the compiled catalogue, and both were
+  unchanged afterwards with `losetup -a` empty and no loop device holding a
+  backing file. Four negative controls refused in the same session, including a
+  generic destructive Tier 2 that authorized 13 targets and still refused
+  because no suite is registered. The run was repeated three times on the same
+  commit and guest with identical harness results.
+  The exclusions were established rather than asserted: `snapd` — which held
+  four squashfs loop devices at first boot — and `udisks2` were purged, **a
+  deliberate deviation from a stock image** without which the no-other-loop-
+  administrator condition cannot hold; `/root` and the fixture directory are
+  `drwx------` root-owned; and every non-root process's `CapEff` was read and
+  none holds `CAP_SYS_ADMIN`. Two limits are recorded rather than smoothed
+  over: **the guest was not network-isolated** — it held a DHCP address and a
+  default route throughout, which the transcript records as a fact — and the
+  digest and status checks remain discrete samples that cannot defeat an ABA
+  change. Closing #94 registers no destructive suite; increment 2's own scope
+  is unblocked and still unbuilt. The full record, including what the run does
+  not establish, is in `docs/work-packages/WP-020.md`.
+
+  Recorded because it will recur: this acceptance must run as root over a
+  direct login with no `sudo` in the chain and no injected environment
+  variables. WP-035's redaction sweep compares every environment value of six
+  characters or more against CLI output, so `SUDO_USER=partman` — or any name
+  colliding with product text — fails a Tier-1 gate before the acceptance is
+  reached. That is the tripwire working correctly; the fix belongs in the
+  environment, never in an exemption to the commit under proof.
 - WP-010's authorized metadata and historical-fidelity repair marks SI-11 as
   hash-visible and ties its retained plan/snapshot obligations to MODEL-005 and
   Section 6; narrows SI-12 and spec 4.3.0 to the evidence actually retained for

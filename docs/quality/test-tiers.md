@@ -76,9 +76,23 @@ loop mapping reaches a disposable generated fixture. That is coverage for
 `linux-loop-read-only` alone, not a general read-path guarantee. Product reads
 continue to rest on the write-intent boundary above, on SAFE-004 wherever an
 external tool is invoked, and on INV-006's no-repair/no-auto-mount discipline.
-Issue #94 remains open until this implementation passes review and the full
-acceptance succeeds in a disposable Proxmox-hosted non-WSL Linux VM.
+Issue #94 is closed: the full acceptance, including its adversarial rebind leg,
+succeeded on commit `2dbf601` in a disposable Proxmox-hosted non-WSL Linux VM on
+2026-08-03, and the run record with its exclusions and stated limits is in
+`docs/work-packages/WP-020.md`. Closing it registered no destructive suite.
 Later packages may add pure planner, validator, and regular-file fixture tests.
+
+**Running this acceptance requires a clean environment, and that is a real
+precondition rather than a style note.** It runs `cargo xtask ci` first, and
+WP-035's `no_output_in_any_mode_carries_an_environment_value` compares every
+environment value of six characters or more against CLI output. Run it as root
+over a direct login with **no `sudo` in the chain** — `sudo` sets `SUDO_USER`
+by itself — and inject no variables of your own. Do not name the VM's user,
+host, or any whole path component something that appears in CLI output: a guest
+account named `partman` fails that gate before the acceptance is ever reached,
+because the value collides with the program's own name in `help` output. That
+is the tripwire working, not a false positive, and the fix belongs in the
+environment rather than in an exemption.
 
 Run it with:
 
