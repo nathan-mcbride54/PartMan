@@ -1,19 +1,30 @@
-//! Safe Linux controller over the confined ioctl module.
+//! Safe Linux controllers over the confined ioctl module.
+//!
+//! Two controllers share one attachment vocabulary and one cleanup
+//! discipline: increment 2e's two-leg acceptance and increment 2f's
+//! hold-open session. The session additionally owns the launch of its
+//! predeclared external probers; no descriptor, node name, path, or device
+//! number leaves this module through a return value.
 
 use std::fs::File;
 use std::io;
+use std::io::Read;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use partman_fixtures::catalogue;
-use rustix::fs::{FileType, Mode, OFlags, fstat, major, minor, open};
+use rustix::fs::{FileType, Mode, OFlags, fstat, lstat, major, makedev, minor, open};
 use rustix::io::{Errno, pread};
 use sha2::{Digest as _, Sha256};
 
 use crate::protocol::{
-    ConfigureError, ConfigureRequest, Controller, REQUIRED_BLOCK_SIZE, REQUIRED_FLAGS, execute,
+    CapturedProbe, ConfigureError, ConfigureRequest, Controller, REQUIRED_BLOCK_SIZE,
+    REQUIRED_FLAGS, SessionController, execute, execute_session,
 };
-use crate::{AuthorizedFiles, BASIC_NAME, CONFLICTING_NAME, FixtureRole, Refusal, RunReport, sys};
+use crate::{
+    AuthorizedFiles, BASIC_NAME, CONFLICTING_NAME, FixtureRole, ProbeSubject, ProbeTool, Refusal,
+    RunReport, SessionReport, sys,
+};
 
 const LOOP_CONTROL: &str = "/dev/loop-control";
 const LOOP_MAJOR: u32 = 7;
@@ -24,9 +35,41 @@ const DETACH_ATTEMPTS: usize = 16;
 const DETACH_RETRY_DELAY: Duration = Duration::from_millis(100);
 const SYS_DEV_BLOCK: &str = "/sys/dev/block";
 
+/// Compiled absolute prober locations. This roster is the allow-list: launch
+/// resolves nothing from `PATH` and accepts no caller-supplied path.
+const UDEVADM_PATH: &str = "/usr/bin/udevadm";
+const BLKID_PATH: &str = "/usr/sbin/blkid";
+const WIPEFS_PATH: &str = "/usr/sbin/wipefs";
+
+/// How long one prober may run before it is killed. `udevadm settle` carries
+/// its own shorter internal timeout, so this bound dominates every launch.
+const PROBE_TIME_LIMIT: Duration = Duration::from_secs(15);
+
+/// Per-stream capture bound. Exceeding it refuses the session rather than
+/// truncating: truncated prober output would be incomplete evidence.
+const PROBE_OUTPUT_LIMIT_PER_STREAM: usize = 16 * 1024;
+
 pub(super) fn run(files: AuthorizedFiles) -> Result<RunReport, Refusal> {
     let mut controller = LinuxController::new(files)?;
     execute(&mut controller)
+}
+
+pub(super) fn run_session(fixture: FixtureRole, backing: File) -> Result<SessionReport, Refusal> {
+    let mut controller = LinuxSessionController::new(fixture, backing)?;
+    execute_session(&mut controller, fixture)
+}
+
+/// Open `/dev/loop-control` and require the exact kernel misc-device identity.
+fn open_verified_loop_control() -> Result<File, Refusal> {
+    let control = open_loop_node(LOOP_CONTROL, "loop-control-open")?;
+    let control_stat = fstat(&control).map_err(|error| kernel("loop-control-fstat", error))?;
+    if FileType::from_raw_mode(control_stat.st_mode) != FileType::CharacterDevice
+        || major(control_stat.st_rdev) != MISC_MAJOR
+        || minor(control_stat.st_rdev) != LOOP_CONTROL_MINOR
+    {
+        return Err(Refusal::LoopControlIdentityMismatch);
+    }
+    Ok(control)
 }
 
 struct LinuxController {
@@ -41,14 +84,7 @@ impl LinuxController {
     fn new(files: AuthorizedFiles) -> Result<Self, Refusal> {
         let expected_basic = compiled_expected_digest(BASIC_NAME);
         let expected_conflicting = compiled_expected_digest(CONFLICTING_NAME);
-        let control = open_loop_node(LOOP_CONTROL, "loop-control-open")?;
-        let control_stat = fstat(&control).map_err(|error| kernel("loop-control-fstat", error))?;
-        if FileType::from_raw_mode(control_stat.st_mode) != FileType::CharacterDevice
-            || major(control_stat.st_rdev) != MISC_MAJOR
-            || minor(control_stat.st_rdev) != LOOP_CONTROL_MINOR
-        {
-            return Err(Refusal::LoopControlIdentityMismatch);
-        }
+        let control = open_verified_loop_control()?;
         Ok(Self {
             basic: files.basic,
             conflicting: files.conflicting,
@@ -83,6 +119,101 @@ struct Attachment {
     device: File,
     number: u32,
     node_identity: LoopNodeIdentity,
+    /// The kernel-derived node name, retained for the session's node re-stat
+    /// and prober launch only. It never leaves this module: no public type
+    /// carries it and no return value exposes it.
+    path: String,
+}
+
+/// Configure a kernel-selected loop device from the exact held backing
+/// descriptor. Shared verbatim by both controllers; the only degrees of
+/// freedom are the descriptors already held.
+fn configure_attachment(
+    control: &File,
+    backing: &File,
+    request: ConfigureRequest,
+) -> Result<Attachment, ConfigureError> {
+    let raw_number = sys::control_get_free(control)
+        .map_err(|error| ConfigureError::Refused(kernel("loop-control-get-free", error)))?;
+    let number = u32::try_from(raw_number).map_err(|_| {
+        ConfigureError::Refused(Refusal::KernelOperation {
+            operation: "loop-control-get-free",
+            errno: None,
+        })
+    })?;
+    let path = format!("/dev/loop{number}");
+    let device = open_loop_node(&path, "loop-device-open").map_err(ConfigureError::Refused)?;
+    let node_identity = loop_node_identity(&device).map_err(ConfigureError::Refused)?;
+    if FileType::from_raw_mode(
+        fstat(&device)
+            .map_err(|error| ConfigureError::Refused(kernel("loop-device-fstat", error)))?
+            .st_mode,
+    ) != FileType::BlockDevice
+        || !is_loop_device(node_identity.represented_device)
+    {
+        return Err(ConfigureError::Refused(Refusal::LoopNodeIdentityMismatch));
+    }
+
+    match sys::configure(&device, backing, request) {
+        Ok(()) => {
+            // No fallible work is allowed between successful atomic
+            // LOOP_CONFIGURE and returning the owned Attachment. From this
+            // point the protocol layer is responsible for confirmed cleanup.
+            Ok(Attachment {
+                device,
+                number,
+                node_identity,
+                path,
+            })
+        }
+        Err(Errno::BUSY) => Err(ConfigureError::Busy),
+        Err(error) => Err(ConfigureError::Refused(kernel("loop-configure", error))),
+    }
+}
+
+/// Verify the kernel's record of the attachment against the exact held
+/// backing descriptor and the retained node identity. Shared verbatim by
+/// both controllers.
+fn verify_attachment(backing: &File, attachment: &Attachment) -> Result<(), Refusal> {
+    let status =
+        sys::status(&attachment.device).map_err(|error| kernel("loop-get-status64", error))?;
+    let backing = backing_identity(backing)?;
+    if status.backing_device != backing.encoded_device || status.backing_inode != backing.inode {
+        return Err(Refusal::BackingIdentityMismatch);
+    }
+    if status.flags != REQUIRED_FLAGS {
+        return Err(Refusal::LoopFlagsMismatch);
+    }
+    if status.offset != 0 || status.size_limit != 0 {
+        return Err(Refusal::LoopGeometryMismatch);
+    }
+    if status.number != attachment.number {
+        return Err(Refusal::LoopNumberMismatch);
+    }
+    let block_size =
+        sys::block_size(&attachment.device).map_err(|error| kernel("block-size-get", error))?;
+    if block_size != i32::try_from(REQUIRED_BLOCK_SIZE).expect("512 fits i32") {
+        return Err(Refusal::BlockSizeMismatch);
+    }
+    if loop_node_identity(&attachment.device)? != attachment.node_identity {
+        return Err(Refusal::LoopNodeIdentityMismatch);
+    }
+    Ok(())
+}
+
+/// Detach the exact held attachment, confirm by `ENXIO`, release the
+/// descriptor, and confirm partition teardown at the retained-rdev sysfs
+/// root. Shared verbatim by both controllers.
+fn detach_attachment(attachment: Attachment) -> Result<(), Refusal> {
+    let represented_device = attachment.node_identity.represented_device;
+    clear_and_confirm_with_retry(
+        || sys::clear_fd(&attachment.device),
+        || sys::status(&attachment.device).map(drop),
+        || std::thread::sleep(DETACH_RETRY_DELAY),
+    )?;
+    release_then_confirm(attachment.device, || {
+        confirm_partition_teardown(represented_device)
+    })
 }
 
 impl Controller for LinuxController {
@@ -107,42 +238,7 @@ impl Controller for LinuxController {
         if fixture != FixtureRole::Basic {
             return Err(ConfigureError::Refused(Refusal::WrongAuthorizedTargets));
         }
-
-        let raw_number = sys::control_get_free(&self.control)
-            .map_err(|error| ConfigureError::Refused(kernel("loop-control-get-free", error)))?;
-        let number = u32::try_from(raw_number).map_err(|_| {
-            ConfigureError::Refused(Refusal::KernelOperation {
-                operation: "loop-control-get-free",
-                errno: None,
-            })
-        })?;
-        let path = format!("/dev/loop{number}");
-        let device = open_loop_node(&path, "loop-device-open").map_err(ConfigureError::Refused)?;
-        let node_identity = loop_node_identity(&device).map_err(ConfigureError::Refused)?;
-        if FileType::from_raw_mode(
-            fstat(&device)
-                .map_err(|error| ConfigureError::Refused(kernel("loop-device-fstat", error)))?
-                .st_mode,
-        ) != FileType::BlockDevice
-            || !is_loop_device(node_identity.represented_device)
-        {
-            return Err(ConfigureError::Refused(Refusal::LoopNodeIdentityMismatch));
-        }
-
-        match sys::configure(&device, &self.basic, request) {
-            Ok(()) => {
-                // No fallible work is allowed between successful atomic
-                // LOOP_CONFIGURE and returning the owned Attachment. From this
-                // point the protocol layer is responsible for confirmed cleanup.
-                Ok(Attachment {
-                    device,
-                    number,
-                    node_identity,
-                })
-            }
-            Err(Errno::BUSY) => Err(ConfigureError::Busy),
-            Err(error) => Err(ConfigureError::Refused(kernel("loop-configure", error))),
-        }
+        configure_attachment(&self.control, &self.basic, request)
     }
 
     fn verify(
@@ -150,31 +246,7 @@ impl Controller for LinuxController {
         attachment: &Self::Attachment,
         expected: FixtureRole,
     ) -> Result<(), Refusal> {
-        let status =
-            sys::status(&attachment.device).map_err(|error| kernel("loop-get-status64", error))?;
-        let backing = backing_identity(self.backing(expected))?;
-        if status.backing_device != backing.encoded_device || status.backing_inode != backing.inode
-        {
-            return Err(Refusal::BackingIdentityMismatch);
-        }
-        if status.flags != REQUIRED_FLAGS {
-            return Err(Refusal::LoopFlagsMismatch);
-        }
-        if status.offset != 0 || status.size_limit != 0 {
-            return Err(Refusal::LoopGeometryMismatch);
-        }
-        if status.number != attachment.number {
-            return Err(Refusal::LoopNumberMismatch);
-        }
-        let block_size =
-            sys::block_size(&attachment.device).map_err(|error| kernel("block-size-get", error))?;
-        if block_size != i32::try_from(REQUIRED_BLOCK_SIZE).expect("512 fits i32") {
-            return Err(Refusal::BlockSizeMismatch);
-        }
-        if loop_node_identity(&attachment.device)? != attachment.node_identity {
-            return Err(Refusal::LoopNodeIdentityMismatch);
-        }
-        Ok(())
+        verify_attachment(self.backing(expected), attachment)
     }
 
     fn probe(&mut self, attachment: &Self::Attachment) -> Result<usize, Refusal> {
@@ -212,16 +284,386 @@ impl Controller for LinuxController {
     }
 
     fn detach(&mut self, attachment: Self::Attachment) -> Result<(), Refusal> {
-        let represented_device = attachment.node_identity.represented_device;
-        clear_and_confirm_with_retry(
-            || sys::clear_fd(&attachment.device),
-            || sys::status(&attachment.device).map(drop),
-            || std::thread::sleep(DETACH_RETRY_DELAY),
-        )?;
-        release_then_confirm(attachment.device, || {
-            confirm_partition_teardown(represented_device)
+        detach_attachment(attachment)
+    }
+}
+
+/// One materialized partition the session enumerated from the
+/// descriptor-derived sysfs root. Internal only; the node path and device
+/// number never leave this module.
+#[derive(Debug, PartialEq, Eq)]
+struct SessionPartition {
+    index: u32,
+    node_path: String,
+    device: rustix::fs::Dev,
+}
+
+struct LinuxSessionController {
+    fixture: FixtureRole,
+    backing: File,
+    control: File,
+    expected: [u8; 32],
+    partitions: Vec<SessionPartition>,
+}
+
+impl LinuxSessionController {
+    fn new(fixture: FixtureRole, backing: File) -> Result<Self, Refusal> {
+        // Refuse a missing prober before any privilege is exercised: the
+        // roster is the allow-list, and a session that cannot run its
+        // probes must not attach anything.
+        for tool in [
+            ProbeTool::UdevadmSettle,
+            ProbeTool::UdevadmInfo,
+            ProbeTool::BlkidProbe,
+            ProbeTool::WipefsNoAct,
+        ] {
+            let path = tool_path(tool);
+            if !std::fs::metadata(path).is_ok_and(|metadata| metadata.is_file()) {
+                return Err(Refusal::ProbeToolMissing { tool: tool.label() });
+            }
+        }
+        let expected = compiled_expected_digest(match fixture {
+            FixtureRole::Basic => BASIC_NAME,
+            FixtureRole::Conflicting => CONFLICTING_NAME,
+        });
+        let control = open_verified_loop_control()?;
+        Ok(Self {
+            fixture,
+            backing,
+            control,
+            expected,
+            partitions: Vec::new(),
         })
     }
+
+    fn partition(&self, index: u32) -> Result<&SessionPartition, Refusal> {
+        self.partitions
+            .iter()
+            .find(|partition| partition.index == index)
+            .ok_or(Refusal::ProtocolOrder)
+    }
+}
+
+impl SessionController for LinuxSessionController {
+    type Attachment = Attachment;
+
+    fn expected_digest(&self, _fixture: FixtureRole) -> [u8; 32] {
+        self.expected
+    }
+
+    fn digest(&mut self, _fixture: FixtureRole) -> Result<[u8; 32], Refusal> {
+        digest_file(&self.backing)
+    }
+
+    fn configure(
+        &mut self,
+        fixture: FixtureRole,
+        request: ConfigureRequest,
+    ) -> Result<Self::Attachment, ConfigureError> {
+        if fixture != self.fixture {
+            return Err(ConfigureError::Refused(Refusal::WrongSessionTarget));
+        }
+        configure_attachment(&self.control, &self.backing, request)
+    }
+
+    fn verify(
+        &mut self,
+        attachment: &Self::Attachment,
+        _expected: FixtureRole,
+    ) -> Result<(), Refusal> {
+        verify_attachment(&self.backing, attachment)
+    }
+
+    fn verify_node(
+        &mut self,
+        attachment: &Self::Attachment,
+        subject: ProbeSubject,
+    ) -> Result<(), Refusal> {
+        let (node_path, expected_device) = match subject {
+            ProbeSubject::Disk => (
+                attachment.path.as_str(),
+                attachment.node_identity.represented_device,
+            ),
+            ProbeSubject::Partition(index) => {
+                let partition = self.partition(index)?;
+                (partition.node_path.as_str(), partition.device)
+            }
+        };
+        // lstat, not stat: a symlink planted at the node name must be seen as
+        // a symlink and refused, never followed to wherever it points.
+        let stat = lstat(node_path).map_err(|error| kernel("node-restat", error))?;
+        if FileType::from_raw_mode(stat.st_mode) != FileType::BlockDevice
+            || stat.st_rdev != expected_device
+        {
+            return Err(Refusal::NodePathIdentityMismatch);
+        }
+        Ok(())
+    }
+
+    fn enumerate_partitions(&mut self, attachment: &Self::Attachment) -> Result<Vec<u32>, Refusal> {
+        self.partitions = enumerate_session_partitions(
+            Path::new(SYS_DEV_BLOCK),
+            attachment.number,
+            attachment.node_identity.represented_device,
+        )?;
+        Ok(self
+            .partitions
+            .iter()
+            .map(|partition| partition.index)
+            .collect())
+    }
+
+    fn launch(
+        &mut self,
+        attachment: &Self::Attachment,
+        subject: ProbeSubject,
+        tool: ProbeTool,
+    ) -> Result<CapturedProbe, Refusal> {
+        let node_path = match subject {
+            ProbeSubject::Disk => attachment.path.clone(),
+            ProbeSubject::Partition(index) => self.partition(index)?.node_path.clone(),
+        };
+        let arguments = tool_arguments(tool, &node_path);
+        let capture = launch_probe_bounded(tool, tool_path(tool), &arguments)?;
+        if !allowed_exit(tool, capture.exit_code) {
+            return Err(Refusal::ProbeUnexpectedExit {
+                tool: tool.label(),
+                code: capture.exit_code,
+            });
+        }
+        Ok(capture)
+    }
+
+    fn detach(&mut self, attachment: Self::Attachment) -> Result<(), Refusal> {
+        detach_attachment(attachment)
+    }
+}
+
+/// The compiled absolute location for one predeclared prober.
+fn tool_path(tool: ProbeTool) -> &'static str {
+    match tool {
+        ProbeTool::UdevadmSettle | ProbeTool::UdevadmInfo => UDEVADM_PATH,
+        ProbeTool::BlkidProbe => BLKID_PATH,
+        ProbeTool::WipefsNoAct => WIPEFS_PATH,
+    }
+}
+
+/// The fixed argument vector for one predeclared prober. The node path is the
+/// only variable element, and it is always the session's own retained node,
+/// never caller input.
+fn tool_arguments(tool: ProbeTool, node_path: &str) -> Vec<String> {
+    match tool {
+        ProbeTool::UdevadmSettle => vec!["settle".to_owned(), "--timeout=10".to_owned()],
+        ProbeTool::UdevadmInfo => vec![
+            "info".to_owned(),
+            "--query=all".to_owned(),
+            "--name".to_owned(),
+            node_path.to_owned(),
+        ],
+        ProbeTool::BlkidProbe => vec![
+            "-p".to_owned(),
+            "-o".to_owned(),
+            "udev".to_owned(),
+            node_path.to_owned(),
+        ],
+        ProbeTool::WipefsNoAct => vec!["-n".to_owned(), node_path.to_owned()],
+    }
+}
+
+/// Whether one prober exit code is inside its allowed set. `blkid -p` exits 2
+/// when it detects nothing, which is a correct answer for an empty partition,
+/// not a failure; every other tool must exit 0. A signal exit is never allowed.
+fn allowed_exit(tool: ProbeTool, code: Option<i32>) -> bool {
+    match (tool, code) {
+        (ProbeTool::BlkidProbe, Some(0 | 2)) => true,
+        (ProbeTool::BlkidProbe, _) => false,
+        (_, Some(0)) => true,
+        (_, _) => false,
+    }
+}
+
+/// Launch one predeclared prober with the crate-owned controls: absolute
+/// path, structured argv, cleared environment plus a fixed `LC_ALL=C`, null
+/// stdin, both pipes drained on threads under the per-stream bound, and a
+/// kill at the deadline. Mirrors the SAFE-004-derived launcher WP-035's
+/// dependency doctor already applies.
+fn launch_probe_bounded(
+    tool: ProbeTool,
+    path: &str,
+    arguments: &[String],
+) -> Result<CapturedProbe, Refusal> {
+    let label = tool.label();
+    let mut command = std::process::Command::new(path);
+    command
+        .args(arguments)
+        .env_clear()
+        .env("LC_ALL", "C")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let mut child = command
+        .spawn()
+        .map_err(|error| Refusal::ProbeLaunchFailed {
+            tool: label,
+            errno: error.raw_os_error(),
+        })?;
+
+    // Drain both pipes on threads so a chatty child can flush and exit; the
+    // drains keep reading past the cap and report the overflow instead of
+    // stalling the child on a full pipe until the deadline mislabels it
+    // timed-out. Results come back over channels rather than joins: a
+    // descendant that inherited the pipe keeps it open after the child
+    // exits, and this session must not hang on someone else's daemon.
+    let stdout_pipe = child.stdout.take();
+    let stderr_pipe = child.stderr.take();
+    let (stdout_sender, stdout_receiver) = std::sync::mpsc::channel();
+    let (stderr_sender, stderr_receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = stdout_sender.send(drain_probe_stream(stdout_pipe));
+    });
+    std::thread::spawn(move || {
+        let _ = stderr_sender.send(drain_probe_stream(stderr_pipe));
+    });
+
+    let deadline = Instant::now() + PROBE_TIME_LIMIT;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(Refusal::ProbeTimedOut { tool: label });
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => {
+                let _ = child.kill();
+                return Err(Refusal::ProbeLaunchFailed {
+                    tool: label,
+                    errno: error.raw_os_error(),
+                });
+            }
+        }
+    };
+
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    let Ok((stdout, stdout_overflowed)) = stdout_receiver.recv_timeout(remaining) else {
+        return Err(Refusal::ProbeTimedOut { tool: label });
+    };
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    let Ok((stderr, stderr_overflowed)) = stderr_receiver.recv_timeout(remaining) else {
+        return Err(Refusal::ProbeTimedOut { tool: label });
+    };
+    if stdout_overflowed || stderr_overflowed {
+        return Err(Refusal::ProbeOutputOverLimit { tool: label });
+    }
+    Ok(CapturedProbe {
+        exit_code: status.code(),
+        stdout,
+        stderr,
+    })
+}
+
+/// Read up to the per-stream bound from a pipe, then keep draining and
+/// discarding so the writer can finish. Returns the bounded bytes and whether
+/// the limit was exceeded.
+fn drain_probe_stream(pipe: Option<impl Read>) -> (Vec<u8>, bool) {
+    let Some(mut pipe) = pipe else {
+        return (Vec::new(), false);
+    };
+    let mut bounded = Vec::new();
+    let mut overflowed = false;
+    let mut chunk = [0_u8; 4096];
+    loop {
+        match pipe.read(&mut chunk) {
+            Ok(0) | Err(_) => break,
+            Ok(read) => {
+                if overflowed {
+                    continue;
+                }
+                let remaining = PROBE_OUTPUT_LIMIT_PER_STREAM.saturating_sub(bounded.len());
+                if read > remaining {
+                    bounded.extend_from_slice(&chunk[..remaining]);
+                    overflowed = true;
+                } else {
+                    bounded.extend_from_slice(&chunk[..read]);
+                }
+            }
+        }
+    }
+    (bounded, overflowed)
+}
+
+/// Enumerate materialized partitions from the exact retained-rdev sysfs root.
+///
+/// Every child carrying a `partition` attribute must have the exact kernel
+/// name `loop{number}p{index}` for the index its attribute records, and its
+/// `dev` attribute supplies the device number the node re-stat requires.
+/// Anything malformed refuses rather than being skipped: an unexpected child
+/// under the session's own disk root means the attached object is not
+/// understood, and probing it anyway would produce unattributable evidence.
+fn enumerate_session_partitions(
+    base: &Path,
+    number: u32,
+    device: rustix::fs::Dev,
+) -> Result<Vec<SessionPartition>, Refusal> {
+    let disk = base.join(format!("{}:{}", major(device), minor(device)));
+    let entries =
+        std::fs::read_dir(&disk).map_err(|error| Refusal::PartitionEnumerationFailed {
+            errno: error.raw_os_error(),
+        })?;
+    let mut partitions = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|error| Refusal::PartitionEnumerationFailed {
+            errno: error.raw_os_error(),
+        })?;
+        let child = entry.path();
+        let has_partition_attribute = partition_attribute_present(&child).map_err(|error| {
+            Refusal::PartitionEnumerationFailed {
+                errno: error.raw_os_error(),
+            }
+        })?;
+        if !has_partition_attribute {
+            continue;
+        }
+        let index = read_trimmed(&child.join("partition"))?
+            .parse::<u32>()
+            .map_err(|_| Refusal::PartitionEnumerationFailed { errno: None })?;
+        if index == 0 {
+            return Err(Refusal::PartitionEnumerationFailed { errno: None });
+        }
+        let expected_name = format!("loop{number}p{index}");
+        if entry.file_name() != std::ffi::OsStr::new(&expected_name) {
+            return Err(Refusal::PartitionEnumerationFailed { errno: None });
+        }
+        let device_text = read_trimmed(&child.join("dev"))?;
+        let (major_text, minor_text) = device_text
+            .split_once(':')
+            .ok_or(Refusal::PartitionEnumerationFailed { errno: None })?;
+        let child_major = major_text
+            .parse::<u32>()
+            .map_err(|_| Refusal::PartitionEnumerationFailed { errno: None })?;
+        let child_minor = minor_text
+            .parse::<u32>()
+            .map_err(|_| Refusal::PartitionEnumerationFailed { errno: None })?;
+        partitions.push(SessionPartition {
+            index,
+            node_path: format!("/dev/{expected_name}"),
+            device: makedev(child_major, child_minor),
+        });
+    }
+    partitions.sort_by_key(|partition| partition.index);
+    Ok(partitions)
+}
+
+/// Read one small sysfs attribute and trim its trailing newline.
+fn read_trimmed(path: &Path) -> Result<String, Refusal> {
+    std::fs::read_to_string(path)
+        .map(|content| content.trim().to_owned())
+        .map_err(|error| Refusal::PartitionEnumerationFailed {
+            errno: error.raw_os_error(),
+        })
 }
 
 fn compiled_expected_digest(name: &str) -> [u8; 32] {
@@ -749,6 +1191,166 @@ mod tests {
             partman_fixtures::manifest::hex(&compiled_expected_digest(CONFLICTING_NAME)),
             "065d6461eba8ea66d10742277b5b4deda12a0e5e71e45dc56dd6c60ef0da05cc"
         );
+    }
+
+    // Requirements: SAFE-004
+    //   Each predeclared prober has a fixed argument shape whose only variable
+    //   element is the session's own retained node path, and settle takes none.
+    // Evidence: prober_argument_vectors_are_fixed_with_only_the_session_node_variable
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn prober_argument_vectors_are_fixed_with_only_the_session_node_variable() {
+        assert_eq!(
+            tool_arguments(crate::ProbeTool::UdevadmSettle, "/dev/loop9"),
+            ["settle", "--timeout=10"]
+        );
+        assert_eq!(
+            tool_arguments(crate::ProbeTool::UdevadmInfo, "/dev/loop9"),
+            ["info", "--query=all", "--name", "/dev/loop9"]
+        );
+        assert_eq!(
+            tool_arguments(crate::ProbeTool::BlkidProbe, "/dev/loop9p1"),
+            ["-p", "-o", "udev", "/dev/loop9p1"]
+        );
+        assert_eq!(
+            tool_arguments(crate::ProbeTool::WipefsNoAct, "/dev/loop9"),
+            ["-n", "/dev/loop9"]
+        );
+        assert_eq!(
+            tool_path(crate::ProbeTool::UdevadmSettle),
+            tool_path(crate::ProbeTool::UdevadmInfo),
+            "both udevadm forms launch the same compiled binary"
+        );
+    }
+
+    // Requirements: SAFE-004, SAFE-005
+    //   blkid may exit 0 or 2 (nothing detected is an answer); every other tool
+    //   must exit 0, and a signal exit is never allowed.
+    // Evidence: prober_exit_sets_accept_blkid_nothing_found_and_refuse_signals
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn prober_exit_sets_accept_blkid_nothing_found_and_refuse_signals() {
+        assert!(allowed_exit(crate::ProbeTool::BlkidProbe, Some(0)));
+        assert!(allowed_exit(crate::ProbeTool::BlkidProbe, Some(2)));
+        assert!(!allowed_exit(crate::ProbeTool::BlkidProbe, Some(4)));
+        assert!(!allowed_exit(crate::ProbeTool::BlkidProbe, None));
+        for tool in [
+            crate::ProbeTool::UdevadmSettle,
+            crate::ProbeTool::UdevadmInfo,
+            crate::ProbeTool::WipefsNoAct,
+        ] {
+            assert!(allowed_exit(tool, Some(0)));
+            assert!(!allowed_exit(tool, Some(2)));
+            assert!(!allowed_exit(tool, Some(1)));
+            assert!(!allowed_exit(tool, None));
+        }
+    }
+
+    // Requirements: SAFE-005, SAFE-007
+    //   Partition enumeration accepts only exactly-named children whose partition
+    //   and dev attributes parse, and refuses malformed sysfs state rather than
+    //   skipping it.
+    // Evidence: partition_enumeration_is_exact_or_refuses
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn partition_enumeration_is_exact_or_refuses() {
+        // One well-formed partition child enumerates with its dev number.
+        let sandbox = PartitionSandbox::new(true);
+        let child = sandbox.disk().join("loop23p1");
+        std::fs::create_dir(&child).expect("create partition child");
+        std::fs::write(child.join("partition"), b"1\n").expect("write partition index");
+        std::fs::write(child.join("dev"), b"259:5\n").expect("write partition devnum");
+        let partitions = enumerate_session_partitions(&sandbox.base, 23, sandbox.device)
+            .expect("well-formed child enumerates");
+        assert_eq!(partitions.len(), 1);
+        assert_eq!(partitions[0].index, 1);
+        assert_eq!(partitions[0].node_path, "/dev/loop23p1");
+        assert_eq!(partitions[0].device, makedev(259, 5));
+
+        // A child whose name disagrees with its partition attribute refuses.
+        let sandbox = PartitionSandbox::new(true);
+        let child = sandbox.disk().join("loop23p1");
+        std::fs::create_dir(&child).expect("create partition child");
+        std::fs::write(child.join("partition"), b"2\n").expect("write disagreeing index");
+        std::fs::write(child.join("dev"), b"259:5\n").expect("write partition devnum");
+        assert_eq!(
+            enumerate_session_partitions(&sandbox.base, 23, sandbox.device),
+            Err(Refusal::PartitionEnumerationFailed { errno: None })
+        );
+
+        // Index zero is not a partition index.
+        let sandbox = PartitionSandbox::new(true);
+        let child = sandbox.disk().join("loop23p0");
+        std::fs::create_dir(&child).expect("create partition child");
+        std::fs::write(child.join("partition"), b"0\n").expect("write zero index");
+        assert_eq!(
+            enumerate_session_partitions(&sandbox.base, 23, sandbox.device),
+            Err(Refusal::PartitionEnumerationFailed { errno: None })
+        );
+
+        // A malformed dev attribute refuses rather than being guessed at.
+        let sandbox = PartitionSandbox::new(true);
+        let child = sandbox.disk().join("loop23p1");
+        std::fs::create_dir(&child).expect("create partition child");
+        std::fs::write(child.join("partition"), b"1\n").expect("write partition index");
+        std::fs::write(child.join("dev"), b"not-a-devnum\n").expect("write malformed devnum");
+        assert_eq!(
+            enumerate_session_partitions(&sandbox.base, 23, sandbox.device),
+            Err(Refusal::PartitionEnumerationFailed { errno: None })
+        );
+
+        // A missing dev attribute carries the OS error number.
+        let sandbox = PartitionSandbox::new(true);
+        let child = sandbox.disk().join("loop23p1");
+        std::fs::create_dir(&child).expect("create partition child");
+        std::fs::write(child.join("partition"), b"1\n").expect("write partition index");
+        assert_eq!(
+            enumerate_session_partitions(&sandbox.base, 23, sandbox.device),
+            Err(Refusal::PartitionEnumerationFailed {
+                errno: Some(Errno::NOENT.raw_os_error()),
+            })
+        );
+
+        // Ordinary sysfs children without a partition attribute are not
+        // partitions, and an empty disk enumerates empty.
+        let sandbox = PartitionSandbox::new(true);
+        for ordinary in ["queue", "holders", "loop"] {
+            std::fs::create_dir(sandbox.disk().join(ordinary)).expect("create ordinary entry");
+        }
+        std::fs::write(sandbox.disk().join("dev"), b"7:23\n").expect("write disk devnum");
+        let partitions = enumerate_session_partitions(&sandbox.base, 23, sandbox.device)
+            .expect("ordinary children are not partitions");
+        assert!(partitions.is_empty());
+
+        // A missing disk root refuses with its OS error number.
+        let missing = PartitionSandbox::new(false);
+        assert_eq!(
+            enumerate_session_partitions(&missing.base, 23, missing.device),
+            Err(Refusal::PartitionEnumerationFailed {
+                errno: Some(Errno::NOENT.raw_os_error()),
+            })
+        );
+    }
+
+    // Requirements: SAFE-004, SAFE-005
+    //   The bounded stream drain returns complete bytes under the limit and
+    //   reports overflow instead of truncating silently.
+    // Evidence: probe_stream_drain_bounds_and_reports_overflow
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn probe_stream_drain_bounds_and_reports_overflow() {
+        let (bytes, overflowed) = drain_probe_stream(Some(&b"bounded output"[..]));
+        assert_eq!(bytes, b"bounded output");
+        assert!(!overflowed);
+
+        let oversized = vec![7_u8; PROBE_OUTPUT_LIMIT_PER_STREAM + 1];
+        let (bytes, overflowed) = drain_probe_stream(Some(&oversized[..]));
+        assert_eq!(bytes.len(), PROBE_OUTPUT_LIMIT_PER_STREAM);
+        assert!(overflowed);
+
+        let (bytes, overflowed) = drain_probe_stream(None::<&[u8]>);
+        assert!(bytes.is_empty());
+        assert!(!overflowed);
     }
 
     // Requirements: SAFE-001, SAFE-005, SAFE-007
