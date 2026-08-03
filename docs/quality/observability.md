@@ -3002,7 +3002,79 @@ loop-measurement part of M0.5. It cannot choose SI-35's option, supply the
 chosen-option refusal proof, or substitute for SI-34's real-partitioned-Linux
 and macOS observations.
 
-### Increment 6 real-partitioned-Linux matrix — preregistered, not yet taken
+#### Mechanism amendment, 2026-08-03 — recorded before any output exists
+
+No measurement has been taken and every result cell above stays exactly as
+preregistered. This subsection amends the protocol's **mechanism** — who
+performs which step — because the preregistered actor arrangement turned out
+not to be implementable as written, and WP-020's increment 2f boundary
+requires the substitution recorded here, with reasoning, before any
+measurement output exists. The gates, hypotheses, normalizer rules, trial
+counts, and outcome vocabulary are untouched.
+
+**What was found.** Repository issue #130: the descriptor-bound setup program
+this protocol names did not exist, and no distro ships one — `losetup`
+resolves its path argument in userspace, the exact gap issue #94 named. The
+owner chose to extend `crates/ffi-linux-loop`, and WP-020's increment 2f
+authorization (merged 2026-08-03) grants the crate a hold-open session with a
+**crate-owned** prober launch. The implemented entry point is
+`run_probed_session`.
+
+**Why the actors merge.** A design in which the setup actor lends the
+measurement side the held loop descriptor, a borrowed view of it, or the node
+name was evaluated and rejected on a live measurement:
+`BorrowedFd::try_clone_to_owned` is safe, stable Rust whose `OwnedFd`
+outlives the borrow, the supervised window, and the detach, and the session's
+loop node is opened `O_RDWR`. A lent identity therefore cannot be confined by
+construction, and a boundary that pretended otherwise would be the
+declared-not-computed safety this repository refuses. The consequence:
+
+- The **setup actor and the privileged comparison actor become one
+  process** — the crate session configures the loop from the held verified
+  descriptor and itself launches the predeclared `blkid -p -o udev` and
+  `wipefs -n`, under the same launch controls the protocol already required
+  (compiled absolute paths, fixed argv, sanitized environment, bounded
+  output, a timeout). Their outputs remain labelled privileged and are still
+  never merged into the client projection.
+- The **live client-projection capture also moves into the session's
+  predeclared launches** (`udevadm settle`, `udevadm info --query=all`
+  against the disk and each materialized partition), because the increment 2f
+  boundary forbids disclosing the live device identity to any caller — the
+  unprivileged shell included — while the device is bound. Validity
+  reasoning, stated rather than assumed: the udev database and the sysfs
+  attributes this protocol names are world-readable state whose content does
+  not depend on the reader's privilege, so root-launched capture changes who
+  reads, not what exists to be read. What the unprivileged measurement shell
+  loses is only *live addressing* of the device, which is exactly what the
+  boundary is for.
+- The **unprivileged measurement shell keeps** everything else it was for:
+  recording its non-root UID, absent `disk`/block-read groups, empty
+  capability sets, and a denied direct read against the loop-device class;
+  and performing all post-release analysis and normalization over the
+  quarantine-released records. The session releases captured output only
+  after `ENXIO`-confirmed detach and partition teardown, so nothing the
+  shell analyzes existed for it while the device was bound.
+
+**One preregistered mitigation is substituted, and the substitute is
+weaker.** Gate 2 asked the attach actor to drop its setup authority or become
+unreachable before measurement begins. The merged session cannot: its
+authority *is* the held descriptors, and verification and confirmed detach
+need them. What replaces authority-dropping is the bracket the crate enforces
+as control flow — node `lstat` identity plus the full `LOOP_GET_STATUS64`
+backing/flags/geometry binding re-verified immediately before and after every
+external launch, any mismatch voiding the session with nothing published.
+Per the increment 2f boundary this **detects a rebind that happened rather
+than preventing one**, and no evidence produced under it may be described as
+carrying the authority-dropped design's strength. The session itself contains
+no `LOOP_CHANGE_FD` call; only increment 2e's adversarial leg exercises one.
+
+**What this amendment does not do.** It takes no measurement, moves no cell,
+and does not touch gate 4's frozen normalizer, gate 5's negative controls,
+gate 7's event-completion rules, or gate 8's replicated order-balanced
+trials — those are obligations on the future instrument run, which will
+invoke one session per attach/probe/detach cycle. The instrument's own
+runner, schedule commitment, and transcript custody remain WP-035 work that
+does not exist yet.
 
 Protocol recorded 2026-08-02 under WP-035 increment 6. Status: **not yet
 taken**; every result cell is deliberately `not yet taken` and this subsection

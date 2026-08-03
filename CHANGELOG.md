@@ -7,6 +7,26 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- The SI-35 hardened non-WSL protocol gains its **mechanism amendment,
+  recorded before any output exists**, as WP-020's increment 2f boundary
+  requires: the preregistered setup and privileged comparison actors merge
+  into the one crate-owned session (`run_probed_session`), and the live
+  client-projection capture moves into that session's predeclared `udevadm`
+  launches, because the 2f boundary forbids disclosing the live device
+  identity to any caller while the device is bound — a lent descriptor or
+  name cannot be confined, per the recorded `try_clone_to_owned`
+  measurement. The udev database and named sysfs attributes are
+  world-readable state whose content does not depend on reader privilege,
+  so the capture's privilege changes who reads, not what exists to be read;
+  the unprivileged measurement shell keeps its negative environment
+  assertions and all post-release analysis over the quarantine-released
+  records. One preregistered mitigation is substituted and the substitute
+  is recorded as weaker: gate 2's authority-drop is replaced by the
+  crate-enforced bracket around every launch, which detects a rebind that
+  happened rather than preventing one. No measurement is taken, no gate,
+  normalizer, trial, or outcome rule changes, and every result cell stays
+  `not yet taken`.
+
 - WP-035's status surfaces are corrected for the closure of repository issue
   #94, and the correction is deliberately narrow: **no measurement changes and
   no register disposition moves.** The loop-backed half of SI-35 was blocked
