@@ -39,7 +39,7 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   product inspector's read-path boundary and it does not register a destructive
   suite.
 
-  The acceptance **passed** on 2026-08-03 on commit `2dbf601` in a disposable
+  The acceptance **passed** on 2026-08-03 in a disposable
   Proxmox VE 9.2.4 guest — stock Ubuntu 22.04.5, kernel 5.15.0-186-generic,
   base image verified against Canonical's published `SHA256SUMS`, no USB or PCI
   passthrough, a `pre-acceptance` snapshot as the revert boundary. Two legs were
@@ -49,8 +49,13 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   unchanged afterwards with `losetup -a` empty and no loop device holding a
   backing file. Four negative controls refused in the same session, including a
   generic destructive Tier 2 that authorized 13 targets and still refused
-  because no suite is registered. The run was repeated three times on the same
-  commit and guest with identical harness results.
+  because no suite is registered. It was run four times in that guest with
+  identical harness results and identical fixture digests: three on the
+  implementation commit `2dbf601`, and once more on the merged commit
+  `c75b340` after main's `apps/cli` changes arrived. That last run was taken
+  rather than argued: none of the changed files is on the acceptance's code
+  path, which is exactly the reasoning a proof against a superseded tree
+  invites and this package declines.
   The exclusions were established rather than asserted: `snapd` — which held
   four squashfs loop devices at first boot — and `udisks2` were purged, **a
   deliberate deviation from a stock image** without which the no-other-loop-

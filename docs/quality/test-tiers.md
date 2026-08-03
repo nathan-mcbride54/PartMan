@@ -77,8 +77,9 @@ loop mapping reaches a disposable generated fixture. That is coverage for
 continue to rest on the write-intent boundary above, on SAFE-004 wherever an
 external tool is invoked, and on INV-006's no-repair/no-auto-mount discipline.
 Issue #94 is closed: the full acceptance, including its adversarial rebind leg,
-succeeded on commit `2dbf601` in a disposable Proxmox-hosted non-WSL Linux VM on
-2026-08-03, and the run record with its exclusions and stated limits is in
+succeeded in a disposable Proxmox-hosted non-WSL Linux VM on 2026-08-03 — on the
+implementation commit `2dbf601`, and again on the merged commit `c75b340` that
+lands on main — and the run record with its exclusions and stated limits is in
 `docs/work-packages/WP-020.md`. Closing it registered no destructive suite.
 Later packages may add pure planner, validator, and regular-file fixture tests.
 
