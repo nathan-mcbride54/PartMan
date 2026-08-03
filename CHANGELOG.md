@@ -7,6 +7,29 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- WP-035's status surfaces are corrected for the closure of repository issue
+  #94, and the correction is deliberately narrow: **no measurement changes and
+  no register disposition moves.** The loop-backed half of SI-35 was blocked
+  until #94 closed; it closed on 2026-08-03 when WP-020 increment 2e's
+  descriptor-bound mechanism landed and passed a real acceptance, so the
+  preregistered hardened non-WSL protocol is now **runnable rather than
+  blocked**. What lifted is stated exactly rather than generally: the gate was
+  the absence of a descriptor-bound attach, so a loop-backed measurement that
+  configures the device *from a verified descriptor* no longer carries the gap,
+  while one reaching the device by pathname — anything built on plain
+  `losetup <file>` — still does, and the recording rule still applies to it.
+  Nothing already measured improves. The 2026-08-02 WSL2 run stays
+  non-qualifying, its decisive-pair negative stays unavailable to a register
+  decision, and **M0.5's loop criterion stays unsatisfied** — takeable is not
+  met, and a closed gate is not a result. Historical statements that a
+  measurement was taken while #94 was open are left exactly as written,
+  including the run's `Binding status | open at run time` row and the quoted
+  increment-5 rule, because they were true when recorded. Touched surfaces are
+  WP-035's own: the README M0.5 section and WP-035 row, the observability
+  status header and its two loop-gate paragraphs, and WP-035's increment-5
+  scope. No new authorization was needed — WP-035's existing share already
+  names its own status rows and the M0.5 roadmap section.
+
 - WP-020 increment 2e is **Delivered** and repository issue #94 is **closed**:
   it introduces the sole runnable
   higher-tier acceptance,

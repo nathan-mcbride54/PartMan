@@ -8,10 +8,16 @@
   established.** WP-035's three instruments have operator-run records dated
   2026-08-02, but their limits are material: SI-33 did not establish the full
   close-before-event/reopen liveness sequence; the SI-35 Windows wrapper did
-  not retain every queried surface; and the SI-35 loop run crossed open issue
-  #94. Its WSL2 decisive-pair negative remains unavailable to a register
-  decision until a non-WSL distro-kernel run confirms it through the future
-  handle-bound protocol. Increment 6's macOS and real-partitioned-Linux
+  not retain every queried surface; and the SI-35 loop run was taken while
+  repository issue #94 was open. **#94 closed 2026-08-03** — WP-020 increment
+  2e's descriptor-bound mechanism landed and passed a real acceptance — so the
+  hardened non-WSL protocol below is **runnable rather than blocked**. That
+  closure changes nothing already measured: the historical WSL2 decisive-pair
+  negative remains unavailable to a register decision until a non-WSL
+  distro-kernel run confirms it through the handle-bound protocol, and M0.5's
+  loop criterion stays **unsatisfied** until that run is taken. The gate lifted
+  is specifically the absence of a descriptor-bound attach; a measurement that
+  reached a loop device by pathname would still carry the original gap. Increment 6's macOS and real-partitioned-Linux
   matrices, the SI-33/SI-28 successor protocol, and the SI-35 Windows
   completion rerun are preregistered below; they are instruments, not
   evidence, and establish nothing until executed. Every preregistered cell
@@ -513,9 +519,11 @@ content on both sides of the attach window. This run retained only the
 wrapper's `UNCHANGED` verdict, not the digest pairs, so its durable record
 cannot independently establish even those endpoint equalities; nothing in
 this protocol asserts the kernel's binding *during* the window. The loop-backed
-half of SI-35 is gated on #94; this
-Windows half is not — the gate is loop-specific — but the same class of
-residual is declared rather than assumed away.
+half of SI-35 was gated on #94, which **closed 2026-08-03**; this
+Windows half never was — the gate is loop-specific — and the same class of
+residual is still declared rather than assumed away. Closing #94 lifts the
+loop-side gate only by supplying a descriptor-bound attach; it does not
+retire this Windows residual, which `Mount-DiskImage` still has.
 
 #### The measurement: what the unprivileged interfaces report
 
@@ -2298,11 +2306,17 @@ hardware.
 in userspace and hands the kernel a descriptor it opened itself, so the object
 attached is whatever the name resolved to at attach time, and
 `/sys/block/loopN/loop/backing_file` is by-name evidence only — nothing binds
-`/dev/loopN` to a verified handle (repository issue #94). WP-035's rule is
-this section's rule: anything loop-backed is blocked until #94 closes, and if
-a read-only measurement is ever taken before then — the issue records the
-read-only blast radius as a wrong measurement, not a write — the gap is
-recorded beside the numbers. The recording format makes that a template
+`/dev/loopN` to a verified handle (repository issue #94). WP-035's rule was
+this section's rule: anything loop-backed was blocked until #94 closed, and if
+a read-only measurement was taken before then — the issue records the
+read-only blast radius as a wrong measurement, not a write — the gap was
+recorded beside the numbers. **#94 closed 2026-08-03.** The block is lifted,
+and what lifted it is narrow and worth stating exactly: a descriptor-bound
+attach now exists and has been proven, so a measurement that configures the
+loop device *from a verified descriptor* no longer carries this gap. A
+measurement that reaches the device by pathname — including anything built on
+plain `losetup <file>` — carries it undiminished. The run recorded in this
+section is the latter, and closing #94 does not improve it. The recording format makes that a template
 obligation rather than a judgment call. Phase 1's digest check is accident
 friction on the manifest-token model: it compares a same-named file, by name,
 before attach, and closes nothing.
