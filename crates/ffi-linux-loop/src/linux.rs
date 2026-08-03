@@ -23,7 +23,7 @@ use crate::protocol::{
 };
 use crate::{
     AuthorizedFiles, BASIC_NAME, CONFLICTING_NAME, FixtureRole, ProbeSubject, ProbeTool, Refusal,
-    RunReport, SessionReport, sys,
+    RunReport, SessionDiskFacts, SessionPartitionFacts, SessionReport, sys,
 };
 
 const LOOP_CONTROL: &str = "/dev/loop-control";
@@ -413,6 +413,66 @@ impl SessionController for LinuxSessionController {
             .collect())
     }
 
+    fn device_digest(&mut self, attachment: &Self::Attachment) -> Result<[u8; 32], Refusal> {
+        // The same positional-read hasher the backing files use, pointed at
+        // the held loop descriptor: the device's logical contents, never a
+        // path reopen.
+        digest_file(&attachment.device)
+    }
+
+    fn capture_facts(
+        &mut self,
+        attachment: &Self::Attachment,
+    ) -> Result<(SessionDiskFacts, Vec<SessionPartitionFacts>), Refusal> {
+        let base = Path::new(SYS_DEV_BLOCK);
+        let device = attachment.node_identity.represented_device;
+        let disk_root = base.join(format!("{}:{}", major(device), minor(device)));
+        let disk_read_only = read_sysfs_u64(&disk_root.join("ro"))? == 1;
+        if !disk_read_only {
+            return Err(Refusal::SessionNodeWritable);
+        }
+        let disk_facts = SessionDiskFacts {
+            size_sectors: read_sysfs_u64(&disk_root.join("size"))?,
+            read_only: disk_read_only,
+            logical_block_size: u32::try_from(read_sysfs_u64(
+                &disk_root.join("queue").join("logical_block_size"),
+            )?)
+            .map_err(|_| Refusal::KernelOperation {
+                operation: "sysfs-facts",
+                errno: None,
+            })?,
+        };
+
+        let mut partition_facts = Vec::with_capacity(self.partitions.len());
+        let mut session_devices = vec![device];
+        for partition in &self.partitions {
+            let child = disk_root.join(format!("loop{}p{}", attachment.number, partition.index));
+            let read_only = read_sysfs_u64(&child.join("ro"))? == 1;
+            if !read_only {
+                return Err(Refusal::SessionNodeWritable);
+            }
+            partition_facts.push(SessionPartitionFacts {
+                index: partition.index,
+                start_sectors: read_sysfs_u64(&child.join("start"))?,
+                size_sectors: read_sysfs_u64(&child.join("size"))?,
+                read_only,
+            });
+            session_devices.push(partition.device);
+        }
+
+        let mountinfo = std::fs::read_to_string("/proc/self/mountinfo").map_err(|error| {
+            Refusal::KernelOperation {
+                operation: "mountinfo-read",
+                errno: error.raw_os_error(),
+            }
+        })?;
+        if any_device_mounted(&mountinfo, &session_devices) {
+            return Err(Refusal::SessionNodeMounted);
+        }
+
+        Ok((disk_facts, partition_facts))
+    }
+
     fn launch(
         &mut self,
         attachment: &Self::Attachment,
@@ -664,6 +724,36 @@ fn read_trimmed(path: &Path) -> Result<String, Refusal> {
         .map_err(|error| Refusal::PartitionEnumerationFailed {
             errno: error.raw_os_error(),
         })
+}
+
+/// Read one numeric sysfs attribute for the facts capture.
+fn read_sysfs_u64(path: &Path) -> Result<u64, Refusal> {
+    let content = std::fs::read_to_string(path).map_err(|error| Refusal::KernelOperation {
+        operation: "sysfs-facts",
+        errno: error.raw_os_error(),
+    })?;
+    content
+        .trim()
+        .parse::<u64>()
+        .map_err(|_| Refusal::KernelOperation {
+            operation: "sysfs-facts",
+            errno: None,
+        })
+}
+
+/// Whether any session device number appears as a mount source in the given
+/// `mountinfo` content. Field three of each mountinfo line is `major:minor`;
+/// comparing there catches a mount regardless of which name mounted it.
+fn any_device_mounted(mountinfo: &str, devices: &[rustix::fs::Dev]) -> bool {
+    let rendered: Vec<String> = devices
+        .iter()
+        .map(|device| format!("{}:{}", major(*device), minor(*device)))
+        .collect();
+    mountinfo.lines().any(|line| {
+        line.split_whitespace()
+            .nth(2)
+            .is_some_and(|field| rendered.iter().any(|device| device == field))
+    })
 }
 
 fn compiled_expected_digest(name: &str) -> [u8; 32] {
@@ -1327,6 +1417,61 @@ mod tests {
         assert_eq!(
             enumerate_session_partitions(&missing.base, 23, missing.device),
             Err(Refusal::PartitionEnumerationFailed {
+                errno: Some(Errno::NOENT.raw_os_error()),
+            })
+        );
+    }
+
+    // Requirements: SAFE-005, SAFE-007
+    //   The mount check matches mountinfo's device field exactly, and a mounted
+    //   session device is found regardless of the name that mounted it.
+    // Evidence: mountinfo_matching_finds_session_devices_by_number_only
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn mountinfo_matching_finds_session_devices_by_number_only() {
+        let mountinfo = "\
+36 25 7:23 / /mnt/evil rw,relatime shared:1 - ext4 /dev/renamed rw\n\
+37 25 259:5 / /mnt/part rw - vfat /dev/whatever rw\n\
+38 25 8:1 / / rw - ext4 /dev/sda1 rw\n";
+        assert!(any_device_mounted(mountinfo, &[rustix::fs::makedev(7, 23)]));
+        assert!(any_device_mounted(
+            mountinfo,
+            &[rustix::fs::makedev(259, 5)]
+        ));
+        assert!(!any_device_mounted(
+            mountinfo,
+            &[rustix::fs::makedev(7, 0), rustix::fs::makedev(259, 1)]
+        ));
+        // A device number appearing in another column is not a mount.
+        assert!(!any_device_mounted(
+            "39 25 8:2 / /somewhere rw - ext4 7:23 rw\n",
+            &[rustix::fs::makedev(7, 23)]
+        ));
+    }
+
+    // Requirements: SAFE-005, SAFE-007
+    //   Numeric sysfs facts parse exactly or refuse; nothing is guessed.
+    // Evidence: sysfs_fact_reads_parse_exactly_or_refuse
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn sysfs_fact_reads_parse_exactly_or_refuse() {
+        let sandbox = PartitionSandbox::new(true);
+        std::fs::write(sandbox.disk().join("size"), b"40\n").expect("write size");
+        assert_eq!(read_sysfs_u64(&sandbox.disk().join("size")), Ok(40));
+
+        std::fs::write(sandbox.disk().join("ro"), b"not-a-number\n").expect("write junk");
+        assert_eq!(
+            read_sysfs_u64(&sandbox.disk().join("ro")),
+            Err(Refusal::KernelOperation {
+                operation: "sysfs-facts",
+                errno: None,
+            })
+        );
+
+        assert_eq!(
+            read_sysfs_u64(&sandbox.disk().join("absent")),
+            Err(Refusal::KernelOperation {
+                operation: "sysfs-facts",
                 errno: Some(Errno::NOENT.raw_os_error()),
             })
         );
