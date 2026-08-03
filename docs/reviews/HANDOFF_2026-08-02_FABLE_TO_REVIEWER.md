@@ -409,3 +409,37 @@ Added by the successor session that picked up §9's stopping point.
 - Draft PR **#119** remains draft and untouched; the Proxmox acceptance
   described in §9 is still the next external dependency, still blocked on
   host/route/authority details only Nate can provide.
+
+## 11. Continuation — 2026-08-02, second session, complete ledger
+
+Written at the session's end; supersedes §10's stopping point.
+
+- Merged, in order: **#120** (WP-035 per-ABI replay flags and doctor-limit
+  fidelity), **#121** (these handoffs tracked under WP-000), **#122**
+  (increment 6 macOS and real-partitioned-Linux matrices preregistered),
+  **#123** (ADR-0010 **accepted by Nate in-session**; spec **5.0.0** — major
+  under §0.1 because a semantic change to an existing requirement is major
+  regardless of implementation state), **#124** (governance: WP-035 gains
+  the SI-33/SI-28 successor-protocol observability rows), **#125** (that
+  successor protocol preregistered), **#126** (SI-35 Windows completion
+  rerun preregistered).
+- §6's "README stale since ADR-0010" flag was measured false before #123:
+  the ADR was still Proposed and spec §4.1 still said React, so the README
+  matched its authority. The fix became correct only after Nate's
+  acceptance. The corrections pattern §0 warns about therefore continued:
+  measure a handoff's recommendations, not only its facts.
+- Every named measurement path now has a repository-preregistered
+  instrument, all cells `not yet taken`: the hardened non-WSL loop
+  protocol, the increment 6 macOS and real-Linux matrices, the SI-33/SI-28
+  successor arms S1–S4, and the SI-35 Windows completion rerun (gates R1
+  retention, R2 digest bracket, R3 mandatory index-fallback).
+- Still gated on Nate, in likely order of leverage: Proxmox details
+  (#119 → #94 → the loop hold), a Mac sitting (M-matrix), disposable USB
+  fixture media for the L-matrix (two byte-identical media for L9), the
+  second identical reader unit (S4), and the operator sittings themselves.
+  A WP-020 follow-up is filed as a session chip: a discriminating fixture
+  whose invalid primary and valid backup differ in content, which W-H2
+  needs and the current catalogue cannot supply.
+- Working state at every step: `main` clean and synced after each merge;
+  the release CLI demo transcript (Windows and WSL, byte-identical replay,
+  typed refusals) was delivered to Nate on 2026-08-02.
