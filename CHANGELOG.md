@@ -26,6 +26,39 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   happened rather than preventing one. No measurement is taken, no gate,
   normalizer, trial, or outcome rule changes, and every result cell stays
   `not yet taken`.
+- WP-020 increment 2f is implemented: `crates/ffi-linux-loop` gains
+  `run_probed_session`, the hold-open loop session its merged authorization
+  boundary permits. The session consumes a SAFE-007 `Authorization` selecting
+  exactly one registered fixture, configures the same read-only
+  autoclear/partscan mapping 2e uses from the held verified descriptor, and
+  then — the genuinely new capability — launches the predeclared probers
+  itself: `udevadm settle`, then `udevadm info --query=all`,
+  `blkid -p -o udev`, and `wipefs -n` against the disk and each enumerated
+  partition, every launch under compiled absolute paths, structured argv, no
+  shell, no `PATH` search, a cleared environment with one fixed locale pin,
+  bounded capture that refuses overflow rather than truncating evidence, and
+  a kill deadline. Node identity is re-statted by `lstat` (a planted symlink
+  is seen, not followed) and the full `LOOP_GET_STATUS64` binding re-verified
+  immediately before and after every launch, as protocol control flow a
+  caller cannot skip. Captured output is quarantined in the session gate and
+  released only after `ENXIO`-confirmed detach and partition teardown; every
+  refusal path drops the bytes unpublished, and no public signature returns a
+  descriptor, `File`, name, path, or device number — the design that lent the
+  caller a descriptor was rejected in the authorization on the
+  `try_clone_to_owned` escape measurement, and the structural tests now pin
+  the five-function public surface. Partition enumeration is exact-or-refuse:
+  a child under the session's own retained-rdev sysfs root whose name,
+  `partition`, or `dev` attribute disagrees refuses the session rather than
+  being skipped or guessed at. Tier-1 evidence lands on both platforms (58
+  Linux / 37 Windows crate tests, two compile-fail doctests); no real loop
+  device ran, Tier 1 still opens no block device, and the session's first
+  real-kernel exercise is intentionally the WP-035 SI-35 instrument. The 2e
+  entry point, its protocol, and its proven behavior are unchanged; shared
+  configure/verify/detach logic was extracted verbatim rather than
+  duplicated or altered. Increment 2f remains **weaker than 2e by
+  construction** — across the open window the bracketing detects a rebind
+  that happened rather than preventing one — and nothing here registers a
+  destructive suite.
 
 - WP-035's status surfaces are corrected for the closure of repository issue
   #94, and the correction is deliberately narrow: **no measurement changes and
