@@ -7,6 +7,18 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- The SI-33/SI-28 successor protocol is preregistered in the observability
+  record, all cells `not yet taken`: the close-before-event/reopen survival
+  arm with a true process-local no-handle window and epoch-boundary
+  bracketing, epoch-signal characterization over a fixed candidate list with
+  the counter itself excluded as circular, completion of L4's originally
+  requested three trials, and the second-reader storage-layer serial
+  collision test — previously pre-registered only in conversation, which
+  confers no standing — with its hypothesis, refutation condition,
+  live-comparison requirement, and enumeration-failure-is-data rule now in
+  the repository. README's M0.5 section and WP-035 row note the
+  preregistered instruments. No measurement is taken and no disposition
+  changes.
 - ADR-0010 is accepted: Section 4.1's required UI layer is Svelte and
   TypeScript, SvelteKit excluded, Vite as the build tool — spec **5.0.0**, a
   major bump because §0.1 makes a semantic change to an existing requirement
