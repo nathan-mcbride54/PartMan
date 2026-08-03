@@ -7,6 +7,37 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- WP-020 increment 2e is in progress: it introduces the sole runnable
+  higher-tier acceptance,
+  `cargo xtask test --tier 2 --profile destructive --acceptance
+  linux-loop-read-only`, while every generic destructive Tier-2 request and
+  every Tier-3 request continues to refuse. The Linux-only acceptance runs with
+  explicit privilege in a disposable non-WSL VM and applies SAFE-001, SAFE-002,
+  and all SAFE-007 factors even though it is non-destructive and
+  logical-content-read-only. Its verified backing descriptor remains held;
+  backing, loop-control, and loop-device descriptors are `O_RDWR`-capable for
+  mapping control; the mapping carries `LO_FLAGS_READ_ONLY`; the probe is
+  in-process through the held loop descriptor; and no external storage tool or
+  logical write, discard, or zero operation occurs. Linux's configure and
+  rebind paths may `fsync` and write back already-dirty data or metadata, so the
+  acceptance deliberately makes no zero-physical-write claim. Both authorized
+  fixture objects are hashed before any attach; each initial digest must match
+  the compiled fixture catalogue before any loop configuration, and
+  both are hashed again after the ordinary and adversarial legs confirm detach
+  and partition teardown. No observation is accepted until the sampled backing,
+  loop configuration, and held-node identities match and those hashes are
+  unchanged. External run evidence must exclude every other actor able to
+  modify either fixture and every other actor able to administer or rebind loop
+  devices. Ordinary kernel/udev read/open discovery is allowed and handled by
+  bounded cleanup, but a loop-configuration `EBUSY` refuses immediately because
+  isolated loop state was not established. Hash and status sampling cannot
+  defeat an ABA change between samples; VM isolation bounds consequences but
+  does not prove the exclusions, and this acceptance is not a continuous-binding
+  guarantee. This exception grants SAFE-007
+  coverage only to this named acceptance: it does not change Tier 1 or the
+  product inspector's read-path boundary and it does not register a destructive
+  suite. Issue #94 remains open, and increment 2e is not Delivered, pending code
+  review and a passing real run in a disposable Proxmox-hosted non-WSL Linux VM.
 - WP-010's authorized metadata and historical-fidelity repair marks SI-11 as
   hash-visible and ties its retained plan/snapshot obligations to MODEL-005 and
   Section 6; narrows SI-12 and spec 4.3.0 to the evidence actually retained for

@@ -150,6 +150,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "partman-ffi-linux-loop"
+version = "0.0.0"
+dependencies = [
+ "linux-raw-sys",
+ "partman-fixtures",
+ "rustix",
+ "sha2",
+]
+
+[[package]]
 name = "partman-fixtures"
 version = "0.0.0"
 dependencies = [
@@ -312,6 +322,7 @@ dependencies = [
 name = "xtask"
 version = "0.0.0"
 dependencies = [
+ "partman-ffi-linux-loop",
  "partman-fixtures",
  "partman-tokens",
  "serde_json",

@@ -12,6 +12,10 @@ publish = false
 # rather than shelling out keeps the interlock's decision inside one process, so
 # there is no gap between "authorized" and "ran".
 partman-fixtures = { path = "../../crates/fixtures" }
+# The one registered Tier-2 acceptance consumes the SAFE-007 Authorization
+# directly. Keeping this as an in-process dependency makes it impossible for
+# xtask to turn the verified backing handles back into raceable path strings.
+partman-ffi-linux-loop = { path = "../../crates/ffi-linux-loop" }
 # The WP-030 accessibility harness. Same reasoning as above: depending on the
 # library rather than shelling out keeps the audit's verdict inside one process.
 partman-tokens = { path = "../../crates/tokens" }
@@ -24,4 +28,3 @@ yaml-rust2 = "0.11.0"
 
 [lints]
 workspace = true
-

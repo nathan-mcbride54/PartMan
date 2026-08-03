@@ -68,8 +68,10 @@ What does exist:
   spec 4.3.0 rather than an open question — ADR-0011) carried in-band in every
   answer, refusals included.
 
-The domain crate performs no I/O and launches no process. Tier 2 and Tier 3
-test suites fail closed and cannot run at all yet.
+The domain crate performs no I/O and launches no process. Tier 1 retains its
+host-safe boundary. The only runnable higher-tier acceptance is WP-020's named
+non-destructive Linux-VM loop check; every generic destructive Tier-2 request
+and every Tier-3 request still fails closed.
 
 ## Safe local gate
 
@@ -94,9 +96,32 @@ silently skipped.
 cargo xtask test --tier 1
 ```
 
-Tier 2 and Tier 3 still refuse. The SAFE-007 interlock now exists and is
-exercised (WP-020 increment 1), but no destructive suite is registered yet, and
-reporting a pass for a run of nothing would be a fake success path.
+The sole higher-tier exception is:
+
+```text
+cargo xtask test --tier 2 --profile destructive --acceptance linux-loop-read-only
+```
+
+It runs only with explicit privilege in a disposable non-WSL Linux VM and only
+after SAFE-001, SAFE-002, and every SAFE-007 factor authorize the generated
+fixture backing objects. The acceptance opens the backing, loop-control, and
+loop-device descriptors `O_RDWR` for its mapping-control operations,
+sets `LO_FLAGS_READ_ONLY`, probes in-process through the held loop descriptor,
+issues no logical write, discard, or zero operation, and accepts no observation
+unless each initial held-file hash matches the compiled fixture catalogue, its
+sampled identity and configuration checks pass, detach and partition teardown
+are confirmed, and both fixture hashes remain unchanged. External run evidence
+must exclude every other actor able to modify either fixture and every other
+actor able to administer or rebind loop devices. Ordinary kernel/udev read/open
+discovery is allowed and handled by bounded cleanup, but a loop-configuration
+`EBUSY` refuses immediately because isolated loop state was not established.
+Hash and status sampling cannot defeat ABA changes entirely between samples, so
+the result is not a continuous-binding guarantee. The disposable VM bounds
+consequences but does not prove those exclusions. Linux may `fsync` inside the
+mapping ioctls and write back already-dirty data or metadata, so this is not a
+zero-physical-write claim. No external storage tool is launched. Generic
+destructive Tier 2 and all Tier 3 still refuse because no destructive suite is
+registered; a pass over no suite remains forbidden.
 
 Run `cargo xtask help` for the full command list.
 
@@ -164,7 +189,7 @@ Section 14 of the specification is normative. Current state:
 | ADR-C1 | — | Canonical encoding and hash strategy | Accepted |
 | ADR-C2 … ADR-C6 | — | Hashed-artifact body/envelope split, identity strength, provenance shape, aggregation vocabulary, canonical set ordering and depth | Accepted |
 | WP-010 | Foundations (M0); increment 3 blocked on the spec-issue register | Canonical domain model, schema versioning, encoding and hashing | In progress. SI-31 is resolved by the delivered schema-set boundary, and traceability is generated with a zero-loss migration ledger; increment 3 remains blocked by the authoritative issue register. See `docs/work-packages/WP-010.md` |
-| WP-020 | Foundations (M0) | Disk-image fixture generator and destructive-test interlocks | In progress — increments 1–1g and 2a–2d delivered. Preconditions 1 and 3 are now closed on both platforms (issue #51): Unix opens a direct child relative to a held root object, Windows holds the root with a share mode the filesystem enforces, and the other-name refusal — which was a **live defect**, not a missing check — now reads the link count through the authorized handle everywhere. Windows containment is enforcement by the filesystem rather than resolution from a handle, so it is **unproven for roots that are not on a local volume**, and non-local roots are refused. WP-020 traceability is generated from validated source-local claims and typed evidence, with a source-revision/blob ledger preserving every former evidence row, correction, limitation, and residual risk. Tier 2 stays unavailable on every platform because no destructive suite exists; see `docs/work-packages/WP-020.md` |
+| WP-020 | Foundations (M0) | Disk-image fixture generator and destructive-test interlocks | In progress — increments 1–1g and 2a–2d delivered; increment 2e's descriptor-bound loop implementation is in progress, and issue #94 remains open pending code review and a passing run in a disposable non-WSL Linux VM on the Proxmox host. Preconditions 1 and 3 are closed on both platforms (issue #51): Unix opens a direct child relative to a held root object, Windows holds the root with a share mode the filesystem enforces, and the other-name refusal — which was a **live defect**, not a missing check — now reads the link count through the authorized handle everywhere. Windows containment is enforcement by the filesystem rather than resolution from a handle, so it is **unproven for roots that are not on a local volume**, and non-local roots are refused. WP-020 traceability is generated from validated source-local claims and typed evidence, with a source-revision/blob ledger preserving every former evidence row, correction, limitation, and residual risk. The sole runnable higher-tier acceptance is `cargo xtask test --tier 2 --profile destructive --acceptance linux-loop-read-only`; it is non-destructive and logical-content-read-only, while every generic destructive Tier-2 request and every Tier-3 request still refuses. See `docs/work-packages/WP-020.md` |
 | WP-030 | Foundations (M0); desktop shell deferred, no authority on main | Design tokens, dark UI shell, accessibility harness | In progress — increments 1 through 1c delivered (tokens, the static accessibility harness, and zero-loss generated traceability). Increment 2S's bounded Slint 1.17.1 branch was implemented, measured, mechanically rejected on two hard gates, and closed without merge. Main now retains only normalized evidence, the byte-reproducible 41-row report, and accessibility limitations; no shell exists, UI-002 remains unimplemented, and the rendered half of UI-008 remains untested. The temporary implementation authority was retired by PR #91, so no desktop-shell path is authorized on main and reviving either off-main branch needs fresh governance rather than inertia |
 
 | WP-035 | Evidence (M0.5) | Read-only CLI chassis and evidence instrument | In progress — increments 1–4 delivered the unprivileged CLI chassis, typed schema-versioned refusals, redacted diagnostics, bounded absolute-path dependency doctor, technology facts, and fixture-backed replay observations; increment 5 recorded the operator-run SI-33/SI-35 instruments. The audit reserves `inventory`, `topology`, and `capabilities` as exact typed refusals rather than accepting them as unknown commands, treats a dependency's nonzero exit as failure rather than version evidence, escapes terminal controls, and uses each Unix target's actual replay flags. The SI-33 run moved in L1/L2 but did not measure the required close-before-event/reopen arm; a lower reading across a PnP-arrival interval makes global monotonicity unsafe to assume without characterizing the counter epoch. The Windows SI-35 run found no difference in its retained CIM fields, PhysicalDisk row count, or layout IOCTL, but discarded queried PhysicalDisk property values, so its broader existential hypotheses are inconclusive. The historical WSL2 loop record did not separate healthy from conflicting in its post-hoc-normalized retained projections and did observe 4Kn through an explicit-sector-size loop, but it crossed open issue #94 and is non-qualifying pending a descriptor-bound non-WSL rerun. All three instruments therefore have run records, while SI-33's full sequence remains unestablished, the Windows hypotheses remain incomplete, and M0.5's #94-gated loop criterion remains unsatisfied. Separately, SI-35 still requires the chosen option's refusal demonstration. The package remains forbidden every domain surface gated by the open register; see `docs/work-packages/WP-035.md` |
