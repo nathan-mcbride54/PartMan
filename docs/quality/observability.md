@@ -13,8 +13,12 @@
   decision until a non-WSL distro-kernel run confirms it through the future
   handle-bound protocol. Increment 6's macOS and real-partitioned-Linux
   matrices, the SI-33/SI-28 successor protocol, and the SI-35 Windows
-  completion rerun are preregistered below with every cell `not yet taken`;
-  they are instruments, not evidence, and establish nothing until executed.
+  completion rerun are preregistered below; they are instruments, not
+  evidence, and establish nothing until executed. Every preregistered cell
+  is `not yet taken` except the successor protocol's two S4 rows, moved to
+  `not established` by a 2026-08-03 sitting: the kit's second reader
+  measured as a different bridge model, and S4 forbids a cross-model
+  substitute.
 
 ## Why this document exists
 
@@ -1689,11 +1693,13 @@ derive continuity from bookkeeping between runs.
   also contains a lower later reading, and the trigger is unrecorded.
   Suspend, hub reset, and reboot are untested.
 
-### SI-33/SI-28 successor protocol — preregistered, not yet taken
+### SI-33/SI-28 successor protocol — preregistered 2026-08-02
 
 Protocol recorded 2026-08-02 under WP-035's SI-33 and SI-28 shares. Status:
-**not yet taken**; every result cell is deliberately `not yet taken` and this
-subsection is an instrument, not evidence. It preregisters exactly the
+S1, S2, S2b, and S3 **not yet taken**, every unexecuted result cell
+deliberately so; S4's two rows are **`not established`** per the sitting
+recorded below the arm table. This subsection is an instrument, not
+evidence. It preregisters exactly the
 successor questions the records above filed — the close-before-event/reopen
 arm the 2026-08-02 run missed, the epoch-signal characterization its decrease
 demands, L4's unmet replication, and the second-reader collision question the
@@ -1788,13 +1794,64 @@ different model.
 | S2 epoch-signal candidates across 3 induced re-arrivals | `not yet taken` |
 | S2b epoch-signal candidates across one reboot | `not yet taken` |
 | S3 L4 trials 2 and 3 | `not yet taken` |
-| S4 two-unit storage-layer serial live comparison | `not yet taken` |
-| S4 empty-slot serial across units; card moved between readers | `not yet taken` |
+| S4 two-unit storage-layer serial live comparison | `not established` — 2026-08-03 sitting: the two simultaneously attached units are different bridge models (0BDA:0306 vs 2537:1081), and a different model may not approximate the second unit |
+| S4 empty-slot serial across units; card moved between readers | `not established` — rides only on a completed primary comparison; same cause |
 
 A valid run can establish only these arms. It decides no SI-33 design
 option, does not move SI-28's disposition (the register owns status), and
 generalizes to no other reader, bridge, host, or device class than the
 units measured.
+
+#### S4 sitting, 2026-08-03 — same-model precondition unmet
+
+A custody-complete sitting attempted S4's primary row against the two
+simultaneously attached reader units. It could not run the comparison: the
+units are different bridge models, and S4's own rule — `not established`,
+never approximated with a different model — governs. No part of the
+collision hypothesis is evaluated; the recorded fact is that the same-model
+second unit S4 requires does not yet exist in the kit, established by
+measuring the delivered unit rather than by its absence. The arm stays
+takeable exactly as preregistered the day a second unit of either present
+model is attached.
+
+Read non-elevated in one session, both units enumerated, each presenting
+two LUNs, no problem codes:
+
+- One unit reports the non-unit VID:PID `0BDA:0306`, model string
+  `Generic- USB3.0 CRW -SD` (interior whitespace collapsed here; the
+  transcript holds it verbatim), and one storage-layer serial value (elided
+  `2012…5300`) on both LUNs, USB descriptor serial elided `2015…1013`,
+  holding the 256 GB-class card. Every one of those retained forms and the
+  card's exact byte size match the parent record — but the parent run kept
+  no unit-level identifiers, so continuity with the 2026-08-02 unit holds
+  only at elided-form strength and no full-string identity is claimed.
+- The other unit — operator-reported as an outwardly identical enclosure,
+  a claim no software surface here can check, holding the
+  64 GB-class card — reports VID:PID `2537:1081`, per-LUN model strings
+  `1081CS0`/`1081CS1`, bus-reported description `NS1081`. Model sameness
+  fails on both of S4's declared establishment surfaces at once.
+- Context, not an S4 result: the second unit's USB descriptor serial and
+  storage-layer serial are the same 15-character ascending-hexadecimal
+  placeholder (elided `0123…BCDE`), identical across its two LUNs and
+  across both layers. That is the SI-28 bridge-constant form appearing on
+  a second, different bridge family. Whether two units of that family
+  collide is precisely S4's question, and it needs two units of it.
+
+Custody: capture script and complete transcript archived outside the
+repository at
+`%USERPROFILE%\partman-evidence\2026-08-03-si33si28-s4-sitting1\` on the
+operator workstation; custodian Nate McBride. SHA-256 throughout.
+Capture-script digest, recorded in the transcript header before the first
+device query:
+`80dd4b49f79b595e69250cb9c0b689f721227e377e9c08f75b046547ac20a6ec`
+(8742 bytes). Transcript:
+`421a3c09d15d2313f940287bb8a94b1a74e94a86375b970b2910b711a9ade980`
+(10254 bytes); all eight steps `OK`, script exit 0; elevation assertion
+in-transcript (`IsInRole(Administrator)=False`, token carries no
+Administrators SID); OS build 10.0.26200; PowerShell 7.6.4. An independent
+second reader retrieved the transcript through the locator and rehashed it
+to the same digest and byte length before either cell left
+`not yet taken`.
 
 ## macOS
 
