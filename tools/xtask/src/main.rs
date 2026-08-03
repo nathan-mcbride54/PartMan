@@ -1,4 +1,8 @@
-//! Safe, unprivileged repository task runner.
+//! Safe repository task runner.
+//!
+//! Tier 1 remains unprivileged. One exact WP-020 acceptance requires an
+//! already-elevated native-Linux disposable VM; the runner never elevates
+//! itself, and every other higher-tier request still refuses.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
@@ -45,6 +49,31 @@ const FUZZ_MALLOC_LIMIT_MB: u32 = 256;
 /// Four GiB leaves headroom for sanitizer bookkeeping while remaining far below
 /// the hosted runner's capacity and preserving a finite failure boundary.
 const FUZZ_RSS_LIMIT_MB: u32 = 4_096;
+/// Tier 1 is two commands because Cargo's `--all-targets` excludes doctests.
+///
+/// The second command keeps compile-fail API-boundary evidence in the same
+/// required gate as unit and integration tests.
+const TIER_ONE_COMMANDS: [&[&str]; 2] = [
+    &["test", "--workspace", "--all-targets", "--locked"],
+    &["test", "--workspace", "--doc", "--locked"],
+];
+/// The only higher-tier acceptance registered by WP-020 increment 2e.
+const LINUX_LOOP_READ_ONLY_ACCEPTANCE: &str = "linux-loop-read-only";
+/// Honest boundary: xtask checks target OS, two `/proc` markers, and EUID;
+/// every VM/isolation predicate remains external evidence.
+#[cfg(any(target_os = "linux", test))]
+const LINUX_LOOP_ENVIRONMENT_SCOPE: &str = "environment_scope=external-evidence-required; \
+    environment_scope_mechanically_verified=false; \
+    mechanically_checked=target-os-linux,proc-microsoft-markers-absent,euid-0; \
+    external_evidence_required=proxmox-vm-config,snapshot-or-revert,guest-isolation,\
+no-other-actor-able-to-modify-fixtures,no-other-loop-administrator,teardown-or-revert";
+/// The complete backing-object allow-list for that acceptance.
+///
+/// These names are deliberately not derived from the whole fixture catalogue:
+/// adding a fixture must not silently expand the objects a privileged run opens.
+#[cfg(any(target_os = "linux", test))]
+const LINUX_LOOP_READ_ONLY_FIXTURES: [&str; 2] =
+    ["gpt-basic-512.img", "gpt-conflicting-tables-512.img"];
 
 fn main() -> ExitCode {
     let args = env::args_os().skip(1).collect::<Vec<_>>();
@@ -66,21 +95,42 @@ enum Task {
     Ci,
     CrossLanguage,
     Fixtures,
-    Fuzz { seconds: u32 },
+    Fuzz {
+        seconds: u32,
+    },
     Fmt,
     FmtCheck,
     Help,
     Probe,
-    SlintReport { write: bool },
+    SlintReport {
+        write: bool,
+    },
     SupplyChain,
-    Test { tier: u8, profile: Option<String> },
+    Test {
+        tier: u8,
+        profile: Option<String>,
+        acceptance: Option<Acceptance>,
+    },
     Tokens,
-    Traceability { write: bool },
-    VerifyChangeOwnership { base: String },
+    Traceability {
+        write: bool,
+    },
+    VerifyChangeOwnership {
+        base: String,
+    },
     VerifyOwnership,
     VerifyActions,
     VerifyLicenses,
     VerifyToolchain,
+}
+
+/// Closed vocabulary of explicitly registered higher-tier acceptances.
+///
+/// A string is converted to this enum only by [`parse_test`]. Unknown names
+/// never reach execution, which prevents a typo from selecting a default suite.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Acceptance {
+    LinuxLoopReadOnly,
 }
 
 fn parse(args: &[OsString]) -> Result<Task, TaskError> {
@@ -181,7 +231,11 @@ fn execute(task: &Task) -> Result<(), TaskError> {
             ])?;
             cargo(&["audit", "--deny", "warnings", "--file", "fuzz/Cargo.lock"])
         }
-        Task::Test { tier, ref profile } => run_tier(tier, profile.as_deref()),
+        Task::Test {
+            tier,
+            ref profile,
+            acceptance,
+        } => run_selected_tier(tier, profile.as_deref(), acceptance),
         Task::Fixtures => generate_fixtures(),
         Task::Probe => probe_fixtures(),
         Task::SlintReport { write } => verify_slint_report(write),
@@ -318,37 +372,80 @@ fn parse_fuzz(args: &[OsString]) -> Result<Task, TaskError> {
     }
 }
 
-/// Parse `test --tier <n> [--profile <word>]`.
+/// Parse `test --tier <n> [--profile <word> [--acceptance <registered>]]`.
 ///
 /// The profile is an argument rather than an environment variable on purpose.
 /// SAFE-007 rules out proving destructive intent with a single variable, and an
 /// argument cannot be inherited by accident from a parent shell.
 fn parse_test(args: &[OsString]) -> Result<Task, TaskError> {
-    let (tier_args, profile) = match args {
-        [tier_flag, tier_value] => ([tier_flag, tier_value], None),
+    let (tier_args, profile, acceptance) = match args {
+        [tier_flag, tier_value] => ([tier_flag, tier_value], None, None),
         [tier_flag, tier_value, profile_flag, profile_value]
             if profile_flag == OsStr::new("--profile") =>
         {
             let profile = profile_value
                 .to_str()
                 .ok_or_else(|| TaskError::Usage("--profile takes an ASCII word".to_owned()))?;
-            ([tier_flag, tier_value], Some(profile.to_owned()))
+            ([tier_flag, tier_value], Some(profile.to_owned()), None)
+        }
+        [
+            tier_flag,
+            tier_value,
+            profile_flag,
+            profile_value,
+            acceptance_flag,
+            acceptance_value,
+        ] if profile_flag == OsStr::new("--profile")
+            && acceptance_flag == OsStr::new("--acceptance") =>
+        {
+            let profile = profile_value
+                .to_str()
+                .ok_or_else(|| TaskError::Usage("--profile takes an ASCII word".to_owned()))?;
+            let acceptance_name = acceptance_value.to_str().ok_or_else(|| {
+                TaskError::Usage("--acceptance takes a registered ASCII name".to_owned())
+            })?;
+
+            if tier_flag != OsStr::new("--tier")
+                || tier_value != OsStr::new("2")
+                || profile != interlock::DESTRUCTIVE_PROFILE
+                || acceptance_name != LINUX_LOOP_READ_ONLY_ACCEPTANCE
+            {
+                return Err(TaskError::Usage(
+                    "the only registered acceptance is exactly `cargo xtask test --tier 2 \
+                     --profile destructive --acceptance linux-loop-read-only`"
+                        .to_owned(),
+                ));
+            }
+
+            return Ok(Task::Test {
+                tier: 2,
+                profile: Some(profile.to_owned()),
+                acceptance: Some(Acceptance::LinuxLoopReadOnly),
+            });
         }
         _ => {
             return Err(TaskError::Usage(
-                "expected `cargo xtask test --tier <1|2|3> [--profile <word>]`".to_owned(),
+                "expected `cargo xtask test --tier <1|2|3> [--profile <word> \
+                 [--acceptance <registered>]]`"
+                    .to_owned(),
             ));
         }
     };
 
     let tier = parse_tier_args(tier_args)?;
-    Ok(Task::Test { tier, profile })
+    Ok(Task::Test {
+        tier,
+        profile,
+        acceptance,
+    })
 }
 
 fn parse_tier_args(args: [&OsString; 2]) -> Result<u8, TaskError> {
     if args[0] != OsStr::new("--tier") {
         return Err(TaskError::Usage(
-            "expected `cargo xtask test --tier <1|2|3> [--profile <word>]`".to_owned(),
+            "expected `cargo xtask test --tier <1|2|3> [--profile <word> \
+             [--acceptance <registered>]]`"
+                .to_owned(),
         ));
     }
 
@@ -600,10 +697,216 @@ fn tool_version(tool: &str) -> Result<String, TaskError> {
 
 fn run_tier(tier: u8, profile: Option<&str>) -> Result<(), TaskError> {
     match tier {
-        1 => cargo(&["test", "--workspace", "--all-targets", "--locked"]),
+        1 => {
+            for arguments in TIER_ONE_COMMANDS {
+                cargo(arguments)?;
+            }
+            Ok(())
+        }
         2 | 3 => destructive_tier(tier, profile),
         _ => Err(TaskError::Usage("test tier must be 1, 2, or 3".to_owned())),
     }
+}
+
+/// Dispatch one parsed tier request, including its optional registered acceptance.
+///
+/// Keeping the old [`run_tier`] path for requests without an acceptance is
+/// deliberate: WP-020 increment 2e opens one exact exception and does not turn
+/// generic Tier 2 or any Tier 3 request into an available suite.
+fn run_selected_tier(
+    tier: u8,
+    profile: Option<&str>,
+    acceptance: Option<Acceptance>,
+) -> Result<(), TaskError> {
+    match acceptance {
+        None => run_tier(tier, profile),
+        Some(Acceptance::LinuxLoopReadOnly)
+            if tier == 2 && profile == Some(interlock::DESTRUCTIVE_PROFILE) =>
+        {
+            run_linux_loop_read_only_acceptance(profile)
+        }
+        Some(Acceptance::LinuxLoopReadOnly) => Err(TaskError::Safety(
+            "the linux-loop-read-only acceptance requires exactly Tier 2 and the explicit \
+             destructive profile. Nothing was run"
+                .to_owned(),
+        )),
+    }
+}
+
+/// Run the one registered read-only Linux loop-control acceptance.
+///
+/// This function does not elevate, load modules, generate fixtures, search for
+/// targets, or invoke an external program. The operator must enter an already
+/// elevated native-Linux VM, generate the fixed repository fixtures separately,
+/// and supply the token those bytes produced. The crate consumes the
+/// [`interlock::Authorization`] directly, so this runner never receives a path
+/// it could reopen after authorization.
+///
+/// Target OS, absence of Microsoft markers in the two sampled `/proc` files,
+/// and EUID 0 are the only environmental facts checked here. The Proxmox
+/// transcript must separately establish VM configuration, snapshot/revert,
+/// guest isolation, no other actor able to modify either fixture, no other
+/// actor able to administer/rebind loop devices, and teardown or revert.
+/// Ordinary kernel/udev read/open discovery remains allowed and is handled by
+/// bounded cleanup. Digest and status samples cannot defeat an ABA change.
+fn run_linux_loop_read_only_acceptance(profile: Option<&str>) -> Result<(), TaskError> {
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = profile;
+        Err(TaskError::Safety(
+            "the linux-loop-read-only acceptance requires a native Linux VM. Nothing was run"
+                .to_owned(),
+        ))
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        require_native_elevated_linux()?;
+        println!("{LINUX_LOOP_ENVIRONMENT_SCOPE}");
+
+        let root = fixture_root();
+        let request = interlock::Request {
+            profile: profile.map(ToOwned::to_owned),
+            token: env::var(interlock::TOKEN_VARIABLE).ok(),
+            targets: LINUX_LOOP_READ_ONLY_FIXTURES
+                .iter()
+                .map(|name| root.join(name))
+                .collect(),
+        };
+        let authorization = interlock::authorize(&root, &request).map_err(|refusal| {
+            TaskError::Safety(format!(
+                "Tier 2 linux-loop-read-only refused by the SAFE-007 interlock: {refusal}. \
+                 Nothing was run"
+            ))
+        })?;
+
+        let report = partman_ffi_linux_loop::run_authorized(authorization).map_err(|refusal| {
+            TaskError::Safety(format!(
+                "Tier 2 linux-loop-read-only refused by the descriptor-bound loop harness: \
+                 {}",
+                linux_loop_refusal_details(&refusal)
+            ))
+        })?;
+        print_linux_loop_report(&report);
+        Ok(())
+    }
+}
+
+/// Render only bounded cause and recovery facts from a refused acceptance.
+#[cfg(any(target_os = "linux", test))]
+fn linux_loop_refusal_details(refusal: &partman_ffi_linux_loop::Refusal) -> String {
+    format!(
+        "cause={refusal}; evidence=withheld; fixture_hashes={}; cleanup={}; remediation={}",
+        refusal.fixture_state(),
+        refusal.cleanup_state(),
+        refusal.remediation()
+    )
+}
+
+/// Refuse WSL and an unprivileged process before the interlock opens a target.
+#[cfg(target_os = "linux")]
+fn require_native_elevated_linux() -> Result<(), TaskError> {
+    let os_release_path = Path::new("/proc/sys/kernel/osrelease");
+    let version_path = Path::new("/proc/version");
+    let status_path = Path::new("/proc/self/status");
+
+    let os_release = read_acceptance_precondition(os_release_path)?;
+    let version = read_acceptance_precondition(version_path)?;
+    if kernel_reports_wsl(&os_release, &version) {
+        return Err(TaskError::Safety(
+            "the linux-loop-read-only acceptance refuses WSL; run it in the registered \
+             native-Linux disposable VM. Nothing was run"
+                .to_owned(),
+        ));
+    }
+
+    let status = read_acceptance_precondition(status_path)?;
+    let effective_uid = parse_effective_uid(&status).ok_or_else(|| {
+        TaskError::Safety(
+            "could not establish the effective uid from /proc/self/status; failing closed. \
+             Nothing was run"
+                .to_owned(),
+        )
+    })?;
+    if effective_uid != 0 {
+        return Err(TaskError::Safety(
+            "the linux-loop-read-only acceptance requires an explicitly elevated console in \
+             the disposable VM; xtask will not invoke sudo. Nothing was run"
+                .to_owned(),
+        ));
+    }
+
+    Ok(())
+}
+
+/// Read a Linux kernel fact needed before the privileged acceptance may begin.
+#[cfg(target_os = "linux")]
+fn read_acceptance_precondition(path: &Path) -> Result<String, TaskError> {
+    fs::read_to_string(path).map_err(|source| {
+        TaskError::Safety(format!(
+            "could not read required acceptance precondition {}: {source}; failing closed. \
+             Nothing was run",
+            path.display()
+        ))
+    })
+}
+
+/// Does the kernel identify this environment as either WSL generation?
+#[cfg(any(target_os = "linux", test))]
+fn kernel_reports_wsl(os_release: &str, version: &str) -> bool {
+    os_release.to_ascii_lowercase().contains("microsoft")
+        || version.to_ascii_lowercase().contains("microsoft")
+}
+
+/// Extract the effective uid (the second value on Linux's `Uid:` status row).
+#[cfg(any(target_os = "linux", test))]
+fn parse_effective_uid(status: &str) -> Option<u32> {
+    let values = status
+        .lines()
+        .find_map(|line| line.strip_prefix("Uid:"))?
+        .split_ascii_whitespace()
+        .collect::<Vec<_>>();
+    if values.len() != 4 {
+        return None;
+    }
+    values[1].parse().ok()
+}
+
+/// Report only normalized acceptance facts; never device numbers, inode values,
+/// loop paths, backing paths, or the disposable token.
+#[cfg(target_os = "linux")]
+fn print_linux_loop_report(report: &partman_ffi_linux_loop::RunReport) {
+    println!("linux-loop-read-only acceptance passed");
+    println!("  configured_legs={}", report.configured_legs());
+    println!(
+        "  clean_observation_bytes={}",
+        report.clean_observation_bytes()
+    );
+    println!(
+        "  required_configuration_verified={}",
+        report.required_configuration_verified()
+    );
+    println!(
+        "  adversarial_rebind_detected={}",
+        report.adversarial_rebind_detected()
+    );
+    println!(
+        "  adversarial_observation_discarded={}",
+        report.adversarial_observation_discarded()
+    );
+    println!("  detachments_confirmed={}", report.detachments_confirmed());
+    println!(
+        "  partition_teardown_confirmed={}",
+        report.partition_teardown_confirmed()
+    );
+    println!(
+        "  initial_fixture_hashes_matched_catalogue={}",
+        report.initial_fixture_hashes_matched_catalogue()
+    );
+    println!(
+        "  fixture_hashes_unchanged={}",
+        report.fixture_hashes_unchanged()
+    );
 }
 
 /// Evaluate SAFE-007 for a destructive tier, then report honestly.
@@ -633,9 +936,10 @@ fn destructive_tier(tier: u8, profile: Option<&str>) -> Result<(), TaskError> {
     })?;
 
     Err(TaskError::Safety(format!(
-        "the SAFE-007 interlock authorized {} disposable target(s), but no Tier-{tier} suite is \
-         registered yet. WP-020 increment 2 supplies the loopback and virtual-machine harness; \
-         until then there is nothing to run and reporting success would be a lie",
+        "the SAFE-007 interlock authorized {} disposable target(s), but no generic Tier-{tier} \
+         suite is registered. The named linux-loop-read-only acceptance is reachable only \
+         through its exact selector; it enables no destructive suite, and reporting success \
+         here would be a lie",
         authorization.targets().len()
     )))
 }
@@ -4108,8 +4412,12 @@ PartMan repository tasks
   cargo xtask test --tier 2|3 --profile destructive
                                  Evaluate the SAFE-007 interlock. Also needs
                                  PARTMAN_DISPOSABLE_TOKEN from `xtask fixtures`.
-                                 No destructive suite exists yet, so this still
-                                 refuses rather than reporting an empty pass.
+                                 Generic Tier 2 and every Tier 3 request still
+                                 refuse rather than reporting an empty pass.
+  cargo xtask test --tier 2 --profile destructive --acceptance linux-loop-read-only
+                                 Run the one registered, logical-content-read-only
+                                 acceptance in an explicitly elevated native-Linux
+                                 disposable VM. Never invokes sudo or modprobe.
   cargo xtask supply-chain       Run cargo-deny and cargo-audit
   cargo xtask slint-report [--write]
                                  Check the generated ADR-0009 rejection report;
@@ -4194,7 +4502,8 @@ mod tests {
             parse_test(&args(&["--tier", "1"])).expect("Tier 1 must parse"),
             Task::Test {
                 tier: 1,
-                profile: None
+                profile: None,
+                acceptance: None,
             }
         );
     }
@@ -4211,6 +4520,403 @@ mod tests {
             let error = parse_test(&args(&["--tier", value]))
                 .expect_err("only tiers 1, 2, and 3 are addressable");
             assert!(matches!(error, TaskError::Usage(_)), "tier {value:?}");
+        }
+    }
+
+    // Requirements: SAFE-002, SAFE-007, Section 11.3
+    //   Exactly one ordered Tier-2 acceptance selector maps to the closed acceptance enum
+    // Work-Package: WP-020
+    // Evidence: the_linux_loop_acceptance_has_one_exact_closed_selector
+    #[test]
+    fn the_linux_loop_acceptance_has_one_exact_closed_selector() {
+        assert_eq!(
+            parse(&args(&[
+                "test",
+                "--tier",
+                "2",
+                "--profile",
+                "destructive",
+                "--acceptance",
+                "linux-loop-read-only",
+            ]))
+            .expect("the registered acceptance must parse"),
+            Task::Test {
+                tier: 2,
+                profile: Some("destructive".to_owned()),
+                acceptance: Some(super::Acceptance::LinuxLoopReadOnly),
+            }
+        );
+    }
+
+    // Requirements: SAFE-007, SAFE-009, Section 11.3
+    //   Tier 1 runs target tests and doctests separately so compile-fail API-boundary proofs run
+    // Work-Package: WP-020
+    // Evidence: tier_one_includes_both_target_tests_and_workspace_doctests
+    #[test]
+    fn tier_one_includes_both_target_tests_and_workspace_doctests() {
+        assert_eq!(
+            super::TIER_ONE_COMMANDS,
+            [
+                &["test", "--workspace", "--all-targets", "--locked"][..],
+                &["test", "--workspace", "--doc", "--locked"][..],
+            ]
+        );
+    }
+
+    // Requirements: SAFE-002, SAFE-005, SAFE-007
+    //   Unknown, reordered, partial, extra, Tier-1 and Tier-3 acceptance selectors all refuse
+    // Work-Package: WP-020
+    // Evidence: every_near_miss_of_the_linux_loop_selector_refuses
+    #[test]
+    fn every_near_miss_of_the_linux_loop_selector_refuses() {
+        assert_acceptance_selector_refusals(&[
+            vec![
+                "test",
+                "--tier",
+                "02",
+                "--profile",
+                "destructive",
+                "--acceptance",
+                "linux-loop-read-only",
+            ],
+            vec![
+                "test",
+                "--tier",
+                "+2",
+                "--profile",
+                "destructive",
+                "--acceptance",
+                "linux-loop-read-only",
+            ],
+            vec![
+                "test",
+                "--tier",
+                "002",
+                "--profile",
+                "destructive",
+                "--acceptance",
+                "linux-loop-read-only",
+            ],
+            vec![
+                "test",
+                "--tier",
+                "1",
+                "--profile",
+                "destructive",
+                "--acceptance",
+                "linux-loop-read-only",
+            ],
+            vec![
+                "test",
+                "--tier",
+                "3",
+                "--profile",
+                "destructive",
+                "--acceptance",
+                "linux-loop-read-only",
+            ],
+            vec![
+                "test",
+                "--tier",
+                "2",
+                "--profile",
+                "read-only",
+                "--acceptance",
+                "linux-loop-read-only",
+            ],
+            vec![
+                "test",
+                "--tier",
+                "2",
+                "--profile",
+                "destructive",
+                "--acceptance",
+                "unknown",
+            ],
+        ]);
+    }
+
+    // Requirements: SAFE-002, SAFE-005, SAFE-007
+    //   Reordered, partial, extra, and misspelled acceptance selectors all refuse
+    // Work-Package: WP-020
+    // Evidence: structural_near_misses_of_the_linux_loop_selector_refuse
+    #[test]
+    fn structural_near_misses_of_the_linux_loop_selector_refuse() {
+        assert_acceptance_selector_refusals(&[
+            vec![
+                "test",
+                "--tier",
+                "2",
+                "--acceptance",
+                "linux-loop-read-only",
+                "--profile",
+                "destructive",
+            ],
+            vec![
+                "test",
+                "--profile",
+                "destructive",
+                "--tier",
+                "2",
+                "--acceptance",
+                "linux-loop-read-only",
+            ],
+            vec![
+                "test",
+                "--tier",
+                "2",
+                "--profile",
+                "destructive",
+                "--acceptance",
+            ],
+            vec![
+                "test",
+                "--tier",
+                "2",
+                "--profile",
+                "destructive",
+                "--acceptance",
+                "linux-loop-read-only",
+                "extra",
+            ],
+            vec![
+                "test",
+                "--tier",
+                "2",
+                "--acceptance",
+                "linux-loop-read-only",
+            ],
+            vec![
+                "test",
+                "--tier",
+                "2",
+                "--profile",
+                "destructive",
+                "--acceptance-name",
+                "linux-loop-read-only",
+            ],
+        ]);
+    }
+
+    fn assert_acceptance_selector_refusals(invocations: &[Vec<&str>]) {
+        for invocation in invocations {
+            let error = parse(&args(invocation)).expect_err("near miss must refuse");
+            assert!(matches!(error, TaskError::Usage(_)), "{invocation:?}");
+        }
+    }
+
+    // Requirements: SAFE-002, SAFE-005, SAFE-007
+    //   Direct dispatch cannot bypass the parser's exact Tier-2/profile pairing
+    // Work-Package: WP-020
+    // Evidence: acceptance_dispatch_rechecks_tier_and_profile
+    #[test]
+    fn acceptance_dispatch_rechecks_tier_and_profile() {
+        for (tier, profile) in [
+            (1, None),
+            (2, None),
+            (2, Some("other")),
+            (3, Some("destructive")),
+        ] {
+            let error =
+                super::run_selected_tier(tier, profile, Some(super::Acceptance::LinuxLoopReadOnly))
+                    .expect_err("an incompatible acceptance selection must refuse");
+            assert!(matches!(error, TaskError::Safety(_)), "tier {tier}");
+        }
+    }
+
+    // Requirements: SAFE-002, SAFE-005, SAFE-007
+    //   The exact registered selector refuses before authorization on every non-Linux platform
+    // Work-Package: WP-020
+    // Evidence: the_linux_acceptance_refuses_before_authorization_off_linux
+    #[test]
+    #[cfg(not(target_os = "linux"))]
+    fn the_linux_acceptance_refuses_before_authorization_off_linux() {
+        let error = super::run_selected_tier(
+            2,
+            Some("destructive"),
+            Some(super::Acceptance::LinuxLoopReadOnly),
+        )
+        .expect_err("a non-Linux host must refuse the Linux acceptance");
+        let message = error.to_string();
+        assert!(matches!(error, TaskError::Safety(_)));
+        assert!(message.contains("native Linux VM"), "{message}");
+        assert!(message.contains("Nothing was run"), "{message}");
+    }
+
+    // Requirements: SAFE-001, SAFE-002, SAFE-005
+    //   WSL markers and malformed/non-root Linux credential records are recognized fail-closed
+    // Work-Package: WP-020
+    // Evidence: linux_acceptance_environment_facts_are_parsed_fail_closed
+    #[test]
+    fn linux_acceptance_environment_facts_are_parsed_fail_closed() {
+        assert!(super::kernel_reports_wsl(
+            "6.6.87.2-microsoft-standard-WSL2",
+            "Linux version 6.6"
+        ));
+        assert!(super::kernel_reports_wsl(
+            "4.4.0",
+            "Linux version 4.4.0-Microsoft"
+        ));
+        assert!(!super::kernel_reports_wsl(
+            "6.8.0-64-generic",
+            "Linux version 6.8.0-64-generic"
+        ));
+
+        assert_eq!(super::parse_effective_uid("Uid:\t1000\t0\t0\t0\n"), Some(0));
+        assert_eq!(
+            super::parse_effective_uid("Name:\txtask\nUid:\t1000\t1000\t1000\t1000\n"),
+            Some(1000)
+        );
+        assert_eq!(super::parse_effective_uid("Uid:\t0\t0\t0\n"), None);
+        assert_eq!(super::parse_effective_uid("Uid:\t0\troot\t0\t0\n"), None);
+        assert_eq!(super::parse_effective_uid("Name:\txtask\n"), None);
+    }
+
+    // Requirements: SAFE-001, SAFE-004, SAFE-007, SAFE-009
+    //   The call site passes Authorization directly, fixes both fixtures, launches no helper,
+    //   and reports VM isolation as an external precondition before authorization
+    // Work-Package: WP-020
+    // Evidence: linux_loop_call_site_preserves_the_authorized_handle_boundary
+    #[test]
+    fn linux_loop_call_site_preserves_the_authorized_handle_boundary() {
+        assert_eq!(
+            super::LINUX_LOOP_READ_ONLY_FIXTURES,
+            ["gpt-basic-512.img", "gpt-conflicting-tables-512.img"]
+        );
+
+        let source = fs::read_to_string(repository_root().join("tools/xtask/src/main.rs"))
+            .expect("read xtask source");
+        let runner = source
+            .split_once("fn run_linux_loop_read_only_acceptance")
+            .expect("acceptance runner exists")
+            .1
+            .split_once("fn require_native_elevated_linux")
+            .expect("runner has a bounded source region")
+            .0;
+        let preflight = runner
+            .find("require_native_elevated_linux()?")
+            .expect("environment preflight is reached");
+        let scope = runner
+            .find("println!(\"{LINUX_LOOP_ENVIRONMENT_SCOPE}\")")
+            .expect("external environment precondition is reported before authorization");
+        let authorization = runner
+            .find("interlock::authorize(&root, &request)")
+            .expect("SAFE-007 authorization is reached");
+        let consumer = runner
+            .find("partman_ffi_linux_loop::run_authorized(authorization)")
+            .expect("the authorization is consumed directly");
+
+        assert!(preflight < scope && scope < authorization && authorization < consumer);
+        assert_eq!(
+            super::LINUX_LOOP_ENVIRONMENT_SCOPE,
+            "environment_scope=external-evidence-required; \
+             environment_scope_mechanically_verified=false; \
+             mechanically_checked=target-os-linux,proc-microsoft-markers-absent,euid-0; \
+             external_evidence_required=proxmox-vm-config,snapshot-or-revert,guest-isolation,\
+no-other-actor-able-to-modify-fixtures,no-other-loop-administrator,teardown-or-revert"
+        );
+        assert!(runner.contains("token: env::var(interlock::TOKEN_VARIABLE).ok()"));
+        assert!(runner.contains("targets: LINUX_LOOP_READ_ONLY_FIXTURES"));
+        assert!(!runner.contains("into_targets"));
+        assert!(!runner.contains("Command::new"));
+        assert!(!runner.contains("catalogue::expected"));
+        assert!(!runner.contains("targets.push"));
+        assert!(!runner.contains("modprobe"));
+    }
+
+    // Requirements: SAFE-005, SAFE-006, SAFE-007
+    //   Success output enumerates every normalized report fact without formatting the report or raw kernel identity
+    // Work-Package: WP-020
+    // Evidence: linux_loop_success_output_is_an_explicit_normalized_allowlist
+    #[test]
+    fn linux_loop_success_output_is_an_explicit_normalized_allowlist() {
+        let source = fs::read_to_string(repository_root().join("tools/xtask/src/main.rs"))
+            .expect("read xtask source");
+        let output = source
+            .split_once("fn print_linux_loop_report")
+            .expect("normalized report function exists")
+            .1
+            .split_once("fn destructive_tier")
+            .expect("report function has a bounded source region")
+            .0;
+
+        for accessor in [
+            "configured_legs()",
+            "clean_observation_bytes()",
+            "required_configuration_verified()",
+            "adversarial_rebind_detected()",
+            "adversarial_observation_discarded()",
+            "detachments_confirmed()",
+            "partition_teardown_confirmed()",
+            "initial_fixture_hashes_matched_catalogue()",
+            "fixture_hashes_unchanged()",
+        ] {
+            assert!(output.contains(accessor), "missing {accessor}");
+        }
+        for forbidden in [
+            "{report:?}",
+            "{report}",
+            ".path(",
+            "device",
+            "inode",
+            "token",
+        ] {
+            assert!(
+                !output.contains(forbidden),
+                "forbidden output source {forbidden}"
+            );
+        }
+    }
+
+    // Requirements: SAFE-005, SAFE-006, SAFE-007
+    //   Refusals expose bounded cause/state/remediation and uncertain cleanup requires VM discard
+    // Work-Package: WP-020
+    // Evidence: linux_loop_refusal_output_is_redacted_and_actionable
+    #[test]
+    fn linux_loop_refusal_output_is_redacted_and_actionable() {
+        let detach =
+            super::linux_loop_refusal_details(&partman_ffi_linux_loop::Refusal::DetachFailed {
+                errno: Some(16),
+            });
+        assert_eq!(
+            detach,
+            "cause=explicit loop detach failed (errno 16); evidence=withheld; \
+             fixture_hashes=not-established; cleanup=uncertain; remediation=discard or revert \
+             the disposable VM; do not reuse it"
+        );
+
+        for refusal in [
+            partman_ffi_linux_loop::Refusal::DetachConfirmationFailed { errno: Some(5) },
+            partman_ffi_linux_loop::Refusal::DetachNotConfirmed,
+            partman_ffi_linux_loop::Refusal::PartitionTeardownNotConfirmed { errno: None },
+            partman_ffi_linux_loop::Refusal::LoopIsolationConflict,
+        ] {
+            let rendered = super::linux_loop_refusal_details(&refusal);
+            assert!(rendered.contains("cleanup=uncertain"), "{rendered}");
+            assert!(
+                rendered.contains("discard or revert the disposable VM; do not reuse it"),
+                "{rendered}"
+            );
+        }
+
+        let ordinary =
+            super::linux_loop_refusal_details(&partman_ffi_linux_loop::Refusal::ProbeFailed {
+                errno: Some(5),
+            });
+        assert!(ordinary.contains("errno 5"), "{ordinary}");
+        assert!(
+            ordinary.contains("cleanup=not-required-or-confirmed"),
+            "{ordinary}"
+        );
+        for forbidden in [
+            "/dev/loop7",
+            "PhysicalDrive",
+            "inode=",
+            "0xdeadbeef",
+            "secret-disposable-value",
+        ] {
+            assert!(!detach.contains(forbidden), "{detach}");
+            assert!(!ordinary.contains(forbidden), "{ordinary}");
         }
     }
 
@@ -4912,7 +5618,8 @@ Mention Section 1.99 in prose.
             parse(&args(&["test", "--tier", "3"])).expect("tier 3 parses but must not execute"),
             Task::Test {
                 tier: 3,
-                profile: None
+                profile: None,
+                acceptance: None,
             }
         );
         assert_eq!(parse(&[]).expect("bare invocation"), Task::Help);
@@ -5060,7 +5767,8 @@ Mention Section 1.99 in prose.
                 .expect("tier 2 with a profile must parse"),
             Task::Test {
                 tier: 2,
-                profile: Some("destructive".to_owned())
+                profile: Some("destructive".to_owned()),
+                acceptance: None,
             }
         );
     }

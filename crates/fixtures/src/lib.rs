@@ -1,5 +1,6 @@
 //! Deterministic synthetic disk fixtures, and the SAFE-007 interlock that
-//! stands between a destructive test suite and anything it might write to.
+//! stands between a gated higher-tier suite and the disposable objects it may
+//! affect.
 //!
 //! Two obligations shape this crate.
 //!
@@ -13,9 +14,11 @@
 //!
 //! **SAFE-007** requires three proofs to be present before a destructive suite
 //! may run, and says outright that one environment variable is not enough. It
-//! does not require those proofs to be independent. That is [`interlock`], and
-//! the property it is built around is that disposability is *computed* from the
-//! target's own bytes rather than asserted by whoever asked.
+//! does not require those proofs to be independent. The narrowly registered
+//! Linux loop-binding acceptance also exercises all three factors even though
+//! its mapping is read-only. That is [`interlock`], and the property it is built
+//! around is that disposability is *computed* from the target's own bytes rather
+//! than asserted by whoever asked.
 //!
 //! A third obligation was added after a project review. Section 11.7 fails a
 //! work package that claims a requirement without linked evidence, and this

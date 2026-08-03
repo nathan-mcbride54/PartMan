@@ -45,40 +45,55 @@ schema files and temporary directories. That stopped being true as gates were
 added, and a boundary description that lags the code is worse than none — it is
 the sentence a reader would rely on to decide the tier is safe.*
 
-**No code in this repository opens a block device with write intent, at any
-tier, and no command launches an external tool against a block device** — an
-open performed by a tool this repository launches counts as this repository's
-open. This sentence changed in two directions on 2026-08-01: its subject
-widened from tests to all code — verified by inspection, nothing in the
-repository opens or enumerates a device today — and its predicate narrowed to
-write intent, ahead of the read-only inspection package (WP-035, created by
-the 4.2.0 spec change), whose inspector will read device state through
-unprivileged interfaces. The narrowing lands before the first device-reading
-commit rather than being discovered false after it, for the reason recorded in
-the paragraph above: the boundary sentence is what a reader relies on to
-decide a tier is safe, and one that lags the code is worse than none. The
-write-intent boundary must be enforced by an open-flags assertion and a test
-that proves the assertion can fail — an obligation recorded on WP-035, whose
-first device-reading increment is not complete without it — and it holds until
-a destructive tier lands inside SAFE-007's interlock, which will renarrow this
-sentence again before its first device-writing commit.
+**No product path opens a block device with write intent, and no command in this
+repository launches an external storage tool against a block device.** WP-020
+increment 2e adds one test-harness exception to the first half, stated here
+before its first run: `linux-loop-read-only` opens the loop-control and assigned
+loop-device descriptors `O_RDWR` to exercise mapping control through a
+write-capable handle. Its SAFE-007-verified regular-file backing descriptor is likewise
+`O_RDWR`-capable. Those access modes authorize kernel mapping-state changes,
+not logical fixture-byte changes: the mapping carries `LO_FLAGS_READ_ONLY`, the
+probe is in-process through the held loop-device descriptor, no external tool
+is launched against it, and a run cannot succeed unless detach is confirmed
+and both authorized fixtures' before/after hashes are unchanged. The harness
+issues no logical write, discard, or zero operation. Linux's `LOOP_CONFIGURE`
+and `LOOP_CHANGE_FD` paths may internally `fsync` and therefore write back
+already-dirty backing-file data or metadata; this is not a zero-physical-write
+claim. Product inspection retains WP-035's read-only
+open boundary, and no destructive suite or product storage adapter exists.
 
 **At Tier 1 the stronger claim does not expire: no Tier-1 test opens a block
 device at all, read or write.** Regular files are all SAFE-001 permits there —
 SI-35's filing records that limitation directly — and device reads, when they
 arrive, are operator-run or Tier-2 work, never Tier-1 tests.
 
-**SAFE-007's interlock provides zero coverage for the read path.** A read-only
-inspector never calls `authorize`, so nothing about the interlock's strength —
-the held handles, the share modes, the byte verification — protects a read.
-Stated as a decision rather than left to be inferred (recorded in the
-2026-08-01 review handoff and carried into WP-035's assignment): the interlock
-gates writes to disposable targets, and the read path's safety must rest on
-the write-intent boundary above, on SAFE-004's rules wherever external tools
-are invoked, and on INV-006's no-repair/no-auto-mount discipline. The
-loop-device binding question on the destructive path remains open and is
-tracked as issue #94.
+**SAFE-007's interlock still provides zero coverage for the product read path.**
+The read-only inspector never calls `authorize`, so nothing about the
+interlock's strength — held handles, share modes, or byte verification —
+protects a product read. Increment 2e deliberately invokes every SAFE-007
+factor for one named Tier-2 acceptance because it must prove that the privileged
+loop mapping reaches a disposable generated fixture. That is coverage for
+`linux-loop-read-only` alone, not a general read-path guarantee. Product reads
+continue to rest on the write-intent boundary above, on SAFE-004 wherever an
+external tool is invoked, and on INV-006's no-repair/no-auto-mount discipline.
+Issue #94 is closed: the full acceptance, including its adversarial rebind leg,
+succeeded in a disposable Proxmox-hosted non-WSL Linux VM on 2026-08-03 — on the
+implementation commit `2dbf601`, and again on the merged commit `c75b340` that
+lands on main — and the run record with its exclusions and stated limits is in
+`docs/work-packages/WP-020.md`. Closing it registered no destructive suite.
 Later packages may add pure planner, validator, and regular-file fixture tests.
+
+**Running this acceptance requires a clean environment, and that is a real
+precondition rather than a style note.** It runs `cargo xtask ci` first, and
+WP-035's `no_output_in_any_mode_carries_an_environment_value` compares every
+environment value of six characters or more against CLI output. Run it as root
+over a direct login with **no `sudo` in the chain** — `sudo` sets `SUDO_USER`
+by itself — and inject no variables of your own. Do not name the VM's user,
+host, or any whole path component something that appears in CLI output: a guest
+account named `partman` fails that gate before the acceptance is ever reached,
+because the value collides with the program's own name in `help` output. That
+is the tripwire working, not a false positive, and the fix belongs in the
+environment rather than in an exemption.
 
 Run it with:
 
@@ -101,10 +116,18 @@ toolchain, so it has its own entry point and its own CI job:
 cargo xtask cross-language
 ```
 
-## Tier 2 and Tier 3
+## Tier 2 exception; destructive Tier 2 and all Tier 3 refuse
 
-Both tiers still refuse, and will keep refusing until a destructive suite exists
-to run.
+Exactly one higher-tier selector is registered:
+
+```text
+cargo xtask test --tier 2 --profile destructive --acceptance linux-loop-read-only
+```
+
+It is a privileged, non-destructive, logical-content-read-only acceptance for a
+disposable non-WSL Linux VM. Every generic destructive Tier-2 request and every
+Tier-3 request still refuses. Reordered, partial, additional, unknown, Tier-1,
+or Tier-3 uses of `--acceptance` refuse rather than selecting a nearby action.
 
 WP-020 increment 1 supplies the SAFE-007 interlock itself. All three proofs are
 implemented and enforced together:
@@ -127,10 +150,10 @@ implemented and enforced together:
 - the **verified target**, re-read, re-hashed, and required to byte-equal an
   image the compiled fixture catalogue produces. This is where the interlock's
   strength actually rests. Since 2026-07-29 the verification runs through an
-  **open file handle that the authorization then holds**: `fstat`, length, and
-  every content byte are read from the handle, and that same handle is what a
-  destructive consumer receives, so rebinding the path after authorization
-  cannot redirect a write. On Windows the handle's share mode also refuses
+**open file handle that the authorization then holds**: `fstat`, length, and
+every content byte are read from the handle, and that same handle is what a
+registered consumer receives, so rebinding the path after authorization cannot
+redirect its access. On Windows the handle's share mode also refuses
   concurrent writes, deletion, and renames while the authorization lives. The
   authorization is non-cloneable and consumed once.
 
@@ -139,24 +162,64 @@ computed from a target's own bytes rather than asserted by whoever asked. A bloc
 device cannot pass, because its bytes will never equal a generated fixture, and a
 target that is not a regular file is refused before its contents are read at all.
 
-Running a destructive tier with all three proofs present *still* fails, reporting
-that the interlock authorized its targets but no suite is registered. That is
-deliberate: a green destructive tier is exactly the signal someone would trust
-when deciding whether the interlock works, so it must never be produced by a run
-of nothing (Section 12, Section 16).
+Running a generic destructive Tier 2 with all three proofs present *still*
+fails, reporting that the interlock authorized its targets but no destructive
+suite is registered. Tier 3 refuses before any suite runs. That is deliberate:
+a green destructive tier is exactly the signal someone would trust when
+deciding whether the interlock works, so it must never be produced by a run of
+nothing (Section 12, Section 16).
 
-No command in this repository writes a block device or opens one with write
-intent, at any tier, and none reads a byte from one. The "today none opens
-one at all" clause that stood here expired on 2026-08-02, when WP-035's
-`inspect --replay` landed, and is replaced by the exact boundary that
-package's own docs carry: replay reads one caller-named regular file; a
-pre-open look refuses devices and directories before any open in the common
-case; `fstat` through the opened handle is the authority; and a device
-swapped in by a rebinding race is opened read-only at most long enough for
-the handle to identify itself, then refused with no byte read — the
-momentary open under a race is the stated residue of choosing handle
-verification over trusting a name. The doctor's roster probes launch tools
-at compiled absolute paths and open nothing else. Command filesystem access
-beyond those two stated reaches remains limited to repository-controlled
-files and to the generated fixture tree under `tests/generated/`, which
-`.gitignore` excludes.
+The named acceptance consumes the non-cloneable `Authorization`, keeps both
+verified backing descriptors live, and requires each held object's initial hash
+to match its compiled fixture-catalogue digest before any attach. For each leg
+it configures a kernel-selected loop device from the exact held descriptor and
+verifies the kernel's backing identity against that file.
+It derives `/dev/loopN` only from the kernel-returned number, records the held
+node's filesystem device, inode, and `rdev`, and rechecks that same descriptor
+before and after use. The probe is an in-process positional read through the
+held loop descriptor, never an external or path-addressed tool. After the probe,
+the backing identity, loop configuration, and held-node identity must still
+match. Cleanup issues `LOOP_CLR_FD` through the held descriptor and then requires
+`LOOP_GET_STATUS64` to report `ENXIO`; a detach that cannot be confirmed is a
+refusal. After `ENXIO`, the harness drops the held loop `File`, then boundedly
+requires the exact retained-rdev `/sys/dev/block/M:m` root to be readable, not
+itself contain a `partition` attribute, and have no immediate child containing a
+`partition` attribute. A missing, unreadable, ambiguous, or retry-exhausted
+state is a cleanup-uncertain refusal that requires discarding or reverting the
+VM. The adversarial `LOOP_CHANGE_FD` leg discards its pending bytes when the
+expected backing mismatch is detected. Only after both legs confirm that full
+teardown does the harness hash both held fixture objects again, and only
+unchanged hashes release a success observation. Any identity/configuration
+mismatch, undetected rebind, changed fixture hash, or cleanup failure refuses.
+A `LOOP_CONFIGURE` `EBUSY` also refuses immediately, without retry, because
+isolated loop state was not established; bounded retries exist
+only in cleanup, where ordinary kernel/udev discovery is permitted.
+
+Those digest and status checks are discrete samples, not exclusive claims, and
+cannot defeat an ABA change entirely between samples. External run evidence
+must exclude every other actor able to modify either fixture and every other
+actor able to administer or rebind loop devices. Ordinary kernel/udev read/open
+discovery is allowed and is handled by bounded detach retries plus exact
+retained-rdev sysfs inspection. VM isolation bounds consequences but does not
+itself prove the exclusions. A pass establishes that no persistent fixture
+change or rebind was observed under those conditions and that the deliberately
+exercised rebind was positively bound to the exact conflicting descriptor and
+detected; it does not establish continuous binding against a concurrent actor.
+A future destructive path needs a separately proven pre-write discipline and
+may not inherit this acceptance's conclusion.
+
+The backing, loop-control, and loop-device descriptors are `O_RDWR`-capable for
+mapping control, while `LO_FLAGS_READ_ONLY` forbids logical loop-device writes;
+the harness issues no logical write, discard, or zero operation. Both configure
+and rebind can nevertheless make the kernel `fsync` the backing file, so dirty
+data or metadata may be written back even though logical contents do not change.
+
+Outside that named harness, the product boundary remains the one WP-035 records:
+`inspect --replay` reads one caller-named regular file; a pre-open look refuses
+devices and directories before any open in the common case; `fstat` through the
+opened handle is the authority; and a device swapped in by a rebinding race is
+opened read-only at most long enough for the handle to identify itself, then
+refused with no byte read. The doctor's roster probes launch tools at compiled
+absolute paths and open nothing else. Tier 1's filesystem access beyond those
+two stated reaches remains limited to repository-controlled files and to the
+generated fixture tree under `tests/generated/`, which `.gitignore` excludes.

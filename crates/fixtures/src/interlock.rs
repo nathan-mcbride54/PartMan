@@ -4,6 +4,10 @@
 //! disposable-test token, a verified image or VM target, and an explicit
 //! destructive-test profile are **all** present, and states plainly that a
 //! single environment variable is not sufficient proof.
+//! WP-020 increment 2e deliberately applies the same three-factor gate to one
+//! named non-destructive, read-only loop-binding acceptance. Passing this gate
+//! proves the backing objects are disposable; it does not claim the registered
+//! consumer will write them.
 //!
 //! Two design rules follow, and both are load-bearing.
 //!
@@ -27,7 +31,7 @@
 //! disposability now runs against an **open file handle**: `fstat` through the
 //! handle says regular file, the length and every byte are read through the
 //! handle, and the same handle — the verified object itself — is what the
-//! destructive consumer receives. Renaming or swapping the path afterwards
+//! registered consumer receives. Renaming or swapping the path afterwards
 //! changes which object the *name* refers to; it cannot change which object
 //! the authorization holds.
 //!
@@ -148,7 +152,7 @@ pub(crate) fn object_identity(file: &File) -> io::Result<(u64, u64)> {
 /// Environment variable carrying the disposable-test token.
 pub const TOKEN_VARIABLE: &str = "PARTMAN_DISPOSABLE_TOKEN";
 
-/// A request to run a destructive suite.
+/// A request to pass SAFE-007 for one registered higher-tier suite.
 #[derive(Clone, Debug)]
 pub struct Request {
     /// The profile named on the command line. Deliberately not read from the
@@ -158,7 +162,7 @@ pub struct Request {
     pub profile: Option<String>,
     /// The token supplied out of band, normally through [`TOKEN_VARIABLE`].
     pub token: Option<String>,
-    /// Every target the suite intends to write to.
+    /// Every disposable backing object the suite intends to address.
     pub targets: Vec<PathBuf>,
 }
 
@@ -424,14 +428,14 @@ impl VerifiedTarget {
     }
 }
 
-/// Proof that a destructive suite may run against the targets it carries.
+/// Proof that every SAFE-007 factor passed for the targets it carries.
 ///
 /// Constructible only by [`authorize`]. A function that requires one of these
 /// cannot be called without the interlock having passed, so "did anyone check?"
 /// is answered by the type rather than by review.
 ///
 /// Deliberately **not** `Clone`, and consumed by [`Authorization::into_targets`]:
-/// one authorization is one destructive run. A copyable proof could be stashed
+/// one authorization is one gated run. A copyable proof could be stashed
 /// and replayed against a directory whose contents have long since changed,
 /// and [`File`] not being `Clone` makes this a property of the type system
 /// rather than of discipline:
@@ -502,8 +506,8 @@ impl Authorization {
         &self.targets
     }
 
-    /// Consume the proof, yielding the verified objects for one destructive
-    /// run. There is intentionally no way to get the handles while keeping
+    /// Consume the proof, yielding the verified objects for one gated run.
+    /// There is intentionally no way to get the handles while keeping
     /// the authorization.
     #[must_use]
     pub fn into_targets(self) -> Vec<VerifiedTarget> {
@@ -511,7 +515,7 @@ impl Authorization {
     }
 }
 
-/// Why a destructive run was refused.
+/// Why a SAFE-007-gated run was refused.
 #[derive(Debug)]
 pub enum Refusal {
     /// No `--profile destructive` was given, or it named something else.
@@ -602,8 +606,9 @@ impl fmt::Display for Refusal {
                 "{TOKEN_VARIABLE} does not match the generated fixture set; regenerate with \
                  `cargo xtask fixtures` and use the token it records"
             ),
-            Self::NoTargets => formatter
-                .write_str("no targets named; a destructive suite must state what it writes to"),
+            Self::NoTargets => formatter.write_str(
+                "no targets named; a gated suite must state every disposable backing object",
+            ),
             Self::ManifestUnreadable(reason) => {
                 write!(formatter, "fixture manifest unusable: {reason}")
             }
@@ -617,7 +622,7 @@ impl fmt::Display for Refusal {
             ),
             Self::TargetNotRegularFile { path } => write!(
                 formatter,
-                "{} is not a regular file; destructive suites never address a device",
+                "{} is not a regular file; this interlock authorizes generated fixtures, never devices",
                 path.display()
             ),
             Self::TargetNotGenerated { path } => write!(
@@ -627,8 +632,8 @@ impl fmt::Display for Refusal {
             ),
             Self::TargetHasOtherNames { path, links } => write!(
                 formatter,
-                "{} is reachable under {links} hard links; a destructive suite must address a \
-                 file with exactly one, because a write through this handle reaches every one \
+                "{} is reachable under {links} hard links; a gated suite must address a file \
+                 with exactly one, because any write through this handle would reach every one \
                  of them",
                 path.display()
             ),
@@ -653,7 +658,7 @@ impl fmt::Display for Refusal {
 
 impl std::error::Error for Refusal {}
 
-/// Decide whether a destructive suite may run.
+/// Decide whether a registered suite has every SAFE-007 factor it requires.
 ///
 /// `root` is the generated-fixture directory. `manifest` is the manifest the
 /// generator wrote alongside those images.
@@ -778,7 +783,7 @@ fn verify_target(
     verify_object(&mut file, entry.length, &entry.digest, target)?;
 
     // `verify_object` read to the end to hash the contents, so the cursor is at
-    // EOF. Rewind before the handle leaves this function: a destructive consumer
+    // EOF. Rewind before the handle leaves this function: a gated consumer
     // handed a "fresh" file will reasonably assume offset zero, and documenting
     // the contract instead would make the unsafe default the easy one.
     file.seek(SeekFrom::Start(0))

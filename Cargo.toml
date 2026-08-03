@@ -2,6 +2,7 @@
 members = [
     "apps/cli",
     "crates/domain",
+    "crates/ffi-linux-loop",
     "crates/fixtures",
     "crates/tokens",
     "tools/slint-feasibility",

@@ -28,8 +28,21 @@ explains why that boundary is what keeps the permissive license honest.
 cargo xtask ci
 ```
 
-This is unprivileged Tier 1 only. Tier 2 and Tier 3 are unavailable until
-WP-020 supplies the required disposable-environment interlocks.
+This is unprivileged Tier 1 only. One higher-tier acceptance is registered:
+
+```text
+cargo xtask test --tier 2 --profile destructive --acceptance linux-loop-read-only
+```
+
+Run it only with explicit privilege in a disposable non-WSL Linux VM, after
+generating the fixtures and supplying the exact `PARTMAN_DISPOSABLE_TOKEN` the
+generator records. It applies SAFE-001, SAFE-002, and every SAFE-007 factor to a
+non-destructive, logical-content-read-only loop-device check. It launches no
+external storage tool, issues no logical write, discard, or zero operation, and
+must prove the fixture hashes unchanged. Linux may `fsync` inside the mapping
+ioctls and write back already-dirty data or metadata, so the disposable-VM
+requirement still matters. Every generic destructive Tier-2 request and every
+Tier-3 request remains unavailable and refuses.
 
 If you changed anything under `crates/domain/src/canonical/`,
 `packages/canonical/`, or `schemas/`, also run the MODEL-005 parity proof. It
@@ -60,4 +73,3 @@ Do not use an issue or a pull request. Follow `SECURITY.md`.
 Use one pull request per work package or assigned subtask. Complete every field
 in the pull-request template, including assumptions, tests, changed owned
 paths, requirement IDs, and follow-up packages.
-

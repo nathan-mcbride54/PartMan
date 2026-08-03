@@ -7,6 +7,75 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- WP-020 increment 2e is **Delivered** and repository issue #94 is **closed**:
+  it introduces the sole runnable
+  higher-tier acceptance,
+  `cargo xtask test --tier 2 --profile destructive --acceptance
+  linux-loop-read-only`, while every generic destructive Tier-2 request and
+  every Tier-3 request continues to refuse. The Linux-only acceptance runs with
+  explicit privilege in a disposable non-WSL VM and applies SAFE-001, SAFE-002,
+  and all SAFE-007 factors even though it is non-destructive and
+  logical-content-read-only. Its verified backing descriptor remains held;
+  backing, loop-control, and loop-device descriptors are `O_RDWR`-capable for
+  mapping control; the mapping carries `LO_FLAGS_READ_ONLY`; the probe is
+  in-process through the held loop descriptor; and no external storage tool or
+  logical write, discard, or zero operation occurs. Linux's configure and
+  rebind paths may `fsync` and write back already-dirty data or metadata, so the
+  acceptance deliberately makes no zero-physical-write claim. Both authorized
+  fixture objects are hashed before any attach; each initial digest must match
+  the compiled fixture catalogue before any loop configuration, and
+  both are hashed again after the ordinary and adversarial legs confirm detach
+  and partition teardown. No observation is accepted until the sampled backing,
+  loop configuration, and held-node identities match and those hashes are
+  unchanged. External run evidence must exclude every other actor able to
+  modify either fixture and every other actor able to administer or rebind loop
+  devices. Ordinary kernel/udev read/open discovery is allowed and handled by
+  bounded cleanup, but a loop-configuration `EBUSY` refuses immediately because
+  isolated loop state was not established. Hash and status sampling cannot
+  defeat an ABA change between samples; VM isolation bounds consequences but
+  does not prove the exclusions, and this acceptance is not a continuous-binding
+  guarantee. This exception grants SAFE-007
+  coverage only to this named acceptance: it does not change Tier 1 or the
+  product inspector's read-path boundary and it does not register a destructive
+  suite.
+
+  The acceptance **passed** on 2026-08-03 in a disposable
+  Proxmox VE 9.2.4 guest — stock Ubuntu 22.04.5, kernel 5.15.0-186-generic,
+  base image verified against Canonical's published `SHA256SUMS`, no USB or PCI
+  passthrough, a `pre-acceptance` snapshot as the revert boundary. Two legs were
+  configured and detached, the adversarial `LOOP_CHANGE_FD` rebind was detected
+  and its observation discarded, partition teardown was confirmed, both
+  fixtures' initial digests matched the compiled catalogue, and both were
+  unchanged afterwards with `losetup -a` empty and no loop device holding a
+  backing file. Four negative controls refused in the same session, including a
+  generic destructive Tier 2 that authorized 13 targets and still refused
+  because no suite is registered. It was run four times in that guest with
+  identical harness results and identical fixture digests: three on the
+  implementation commit `2dbf601`, and once more on the merged commit
+  `c75b340` after main's `apps/cli` changes arrived. That last run was taken
+  rather than argued: none of the changed files is on the acceptance's code
+  path, which is exactly the reasoning a proof against a superseded tree
+  invites and this package declines.
+  The exclusions were established rather than asserted: `snapd` — which held
+  four squashfs loop devices at first boot — and `udisks2` were purged, **a
+  deliberate deviation from a stock image** without which the no-other-loop-
+  administrator condition cannot hold; `/root` and the fixture directory are
+  `drwx------` root-owned; and every non-root process's `CapEff` was read and
+  none holds `CAP_SYS_ADMIN`. Two limits are recorded rather than smoothed
+  over: **the guest was not network-isolated** — it held a DHCP address and a
+  default route throughout, which the transcript records as a fact — and the
+  digest and status checks remain discrete samples that cannot defeat an ABA
+  change. Closing #94 registers no destructive suite; increment 2's own scope
+  is unblocked and still unbuilt. The full record, including what the run does
+  not establish, is in `docs/work-packages/WP-020.md`.
+
+  Recorded because it will recur: this acceptance must run as root over a
+  direct login with no `sudo` in the chain and no injected environment
+  variables. WP-035's redaction sweep compares every environment value of six
+  characters or more against CLI output, so `SUDO_USER=partman` — or any name
+  colliding with product text — fails a Tier-1 gate before the acceptance is
+  reached. That is the tripwire working correctly; the fix belongs in the
+  environment, never in an exemption to the commit under proof.
 - The SI-33/SI-28 successor protocol's two S4 rows move from `not yet
   taken` to `not established` on a custody-complete 2026-08-03 sitting:
   with both readers attached simultaneously, the delivered second unit
