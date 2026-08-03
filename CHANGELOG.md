@@ -7,6 +7,23 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- WP-020 increment 2f's session takes the in-process verification reads its
+  amended boundary names for the SI-35 instrument's gates 3, 6, and 7: the
+  attached device's complete logical contents are hashed through the held
+  loop descriptor before the first and after the last external launch and
+  must equal the compiled catalogue digest; the named sysfs projection facts
+  (disk size, read-only flag, logical block size; partition index, start,
+  size, read-only flag) are read from the retained-rdev root and released
+  with the report; the mount table must contain no session device number and
+  every session node must report read-only, both checked during the window;
+  and the predeclared udev query now runs twice per node for the
+  byte-stability gate. Each check refuses with a typed value
+  (`LoopDeviceHashMismatch`, `SessionNodeMounted`, `SessionNodeWritable`)
+  and still reaches the unconditional detach. These reads launch nothing and
+  accept no caller input; the public surface grows by integer-only facts
+  types and one pinned slice getter. Tier-1 evidence: 62 Linux / 39 Windows
+  crate tests, clippy clean on both platforms; no real loop device ran.
+
 - The SI-35 hardened non-WSL protocol gains its **mechanism amendment,
   recorded before any output exists**, as WP-020's increment 2f boundary
   requires: the preregistered setup and privileged comparison actors merge

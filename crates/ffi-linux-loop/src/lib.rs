@@ -229,6 +229,70 @@ impl ProbeRecord {
     }
 }
 
+/// The named sysfs projection facts for the attached disk, read in process
+/// from the session's retained-rdev root. Integers only; no identity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SessionDiskFacts {
+    size_sectors: u64,
+    read_only: bool,
+    logical_block_size: u32,
+}
+
+impl SessionDiskFacts {
+    /// The disk's `size` attribute, in 512-byte sysfs sectors.
+    #[must_use]
+    pub const fn size_sectors(&self) -> u64 {
+        self.size_sectors
+    }
+
+    /// The disk's `ro` attribute; the session refuses when this is false.
+    #[must_use]
+    pub const fn read_only(&self) -> bool {
+        self.read_only
+    }
+
+    /// The disk's `queue/logical_block_size` attribute.
+    #[must_use]
+    pub const fn logical_block_size(&self) -> u32 {
+        self.logical_block_size
+    }
+}
+
+/// The named sysfs projection facts for one materialized partition.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SessionPartitionFacts {
+    index: u32,
+    start_sectors: u64,
+    size_sectors: u64,
+    read_only: bool,
+}
+
+impl SessionPartitionFacts {
+    /// The partition's `partition` attribute — its kernel index.
+    #[must_use]
+    pub const fn index(&self) -> u32 {
+        self.index
+    }
+
+    /// The partition's `start` attribute, in 512-byte sysfs sectors.
+    #[must_use]
+    pub const fn start_sectors(&self) -> u64 {
+        self.start_sectors
+    }
+
+    /// The partition's `size` attribute, in 512-byte sysfs sectors.
+    #[must_use]
+    pub const fn size_sectors(&self) -> u64 {
+        self.size_sectors
+    }
+
+    /// The partition's `ro` attribute; the session refuses when this is false.
+    #[must_use]
+    pub const fn read_only(&self) -> bool {
+        self.read_only
+    }
+}
+
 /// Quarantine-released facts and captures from one completed 2f session.
 ///
 /// Constructed at exactly one site, after the sequence closed, detach and
@@ -239,6 +303,8 @@ impl ProbeRecord {
 pub struct SessionReport {
     fixture: FixtureRole,
     partitions_observed: u8,
+    disk_facts: SessionDiskFacts,
+    partition_facts: Vec<SessionPartitionFacts>,
     records: Vec<ProbeRecord>,
 }
 
@@ -261,10 +327,37 @@ impl SessionReport {
         &self.records
     }
 
+    /// The disk's named sysfs projection facts, read in process.
+    #[must_use]
+    pub const fn disk_facts(&self) -> SessionDiskFacts {
+        self.disk_facts
+    }
+
+    /// Every enumerated partition's named sysfs projection facts, by index.
+    #[must_use]
+    pub fn partition_facts(&self) -> &[SessionPartitionFacts] {
+        &self.partition_facts
+    }
+
     /// Whether node identity and the full status binding were re-verified
     /// immediately before and after every external launch.
     #[must_use]
     pub const fn bindings_verified_around_every_launch(&self) -> bool {
+        true
+    }
+
+    /// Whether the attached device's complete logical contents, read through
+    /// the held loop descriptor, equaled the compiled catalogue digest both
+    /// before the first and after the last external launch.
+    #[must_use]
+    pub const fn loop_content_hashes_matched_catalogue(&self) -> bool {
+        true
+    }
+
+    /// Whether no session device number appeared in the mount table and every
+    /// session node reported read-only, checked in process during the window.
+    #[must_use]
+    pub const fn nodes_unmounted_and_read_only(&self) -> bool {
         true
     }
 
@@ -454,6 +547,13 @@ pub enum Refusal {
     },
     /// More partitions materialized than the session bound permits.
     PartitionCountExceeded,
+    /// The attached device's complete logical contents, read through the held
+    /// loop descriptor, did not equal the compiled catalogue digest.
+    LoopDeviceHashMismatch,
+    /// A session device number appeared in the mount table.
+    SessionNodeMounted,
+    /// A session node did not report read-only in its sysfs `ro` attribute.
+    SessionNodeWritable,
     /// An internal protocol transition attempted to publish evidence early.
     ProtocolOrder,
 }
@@ -565,6 +665,16 @@ impl Refusal {
             Self::PartitionCountExceeded => {
                 formatter.write_str("more partitions materialized than the bounded session permits")
             }
+            Self::LoopDeviceHashMismatch => formatter.write_str(
+                "the attached device's logical contents did not equal the compiled catalogue \
+                 digest",
+            ),
+            Self::SessionNodeMounted => {
+                formatter.write_str("a session device number appeared in the mount table")
+            }
+            Self::SessionNodeWritable => {
+                formatter.write_str("a session node did not report read-only")
+            }
             _ => return None,
         })
     }
@@ -649,6 +759,9 @@ impl fmt::Display for Refusal {
                 )
             }
             Self::WrongSessionTarget
+            | Self::LoopDeviceHashMismatch
+            | Self::SessionNodeMounted
+            | Self::SessionNodeWritable
             | Self::ProbeToolMissing { .. }
             | Self::ProbeLaunchFailed { .. }
             | Self::ProbeTimedOut { .. }
@@ -1060,6 +1173,10 @@ mod tests {
                 (
                     PathBuf::from("lib.rs"),
                     "pub fn records(&self) -> &[ProbeRecord] {".to_owned(),
+                ),
+                (
+                    PathBuf::from("lib.rs"),
+                    "pub fn partition_facts(&self) -> &[SessionPartitionFacts] {".to_owned(),
                 ),
                 (
                     PathBuf::from("lib.rs"),

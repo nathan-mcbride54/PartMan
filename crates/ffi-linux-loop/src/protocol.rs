@@ -10,7 +10,10 @@
 //! which requires confirmed detach first — so a caller cannot hold probe
 //! bytes while the loop device is still bound.
 
-use crate::{FixtureRole, ProbeRecord, ProbeSubject, ProbeTool, Refusal, RunReport, SessionReport};
+use crate::{
+    FixtureRole, ProbeRecord, ProbeSubject, ProbeTool, Refusal, RunReport, SessionDiskFacts,
+    SessionPartitionFacts, SessionReport,
+};
 
 pub(super) const REQUIRED_BLOCK_SIZE: u32 = 512;
 pub(super) const FLAG_READ_ONLY: u32 = 1;
@@ -261,6 +264,18 @@ pub(super) trait SessionController {
     /// sysfs root. In-process; not an external call.
     fn enumerate_partitions(&mut self, attachment: &Self::Attachment) -> Result<Vec<u32>, Refusal>;
 
+    /// Hash the attached device's complete logical contents through the held
+    /// loop descriptor. In-process; not an external call.
+    fn device_digest(&mut self, attachment: &Self::Attachment) -> Result<[u8; 32], Refusal>;
+
+    /// Capture the named sysfs projection facts for the disk and every
+    /// enumerated partition, and refuse if any session device number appears
+    /// in the mount table or any node is writable. In-process.
+    fn capture_facts(
+        &mut self,
+        attachment: &Self::Attachment,
+    ) -> Result<(SessionDiskFacts, Vec<SessionPartitionFacts>), Refusal>;
+
     /// Launch one predeclared external tool against the subject and capture
     /// its bounded output. The crate owns this launch entirely.
     fn launch(
@@ -281,7 +296,7 @@ pub(super) trait SessionController {
 #[derive(Debug, Default)]
 struct SessionEvidenceGate {
     records: Vec<ProbeRecord>,
-    partitions_observed: Option<u8>,
+    facts: Option<(SessionDiskFacts, Vec<SessionPartitionFacts>)>,
     closed: bool,
     detached: bool,
 }
@@ -295,12 +310,15 @@ impl SessionEvidenceGate {
         Ok(())
     }
 
-    fn close(&mut self, partitions_observed: u8) -> Result<(), Refusal> {
+    fn close(
+        &mut self,
+        facts: (SessionDiskFacts, Vec<SessionPartitionFacts>),
+    ) -> Result<(), Refusal> {
         if self.closed || self.detached || self.records.is_empty() {
             return Err(Refusal::ProtocolOrder);
         }
         self.closed = true;
-        self.partitions_observed = Some(partitions_observed);
+        self.facts = Some(facts);
         Ok(())
     }
 
@@ -316,10 +334,14 @@ impl SessionEvidenceGate {
         if !self.closed || !self.detached || self.records.is_empty() {
             return Err(Refusal::ProtocolOrder);
         }
-        let partitions_observed = self.partitions_observed.ok_or(Refusal::ProtocolOrder)?;
+        let (disk_facts, partition_facts) = self.facts.ok_or(Refusal::ProtocolOrder)?;
+        let partitions_observed =
+            u8::try_from(partition_facts.len()).map_err(|_| Refusal::ProtocolOrder)?;
         Ok(SessionReport {
             fixture,
             partitions_observed,
+            disk_facts,
+            partition_facts,
             records: self.records,
         })
     }
@@ -328,10 +350,14 @@ impl SessionEvidenceGate {
 /// Run one increment 2f hold-open session over a single authorized fixture.
 ///
 /// Sequence: initial catalogue hash, one read-only configure, verification,
-/// a bracketed `udevadm settle`, partition enumeration, then for the disk and
-/// each partition the bracketed predeclared probes, closure, unconditional
-/// detach with the detach error taking precedence, the post-run fixture hash,
-/// and only then publication of the quarantined records.
+/// the whole-device hash through the held loop descriptor (before the first
+/// external launch), a bracketed `udevadm settle`, partition enumeration, the
+/// sysfs facts capture with its mount-absence check, then for the disk and
+/// each partition the bracketed predeclared probes — the udev query twice for
+/// the instrument's byte-stability gate — the second whole-device hash (after
+/// the last external launch), closure, unconditional detach with the detach
+/// error taking precedence, the post-run fixture hash, and only then
+/// publication of the quarantined records.
 pub(super) fn execute_session<C: SessionController>(
     controller: &mut C,
     fixture: FixtureRole,
@@ -350,6 +376,9 @@ pub(super) fn execute_session<C: SessionController>(
     let mut gate = SessionEvidenceGate::default();
     let session_result = (|| {
         controller.verify(&attachment, fixture)?;
+        if controller.device_digest(&attachment)? != controller.expected_digest(fixture) {
+            return Err(Refusal::LoopDeviceHashMismatch);
+        }
         launch_bracketed(
             controller,
             &attachment,
@@ -362,13 +391,16 @@ pub(super) fn execute_session<C: SessionController>(
         if partitions.len() > MAX_SESSION_PARTITIONS {
             return Err(Refusal::PartitionCountExceeded);
         }
-        let partitions_observed =
-            u8::try_from(partitions.len()).expect("bounded partition count fits u8");
+        let facts = controller.capture_facts(&attachment)?;
+        if facts.1.len() != partitions.len() {
+            return Err(Refusal::ProtocolOrder);
+        }
         let mut subjects = Vec::with_capacity(partitions.len() + 1);
         subjects.push(ProbeSubject::Disk);
         subjects.extend(partitions.into_iter().map(ProbeSubject::Partition));
         for subject in subjects {
             for tool in [
+                ProbeTool::UdevadmInfo,
                 ProbeTool::UdevadmInfo,
                 ProbeTool::BlkidProbe,
                 ProbeTool::WipefsNoAct,
@@ -376,7 +408,10 @@ pub(super) fn execute_session<C: SessionController>(
                 launch_bracketed(controller, &attachment, fixture, subject, tool, &mut gate)?;
             }
         }
-        gate.close(partitions_observed)
+        if controller.device_digest(&attachment)? != controller.expected_digest(fixture) {
+            return Err(Refusal::LoopDeviceHashMismatch);
+        }
+        gate.close(facts)
     })();
     // Exactly 2e's cleanup precedence: detach runs unconditionally, and a
     // cleanup failure overrides an otherwise-publishable session.
@@ -971,8 +1006,27 @@ mod tests {
         Verify(FixtureRole),
         VerifyNode(ProbeSubject),
         Enumerate,
+        DeviceDigest,
+        CaptureFacts,
         Launch(ProbeSubject, ProbeTool),
         Detach,
+    }
+
+    fn fake_disk_facts() -> SessionDiskFacts {
+        SessionDiskFacts {
+            size_sectors: 40,
+            read_only: true,
+            logical_block_size: 512,
+        }
+    }
+
+    fn fake_partition_facts() -> Vec<SessionPartitionFacts> {
+        vec![SessionPartitionFacts {
+            index: 1,
+            start_sectors: 8,
+            size_sectors: 16,
+            read_only: true,
+        }]
     }
 
     struct SessionAttachment {
@@ -992,6 +1046,8 @@ mod tests {
         verify: VecDeque<Result<(), Refusal>>,
         verify_node: VecDeque<Result<(), Refusal>>,
         enumerate: VecDeque<Result<Vec<u32>, Refusal>>,
+        device_digests: VecDeque<Result<[u8; 32], Refusal>>,
+        facts: VecDeque<Result<(SessionDiskFacts, Vec<SessionPartitionFacts>), Refusal>>,
         launches: VecDeque<Result<CapturedProbe, Refusal>>,
         detach: VecDeque<Result<(), Refusal>>,
         panic_on_launch: Option<usize>,
@@ -1003,9 +1059,11 @@ mod tests {
     }
 
     impl FakeSessionController {
-        /// A scripted success over a disk with exactly one partition:
-        /// settle plus three tools against two subjects is seven launches,
-        /// each bracketed by two node re-stats and two full verifications.
+        /// A scripted success over a disk with exactly one partition: settle
+        /// plus four tool launches (the udev query twice, then blkid and
+        /// wipefs) against two subjects is nine launches, each bracketed by
+        /// two node re-stats and two full verifications, with the whole-device
+        /// hash taken before the first and after the last launch.
         fn success() -> Self {
             let capture = CapturedProbe {
                 exit_code: Some(0),
@@ -1015,10 +1073,12 @@ mod tests {
             Self {
                 digests: VecDeque::from([Ok([7; 32]), Ok([7; 32])]),
                 configure: VecDeque::from([Ok(())]),
-                verify: VecDeque::from(vec![Ok(()); 15]),
-                verify_node: VecDeque::from(vec![Ok(()); 14]),
+                verify: VecDeque::from(vec![Ok(()); 19]),
+                verify_node: VecDeque::from(vec![Ok(()); 18]),
                 enumerate: VecDeque::from([Ok(vec![1])]),
-                launches: VecDeque::from(vec![Ok(capture); 7]),
+                device_digests: VecDeque::from([Ok([7; 32]), Ok([7; 32])]),
+                facts: VecDeque::from([Ok((fake_disk_facts(), fake_partition_facts()))]),
+                launches: VecDeque::from(vec![Ok(capture); 9]),
                 detach: VecDeque::from([Ok(())]),
                 panic_on_launch: None,
                 launch_calls: 0,
@@ -1092,6 +1152,23 @@ mod tests {
                 .expect("fake session enumerate script is complete")
         }
 
+        fn device_digest(&mut self, _attachment: &Self::Attachment) -> Result<[u8; 32], Refusal> {
+            self.events.push(SessionEvent::DeviceDigest);
+            self.device_digests
+                .pop_front()
+                .expect("fake session device-digest script is complete")
+        }
+
+        fn capture_facts(
+            &mut self,
+            _attachment: &Self::Attachment,
+        ) -> Result<(SessionDiskFacts, Vec<SessionPartitionFacts>), Refusal> {
+            self.events.push(SessionEvent::CaptureFacts);
+            self.facts
+                .pop_front()
+                .expect("fake session facts script is complete")
+        }
+
         fn launch(
             &mut self,
             _attachment: &Self::Attachment,
@@ -1131,24 +1208,31 @@ mod tests {
             execute_session(&mut fake, FixtureRole::Basic).expect("complete scripted session");
         assert_eq!(report.fixture(), FixtureRole::Basic);
         assert_eq!(report.partitions_observed(), 1);
-        assert_eq!(report.records().len(), 7);
+        assert_eq!(report.records().len(), 9);
         assert!(report.bindings_verified_around_every_launch());
         assert!(report.detachment_confirmed());
         assert!(report.partition_teardown_confirmed());
         assert!(report.initial_fixture_hash_matched_catalogue());
         assert!(report.fixture_hash_unchanged());
         assert!(report.captured_output_quarantined_until_teardown());
+        assert!(report.loop_content_hashes_matched_catalogue());
+        assert!(report.nodes_unmounted_and_read_only());
+        assert_eq!(report.disk_facts(), fake_disk_facts());
+        assert_eq!(report.partition_facts(), fake_partition_facts());
         assert_eq!(report.records()[0].tool(), ProbeTool::UdevadmSettle);
         assert_eq!(report.records()[0].subject(), ProbeSubject::Disk);
         assert_eq!(report.records()[0].stdout(), b"captured");
         assert_eq!(report.records()[0].exit_code(), Some(0));
-        assert_eq!(report.records()[6].tool(), ProbeTool::WipefsNoAct);
-        assert_eq!(report.records()[6].subject(), ProbeSubject::Partition(1));
+        assert_eq!(report.records()[1].tool(), ProbeTool::UdevadmInfo);
+        assert_eq!(report.records()[2].tool(), ProbeTool::UdevadmInfo);
+        assert_eq!(report.records()[8].tool(), ProbeTool::WipefsNoAct);
+        assert_eq!(report.records()[8].subject(), ProbeSubject::Partition(1));
 
         let mut expected_events = vec![
             SessionEvent::Digest(FixtureRole::Basic),
             SessionEvent::Configure(FixtureRole::Basic),
             SessionEvent::Verify(FixtureRole::Basic),
+            SessionEvent::DeviceDigest,
         ];
         let bracket = |events: &mut Vec<SessionEvent>, subject: ProbeSubject, tool: ProbeTool| {
             events.push(SessionEvent::VerifyNode(subject));
@@ -1163,8 +1247,10 @@ mod tests {
             ProbeTool::UdevadmSettle,
         );
         expected_events.push(SessionEvent::Enumerate);
+        expected_events.push(SessionEvent::CaptureFacts);
         for subject in [ProbeSubject::Disk, ProbeSubject::Partition(1)] {
             for tool in [
+                ProbeTool::UdevadmInfo,
                 ProbeTool::UdevadmInfo,
                 ProbeTool::BlkidProbe,
                 ProbeTool::WipefsNoAct,
@@ -1172,9 +1258,51 @@ mod tests {
                 bracket(&mut expected_events, subject, tool);
             }
         }
+        expected_events.push(SessionEvent::DeviceDigest);
         expected_events.push(SessionEvent::Detach);
         expected_events.push(SessionEvent::Digest(FixtureRole::Basic));
         assert_eq!(fake.events, expected_events);
+    }
+
+    // Requirements: SAFE-001, SAFE-005, SAFE-007
+    //   The attached device's logical contents must equal the compiled catalogue
+    //   digest before the first and after the last external launch; either
+    //   mismatch refuses and still detaches.
+    // Evidence: session_device_hash_mismatch_refuses_and_still_detaches
+    #[test]
+    fn session_device_hash_mismatch_refuses_and_still_detaches() {
+        let mut fake = FakeSessionController::success();
+        fake.device_digests = VecDeque::from([Ok([9; 32])]);
+        assert_eq!(
+            execute_session(&mut fake, FixtureRole::Basic),
+            Err(Refusal::LoopDeviceHashMismatch)
+        );
+        assert!(fake.events.contains(&SessionEvent::Detach));
+        assert_eq!(fake.launch_calls, 0, "no launch before the first hash");
+
+        let mut fake = FakeSessionController::success();
+        fake.device_digests = VecDeque::from([Ok([7; 32]), Ok([9; 32])]);
+        assert_eq!(
+            execute_session(&mut fake, FixtureRole::Basic),
+            Err(Refusal::LoopDeviceHashMismatch)
+        );
+        assert!(fake.events.contains(&SessionEvent::Detach));
+        assert_eq!(fake.launch_calls, 9, "the second hash follows every launch");
+    }
+
+    // Requirements: SAFE-005, SAFE-007
+    //   A mounted or writable session node refuses before any probe launches
+    //   against it, and the attachment is still detached.
+    // Evidence: session_mounted_or_writable_node_refuses_and_still_detaches
+    #[test]
+    fn session_mounted_or_writable_node_refuses_and_still_detaches() {
+        for refusal in [Refusal::SessionNodeMounted, Refusal::SessionNodeWritable] {
+            let mut fake = FakeSessionController::success();
+            fake.facts = VecDeque::from([Err(refusal.clone())]);
+            assert_eq!(execute_session(&mut fake, FixtureRole::Basic), Err(refusal));
+            assert!(fake.events.contains(&SessionEvent::Detach));
+            assert_eq!(fake.launch_calls, 1, "only settle preceded the capture");
+        }
     }
 
     // Requirements: SAFE-001, SAFE-005, SAFE-007
@@ -1262,7 +1390,8 @@ mod tests {
             stderr: Vec::new(),
         })
         .expect("record accumulates in quarantine");
-        gate.close(0).expect("sequence closes");
+        gate.close((fake_disk_facts(), Vec::new()))
+            .expect("sequence closes");
         assert_eq!(
             gate.publish(FixtureRole::Basic),
             Err(Refusal::ProtocolOrder),
@@ -1278,7 +1407,8 @@ mod tests {
             stderr: Vec::new(),
         })
         .expect("record accumulates in quarantine");
-        gate.close(0).expect("sequence closes");
+        gate.close((fake_disk_facts(), Vec::new()))
+            .expect("sequence closes");
         gate.detached().expect("cleanup confirmed");
         let report = gate
             .publish(FixtureRole::Basic)
