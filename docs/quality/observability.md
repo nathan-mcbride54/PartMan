@@ -11,7 +11,14 @@
   not retain every queried surface; and the SI-35 loop run crossed open issue
   #94. Its WSL2 decisive-pair negative remains unavailable to a register
   decision until a non-WSL distro-kernel run confirms it through the future
-  handle-bound protocol.
+  handle-bound protocol. Increment 6's macOS and real-partitioned-Linux
+  matrices, the SI-33/SI-28 successor protocol, and the SI-35 Windows
+  completion rerun are preregistered below; they are instruments, not
+  evidence, and establish nothing until executed. Every preregistered cell
+  is `not yet taken` except the successor protocol's two S4 rows, moved to
+  `not established` by a 2026-08-03 sitting: the kit's second reader
+  measured as a different bridge model, and S4 forbids a cross-model
+  substitute.
 
 ## Why this document exists
 
@@ -956,6 +963,54 @@ these bounded observations rather than a platform-wide refutation.
   mean this record does not independently establish even that; it never bound
   the attach window.
 
+#### Completion rerun — preregistered, not yet taken
+
+Protocol recorded 2026-08-02 under WP-035's SI-35 share. Status: **not yet
+taken**; an instrument, not evidence. It reruns exactly what the 2026-08-02
+execution left unevaluable — nothing else, and executing it may not add
+hypotheses. W-H1, W-H2, and W-H3 stand as pre-registered above, existential
+*surface* wording included; W-Q5 is answered and is not rerun. Every
+mechanic of the parent protocol is inherited unchanged: one-at-a-time
+attach, the declared elevated S3 attach in its separate console, the
+non-elevated measurement session with its recorded assertion, the
+non-answer recordings, and every declared scope limit (file-backed bus
+type, one build, 512-byte sectors, 4Kn out of reach). This subsection adds
+three gates and the cells they make evaluable:
+
+- **R1 — total retention.** Every property value any step queries is
+  retained verbatim in the transcript; query-and-discard — the recorded
+  defect that made all three hypotheses unevaluable — voids the sitting.
+  The capture script's digest is recorded before the first attach, and the
+  script must be reviewed against this gate before privilege.
+- **R2 — digest bracket restored.** The before-attach and after-detach
+  fixture digest pairs are retained for every fixture; a missing pair voids
+  that fixture's rows. Wrapper prose such as `UNCHANGED` is not a digest
+  and satisfies nothing.
+- **R3 — mandatory index-fallback probe.** The parent's "a layout probe is
+  attempted only if another unprivileged roster supplies a device index"
+  becomes a MUST: for any fixture without an `MSFT_Disk` row, the
+  zero-access layout IOCTL runs at every `Win32_DiskDrive`-supplied index
+  for that disk in the same session. An index available and unprobed —
+  the recorded W-Q4 execution gap — voids that fixture's cells.
+
+| Cell | Result |
+| --- | --- |
+| W-H1 refutation condition evaluated over complete retained surfaces | `not yet taken` |
+| W-H2 same, with the which-copy limit below | `not yet taken` |
+| W-H3 same | `not yet taken` |
+| W-Q4: layout-IOCTL scheme answer for `hybrid-mbr-gpt-512` against the `mbr-basic-512` control | `not yet taken` |
+| Complete `MSFT_PhysicalDisk` / `IsReadOnly` surface retention for all seven fixtures | `not yet taken` |
+
+Declared limits: W-H2's which-GPT-copy question remains unmeasured even by
+a valid rerun — both copies of that fixture describe identical partitions,
+and the discriminating fixture variant that would separate backup use from
+primary parsing belongs to WP-020's catalogue, recorded here as a boundary
+rather than preregistered across a package boundary. Transcript custody
+and second-reader readback are as the increment 6 matrices define. A valid
+rerun makes the three declared refutation conditions evaluable and answers
+W-Q4; it decides no SI-35 option and supplies no chosen-option refusal
+proof.
+
 ### SI-33 media-change-counter liveness — measured 2026-08-02
 
 Protocol recorded 2026-08-02 under spec version 4.2.0 by WP-035 and taken the
@@ -1638,12 +1693,244 @@ derive continuity from bookkeeping between runs.
   also contains a lower later reading, and the trigger is unrecorded.
   Suspend, hub reset, and reboot are untested.
 
+### SI-33/SI-28 successor protocol — preregistered 2026-08-02
+
+Protocol recorded 2026-08-02 under WP-035's SI-33 and SI-28 shares. Status:
+S1, S2, S2b, and S3 **not yet taken**, every unexecuted result cell
+deliberately so; S4's two rows are **`not established`** per the sitting
+recorded below the arm table. This subsection is an instrument, not
+evidence. It preregisters exactly the
+successor questions the records above filed — the close-before-event/reopen
+arm the 2026-08-02 run missed, the epoch-signal characterization its decrease
+demands, L4's unmet replication, and the second-reader collision question the
+SI-28 record marked "worth measuring" — and nothing else; executing it may
+not add arms. The collision test was previously pre-registered only in
+conversation (recorded in the 2026-08-02 handoff with its hypothesis,
+refutation condition, live-comparison requirement, and
+enumeration-failure-is-data rule); this section is its repository
+preregistration, and the conversational one confers no standing of its own.
+
+Everything the parent protocol declared travels unchanged: non-elevated
+throughout with the elevation assertion recorded per sitting; the ceiling
+declaration (prompt movement cannot be attributed to exchange-synchronous
+detection; the strongest recordable positive remains *no staleness observed
+under these conditions*, per reader, bridge, and build); role labels only,
+with the parent's declared non-unit VID:PID exception for bridge-model
+comparison; the mounted-disk-image non-substitution rule; and this file's
+rule of use extended to `not yet taken` cells. Result vocabulary is the
+closed set the increment 6 matrices define, plus this record's own
+`moved` / `unchanged` / `count-absent` counter outcomes. Transcript custody
+is identical to the increment 6 matrices: outside-repository archive with
+locator and custodian, hash algorithm/digest/byte length, capture-script
+digest recorded before the first sample, per-command exit statuses, and
+second-reader retrieve-and-rehash before any cell leaves `not yet taken`.
+Gate failures make cells `void(<gate>)`, never negatives. New legs carry
+S-numbers so no result can be conflated with the parent run's L-legs.
+
+**S1 — close-before-event/reopen survival, with a true no-handle window.**
+Read the counter, then close **every handle this process holds on the
+device** and assert process-local closure before the event; the assertion's
+scope is process-local and is recorded as such — system-wide handle absence
+is not claimable unprivileged and is not claimed. Exchange the medium with
+the empty-slot assertion between removal and reinsertion (the discarded-L4
+audit rule), reopen fresh, and read. Three trials. Bracket every trial with
+the reader's `DEVPKEY_Device_LastArrivalDate`: if the reader's own arrival
+timestamp moves inside a trial, that trial is `void (epoch boundary)` —
+survival and reset are indistinguishable across one. Permitted outcomes per
+trial: `moved` (the count survived the no-handle window and registered the
+exchange), `unchanged` (**the fail-open signal** — the returning medium
+reads as never exchanged; this outcome is the experiment's reason to exist
+and must be recorded at full strength), `count-absent`, or void.
+
+**S2 — epoch/instance signal characterization.** The parent run's
+`same-driver-instance=False` was computed from the lower counter itself and
+is circular; the counter value is therefore **excluded as a candidate**.
+Preregistered candidates, each read non-elevated: `DEVPKEY_Device_PDOName`,
+`DEVPKEY_Device_ContainerId`, and `DEVPKEY_Device_LastArrivalDate` (the
+last already known to mark arrival without identifying an incarnation — it
+participates as a bracketing control, not as a proposed token). A candidate
+**qualifies** only if all four hold: readable non-elevated; stable across
+quiescence and every same-instance sample; changed across **every** induced
+re-arrival; and computed independently of the counter. Induce three reader
+re-arrival boundaries (deliberate surprise-removal and reattach of the
+reader, the run 1/2 boundary reproduced on purpose, trigger recorded this
+time), sampling every candidate and the counter immediately before and
+after each. One additional reboot boundary is preregistered as S2b with the
+same samples. Extending the candidate list is a protocol revision, not a
+run-time choice. A qualifying signal makes cross-epoch readings
+incomparable by construction; none qualifying is itself a recordable
+result and narrows SI-33 toward its another-witness-entirely arm. Nothing
+here decides SI-33's design.
+
+**S3 — L4 replication completion.** Two further trials of the L4
+same-medium out-and-back leg exactly as defined above — the definition is
+not restated here, so it cannot drift — bringing the leg to its originally
+requested three trials, each with the empty-slot assertion and idle
+re-reads the definition requires.
+
+**S4 — second-reader collision test (SI-28 share; conditional).** Runs only
+when a second reader of the same model is available, with model sameness
+established through the parent record's declared non-unit VID:PID
+exception plus model string, and unit distinctness through the USB
+descriptor serial. **Hypothesis under test:** the storage-layer serial is a
+bridge firmware constant, predicting the same `2012…5300`-form value from
+two distinct units. **Refutation condition:** the second unit reports a
+different storage-layer serial. **Live comparison is required:** both
+readers attached simultaneously, serials read in one sitting — a recalled
+or transcribed value from another session refutes nothing.
+**Enumeration failure is data:** if simultaneous attachment makes either
+reader fail to enumerate, merge, or re-identify, that outcome is recorded
+as the collision behavior it is, not as a failed run. Two further rows
+ride only if the primary comparison completes: the empty-slot serial
+comparison (the parent record's strongest single-reader form, repeated
+across units), and one card moved between readers to record whether the
+storage-layer record follows the card or the reader. Without the second
+unit every S4 cell stays `not established`, not approximated with a
+different model.
+
+| Arm | Result |
+| --- | --- |
+| S1 close-before-event/reopen survival, 3 trials | `not yet taken` |
+| S2 epoch-signal candidates across 3 induced re-arrivals | `not yet taken` |
+| S2b epoch-signal candidates across one reboot | `not yet taken` |
+| S3 L4 trials 2 and 3 | `not yet taken` |
+| S4 two-unit storage-layer serial live comparison | `not established` — 2026-08-03 sitting: the two simultaneously attached units are different bridge models (0BDA:0306 vs 2537:1081), and a different model may not approximate the second unit |
+| S4 empty-slot serial across units; card moved between readers | `not established` — rides only on a completed primary comparison; same cause |
+
+A valid run can establish only these arms. It decides no SI-33 design
+option, does not move SI-28's disposition (the register owns status), and
+generalizes to no other reader, bridge, host, or device class than the
+units measured.
+
+#### S4 sitting, 2026-08-03 — same-model precondition unmet
+
+A custody-complete sitting attempted S4's primary row against the two
+simultaneously attached reader units. It could not run the comparison: the
+units are different bridge models, and S4's own rule — `not established`,
+never approximated with a different model — governs. No part of the
+collision hypothesis is evaluated; the recorded fact is that the same-model
+second unit S4 requires does not yet exist in the kit, established by
+measuring the delivered unit rather than by its absence. The arm stays
+takeable exactly as preregistered the day a second unit of either present
+model is attached.
+
+Read non-elevated in one session, both units enumerated, each presenting
+two LUNs, no problem codes:
+
+- One unit reports the non-unit VID:PID `0BDA:0306`, model string
+  `Generic- USB3.0 CRW -SD` (interior whitespace collapsed here; the
+  transcript holds it verbatim), and one storage-layer serial value (elided
+  `2012…5300`) on both LUNs, USB descriptor serial elided `2015…1013`,
+  holding the 256 GB-class card. Every one of those retained forms and the
+  card's exact byte size match the parent record — but the parent run kept
+  no unit-level identifiers, so continuity with the 2026-08-02 unit holds
+  only at elided-form strength and no full-string identity is claimed.
+- The other unit — operator-reported as an outwardly identical enclosure,
+  a claim no software surface here can check, holding the
+  64 GB-class card — reports VID:PID `2537:1081`, per-LUN model strings
+  `1081CS0`/`1081CS1`, bus-reported description `NS1081`. Model sameness
+  fails on both of S4's declared establishment surfaces at once.
+- Context, not an S4 result: the second unit's USB descriptor serial and
+  storage-layer serial are the same 15-character ascending-hexadecimal
+  placeholder (elided `0123…BCDE`), identical across its two LUNs and
+  across both layers. That is the SI-28 bridge-constant form appearing on
+  a second, different bridge family. Whether two units of that family
+  collide is precisely S4's question, and it needs two units of it.
+
+Custody: capture script and complete transcript archived outside the
+repository at
+`%USERPROFILE%\partman-evidence\2026-08-03-si33si28-s4-sitting1\` on the
+operator workstation; custodian Nate McBride. SHA-256 throughout.
+Capture-script digest, recorded in the transcript header before the first
+device query:
+`80dd4b49f79b595e69250cb9c0b689f721227e377e9c08f75b046547ac20a6ec`
+(8742 bytes). Transcript:
+`421a3c09d15d2313f940287bb8a94b1a74e94a86375b970b2910b711a9ade980`
+(10254 bytes); all eight steps `OK`, script exit 0; elevation assertion
+in-transcript (`IsInRole(Administrator)=False`, token carries no
+Administrators SID); OS build 10.0.26200; PowerShell 7.6.4. An independent
+second reader retrieved the transcript through the locator and rehashed it
+to the same digest and byte length before either cell left
+`not yet taken`.
+
 ## macOS
 
 **Not established.** Needs: IOKit / `IOMedia` property availability without
 elevation, `diskutil info -plist` fields for an APFS container and its physical
 stores, whether raw `/dev/rdiskN` reads require elevation, and what a Fusion
 container reports when one store is absent.
+
+### Increment 6 macOS matrix — preregistered, not yet taken
+
+Protocol recorded 2026-08-02 under WP-035 increment 6. Status: **not yet
+taken**; every result cell is deliberately `not yet taken` and this subsection
+is an instrument, not evidence. It records no measurement, changes no register
+disposition, decides no option, and satisfies no platform-adapter criterion.
+Its rows are fixed to the evidence the register names: Part 6 precondition 1's
+separate client and helper signature/membership projections for the
+platform-applicable technologies, precondition 2's native designators, and
+SI-34's client-versus-direct-probe freshness projection. Anything this matrix
+does not name is out of its scope, and executing it may not add rows.
+
+**Environment and privilege rules.** Unprivileged rows may run on the
+available Mac. No privileged comparison leg may run on that ordinary host;
+privileged legs run only in a disposable macOS VM or hosted macOS test
+environment satisfying SAFE-001/SAFE-002, and until one exists every
+privileged-leg cell stays `not yet taken` rather than being approximated.
+Every run first records: macOS product and build version, SIP state
+(`/usr/bin/csrutil status`), session type (console or SSH — DiskArbitration
+behavior differs and the session type is part of the record, not a nuisance),
+`id` output (uid, gid, groups — note whether the user is in `operator`), and
+the version and existence of each predeclared executable, invoked by trusted
+absolute path with structured argv, bounded output, and a timeout:
+`/usr/sbin/diskutil`, `/usr/bin/hdiutil`, `/usr/sbin/ioreg`,
+`/usr/bin/plutil`, `/usr/bin/stat`, `/bin/dd`. A missing or
+version-unrecordable tool voids the cells that name it, never the run.
+
+**Setup boundary.** The only setup action is `hdiutil attach` of a WP-020
+fixture image copied to a fresh `mktemp -d` scratch directory, with
+`-imagekey diskimage-class=CRawDiskImage -nomount -readonly`. `-nomount`
+keeps INV-006's no-auto-mount rule true by construction; `-readonly` means
+the image bytes cannot change, and the image's manifest digest is verified
+before attach and re-verified after detach. No experiment row writes to any
+block device, and no step mounts a file system. Detach is explicit
+(`hdiutil detach` of the exact attached device), and a failed detach is
+recorded, voids nothing retroactively, and blocks further attach rows.
+Results over attached images (M6, M7, M8) are projections of the DiskImages
+device class and may not be represented as real-media evidence — the same
+virtual/real boundary the Linux matrix enforces. Real-media macOS rows would
+need their own explicitly authorized fixture media and are deliberately not
+preregistered here.
+
+Result vocabulary, closed: `observed(<value-class>)`, `observed(absent)`,
+`denied(<errno or error-class>)`, `not-recognized`, `not-client-readable`,
+`not-applicable(platform)`, `mechanism-unavailable(<which>)`,
+`inconclusive(<gate>)`, `void(<gate>)`, `not established`, `not yet taken`.
+A cell may not invent vocabulary at execution time. Failure of a validity
+gate makes affected cells `void(<gate>)`, never a negative result.
+
+| # | Cell | Command / API | Privilege | Distinguishing condition | Invalidation conditions | Result |
+| --- | --- | --- | --- | --- | --- | --- |
+| M1 | Raw whole-device read policy, boot disk | `stat` on `/dev/disk0` and `/dev/rdisk0`; `dd if=/dev/disk0 bs=512 count=1 of=/dev/null` and the `rdisk0` equivalent | unprivileged | Whether macOS denies an unprivileged raw read as Windows and Linux do, or the `operator` group changes the answer | ambiguity about which device is the boot disk; any write-intent open | `not yet taken` |
+| M2 | IOMedia property availability | `ioreg -a -r -c IOMedia` parsed as plist | unprivileged | Which of UUID, Content, Content Hint, Size, Preferred Block Size, Whole, Leaf, Removable, BSD Name are present per media object | unparseable plist; truncated output | `not yet taken` |
+| M3 | diskutil structured projection | `diskutil list -plist`; `diskutil info -plist <BSD name>` per whole disk | unprivileged | Which identity and geometry fields the structured interface carries, against the M2 set — same facts or a different projection | non-plist output; interactive prompt | `not yet taken` |
+| M4 | APFS container and physical-store membership (precondition 1, APFS row) | `diskutil apfs list -plist` | unprivileged | Whether container UUID, physical-store references, and volume roles are client-readable without elevation | no APFS container present (impossible on a modern boot volume — record why if hit) | `not yet taken` |
+| M5 | APFS container UUID as native designator (precondition 2) | fields from M2 and M4, plus a second sitting after reboot | unprivileged | Same UUID from both interfaces and across a reboot — source, stability; collision behavior is out of reach without duplicated hardware and stays `not established` | either source missing; reboot not performed | `not yet taken` |
+| M6 | Foreign-signature fixture projection | attach each of `gpt-basic-512`, `mbr-basic-512`, `apm-basic-512`, `blank-512`; then M2/M3 against the attached device | unprivileged | What macOS reports for GPT, MBR, and its own historical APM, and whether blank and foreign are distinguishable — `not-recognized` is an expected honest outcome, not a failure | attach denied (record as `denied`, cell complete); wrong device targeted; automount observed | `not yet taken` |
+| M7 | SI-34 freshness projection, stale-signature case | attach `ext4-with-stale-mdraid-090-512.img`; capture M2/M3 projection | unprivileged | Whether any macOS client interface reports any signature fact for bytes carrying a live ext4 and a stale mdraid superblock — the platform's contribution to the freshness-projection question is which facts exist here at all | same as M6 | `not yet taken` |
+| M8 | mdraid / LUKS2 / LVM2 / ZFS on macOS (precondition 1 non-native rows) | outcome of M6/M7 interfaces for those signatures | unprivileged | Stock macOS ships no prober for these; the expected result is `not-recognized` or `not-applicable(platform)`, recorded rather than assumed — OpenZFS, if installed, would be a separately labelled non-stock projection | third-party storage kexts/extensions present and undeclared | `not yet taken` |
+| M9 | Fusion membership and shape | `diskutil apfs list -plist` on a Fusion container; the one-store-absent shape | unprivileged | What a Fusion container reports intact, and with one store absent | **conditional on representative hardware**; without it this cell remains `not established` per the increment's own rule | `not yet taken` |
+| M10 | Privileged comparison leg | raw header reads at the fixture offsets through `/dev/rdiskN` | privileged, disposable VM only | Whether the helper-side view can read what the client cannot, on the same attached fixture | any attempt on the ordinary host; no disposable macOS environment available | `not yet taken` |
+
+Custody, per executed run: complete transcript retained outside the
+repository with archive locator and custodian named; hash algorithm, digest,
+and byte length recorded; capture-script digest recorded before the first
+attach; OS/build, tool versions, and every exit status recorded; fixture
+digests from the generated manifest; a second reader retrieves and rehashes
+the transcript before any cell leaves `not yet taken`. Raw diagnostic output,
+machine-specific identifiers, and secrets stay out of this file; only
+normalized observations and limitations enter it. A cell that cannot meet a
+custody requirement stays `not yet taken` — custody failure is not a result.
 
 ## Linux
 
@@ -2700,6 +2987,100 @@ A valid run can lift only this record's WSL2 promotion hold and satisfy the
 loop-measurement part of M0.5. It cannot choose SI-35's option, supply the
 chosen-option refusal proof, or substitute for SI-34's real-partitioned-Linux
 and macOS observations.
+
+### Increment 6 real-partitioned-Linux matrix — preregistered, not yet taken
+
+Protocol recorded 2026-08-02 under WP-035 increment 6. Status: **not yet
+taken**; every result cell is deliberately `not yet taken` and this subsection
+is an instrument, not evidence. It is a sibling of, not a substitute for, the
+SI-35 confirmation protocol above: that one answers the loop decisive pair
+behind issue #94; this one takes the real-device-tree and per-technology rows
+the register names, which issue #94 does not gate. It records no measurement,
+changes no register disposition, decides no option, and satisfies no
+platform-adapter criterion.
+
+**Environment.** A fresh disposable non-WSL distro VM from a checksum-pinned
+base image with a stock distro kernel — the Proxmox host is the intended
+route — plus **explicitly provisioned, explicitly disposable physical USB
+fixture media passed through to the VM**. A virtual disk may not be
+represented as real-hardware evidence; rows below that say *real medium* are
+valid only against the passthrough device. The environment record includes
+distro release, kernel version and build, udev version and ruleset digest,
+util-linux/mdadm/cryptsetup/lvm2/zfs tool versions, repository revision and
+generated manifest digest, VM base-image digest, and — per row — effective
+UID, effective capabilities, relevant group memberships, and the tested
+device node's ownership, mode, and ACLs. Every external executable is
+predeclared by trusted absolute path from the pinned distro package set,
+launched with structured argv, sanitized environment, bounded output, and a
+timeout.
+
+**Provisioning boundary, stated against this file's Method section.** The
+Method section's sentence — no experiment writes to a block device — remains
+true here: **no experiment row writes**. Provisioning the fixture media
+(writing a partition table and one technology structure per declared layout
+onto the disposable USB medium, then setting the device read-only with
+`blockdev --setro` and re-verifying the provisioned digest) is performed by a
+separately declared privileged setup actor inside the disposable VM, before
+measurement, with its own transcript. It accepts no path or command from the
+measurement shell. This is a wider setup class than Method's current
+"regular scratch files and virtual-container files" wording; the PR that
+lands this protocol's first executed run must widen that sentence explicitly
+rather than let it silently lapse — recorded here so the conflict is filed
+before it exists on disk.
+
+**Baseline discipline.** The ordinary-client baseline must lack raw block
+access: non-root, no `disk` or other block-read group, no ambient or
+effective capability, and a recorded denial of `dd` and `blkid -p` against
+the device node. A `disk`-group leg and a root helper leg are separately
+labelled projections and may not substitute for, or be merged into, the
+baseline. The result vocabulary is the closed set defined by the macOS matrix
+above, and gate failures make cells `void(<gate>)`, never negatives.
+
+Declared layouts, provisioned one at a time on the same medium, each with its
+digest recorded: **L-A** GPT with one ext4 partition (identity/designator
+baseline); **L-B** GPT with one mdraid 1.2 member partition; **L-C** GPT with
+one LUKS2 partition (`luksFormat` only — never opened); **L-D** GPT with one
+LVM2 PV carrying one VG (metadata area present, no LV activated); **L-E** GPT
+with one ZFS vdev label pair (pool exported before measurement); **L-F** the
+`ext4-with-stale-mdraid-090` byte pattern written to the partition (SI-34's
+stale-signature case on a real device tree). APFS has no Linux row:
+`not-applicable(platform)`. Precondition 2's Windows designators — the
+Storage Spaces pool object id and LDM group GUID — are not this matrix's
+rows; they belong to the Windows record and L7 is not the complete
+designator table without them.
+
+| # | Cell | Command / API | Privilege | Distinguishing condition | Invalidation conditions | Result |
+| --- | --- | --- | --- | --- | --- | --- |
+| L1 | Baseline denial, real medium | `stat`/`getfacl` on the node; `dd` one sector; `blkid -p` | client baseline | The stock-permission claim (`brw-rw---- root:disk`) holds for a real passthrough device in this VM, and the baseline truly lacks raw access | node ACL-granted or mode nonstandard without being recorded | `not yet taken` |
+| L2 | Real-device identity rows | `/run/udev/data/b<maj>:<min>`; `/sys/.../device/{vendor,model,wwid,serial}`; by-id symlink set | client baseline | Which identity facts (serial, WWN, bus, path) a real USB-attached device of this class actually exposes to the client — the WSL2 rows could not answer this | udev entry absent or unsettled (`udevadm settle` required); device re-enumerated mid-capture | `not yet taken` |
+| L3 | Kernel table view per layout | `/proc/partitions`; `/sys/.../start,size,ro,partition` for each materialized partition | client baseline | Kernel-materialized partition set for a real medium per layout L-A…L-F | partition count unstable across two captures; medium not read-only at capture | `not yet taken` |
+| L4 | Client signature view per layout (precondition 1, client half) | udev `E:` properties (`ID_FS_TYPE`, `ID_FS_UUID`, `ID_FS_USAGE`, raid metadata keys) for L-B/L-C/L-D/L-E/L-F | client baseline | What the cached, event-time udev projection says per technology — including which single answer it gives for L-F's live-plus-stale pair and whether `ID_FS_AMBIVALENT` fires on a real device | incomplete udev DB capture (absence of an entry is `observed(absent)` only when established); event after capture | `not yet taken` |
+| L5 | Helper signature view per layout (precondition 1, helper half) | `blkid -p -o udev`, `wipefs -n`, `mdadm --examine`, `cryptsetup luksDump`, `pvs --readonly -o pv_uuid,vg_uuid,vg_name`, `zdb -l` — all read-only forms, fixed argv | root, VM only | The direct-probe projection per technology over the same bytes, to stand against L4 — establishing or refuting client/helper signature agreement per precondition 1's instruction to establish rather than assume | any tool invocation not on the predeclared list; output unbounded; device writable | `not yet taken` |
+| L6 | `disk`-group projection | L4's and L5's client-executable subset re-run as a `disk`-group user | disk group, VM only, separately labelled | Whether group membership alone changes the observable set — the clamping obligation's concrete form: two users, one host, one build, different views | leg merged into baseline; group state not recorded per row | `not yet taken` |
+| L7 | Native designators (precondition 2) | from L4/L5: mdraid array UUID; LUKS UUID; LVM2 **VG id** (not PV UUID) and which interface, if any, yields it clientside; ZFS pool GUID | per source row | For each designator: raw byte form, source, privilege needed, and specifically whether a member-independent designator is client-readable at all — where none is, the register's indeterminate-aggregate consequence is the recorded fact | conflating PV UUID with VG id; reducing a designator to its rendered string without its source | `not yet taken` |
+| L8 | Designator stability | detach passthrough, reattach, recapture L2/L4/L7; one full VM reboot, recapture | client baseline | Which identity facts and designators survive replug and reboot unchanged on real hardware | fewer than two sittings; medium reprovisioned between sittings | `not yet taken` |
+| L9 | Designator collision | second physical medium provisioned byte-identical to L-A; both attached | client baseline | Client-visible collision semantics: `by-uuid`/`by-id` symlink behavior, udev entries, and whether either interface signals the duplicate | **conditional on a second authorized medium**; without it `not established`; media not byte-identical by digest | `not yet taken` |
+| L10 | SI-34 freshness projection, real medium | L4 versus L5 over L-F, captured in the same sitting | both, separately labelled | The regular-file finding — enumerating interface reports both signatures, single-answer interface reports exactly the stale one — established or refuted on a real device tree, which is the projection input SI-34 names | either half missing; bytes not digest-verified before and after | `not yet taken` |
+
+Validity gates, all required per sitting: fresh VM and recorded environment;
+provisioned-digest verification before and after each layout's measurements,
+performed by the setup actor through the read-only device — the client
+baseline cannot read the device and never verifies digests itself;
+`udevadm settle` plus double-capture byte
+stability for every udev read; no mount of any measured object at any point
+(asserted, not assumed — `/proc/self/mounts` captured before and after);
+automount and repair services confirmed absent or disabled; explicit
+per-layout teardown by the setup actor only. Transcript custody is identical
+to the macOS matrix: outside-repository archive with locator and custodian,
+hash algorithm/digest/byte length, capture-script digest recorded before
+first capture, per-command exit statuses, anonymized device-role mapping
+rather than machine identifiers, and second-reader retrieve-and-rehash before
+any cell leaves `not yet taken`.
+
+A valid run establishes only the rows above. It cannot decide SI-34 (the
+projection choice is a register decision over the evidence, not the
+evidence), cannot lift the loop protocol's own holds, and does not touch
+issue #94 in either direction.
 
 ## Reproducing this
 

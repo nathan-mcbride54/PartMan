@@ -1,8 +1,8 @@
 # ADR-0010: Replace React with Svelte in the required desktop UI stack
 
-- Status: Proposed
-- Date: 2026-08-01
-- Spec version: 4.1.0
+- Status: Accepted
+- Date: 2026-08-02 (proposed 2026-08-01)
+- Spec version: 5.0.0
 - Work packages blocked: any WP-030 desktop-shell increment, and any proposal to
   implement Section 4.1's UI layer
 - Requirement IDs: UI-001, UI-002, UI-003, UI-007, UI-008, UI-011, UI-013,

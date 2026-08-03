@@ -71,6 +71,83 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   colliding with product text — fails a Tier-1 gate before the acceptance is
   reached. That is the tripwire working correctly; the fix belongs in the
   environment, never in an exemption to the commit under proof.
+- The SI-33/SI-28 successor protocol's two S4 rows move from `not yet
+  taken` to `not established` on a custody-complete 2026-08-03 sitting:
+  with both readers attached simultaneously, the delivered second unit
+  measured as a different bridge model than the parent-record reader
+  (VID:PID 2537:1081, NORELSYS 1081CSx, against 0BDA:0306), and S4's own
+  rule forbids approximating the comparison with a different model. No
+  collision hypothesis is evaluated and no register disposition changes;
+  the arm remains takeable as preregistered once a same-model second unit
+  exists. The sitting's capture script and complete transcript are
+  archived outside the repository with digests recorded before the first
+  device query and an independent second-reader rehash; the observability
+  record carries the custody fields. Recorded as context only: the second
+  unit reports one ascending-hexadecimal placeholder serial at both the
+  USB-descriptor and storage layers, identical across its LUNs — the
+  SI-28 bridge-constant form on a second bridge family.
+- The SI-35 Windows completion rerun is preregistered in the observability
+  record, all cells `not yet taken`: three hardened gates — total retention
+  (query-and-discard, the recorded defect that made W-H1/H2/H3 unevaluable,
+  now voids the sitting), the restored before/after digest bracket
+  (wrapper prose is not a digest), and a mandatory layout-IOCTL
+  index-fallback probe for `MSFT_Disk`-invisible fixtures — plus the W-Q4
+  hybrid answer against its MBR control. The parent protocol's hypotheses,
+  mechanics, and scope limits are inherited unchanged; W-H2's
+  which-GPT-copy question is recorded as needing a WP-020 discriminating
+  fixture and is not preregistered across that package boundary. No
+  measurement is taken and no disposition changes.
+- The SI-33/SI-28 successor protocol is preregistered in the observability
+  record, all cells `not yet taken`: the close-before-event/reopen survival
+  arm with a true process-local no-handle window and epoch-boundary
+  bracketing, epoch-signal characterization over a fixed candidate list with
+  the counter itself excluded as circular, completion of L4's originally
+  requested three trials, and the second-reader storage-layer serial
+  collision test — previously pre-registered only in conversation, which
+  confers no standing — with its hypothesis, refutation condition,
+  live-comparison requirement, and enumeration-failure-is-data rule now in
+  the repository. README's M0.5 section and WP-035 row note the
+  preregistered instruments. No measurement is taken and no disposition
+  changes.
+- ADR-0010 is accepted: Section 4.1's required UI layer is Svelte and
+  TypeScript, SvelteKit excluded, Vite as the build tool — spec **5.0.0**, a
+  major bump because §0.1 makes a semantic change to an existing requirement
+  major regardless of implementation state. No code changes: `main` carries
+  no UI and nothing React-specific, re-verified at acceptance. No desktop
+  shell is approved — Tauri 2 stays the named shell with no new authority,
+  PR #91's retirement stands, and the ten `G-AX-*` accessibility gates
+  remain inconclusive. The ADR's verification obligations are deferred to
+  shell authorization; until then the stack is intended, not validated.
+  Current-version pointers (README, CONTRIBUTING, PR template, test tiers)
+  move to 5.0.0. Substance is in the spec's own §0.3 changelog, which
+  controls specification changes.
+- WP-035 increment 6's measurement matrices are preregistered in the
+  observability record with every cell `not yet taken`: a macOS matrix (raw
+  read policy, IOMedia/diskutil projections, APFS membership and container
+  UUID, foreign-signature fixtures through read-only no-mount attach, the
+  SI-34 stale-signature freshness row, and a hardware-conditional Fusion
+  cell) and a real-partitioned-Linux matrix (six declared layouts on
+  disposable passthrough fixture media, baseline/`disk`-group/helper
+  projections kept separately labelled, Part 6 precondition 2's native
+  designator, stability, and collision rows, and the SI-34 freshness row on
+  a real device tree). Both define closed result vocabularies, validity
+  gates whose failure voids rather than refutes, and transcript custody
+  with second-reader readback. The Linux provisioning-versus-Method wording
+  conflict is filed inside the protocol rather than left to surface later.
+  No measurement is taken, no register disposition changes, and no cell
+  asserts platform behavior.
+- WP-035's portability and fidelity pass gives the Linux replay open flags
+  their per-ABI-family values: generic, MIPS, and SPARC targets each pin the
+  reviewed `O_NONBLOCK | O_NOCTTY` encoding (`0x900`, `0x880`, `0xc000`), an
+  unreviewed Linux ABI now refuses to compile rather than inheriting generic
+  values, and Tier-1 asserts every family constant plus the selected target's
+  wiring into the one replay open call. The dependency doctor's output bound
+  is stated as it is enforced — 4096 bytes per child stream, at most 8192
+  aggregate retained — in the constant names, the over-limit diagnostic, and
+  a new Tier-1 boundary test; the enforced limits themselves are unchanged.
+  The CLI manifest comment names the Tier-1 non-`Hash` ambiguity assertion
+  rather than the removed compile-fail doctest. No limit value, requirement,
+  schema version, or exit code changes.
 - WP-010's authorized metadata and historical-fidelity repair marks SI-11 as
   hash-visible and ties its retained plan/snapshot obligations to MODEL-005 and
   Section 6; narrows SI-12 and spec 4.3.0 to the evidence actually retained for

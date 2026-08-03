@@ -15,7 +15,7 @@ path = "src/main.rs"
 # `the_shipped_dependency_closure_is_empty` asserts it through `cargo
 # metadata`, so no hash or plan implementation can arrive from outside this
 # crate. What the guard cannot see — std's own hashers used deliberately
-# in-crate — is held off the output type by its compile-fail non-Hash proof,
+# in-crate — is held off the output type by its Tier-1 ambiguity assertion,
 # and past that is a named review obligation, not a claimed impossibility.
 # Widening this section is a reviewed decision, not a convenience.
 
