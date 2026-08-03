@@ -149,9 +149,111 @@ pub const GATED: &[(&str, &str, &str)] = &[
 /// (SI-27), and the parser refuses a second object per invocation.
 pub const REPLAY_SELECTOR: &str = "replay:0";
 
-/// `O_NONBLOCK | O_NOCTTY` in Linux's userspace ABI.
-#[cfg(target_os = "linux")]
-pub(crate) const REPLAY_OPEN_FLAGS: i32 = 0x0000_0800 | 0x0000_0100;
+// Linux does not assign these flags uniformly across its supported ABIs.
+// Keep the three UAPI families explicit: using the generic value on MIPS or
+// SPARC can omit O_NONBLOCK and turn a rebinding race into a blocking open.
+#[cfg(all(
+    target_os = "linux",
+    any(
+        test,
+        target_arch = "aarch64",
+        target_arch = "arm",
+        target_arch = "csky",
+        target_arch = "hexagon",
+        target_arch = "loongarch64",
+        target_arch = "m68k",
+        target_arch = "powerpc",
+        target_arch = "powerpc64",
+        target_arch = "riscv32",
+        target_arch = "riscv64",
+        target_arch = "s390x",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    )
+))]
+pub(crate) const LINUX_GENERIC_REPLAY_OPEN_FLAGS: i32 = 0x0000_0800 | 0x0000_0100;
+#[cfg(all(
+    target_os = "linux",
+    any(
+        test,
+        target_arch = "mips",
+        target_arch = "mips32r6",
+        target_arch = "mips64",
+        target_arch = "mips64r6"
+    )
+))]
+pub(crate) const LINUX_MIPS_REPLAY_OPEN_FLAGS: i32 = 0x0000_0080 | 0x0000_0800;
+#[cfg(all(
+    target_os = "linux",
+    any(test, target_arch = "sparc", target_arch = "sparc64")
+))]
+pub(crate) const LINUX_SPARC_REPLAY_OPEN_FLAGS: i32 = 0x0000_4000 | 0x0000_8000;
+
+/// `O_NONBLOCK | O_NOCTTY` in the generic Linux userspace ABI family.
+#[cfg(all(
+    target_os = "linux",
+    any(
+        target_arch = "aarch64",
+        target_arch = "arm",
+        target_arch = "csky",
+        target_arch = "hexagon",
+        target_arch = "loongarch64",
+        target_arch = "m68k",
+        target_arch = "powerpc",
+        target_arch = "powerpc64",
+        target_arch = "riscv32",
+        target_arch = "riscv64",
+        target_arch = "s390x",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    )
+))]
+pub(crate) const REPLAY_OPEN_FLAGS: i32 = LINUX_GENERIC_REPLAY_OPEN_FLAGS;
+
+/// `O_NONBLOCK | O_NOCTTY` in the Linux MIPS userspace ABI family.
+#[cfg(all(
+    target_os = "linux",
+    any(
+        target_arch = "mips",
+        target_arch = "mips32r6",
+        target_arch = "mips64",
+        target_arch = "mips64r6"
+    )
+))]
+pub(crate) const REPLAY_OPEN_FLAGS: i32 = LINUX_MIPS_REPLAY_OPEN_FLAGS;
+
+/// `O_NONBLOCK | O_NOCTTY` in the Linux SPARC userspace ABI family.
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "sparc", target_arch = "sparc64")
+))]
+pub(crate) const REPLAY_OPEN_FLAGS: i32 = LINUX_SPARC_REPLAY_OPEN_FLAGS;
+
+#[cfg(all(
+    target_os = "linux",
+    not(any(
+        target_arch = "aarch64",
+        target_arch = "arm",
+        target_arch = "csky",
+        target_arch = "hexagon",
+        target_arch = "loongarch64",
+        target_arch = "m68k",
+        target_arch = "mips",
+        target_arch = "mips32r6",
+        target_arch = "mips64",
+        target_arch = "mips64r6",
+        target_arch = "powerpc",
+        target_arch = "powerpc64",
+        target_arch = "riscv32",
+        target_arch = "riscv64",
+        target_arch = "s390x",
+        target_arch = "sparc",
+        target_arch = "sparc64",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))
+))]
+compile_error!("fixture replay open flags have not been reviewed for this Linux target ABI");
 
 /// `O_NONBLOCK | O_NOCTTY` in Darwin's userspace ABI. Darwin assigns the
 /// Linux values to `O_EXCL | O_NOFOLLOW`; keeping this target-specific is a

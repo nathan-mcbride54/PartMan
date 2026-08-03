@@ -7,6 +7,18 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- WP-035's portability and fidelity pass gives the Linux replay open flags
+  their per-ABI-family values: generic, MIPS, and SPARC targets each pin the
+  reviewed `O_NONBLOCK | O_NOCTTY` encoding (`0x900`, `0x880`, `0xc000`), an
+  unreviewed Linux ABI now refuses to compile rather than inheriting generic
+  values, and Tier-1 asserts every family constant plus the selected target's
+  wiring into the one replay open call. The dependency doctor's output bound
+  is stated as it is enforced — 4096 bytes per child stream, at most 8192
+  aggregate retained — in the constant names, the over-limit diagnostic, and
+  a new Tier-1 boundary test; the enforced limits themselves are unchanged.
+  The CLI manifest comment names the Tier-1 non-`Hash` ambiguity assertion
+  rather than the removed compile-fail doctest. No limit value, requirement,
+  schema version, or exit code changes.
 - WP-010's authorized metadata and historical-fidelity repair marks SI-11 as
   hash-visible and ties its retained plan/snapshot obligations to MODEL-005 and
   Section 6; narrows SI-12 and spec 4.3.0 to the evidence actually retained for
