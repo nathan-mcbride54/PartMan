@@ -7,6 +7,18 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- ADR-0010 is accepted: Section 4.1's required UI layer is Svelte and
+  TypeScript, SvelteKit excluded, Vite as the build tool — spec **5.0.0**, a
+  major bump because §0.1 makes a semantic change to an existing requirement
+  major regardless of implementation state. No code changes: `main` carries
+  no UI and nothing React-specific, re-verified at acceptance. No desktop
+  shell is approved — Tauri 2 stays the named shell with no new authority,
+  PR #91's retirement stands, and the ten `G-AX-*` accessibility gates
+  remain inconclusive. The ADR's verification obligations are deferred to
+  shell authorization; until then the stack is intended, not validated.
+  Current-version pointers (README, CONTRIBUTING, PR template, test tiers)
+  move to 5.0.0. Substance is in the spec's own §0.3 changelog, which
+  controls specification changes.
 - WP-035 increment 6's measurement matrices are preregistered in the
   observability record with every cell `not yet taken`: a macOS matrix (raw
   read policy, IOMedia/diskutil projections, APFS membership and container
