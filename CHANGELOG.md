@@ -7,6 +7,21 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- WP-035 increment 6's measurement matrices are preregistered in the
+  observability record with every cell `not yet taken`: a macOS matrix (raw
+  read policy, IOMedia/diskutil projections, APFS membership and container
+  UUID, foreign-signature fixtures through read-only no-mount attach, the
+  SI-34 stale-signature freshness row, and a hardware-conditional Fusion
+  cell) and a real-partitioned-Linux matrix (six declared layouts on
+  disposable passthrough fixture media, baseline/`disk`-group/helper
+  projections kept separately labelled, Part 6 precondition 2's native
+  designator, stability, and collision rows, and the SI-34 freshness row on
+  a real device tree). Both define closed result vocabularies, validity
+  gates whose failure voids rather than refutes, and transcript custody
+  with second-reader readback. The Linux provisioning-versus-Method wording
+  conflict is filed inside the protocol rather than left to surface later.
+  No measurement is taken, no register disposition changes, and no cell
+  asserts platform behavior.
 - WP-035's portability and fidelity pass gives the Linux replay open flags
   their per-ABI-family values: generic, MIPS, and SPARC targets each pin the
   reviewed `O_NONBLOCK | O_NOCTTY` encoding (`0x900`, `0x880`, `0xc000`), an
