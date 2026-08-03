@@ -326,6 +326,7 @@ dependencies = [
  "partman-fixtures",
  "partman-tokens",
  "serde_json",
+ "sha2",
  "yaml-rust2",
 ]
 

@@ -7,6 +7,31 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- WP-035 delivers the SI-35 hardened-protocol instrument as the second and
+  only other registered higher-tier selector,
+  `cargo xtask test --tier 2 --profile destructive --acceptance
+  si35-loop-capture`, plus its unprivileged counterpart
+  `cargo xtask si35-project --raw <file>`. The capture half runs, under the
+  2e acceptance's exact native-Linux/no-WSL/explicit-elevation gate, the
+  **compiled preregistered schedule** — gate 5's negative controls (two
+  generation roots for distinct inodes, plus a repeat attach), six
+  order-balanced alternating trials of the healthy and conflicting fixtures,
+  and a closing healthy control — each entry one crate-owned
+  `run_probed_session` inside a fresh 0700 scratch that is created-or-refused
+  and cleaned exactly, with passive `udevadm monitor` block-event capture
+  around each session and an environment record digesting the instrument
+  binary, kernel config, udev ruleset, tool versions, and fixture manifest
+  before the first attach. It emits raw JSON-line records and registers no
+  destructive suite. The projection half **refuses elevation**, records the
+  measurement user's negative assertions (no disk group, empty capabilities,
+  denied direct loop reads), applies the frozen normalizer — exactly the six
+  preregistered plumbing keys dropped, everything else retained — and
+  evaluates the stability, control, trial-coherence, event, and decisive-pair
+  gates, exiting nonzero if any gate voids the run. Monitor output is
+  evidence only and is never parsed for addressing. No measurement is taken
+  by this change and every observability result cell stays `not yet taken`;
+  the instrument exists to be run in a fresh disposable VM sitting.
+
 - WP-020 increment 2f's session takes the in-process verification reads its
   amended boundary names for the SI-35 instrument's gates 3, 6, and 7: the
   attached device's complete logical contents are hashed through the held
