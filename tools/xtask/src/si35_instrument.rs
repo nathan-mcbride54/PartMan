@@ -46,15 +46,19 @@ const MONITOR_CAPTURE_LIMIT: usize = 64 * 1024;
 /// How long to let trailing uevents drain before stopping the monitor.
 const MONITOR_DRAIN: Duration = Duration::from_millis(500);
 
-/// The exact plumbing keys the frozen normalizer may drop, as preregistered
-/// in gate 4 of the protocol. Nothing else is ever dropped.
-const NORMALIZER_DROPPED_KEYS: [&str; 6] = [
+/// The exact plumbing keys the frozen normalizer may drop: the six gate 4
+/// preregistered, plus `DISKSEQ` per the recorded 2026-08-03 amendment — the
+/// kernel-assigned monotone attach counter the first sitting discovered
+/// varying per attach (22 → 26 across one root's controls), session plumbing
+/// of exactly the class the original six name. Nothing else is ever dropped.
+const NORMALIZER_DROPPED_KEYS: [&str; 7] = [
     "USEC_INITIALIZED",
     "ID_PART_ENTRY_DISK",
     "ID_LOOP_BACKING_FILENAME",
     "ID_LOOP_BACKING_FILENAME_ENC",
     "ID_LOOP_BACKING_INODE",
     "ID_LOOP_BACKING_DEVICE",
+    "DISKSEQ",
 ];
 
 /// Which generation root a schedule entry consumes.
@@ -353,11 +357,14 @@ fn capture_one_session(
 
 struct Monitor {
     child: std::process::Child,
-    receiver: std::sync::mpsc::Receiver<Vec<u8>>,
+    buffer: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
 }
 
-/// Start the passive event listener. Its output is evidence; nothing parses
-/// it for addressing and no device is ever opened from it.
+/// Start the passive event listener and wait for its readiness banner before
+/// returning, so the attach's first uevent burst cannot race the netlink
+/// bind — the first sitting saw exactly that race (2 of 3 required add
+/// events captured). Its output is evidence; nothing parses it for
+/// addressing and no device is ever opened from it.
 fn spawn_monitor() -> Result<Monitor, TaskError> {
     let mut command = std::process::Command::new(UDEVADM_PATH);
     command
@@ -371,15 +378,16 @@ fn spawn_monitor() -> Result<Monitor, TaskError> {
         .spawn()
         .map_err(|error| safety(format!("udevadm monitor failed to launch: {error}")))?;
     let stdout = child.stdout.take();
-    let (sender, receiver) = std::sync::mpsc::channel();
+    let buffer = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let writer = std::sync::Arc::clone(&buffer);
     std::thread::spawn(move || {
-        let mut collected = Vec::new();
         if let Some(mut pipe) = stdout {
             let mut chunk = [0_u8; 4096];
             loop {
                 match pipe.read(&mut chunk) {
                     Ok(0) | Err(_) => break,
                     Ok(read) => {
+                        let mut collected = writer.lock().expect("monitor buffer lock");
                         if collected.len() < MONITOR_CAPTURE_LIMIT {
                             let remaining = MONITOR_CAPTURE_LIMIT - collected.len();
                             collected.extend_from_slice(&chunk[..read.min(remaining)]);
@@ -388,19 +396,39 @@ fn spawn_monitor() -> Result<Monitor, TaskError> {
                 }
             }
         }
-        let _ = sender.send(collected);
     });
-    Ok(Monitor { child, receiver })
+
+    // udevadm prints a banner once its sockets are bound; wait for it, so a
+    // configure issued after this return cannot emit events the listener was
+    // not yet subscribed to. A silent monitor refuses rather than racing.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        {
+            let collected = buffer.lock().expect("monitor buffer lock");
+            if !collected.is_empty() {
+                break;
+            }
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(safety(
+                "udevadm monitor produced no readiness output; refusing to race the \
+                 first uevent"
+                    .to_owned(),
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    Ok(Monitor { child, buffer })
 }
 
 /// Stop the listener and return what it captured.
 fn stop_monitor(mut monitor: Monitor) -> Vec<u8> {
     let _ = monitor.child.kill();
     let _ = monitor.child.wait();
-    monitor
-        .receiver
-        .recv_timeout(Duration::from_secs(5))
-        .unwrap_or_default()
+    let collected = monitor.buffer.lock().expect("monitor buffer lock");
+    collected.clone()
 }
 
 /// Launch one bounded run-to-exit probe for the environment record.
@@ -587,13 +615,19 @@ pub(crate) fn run_project(raw: &Path) -> Result<(), TaskError> {
     }
 }
 
-/// Gate 7's byte-stability check: each subject's two udev captures must be
-/// byte-equal within every session.
+/// Gate 7's stability check: each subject's two udev captures must be equal
+/// after the one declared canonicalization — `DEVLINKS` value tokens sorted.
+/// The first sitting measured udevadm rendering that property's symlink SET
+/// in varying order between two back-to-back queries with identical token
+/// sets; ordering is renderer nondeterminism, not device state, and the
+/// canonicalization preserves every token.
 fn evaluate_stability_gate(sessions: &[Session]) -> bool {
     let mut passed = true;
     for session in sessions {
         for (subject, captures) in &session.info_captures {
-            if captures.len() != 2 || captures[0] != captures[1] {
+            let stable = captures.len() == 2
+                && canonicalize_info(&captures[0]) == canonicalize_info(&captures[1]);
+            if !stable {
                 println!(
                     "gate stability entry={} subject={subject} pass=false",
                     session.entry
@@ -604,6 +638,28 @@ fn evaluate_stability_gate(sessions: &[Session]) -> bool {
     }
     println!("gate stability pass={passed}");
     passed
+}
+
+/// The one declared rendering canonicalization: within an `E: DEVLINKS=`
+/// line, sort the space-separated tokens. Every other byte is preserved.
+fn canonicalize_info(capture: &[u8]) -> String {
+    let text = String::from_utf8_lossy(capture);
+    let mut canonical = String::with_capacity(text.len());
+    for line in text.lines() {
+        canonical.push_str(&canonicalize_devlinks_line(line));
+        canonical.push('\n');
+    }
+    canonical
+}
+
+/// Sort the token set of one `DEVLINKS` property line; return others as-is.
+fn canonicalize_devlinks_line(line: &str) -> String {
+    let Some(value) = line.strip_prefix("E: DEVLINKS=") else {
+        return line.to_owned();
+    };
+    let mut tokens: Vec<&str> = value.split_whitespace().collect();
+    tokens.sort_unstable();
+    format!("E: DEVLINKS={}", tokens.join(" "))
 }
 
 /// Record the unprivileged reader's negative assertions: no disk group, no
@@ -767,7 +823,7 @@ fn normalize_session(session: &Session) -> String {
         normalized.push_str(subject);
         normalized.push('\n');
         if let Some(first) = captures.first() {
-            let text = String::from_utf8_lossy(first);
+            let text = canonicalize_info(first);
             for line in text.lines() {
                 let Some(property) = line.strip_prefix("E: ") else {
                     continue;
@@ -822,14 +878,15 @@ mod tests {
     //   The frozen normalizer drops exactly the six predeclared plumbing keys
     //   and retains every other property in order.
     // Work-Package: WP-035
-    // Evidence: normalizer_drops_exactly_the_six_predeclared_keys
+    // Evidence: normalizer_drops_exactly_the_declared_keys
     #[cfg(target_os = "linux")]
     #[test]
-    fn normalizer_drops_exactly_the_six_predeclared_keys() {
+    fn normalizer_drops_exactly_the_declared_keys() {
         let info = b"P: /devices/virtual/block/loop0\n\
 N: loop0\n\
 E: DEVNAME=/dev/loop0\n\
 E: USEC_INITIALIZED=123\n\
+E: DISKSEQ=22\n\
 E: ID_LOOP_BACKING_INODE=456\n\
 E: ID_FS_TYPE=ext4\n\
 E: ID_PART_ENTRY_DISK=7:0\n\
@@ -859,6 +916,31 @@ E: ID_PART_TABLE_TYPE=gpt\n"
         }
         // P: and N: lines are not E: properties and are not projection.
         assert!(!normalized.contains("/devices/virtual"));
+    }
+
+    // Requirements: SAFE-005, SAFE-006
+    //   The one declared canonicalization sorts DEVLINKS tokens and preserves
+    //   every token and every other line, so two captures differing only in
+    //   udevadm's symlink-set rendering order compare stable, and a genuinely
+    //   different token set still fails.
+    // Work-Package: WP-035
+    // Evidence: devlinks_canonicalization_sorts_tokens_and_preserves_content
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn devlinks_canonicalization_sorts_tokens_and_preserves_content() {
+        let first = b"E: DEVLINKS=/dev/disk/by-partuuid/aa /dev/disk/by-partlabel/Data\n\
+E: ID_FS_TYPE=ext4\n";
+        let second = b"E: DEVLINKS=/dev/disk/by-partlabel/Data /dev/disk/by-partuuid/aa\n\
+E: ID_FS_TYPE=ext4\n";
+        assert_eq!(canonicalize_info(first), canonicalize_info(second));
+        assert!(canonicalize_info(first).contains("/dev/disk/by-partuuid/aa"));
+        assert!(canonicalize_info(first).contains("/dev/disk/by-partlabel/Data"));
+
+        let dropped_token = b"E: DEVLINKS=/dev/disk/by-partlabel/Data\n";
+        assert_ne!(canonicalize_info(first), canonicalize_info(dropped_token));
+
+        let untouched = "E: ID_FS_UUID=abc";
+        assert_eq!(canonicalize_devlinks_line(untouched), untouched);
     }
 
     // Requirements: SAFE-005

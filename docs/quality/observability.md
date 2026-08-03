@@ -3002,6 +3002,63 @@ loop-measurement part of M0.5. It cannot choose SI-35's option, supply the
 chosen-option refusal proof, or substitute for SI-34's real-partitioned-Linux
 and macOS observations.
 
+#### First sitting, 2026-08-03 — void (gates 4 and 7); instrument amended
+
+The instrument's first execution, in fresh disposable Proxmox VM 9421 (stock
+Ubuntu 22.04.5, kernel 5.15.0-186-generic, snapd/udisks2 purged, repository
+commit `491d10f`, base image and environment digests in the retained record).
+The privileged capture half completed all ten scheduled sessions with exit 0 —
+every session's crate bindings, whole-device hashes, and confirmed teardown
+passed, and `losetup -a` was empty afterwards. The unprivileged projection
+half then **voided the run**, exactly as the protocol requires:
+
+- **Gate 4 void — an undeclared session-dependent field.** `E: DISKSEQ`, the
+  kernel-assigned monotone disk sequence counter, is present on this kernel
+  and increments per attach (`22` on control NC1 against `26` on the same
+  root's repeat NC3). It is not among the six preregistered droppable keys,
+  so every control and trial-coherence comparison failed and the run is void.
+- **Gate 7 void, rendering instability.** Two back-to-back `udevadm info`
+  captures of the same partition rendered `E: DEVLINKS` with the **same
+  token set in different orders** (`by-partuuid … by-partlabel` against
+  `by-partlabel … by-partuuid`), failing byte-stability on several partition
+  subjects.
+- **Gate 7 void, event capture.** Every session's passive monitor recorded 2
+  udev block `add` events where 1 + partitions = 3 were required: the
+  listener was spawned but its netlink subscription raced the attach's first
+  event burst.
+
+Every confirmation row for this run is therefore `void (gate 4; gate 7)` —
+never `refuted` or `supported` — and the decisive-pair output the projection
+printed is **not usable and is deliberately not quoted here**: with an
+undeclared varying field in every projection, "separates" is contaminated by
+plumbing. No hypothesis moves. The raw capture, full transcript, and
+environment record are retained outside the repository
+(transcript SHA-256
+`2c2528d7fabdb66da77af172a0395a306c328fe92d2e775e4d044e14ca71d067`), and the
+VM was reverted to its pre-sitting snapshot afterwards.
+
+**Amendment recorded 2026-08-03, before any subsequent run's output.** The
+three defects are instrument defects, justified by the validity failures
+alone:
+
+1. `DISKSEQ` joins the normalizer's droppable keys. Reasoning: it is a
+   kernel-assigned monotone attach counter carrying no content information —
+   the same session-plumbing class as `USEC_INITIALIZED` and the loop backing
+   keys; leaving it retained makes every fresh attach trivially distinct,
+   which is exactly what the drop list exists to prevent. The list is now
+   seven keys and remains exact.
+2. One declared rendering canonicalization: within an `E: DEVLINKS` line the
+   space-separated tokens are sorted before comparison and projection. Every
+   token is preserved — a genuinely different symlink set still differs —
+   only udevadm's set-rendering order is removed.
+3. The monitor waits for `udevadm monitor`'s readiness banner before the
+   session may configure, and refuses if none appears, so the first uevent
+   burst can no longer race the subscription.
+
+Gate texts, the schedule, trial counts, hypotheses, and outcome rules are
+untouched. The next sitting runs the amended instrument from a pre-sitting
+snapshot revert.
+
 #### Mechanism amendment, 2026-08-03 — recorded before any output exists
 
 No measurement has been taken and every result cell above stays exactly as
