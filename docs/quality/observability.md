@@ -1640,6 +1640,113 @@ derive continuity from bookkeeping between runs.
   also contains a lower later reading, and the trigger is unrecorded.
   Suspend, hub reset, and reboot are untested.
 
+### SI-33/SI-28 successor protocol — preregistered, not yet taken
+
+Protocol recorded 2026-08-02 under WP-035's SI-33 and SI-28 shares. Status:
+**not yet taken**; every result cell is deliberately `not yet taken` and this
+subsection is an instrument, not evidence. It preregisters exactly the
+successor questions the records above filed — the close-before-event/reopen
+arm the 2026-08-02 run missed, the epoch-signal characterization its decrease
+demands, L4's unmet replication, and the second-reader collision question the
+SI-28 record marked "worth measuring" — and nothing else; executing it may
+not add arms. The collision test was previously pre-registered only in
+conversation (recorded in the 2026-08-02 handoff with its hypothesis,
+refutation condition, live-comparison requirement, and
+enumeration-failure-is-data rule); this section is its repository
+preregistration, and the conversational one confers no standing of its own.
+
+Everything the parent protocol declared travels unchanged: non-elevated
+throughout with the elevation assertion recorded per sitting; the ceiling
+declaration (prompt movement cannot be attributed to exchange-synchronous
+detection; the strongest recordable positive remains *no staleness observed
+under these conditions*, per reader, bridge, and build); role labels only,
+with the parent's declared non-unit VID:PID exception for bridge-model
+comparison; the mounted-disk-image non-substitution rule; and this file's
+rule of use extended to `not yet taken` cells. Result vocabulary is the
+closed set the increment 6 matrices define, plus this record's own
+`moved` / `unchanged` / `count-absent` counter outcomes. Transcript custody
+is identical to the increment 6 matrices: outside-repository archive with
+locator and custodian, hash algorithm/digest/byte length, capture-script
+digest recorded before the first sample, per-command exit statuses, and
+second-reader retrieve-and-rehash before any cell leaves `not yet taken`.
+Gate failures make cells `void(<gate>)`, never negatives. New legs carry
+S-numbers so no result can be conflated with the parent run's L-legs.
+
+**S1 — close-before-event/reopen survival, with a true no-handle window.**
+Read the counter, then close **every handle this process holds on the
+device** and assert process-local closure before the event; the assertion's
+scope is process-local and is recorded as such — system-wide handle absence
+is not claimable unprivileged and is not claimed. Exchange the medium with
+the empty-slot assertion between removal and reinsertion (the discarded-L4
+audit rule), reopen fresh, and read. Three trials. Bracket every trial with
+the reader's `DEVPKEY_Device_LastArrivalDate`: if the reader's own arrival
+timestamp moves inside a trial, that trial is `void (epoch boundary)` —
+survival and reset are indistinguishable across one. Permitted outcomes per
+trial: `moved` (the count survived the no-handle window and registered the
+exchange), `unchanged` (**the fail-open signal** — the returning medium
+reads as never exchanged; this outcome is the experiment's reason to exist
+and must be recorded at full strength), `count-absent`, or void.
+
+**S2 — epoch/instance signal characterization.** The parent run's
+`same-driver-instance=False` was computed from the lower counter itself and
+is circular; the counter value is therefore **excluded as a candidate**.
+Preregistered candidates, each read non-elevated: `DEVPKEY_Device_PDOName`,
+`DEVPKEY_Device_ContainerId`, and `DEVPKEY_Device_LastArrivalDate` (the
+last already known to mark arrival without identifying an incarnation — it
+participates as a bracketing control, not as a proposed token). A candidate
+**qualifies** only if all four hold: readable non-elevated; stable across
+quiescence and every same-instance sample; changed across **every** induced
+re-arrival; and computed independently of the counter. Induce three reader
+re-arrival boundaries (deliberate surprise-removal and reattach of the
+reader, the run 1/2 boundary reproduced on purpose, trigger recorded this
+time), sampling every candidate and the counter immediately before and
+after each. One additional reboot boundary is preregistered as S2b with the
+same samples. Extending the candidate list is a protocol revision, not a
+run-time choice. A qualifying signal makes cross-epoch readings
+incomparable by construction; none qualifying is itself a recordable
+result and narrows SI-33 toward its another-witness-entirely arm. Nothing
+here decides SI-33's design.
+
+**S3 — L4 replication completion.** Two further trials of the L4
+same-medium out-and-back leg exactly as defined above — the definition is
+not restated here, so it cannot drift — bringing the leg to its originally
+requested three trials, each with the empty-slot assertion and idle
+re-reads the definition requires.
+
+**S4 — second-reader collision test (SI-28 share; conditional).** Runs only
+when a second reader of the same model is available, with model sameness
+established through the parent record's declared non-unit VID:PID
+exception plus model string, and unit distinctness through the USB
+descriptor serial. **Hypothesis under test:** the storage-layer serial is a
+bridge firmware constant, predicting the same `2012…5300`-form value from
+two distinct units. **Refutation condition:** the second unit reports a
+different storage-layer serial. **Live comparison is required:** both
+readers attached simultaneously, serials read in one sitting — a recalled
+or transcribed value from another session refutes nothing.
+**Enumeration failure is data:** if simultaneous attachment makes either
+reader fail to enumerate, merge, or re-identify, that outcome is recorded
+as the collision behavior it is, not as a failed run. Two further rows
+ride only if the primary comparison completes: the empty-slot serial
+comparison (the parent record's strongest single-reader form, repeated
+across units), and one card moved between readers to record whether the
+storage-layer record follows the card or the reader. Without the second
+unit every S4 cell stays `not established`, not approximated with a
+different model.
+
+| Arm | Result |
+| --- | --- |
+| S1 close-before-event/reopen survival, 3 trials | `not yet taken` |
+| S2 epoch-signal candidates across 3 induced re-arrivals | `not yet taken` |
+| S2b epoch-signal candidates across one reboot | `not yet taken` |
+| S3 L4 trials 2 and 3 | `not yet taken` |
+| S4 two-unit storage-layer serial live comparison | `not yet taken` |
+| S4 empty-slot serial across units; card moved between readers | `not yet taken` |
+
+A valid run can establish only these arms. It decides no SI-33 design
+option, does not move SI-28's disposition (the register owns status), and
+generalizes to no other reader, bridge, host, or device class than the
+units measured.
+
 ## macOS
 
 **Not established.** Needs: IOKit / `IOMedia` property availability without
