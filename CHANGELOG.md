@@ -7,6 +7,26 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- The SI-35 instrument's first sitting is recorded as **void (gates 4 and
+  7)** and the instrument is amended, with the amendment recorded before any
+  subsequent run's output. The capture half completed all ten sessions
+  cleanly in fresh disposable VM 9421 at `491d10f`; the unprivileged
+  projection half then voided the run on three instrument defects the first
+  real kernel exposed: `DISKSEQ` — a kernel-assigned monotone attach counter
+  not among the six preregistered droppable keys — varied per attach and
+  failed every control comparison; `udevadm info` rendered `DEVLINKS`'s
+  symlink set in varying order between back-to-back captures, failing
+  byte-stability; and the passive monitor's netlink subscription raced the
+  attach's first event burst, capturing 2 of 3 required add events. The
+  decisive-pair output of the void run is deliberately unused and unquoted.
+  Amendments, justified by the validity failures alone: `DISKSEQ` joins the
+  droppable keys (session plumbing, same class as `USEC_INITIALIZED`); one
+  declared token-order canonicalization for `DEVLINKS` that preserves every
+  token; and the monitor now waits for its readiness banner and refuses
+  rather than racing. Gates, schedule, trials, hypotheses, and outcome rules
+  are untouched. Raw capture and transcript retained externally, transcript
+  SHA-256 `2c2528d7…a71d067`; no hypothesis row moves.
+
 - WP-035 delivers the SI-35 hardened-protocol instrument as the second and
   only other registered higher-tier selector,
   `cargo xtask test --tier 2 --profile destructive --acceptance
