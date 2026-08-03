@@ -7,6 +7,21 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- The SI-33/SI-28 successor protocol's two S4 rows move from `not yet
+  taken` to `not established` on a custody-complete 2026-08-03 sitting:
+  with both readers attached simultaneously, the delivered second unit
+  measured as a different bridge model than the parent-record reader
+  (VID:PID 2537:1081, NORELSYS 1081CSx, against 0BDA:0306), and S4's own
+  rule forbids approximating the comparison with a different model. No
+  collision hypothesis is evaluated and no register disposition changes;
+  the arm remains takeable as preregistered once a same-model second unit
+  exists. The sitting's capture script and complete transcript are
+  archived outside the repository with digests recorded before the first
+  device query and an independent second-reader rehash; the observability
+  record carries the custody fields. Recorded as context only: the second
+  unit reports one ascending-hexadecimal placeholder serial at both the
+  USB-descriptor and storage layers, identical across its LUNs — the
+  SI-28 bridge-constant form on a second bridge family.
 - The SI-35 Windows completion rerun is preregistered in the observability
   record, all cells `not yet taken`: three hardened gates — total retention
   (query-and-discard, the recorded defect that made W-H1/H2/H3 unevaluable,
