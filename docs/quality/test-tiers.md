@@ -116,16 +116,22 @@ toolchain, so it has its own entry point and its own CI job:
 cargo xtask cross-language
 ```
 
-## Tier 2 exception; destructive Tier 2 and all Tier 3 refuse
+## Tier 2 exceptions; destructive Tier 2 and all Tier 3 refuse
 
-Exactly one higher-tier selector is registered:
+Exactly two higher-tier selectors are registered:
 
 ```text
 cargo xtask test --tier 2 --profile destructive --acceptance linux-loop-read-only
+cargo xtask test --tier 2 --profile destructive --acceptance si35-loop-capture
 ```
 
-It is a privileged, non-destructive, logical-content-read-only acceptance for a
-disposable non-WSL Linux VM. Every generic destructive Tier-2 request and every
+The first is WP-020's privileged, non-destructive, logical-content-read-only
+acceptance. The second is WP-035's SI-35 instrument capture half: it runs the
+preregistered schedule of crate-owned hold-open sessions in the same class of
+disposable non-WSL Linux VM, under the same native-Linux/no-WSL/explicit-
+elevation gate, and emits raw records for the unprivileged
+`cargo xtask si35-project` half to normalize and judge. Neither registers a
+destructive suite. Every generic destructive Tier-2 request and every
 Tier-3 request still refuses. Reordered, partial, additional, unknown, Tier-1,
 or Tier-3 uses of `--acceptance` refuse rather than selecting a nearby action.
 

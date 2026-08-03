@@ -14,6 +14,11 @@ use std::process::{Command, ExitCode};
 
 use partman_fixtures::{catalogue, interlock, prober};
 
+// The WP-035 SI-35 instrument. Linux-only by construction: its capture half
+// consumes the Linux loop session and its projection half reads /proc.
+#[cfg(target_os = "linux")]
+mod si35_instrument;
+
 const PINNED_RUST_VERSION: &str = "1.96.0";
 const WORKFLOW_DIRECTORY: &str = ".github/workflows";
 /// Composite actions committed to this repository. Optional, unlike the
@@ -57,8 +62,11 @@ const TIER_ONE_COMMANDS: [&[&str]; 2] = [
     &["test", "--workspace", "--all-targets", "--locked"],
     &["test", "--workspace", "--doc", "--locked"],
 ];
-/// The only higher-tier acceptance registered by WP-020 increment 2e.
+/// The higher-tier acceptance registered by WP-020 increment 2e.
 const LINUX_LOOP_READ_ONLY_ACCEPTANCE: &str = "linux-loop-read-only";
+/// The WP-035 SI-35 instrument's privileged capture half, registered as the
+/// second and only other higher-tier selector.
+const SI35_LOOP_CAPTURE_ACCEPTANCE: &str = "si35-loop-capture";
 /// Honest boundary: xtask checks target OS, two `/proc` markers, and EUID;
 /// every VM/isolation predicate remains external evidence.
 #[cfg(any(target_os = "linux", test))]
@@ -106,6 +114,9 @@ enum Task {
         write: bool,
     },
     SupplyChain,
+    Si35Project {
+        raw: PathBuf,
+    },
     Test {
         tier: u8,
         profile: Option<String>,
@@ -131,6 +142,7 @@ enum Task {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Acceptance {
     LinuxLoopReadOnly,
+    Si35LoopCapture,
 }
 
 fn parse(args: &[OsString]) -> Result<Task, TaskError> {
@@ -154,6 +166,7 @@ fn parse(args: &[OsString]) -> Result<Task, TaskError> {
         "help" | "--help" | "-h" => nullary(Task::Help, command, rest),
         "probe" => nullary(Task::Probe, command, rest),
         "slint-report" => parse_slint_report(command, rest),
+        "si35-project" => parse_si35_project(rest),
         "supply-chain" => nullary(Task::SupplyChain, command, rest),
         "tokens" => nullary(Task::Tokens, command, rest),
         "traceability" => parse_traceability(command, rest),
@@ -231,6 +244,7 @@ fn execute(task: &Task) -> Result<(), TaskError> {
             ])?;
             cargo(&["audit", "--deny", "warnings", "--file", "fuzz/Cargo.lock"])
         }
+        Task::Si35Project { ref raw } => run_si35_project(raw),
         Task::Test {
             tier,
             ref profile,
@@ -248,6 +262,17 @@ fn execute(task: &Task) -> Result<(), TaskError> {
             verify_change_ownership(&repository_root(), base)
         }
         Task::VerifyToolchain => verify_toolchain(),
+    }
+}
+
+fn parse_si35_project(args: &[OsString]) -> Result<Task, TaskError> {
+    match args {
+        [flag, value] if flag == OsStr::new("--raw") => Ok(Task::Si35Project {
+            raw: PathBuf::from(value),
+        }),
+        _ => Err(TaskError::Usage(
+            "expected `cargo xtask si35-project --raw <capture-file>`".to_owned(),
+        )),
     }
 }
 
@@ -405,14 +430,28 @@ fn parse_test(args: &[OsString]) -> Result<Task, TaskError> {
                 TaskError::Usage("--acceptance takes a registered ASCII name".to_owned())
             })?;
 
+            let acceptance = match acceptance_name {
+                name if name == LINUX_LOOP_READ_ONLY_ACCEPTANCE => Acceptance::LinuxLoopReadOnly,
+                name if name == SI35_LOOP_CAPTURE_ACCEPTANCE => Acceptance::Si35LoopCapture,
+                _ => {
+                    return Err(TaskError::Usage(
+                        "the registered selectors are exactly `cargo xtask test --tier 2 \
+                         --profile destructive --acceptance linux-loop-read-only` and \
+                         `cargo xtask test --tier 2 --profile destructive --acceptance \
+                         si35-loop-capture`"
+                            .to_owned(),
+                    ));
+                }
+            };
             if tier_flag != OsStr::new("--tier")
                 || tier_value != OsStr::new("2")
                 || profile != interlock::DESTRUCTIVE_PROFILE
-                || acceptance_name != LINUX_LOOP_READ_ONLY_ACCEPTANCE
             {
                 return Err(TaskError::Usage(
-                    "the only registered acceptance is exactly `cargo xtask test --tier 2 \
-                     --profile destructive --acceptance linux-loop-read-only`"
+                    "the registered selectors are exactly `cargo xtask test --tier 2 \
+                     --profile destructive --acceptance linux-loop-read-only` and \
+                     `cargo xtask test --tier 2 --profile destructive --acceptance \
+                     si35-loop-capture`"
                         .to_owned(),
                 ));
             }
@@ -420,7 +459,7 @@ fn parse_test(args: &[OsString]) -> Result<Task, TaskError> {
             return Ok(Task::Test {
                 tier: 2,
                 profile: Some(profile.to_owned()),
-                acceptance: Some(Acceptance::LinuxLoopReadOnly),
+                acceptance: Some(acceptance),
             });
         }
         _ => {
@@ -730,6 +769,55 @@ fn run_selected_tier(
              destructive profile. Nothing was run"
                 .to_owned(),
         )),
+        Some(Acceptance::Si35LoopCapture)
+            if tier == 2 && profile == Some(interlock::DESTRUCTIVE_PROFILE) =>
+        {
+            run_si35_capture()
+        }
+        Some(Acceptance::Si35LoopCapture) => Err(TaskError::Safety(
+            "the si35-loop-capture instrument requires exactly Tier 2 and the explicit \
+             destructive profile. Nothing was run"
+                .to_owned(),
+        )),
+    }
+}
+
+/// Run the WP-035 SI-35 privileged capture half. Same environmental gate as
+/// the 2e acceptance: native Linux, no WSL markers, explicit elevation; every
+/// VM/isolation predicate remains external evidence. It registers no
+/// destructive suite and mutates no storage.
+fn run_si35_capture() -> Result<(), TaskError> {
+    #[cfg(not(target_os = "linux"))]
+    {
+        Err(TaskError::Safety(
+            "the si35-loop-capture instrument requires a native Linux VM. Nothing was run"
+                .to_owned(),
+        ))
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        require_native_elevated_linux()?;
+        println!("{LINUX_LOOP_ENVIRONMENT_SCOPE}");
+        si35_instrument::run_capture()
+    }
+}
+
+/// Run the WP-035 SI-35 unprivileged projection half over a raw capture file.
+fn run_si35_project(raw: &Path) -> Result<(), TaskError> {
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = raw;
+        Err(TaskError::Safety(
+            "the si35-project half reads Linux procfs assertions and runs only on Linux. \
+             Nothing was run"
+                .to_owned(),
+        ))
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        si35_instrument::run_project(raw)
     }
 }
 
@@ -4415,9 +4503,19 @@ PartMan repository tasks
                                  Generic Tier 2 and every Tier 3 request still
                                  refuse rather than reporting an empty pass.
   cargo xtask test --tier 2 --profile destructive --acceptance linux-loop-read-only
-                                 Run the one registered, logical-content-read-only
+                                 Run the registered, logical-content-read-only
                                  acceptance in an explicitly elevated native-Linux
                                  disposable VM. Never invokes sudo or modprobe.
+  cargo xtask test --tier 2 --profile destructive --acceptance si35-loop-capture
+                                 Run the WP-035 SI-35 instrument's privileged
+                                 capture half over the preregistered schedule in
+                                 the same class of disposable VM. Emits raw
+                                 JSON-line records; registers no destructive suite.
+  cargo xtask si35-project --raw <file>
+                                 Run the SI-35 instrument's unprivileged
+                                 projection half over a raw capture. Refuses
+                                 elevation; applies the frozen normalizer and
+                                 evaluates the validity gates.
   cargo xtask supply-chain       Run cargo-deny and cargo-audit
   cargo xtask slint-report [--write]
                                  Check the generated ADR-0009 rejection report;

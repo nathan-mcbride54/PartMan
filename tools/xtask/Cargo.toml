@@ -24,6 +24,9 @@ partman-tokens = { path = "../../crates/tokens" }
 # defeated by nesting the property under `metadata` — a lexical check cannot
 # know a JSON document's shape. Already in the lock file via `partman-tokens`.
 serde_json = "1.0"
+# The SI-35 instrument digests its own binary, the kernel config, and the
+# udev ruleset for the environment record. Already in the lock via sha2 users.
+sha2 = { version = "0.11.0", default-features = false }
 yaml-rust2 = "0.11.0"
 
 [lints]
