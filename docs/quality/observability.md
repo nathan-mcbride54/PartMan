@@ -11,13 +11,16 @@
   not retain every queried surface; and the SI-35 loop run was taken while
   repository issue #94 was open. **#94 closed 2026-08-03** — WP-020 increment
   2e's descriptor-bound mechanism landed and passed a real acceptance — so the
-  hardened non-WSL protocol below is **runnable rather than blocked**. That
-  closure changes nothing already measured: the historical WSL2 decisive-pair
-  negative remains unavailable to a register decision until a non-WSL
-  distro-kernel run confirms it through the handle-bound protocol, and M0.5's
-  loop criterion stays **unsatisfied** until that run is taken. The gate lifted
-  is specifically the absence of a descriptor-bound attach; a measurement that
-  reached a loop device by pathname would still carry the original gap. Increment 6's macOS and real-partitioned-Linux
+  hardened non-WSL protocol below became **runnable rather than blocked**, and
+  on 2026-08-03 it was **taken and passed as valid** on its third sitting (two
+  void sittings and their recorded instrument amendments precede it): the
+  named candidate client projection is **non-separating** for the decisive
+  healthy/conflicting pair on real non-WSL Linux, the WSL2 promotion hold is
+  lifted — the historical negative is confirmed through the handle-bound
+  protocol — and **M0.5's loop criterion is satisfied**, pending the record's
+  second-reader rehash. The run chooses no SI-35 option, supplies no
+  chosen-option refusal demonstration, and refutes no existential
+  H-separation hypothesis. Increment 6's macOS and real-partitioned-Linux
   matrices, the SI-33/SI-28 successor protocol, and the SI-35 Windows
   completion rerun are preregistered below; they are instruments, not
   evidence, and establish nothing until executed. Every preregistered cell
@@ -2835,7 +2838,7 @@ limits do:
   device-add without anyone elevating; whether their projection matches this
   one is exactly the real-partitioned-Linux row that stays open above.
 
-### Hardened non-WSL confirmation protocol — not yet taken
+### Hardened non-WSL confirmation protocol — taken 2026-08-03; valid; non-separating
 
 Protocol recorded 2026-08-02. Status: **not yet taken**. Every result cell in
 this subsection is deliberately `not yet taken`; the protocol is a future
@@ -2991,11 +2994,11 @@ is recorded separately and can neither repair nor replace the client result.
 
 | Confirmation row | Result |
 | --- | --- |
-| Fresh disposable non-WSL VM and environment record | `not yet taken` |
-| Issue #94 descriptor-bound setup used; all binding checks pass | `not yet taken` |
-| Manifest/loop/backing byte-continuity hashes agree | `not yet taken` |
-| Duplicate-name/inode and repeated-attach normalization controls | `not yet taken` |
-| Named candidate projection: healthy versus conflicting | `not yet taken` |
+| Fresh disposable non-WSL VM and environment record | `established` — 2026-08-03, VM 9423, commit `b231e0f`, third sitting |
+| Issue #94 descriptor-bound setup used; all binding checks pass | `established` — every session's crate bindings and node re-stats passed; sessions refuse on any mismatch and none refused |
+| Manifest/loop/backing byte-continuity hashes agree | `established` — backing before/after and whole-device before/after all equal the compiled catalogue digest, in every session |
+| Duplicate-name/inode and repeated-attach normalization controls | `established` — NC2 (distinct root and inodes) and NC3 (repeat attach) both byte-equal the NC1 baseline after the frozen normalizer |
+| Named candidate projection: healthy versus conflicting | **`non-separating`** — byte-identical normalized projections in every valid trial |
 
 A valid run can lift only this record's WSL2 promotion hold and satisfy the
 loop-measurement part of M0.5. It cannot choose SI-35's option, supply the
@@ -3088,9 +3091,64 @@ the `E:` property sequence with the declared `DEVLINKS` canonicalization —
 never udevadm's addressing or symlink-presentation lines; and the event gate
 requires udev adds ≥ partitions observed plus at least one disk `change`,
 matching what a preallocated node can emit. Gate texts, schedule, trials,
-hypotheses, and outcome rules remain untouched. Raw capture and transcript
+hypotheses, and outcome rules remained untouched. Raw capture and transcript
 retained externally (transcript SHA-256
 `f435cf5b6e63a68100e39d8425985436eec3a1acde44b4cd4de12bd486be5974`).
+
+#### Third sitting, 2026-08-03 — VALID; every gate passed; non-separating
+
+Run in fresh disposable Proxmox VM 9423 at the twice-amended commit
+`b231e0f99826867c25c13194752808ac6c21aec6` — stock Ubuntu 22.04.5 cloud image
+(base digest in the retained host record), kernel 5.15.0-186-generic, snapd
+and udisks2 purged as the recorded deviation, no USB or PCI passthrough, VM
+destroyed with post-destroy verification afterwards. `cargo xtask ci` passed
+inside the guest before the instrument ran; the no-token negative control and
+the projection-as-root negative control both refused as required.
+
+**Every validity gate passed.** All ten scheduled sessions completed: crate
+bindings, node re-stats, whole-device and backing byte-continuity hashes
+(every reading equal to the compiled catalogue digest), confirmed detach and
+partition teardown per session, `losetup -a` empty afterwards. Stability:
+both udev captures of every subject projection-identical. Controls: NC2
+(distinct root and inodes) and NC3 (repeat attach) byte-equal the NC1
+baseline; the closing healthy control equal again after six intervening
+trials. Trials: the three basic projections equal the baseline; the three
+conflicting projections equal each other. Events: each session's passive
+monitor shows the preallocated-node shape exactly — one udev `add` per
+materialized partition plus disk `change` events, listener readiness
+confirmed. The unprivileged projection half ran as uid 1001 with no `disk`
+group, all-zero `CapEff`, and denied direct reads of `/dev/loop-control` and
+`/dev/loop0`, recorded in-transcript.
+
+**Result — the named candidate projection is `non-separating`.** In every
+valid trial, the frozen client projection (all retained `E:` properties for
+the disk and both partitions under the amended normalizer, plus the named
+sysfs facts) was byte-identical between `gpt-basic-512` and
+`gpt-conflicting-tables-512`. The conflicting-primary-versus-backup condition
+is invisible to this projection on this platform. Separately and labelled
+privileged, never merged into the client result: the retained
+`blkid -p -o udev` and `wipefs -n` outputs for the decisive pair were also
+identical — the same negative the historical Windows and WSL2 records
+reported for their retained finite projections, now on qualifying ground.
+
+**What this run establishes and lifts.** Per the protocol's own scope: it
+confirms the historical WSL2 decisive-pair negative through the
+descriptor-bound, handle-verified mechanism, **lifting the WSL2 promotion
+hold**, and it **satisfies the loop-measurement part of M0.5**. What it does
+not do, in the protocol's words: it does not choose SI-35's option, does not
+supply the chosen-option refusal demonstration, does not substitute for
+SI-34's real-partitioned-Linux and macOS observations, and does not refute
+the existential H-separation hypothesis — no claim is made about client
+interfaces outside the enumerated projection.
+
+**Artifacts.** Transcript SHA-256
+`76bbd9e122d6d672e153b7d522f801ec9d5c9e668b741ec9b2223e22ce52b994`; raw
+capture SHA-256
+`8af58b262bca69695b886519033a5dfebebf4929cabacdbc8e44a6b111c7700a`; retained
+with the void runs' records in the operator evidence store, alongside the
+host environment and teardown proofs for VMs 9421–9423. Per the protocol's
+custody rule, a second reader must retrieve and rehash the transcript before
+this record is relied on; the result pull request carries that obligation.
 
 #### Mechanism amendment, 2026-08-03 — recorded before any output exists
 
