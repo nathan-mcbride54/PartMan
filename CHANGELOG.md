@@ -7,6 +7,32 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- The increment 6 real-partitioned-Linux matrix is executed in full
+  (sitting of 2026-08-04): disposable Proxmox VM from the digest-verified
+  jammy image, two explicitly authorized SanDisk fixture media passed
+  through, six declared layouts provisioned by the separated setup actor
+  with per-layout digest brackets, and rows L1–L10 all `observed`. The
+  substantive results: the ordinary-client baseline truly lacks raw block
+  access while `disk`-group membership alone flips it; the client/helper
+  signature asymmetry is measured in both directions — an empty cached
+  client projection over live ZFS labels (event-time-cache mechanism
+  recorded), and the live-plus-stale L-F pair answered with exactly the
+  stale signature by both single-answer interfaces while only the
+  enumerating probe reveals both; LVM2's member-independent designator
+  (VG id) is helper-only; identity facts and designators survive replug
+  and reboot; and two byte-identical media collide as silent
+  last-writer-wins on `by-uuid`/`by-partuuid`/`by-label` with no
+  duplicate signal, only the bus-serial `by-id` staying distinct. The
+  sitting's six instrument corrections and incidents are recorded, each
+  caught by a declared gate before any cell was derived, including a USB2
+  passthrough wedge recovered by an XHCI reattach. The matrix's section
+  heading, deleted accidentally by the 2026-08-03 mechanism-amendment
+  commit, is restored, and the Method section's setup-write sentence is
+  widened exactly as the protocol pre-filed. Custody is complete with an
+  independent second-reader rehash; the VM is destroyed with post-destroy
+  verification; the status header, README M0.5 prose, and WP-035 row are
+  trued.
+
 - The SI-33/SI-28 successor protocol's S1, S2, S2b, and S3 arms are
   executed on the reattached parent-record reader (sitting of
   2026-08-04), completing every arm of the protocol. S1: `moved` in all

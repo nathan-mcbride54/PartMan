@@ -2,10 +2,11 @@
 
 - Spec version: 4.1.0
 - Requirement IDs: SAFE-002, SAFE-003, HLP-002, MODEL-005, INV-002, INV-003
-- Status: **Windows hardware-scoped rows established. Linux partly established:
-  the earlier WSL2 virtual-SCSI rows had no partitions, while a later synthetic
-  loop run did materialize partitions but is not qualifying evidence. macOS not
-  established.** WP-035's three instruments have operator-run records dated
+- Status: **Windows hardware-scoped rows established. Linux real-hardware
+  rows established 2026-08-04 by the increment 6 matrix on explicitly
+  authorized passthrough fixture media; the earlier WSL2 virtual-SCSI rows
+  (no partitions) and the synthetic loop run (non-qualifying) keep their
+  own records' caveats. macOS not established.** WP-035's three instruments have operator-run records dated
   2026-08-02, but their limits are material: SI-33 did not establish the full
   close-before-event/reopen liveness sequence; the SI-35 Windows wrapper did
   not retain every queried surface; and the SI-35 loop run was taken while
@@ -43,10 +44,16 @@
   above the epoch floor before a reader re-arrival, at the floor after
   it), and the storage-node PDO name qualified as an unprivileged epoch
   signal while ContainerId and the USB-node PDO name were refuted. **The
-  successor protocol is fully executed.** Increment 6's macOS and
-  real-partitioned-Linux matrices are now the only preregistered
-  instruments with cells `not yet taken`, establishing nothing until
-  executed.
+  successor protocol is fully executed.** **The increment 6
+  real-partitioned-Linux matrix was taken 2026-08-04** — every row
+  executed on a disposable Proxmox VM with authorized passthrough fixture
+  media: the client/helper signature asymmetry measured in both
+  directions, the LVM2 member-independent designator helper-only, the
+  SI-34 stale-signature finding established on a real device tree, and
+  the L9 collision resolving by silent last-writer-wins on every
+  UUID-keyed surface. Increment 6's macOS matrix is now the only
+  preregistered instrument with cells `not yet taken`, establishing
+  nothing until executed.
 
 ## Why this document exists
 
@@ -72,7 +79,14 @@ ADR that freezes canonical bytes.
 Read-only block-device and hardware queries only. Declared setup steps may
 write regular scratch files and virtual-container files; the historical loop
 scratch step could overwrite a prior same-named scratch copy, as its section
-records. No experiment writes to a block device. Elevation state was asserted
+records. No experiment row writes to a block device. The increment 6
+real-partitioned-Linux protocol's provisioning writes — declared there
+before they existed on disk, and widened into this sentence by the same
+change that landed that protocol's first executed run — are performed only
+by its separately declared privileged setup actor, only onto explicitly
+authorized disposable fixture media passed through to a disposable VM, and
+are digest-bracketed before and after every layout's measurements.
+Elevation state was asserted
 before each run rather than assumed.
 
 ## Windows
@@ -3614,9 +3628,17 @@ invoke one session per attach/probe/detach cycle. The instrument's own
 runner, schedule commitment, and transcript custody remain WP-035 work that
 does not exist yet.
 
-Protocol recorded 2026-08-02 under WP-035 increment 6. Status: **not yet
-taken**; every result cell is deliberately `not yet taken` and this subsection
-is an instrument, not evidence. It is a sibling of, not a substitute for, the
+### Increment 6 real-partitioned-Linux matrix — preregistered 2026-08-02
+
+(The heading above is restored: the 2026-08-03 mechanism-amendment commit
+deleted exactly this heading line while inserting its own subsection,
+leaving the matrix body orphaned under the amendment. The body below is
+byte-unchanged from its preregistration except the status line and result
+cells, which the 2026-08-04 sitting fills.)
+
+Protocol recorded 2026-08-02 under WP-035 increment 6. Status: **taken
+2026-08-04; every row executed** — the sitting record below the table is
+the evidence. It is a sibling of, not a substitute for, the
 SI-35 confirmation protocol above: that one answers the loop decisive pair
 behind issue #94; this one takes the real-device-tree and per-technology rows
 the register names, which issue #94 does not gate. It records no measurement,
@@ -3675,16 +3697,16 @@ designator table without them.
 
 | # | Cell | Command / API | Privilege | Distinguishing condition | Invalidation conditions | Result |
 | --- | --- | --- | --- | --- | --- | --- |
-| L1 | Baseline denial, real medium | `stat`/`getfacl` on the node; `dd` one sector; `blkid -p` | client baseline | The stock-permission claim (`brw-rw---- root:disk`) holds for a real passthrough device in this VM, and the baseline truly lacks raw access | node ACL-granted or mode nonstandard without being recorded | `not yet taken` |
-| L2 | Real-device identity rows | `/run/udev/data/b<maj>:<min>`; `/sys/.../device/{vendor,model,wwid,serial}`; by-id symlink set | client baseline | Which identity facts (serial, WWN, bus, path) a real USB-attached device of this class actually exposes to the client — the WSL2 rows could not answer this | udev entry absent or unsettled (`udevadm settle` required); device re-enumerated mid-capture | `not yet taken` |
-| L3 | Kernel table view per layout | `/proc/partitions`; `/sys/.../start,size,ro,partition` for each materialized partition | client baseline | Kernel-materialized partition set for a real medium per layout L-A…L-F | partition count unstable across two captures; medium not read-only at capture | `not yet taken` |
-| L4 | Client signature view per layout (precondition 1, client half) | udev `E:` properties (`ID_FS_TYPE`, `ID_FS_UUID`, `ID_FS_USAGE`, raid metadata keys) for L-B/L-C/L-D/L-E/L-F | client baseline | What the cached, event-time udev projection says per technology — including which single answer it gives for L-F's live-plus-stale pair and whether `ID_FS_AMBIVALENT` fires on a real device | incomplete udev DB capture (absence of an entry is `observed(absent)` only when established); event after capture | `not yet taken` |
-| L5 | Helper signature view per layout (precondition 1, helper half) | `blkid -p -o udev`, `wipefs -n`, `mdadm --examine`, `cryptsetup luksDump`, `pvs --readonly -o pv_uuid,vg_uuid,vg_name`, `zdb -l` — all read-only forms, fixed argv | root, VM only | The direct-probe projection per technology over the same bytes, to stand against L4 — establishing or refuting client/helper signature agreement per precondition 1's instruction to establish rather than assume | any tool invocation not on the predeclared list; output unbounded; device writable | `not yet taken` |
-| L6 | `disk`-group projection | L4's and L5's client-executable subset re-run as a `disk`-group user | disk group, VM only, separately labelled | Whether group membership alone changes the observable set — the clamping obligation's concrete form: two users, one host, one build, different views | leg merged into baseline; group state not recorded per row | `not yet taken` |
-| L7 | Native designators (precondition 2) | from L4/L5: mdraid array UUID; LUKS UUID; LVM2 **VG id** (not PV UUID) and which interface, if any, yields it clientside; ZFS pool GUID | per source row | For each designator: raw byte form, source, privilege needed, and specifically whether a member-independent designator is client-readable at all — where none is, the register's indeterminate-aggregate consequence is the recorded fact | conflating PV UUID with VG id; reducing a designator to its rendered string without its source | `not yet taken` |
-| L8 | Designator stability | detach passthrough, reattach, recapture L2/L4/L7; one full VM reboot, recapture | client baseline | Which identity facts and designators survive replug and reboot unchanged on real hardware | fewer than two sittings; medium reprovisioned between sittings | `not yet taken` |
-| L9 | Designator collision | second physical medium provisioned byte-identical to L-A; both attached | client baseline | Client-visible collision semantics: `by-uuid`/`by-id` symlink behavior, udev entries, and whether either interface signals the duplicate | **conditional on a second authorized medium**; without it `not established`; media not byte-identical by digest | `not yet taken` |
-| L10 | SI-34 freshness projection, real medium | L4 versus L5 over L-F, captured in the same sitting | both, separately labelled | The regular-file finding — enumerating interface reports both signatures, single-answer interface reports exactly the stale one — established or refuted on a real device tree, which is the projection input SI-34 names | either half missing; bytes not digest-verified before and after | `not yet taken` |
+| L1 | Baseline denial, real medium | `stat`/`getfacl` on the node; `dd` one sector; `blkid -p` | client baseline | The stock-permission claim (`brw-rw---- root:disk`) holds for a real passthrough device in this VM, and the baseline truly lacks raw access | node ACL-granted or mode nonstandard without being recorded | `observed(denied)` — stock `brw-rw---- root:disk`, base ACL only; the baseline's `dd` and `blkid -p` both refused; the identical operations succeed for the `disk`-group user (L6) |
+| L2 | Real-device identity rows | `/run/udev/data/b<maj>:<min>`; `/sys/.../device/{vendor,model,wwid,serial}`; by-id symlink set | client baseline | Which identity facts (serial, WWN, bus, path) a real USB-attached device of this class actually exposes to the client — the WSL2 rows could not answer this | udev entry absent or unsettled (`udevadm settle` required); device re-enumerated mid-capture | `observed` — USB descriptor serial via sysfs, vendor/model strings, serial-derived `by-id` and path-derived `by-path` symlinks, populated udev db entries; `wwid` `observed(absent)` for this usb-storage class |
+| L3 | Kernel table view per layout | `/proc/partitions`; `/sys/.../start,size,ro,partition` for each materialized partition | client baseline | Kernel-materialized partition set for a real medium per layout L-A…L-F | partition count unstable across two captures; medium not read-only at capture | `observed` — every layout materialized its declared one-partition set with exact start/size, byte-stable across the double capture, device and partition `ro=1` at every capture |
+| L4 | Client signature view per layout (precondition 1, client half) | udev `E:` properties (`ID_FS_TYPE`, `ID_FS_UUID`, `ID_FS_USAGE`, raid metadata keys) for L-B/L-C/L-D/L-E/L-F | client baseline | What the cached, event-time udev projection says per technology — including which single answer it gives for L-F's live-plus-stale pair and whether `ID_FS_AMBIVALENT` fires on a real device | incomplete udev DB capture (absence of an entry is `observed(absent)` only when established); event after capture | `observed` per technology — mdraid: type, array UUID, member sub-UUID, host-qualified name; LUKS2: type and UUID; LVM2: type and PV UUID (`ID_FS_USAGE=raid`); ZFS: `observed(absent)` — `ID_FS_TYPE` empty in both stability captures, the event-time-cache mechanism in the sitting record; L-F: the single answer is exactly the stale `linux_raid_member`, the live ext4 absent; `ID_FS_AMBIVALENT` fired nowhere in the sitting |
+| L5 | Helper signature view per layout (precondition 1, helper half) | `blkid -p -o udev`, `wipefs -n`, `mdadm --examine`, `cryptsetup luksDump`, `pvs --readonly -o pv_uuid,vg_uuid,vg_name`, `zdb -l` — all read-only forms, fixed argv | root, VM only | The direct-probe projection per technology over the same bytes, to stand against L4 — establishing or refuting client/helper signature agreement per precondition 1's instruction to establish rather than assume | any tool invocation not on the predeclared list; output unbounded; device writable | `observed` per technology — every predeclared probe returned its structure read-only; where the client projection was empty for ZFS, `blkid -p` reports `zfs_member` with pool and vdev GUIDs and `wipefs -n` all four labels; for L-F `wipefs -n` enumerates **both** signatures (end-anchored stale raid and live ext4) while root `blkid -p` reports exactly the stale one; `pvs` carries the VG UUID no client surface has |
+| L6 | `disk`-group projection | L4's and L5's client-executable subset re-run as a `disk`-group user | disk group, VM only, separately labelled | Whether group membership alone changes the observable set — the clamping obligation's concrete form: two users, one host, one build, different views | leg merged into baseline; group state not recorded per row | `observed` — group membership alone flips both raw-access denials to success and grants the direct-probe subset; the cached udev/sysfs projection is identical between the two users; separately labelled per capture |
+| L7 | Native designators (precondition 2) | from L4/L5: mdraid array UUID; LUKS UUID; LVM2 **VG id** (not PV UUID) and which interface, if any, yields it clientside; ZFS pool GUID | per source row | For each designator: raw byte form, source, privilege needed, and specifically whether a member-independent designator is client-readable at all — where none is, the register's indeterminate-aggregate consequence is the recorded fact | conflating PV UUID with VG id; reducing a designator to its rendered string without its source | mdraid array UUID: **client-readable** (udev `ID_FS_UUID`); LUKS2 UUID: **client-readable**; LVM2 VG id: **`not-client-readable`** — the client carries only the PV UUID and no client surface carried the VG UUID (root `pvs` only): the indeterminate-aggregate consequence, instantiated; ZFS pool GUID: helper-only in this sitting's cached projection, with L4's event-time boundary declared |
+| L8 | Designator stability | detach passthrough, reattach, recapture L2/L4/L7; one full VM reboot, recapture | client baseline | Which identity facts and designators survive replug and reboot unchanged on real hardware | fewer than two sittings; medium reprovisioned between sittings | `observed` — with L-F provisioned throughout, the array UUID, USB descriptor serial, and `by-id` set survived a passthrough replug and a full VM reboot unchanged; `wwid` stayed absent; the replug's plug event visibly re-probed the udev db to the same single answer |
+| L9 | Designator collision | second physical medium provisioned byte-identical to L-A; both attached | client baseline | Client-visible collision semantics: `by-uuid`/`by-id` symlink behavior, udev entries, and whether either interface signals the duplicate | **conditional on a second authorized medium**; without it `not established`; media not byte-identical by digest | `observed(silent last-writer-wins)` — both byte-identical media (digest-verified over both declared windows) enumerate fully with identical identity records; `by-uuid`, `by-partuuid`, and `by-label` each collapse to the later-arriving device; no surface signals the duplicate; only the bus-serial-derived `by-id` remains distinct on this hardware |
+| L10 | SI-34 freshness projection, real medium | L4 versus L5 over L-F, captured in the same sitting | both, separately labelled | The regular-file finding — enumerating interface reports both signatures, single-answer interface reports exactly the stale one — established or refuted on a real device tree, which is the projection input SI-34 names | either half missing; bytes not digest-verified before and after | `observed` — **established on a real device tree**: both single-answer interfaces (the client's cached projection and root `blkid -p`) report exactly the stale mdraid signature; the enumerating `wipefs -n` reports both; bytes digest-verified before and after the captures |
 
 Validity gates, all required per sitting: fresh VM and recorded environment;
 provisioned-digest verification before and after each layout's measurements,
@@ -3705,6 +3727,81 @@ A valid run establishes only the rows above. It cannot decide SI-34 (the
 projection choice is a register decision over the evidence, not the
 evidence), cannot lift the loop protocol's own holds, and does not touch
 issue #94 in either direction.
+
+#### Sitting, 2026-08-04 — every row taken
+
+**Environment.** Disposable VM 9424 on the authorized Proxmox host, fresh
+from the digest-verified jammy cloud image (base digest as recorded in the
+transcript header, equal to the WP-020 acceptance's), Ubuntu 22.04.5,
+kernel 5.15.0-186-generic, pre-sitting snapshot as revert boundary; udev
+249.11 with the ruleset digest recorded; util-linux 2.37.2, mdadm 4.2,
+cryptsetup 2.4.3, lvm2 2.03.11, zfsutils 2.1.5, and the acl package added
+from the pinned distro set mid-sitting (amendment recorded before use);
+udisks2 absent, no automount unit, snapd present and recorded rather than
+purged — this protocol names no loop-administrator exclusion. Fixture
+media: the two operator-authorized SanDisk sticks, byte-equal capacities,
+passed through as USB; roles medium-1 (all layouts, L8) and medium-2 (L9
+only); the operator's hard boundary — the host NVMe drives are never
+touched — held structurally, every destructive action confined to the VM's
+virtual disk and the passthrough media. The L-F byte pattern is the
+generated `ext4-with-stale-mdraid-090-512` fixture, digest equal to the
+generated MANIFEST's at the recorded repository revision, written to a
+partition sized exactly to the image so its end-anchored stale superblock
+stays end-anchored. Actor separation as declared: root setup/helper,
+`muser1` baseline (no groups, empty capability set, denials recorded),
+`muser2` disk-group leg, all captures separately labelled.
+
+**Corrections and incidents registry, every one caught by a declared gate
+before any cell was derived.** (1) A carriage-return transfer artifact on
+the instrument scripts: recorded, scripts amended, digests re-recorded,
+environment record retaken. (2) `getfacl` absent from the image: the acl
+package installed and versioned before the row needing it. (3) The client
+instrument's maj:min derivation produced `0:0` under mawk; amended to read
+sysfs, prior capture superseded in place. (4) The first L-E attempt wedged
+in `zpool export` for ~35 minutes on the emulated USB2 controller the
+passthrough had landed on (kernel hung-task trace retained); the
+passthrough was detached — releasing the wedge — reattached onto XHCI, the
+VM rebooted, and the layout re-run; the first attempt filled no cell.
+(5) A CR-corrupted runner invocation made the provision dispatch refuse
+mid-layout, leaving a bare partition whose interleaved captures fill no
+cell; re-pushed via scp and re-run. (6) The L9 head-window copy passed a
+block count where a byte count was expected, moving 129 bytes; the
+byte-identity digest gate refused the state and the corrected copy
+re-verified identical. Transcript blocks interleave near incidents (4) and
+(5); every block carries its own UTC timestamps, and ordering is
+reconstructible from them.
+
+**Findings the cells compress.** The client/helper signature asymmetry is
+now measured on real hardware in both directions: for ZFS the cached
+client projection is empty while the helper reads the full label set —
+the event-time-cache mechanism, since neither pool creation nor export
+re-triggers a partition uevent, with the replug leg separately showing a
+plug event does re-probe; for the stale-plus-live pair both single-answer
+interfaces (client cache and root `blkid -p`) give exactly the stale
+answer while only the enumerating probe reveals the pair. The LVM2
+member-independent designator is helper-only. And the collision row's
+silent last-writer-wins on every UUID-keyed symlink farm — resolved by
+arrival order, signalled nowhere — is the Linux face of the identity
+collapse the Windows S4 sittings measured on same-model readers: there
+the bus-serial layer collapsed too, here it is the one surface that held.
+
+**Custody.** Complete transcript and all instruments archived at
+`%USERPROFILE%\partman-evidence\2026-08-04-lmx-sitting1\` on the operator
+workstation, custodian Nate McBride; SHA-256 throughout; instrument
+digests recorded in the transcript header before any capture and
+re-recorded at each amendment before first use; per-command exit statuses
+and per-layout provisioned-digest brackets in-transcript, verified through
+the read-only device by the setup actor before and after every layout's
+captures; anonymized device-role mapping (media addressed by role; unit
+serials stay in the transcript); post-sitting no-mount assertion captured
+(no measured object was ever mounted). Transcript
+`6da1db67d58fb49f47a42614d00343b60ad07b7c52493a9e198c34a57030df71`
+(164843 bytes). An independent second reader retrieved the transcript
+through the locator, rehashed it to the same digest and byte length, and
+confirmed the archive's file inventory before any cell left
+`not yet taken`. The VM was destroyed with post-destroy verification
+(config, volumes, and snapshot absent); the media remain provisioned with
+the L9 pair and are re-writable fixture stock.
 
 ## Reproducing this
 
