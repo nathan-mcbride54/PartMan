@@ -7,6 +7,23 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- The S4 card-move rider is executed (sitting 3, 2026-08-04), completing
+  every S4 arm. The operator exchanged the cards between the attached
+  units — the swap declared as the executed form of the preregistered
+  one-card move — and the storage-layer record is invariant under the
+  exchange: the exchange is visible only as media facts (sizes and
+  volumes travelling with the cards). On a pair sharing one constant at
+  every layer, follows-card versus follows-reader is undecidable by
+  value, with the reader attribution resting on the empty-slot form,
+  which held again on both units. Recorded at full strength: both units
+  re-arrived inside the exchange window despite the operator reporting
+  the readers stayed attached (cause not attributable unprivileged), and
+  across those re-arrivals the serial-derived instance identity migrated
+  ports — a first-arrival artifact, not a unit identity — so physical-
+  unit continuity across the exchange is unverifiable from any read
+  surface. Custody is complete with an independent second-reader rehash;
+  the status header, README M0.5 prose, and WP-035 row are trued.
+
 - The SI-33/SI-28 successor protocol's S4 collision test is executed on a
   same-model pair (sitting 2, 2026-08-04): both NS1081-model units report
   one identical 15-character placeholder serial at the USB-descriptor and
