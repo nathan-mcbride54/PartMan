@@ -17,17 +17,26 @@
   named candidate client projection is **non-separating** for the decisive
   healthy/conflicting pair on real non-WSL Linux, the WSL2 promotion hold is
   lifted — the historical negative is confirmed through the handle-bound
-  protocol — and **M0.5's loop criterion is satisfied**, pending the record's
-  second-reader rehash. The run chooses no SI-35 option, supplies no
-  chosen-option refusal demonstration, and refutes no existential
-  H-separation hypothesis. Increment 6's macOS and real-partitioned-Linux
-  matrices, the SI-33/SI-28 successor protocol, and the SI-35 Windows
-  completion rerun are preregistered below; they are instruments, not
-  evidence, and establish nothing until executed. Every preregistered cell
-  is `not yet taken` except the successor protocol's two S4 rows, moved to
-  `not established` by a 2026-08-03 sitting: the kit's second reader
-  measured as a different bridge model, and S4 forbids a cross-model
-  substitute.
+  protocol — and **M0.5's loop criterion is satisfied**; the record's
+  second-reader obligation is discharged (the designated readback recorded
+  on the result pull request, then an independent retrieve-and-rehash of
+  both artifacts on 2026-08-04, digests matching). The run chooses no SI-35
+  option, supplies no chosen-option refusal demonstration, and refutes no
+  existential H-separation hypothesis. **The SI-35 Windows completion rerun
+  was taken 2026-08-04 and is valid**: all three of its gates held, W-H1,
+  W-H2, and W-H3 are refuted and W-Q4 answered, and its four artifacts
+  likewise passed a designated readback and an independent 2026-08-04
+  rehash. The successor protocol's S4 collision test has two sittings:
+  2026-08-03 measured the then-attached pair as cross-model
+  (`not established` for that pair); 2026-08-04, on a same-model pair,
+  **observed the preregistered collision** — one identical placeholder
+  serial from both units at every serial-bearing layer, the second unit
+  re-keyed by port with its unique-id capability cleared — and the
+  empty-slot rider with it; only S4's card-move rider is still
+  `not yet taken`. Increment 6's macOS and real-partitioned-Linux matrices
+  and the successor protocol's S1–S3 arms remain preregistered
+  instruments, every cell `not yet taken`, establishing nothing until
+  executed.
 
 ## Why this document exists
 
@@ -976,8 +985,9 @@ these bounded observations rather than a platform-wide refutation.
 
 #### Completion rerun — taken 2026-08-04; valid; all three hypotheses refuted
 
-Protocol recorded 2026-08-02 under WP-035's SI-35 share. Status: **not yet
-taken**; an instrument, not evidence. It reruns exactly what the 2026-08-02
+Protocol recorded 2026-08-02 under WP-035's SI-35 share, preregistered as
+an instrument. Status: **taken 2026-08-04; valid** — the sitting record
+below is the evidence. It reruns exactly what the 2026-08-02
 execution left unevaluable — nothing else, and executing it may not add
 hypotheses. W-H1, W-H2, and W-H3 stand as pre-registered above, existential
 *surface* wording included; W-Q5 is answered and is not rerun. Every
@@ -1076,8 +1086,16 @@ measurement script now elides at capture time so
 a future sitting produces no such conflict. Attach transcript
 `65b7183cf0ec0c74d533186f125113fc9a56d7510b524914b9e3885fa38cfa58`; fixture
 digest table `7d3ac9e6d1e94cd6d6c3f599a66d5ca762b812542e5135aa661e718339c1112d`.
-Second-reader readback is required before this record is relied on, as the
-increment 6 matrices define.
+The four artifacts are archived at
+`%USERPROFILE%\partman-evidence\SI-35-windows-rerun\` on the operator
+workstation, custodian Nate McBride. Second-reader readback, required
+before this record is relied on: performed on the result pull request
+under the operator's recorded designation (by the producing session, so
+not independent, and recorded as such there), and again on 2026-08-04 by
+an independent reader session that retrieved all four artifacts through
+the locator and rehashed each to its recorded digest, with the redacted
+copy spot-checked to contain no operator username. Both readbacks
+matched; the requirement is discharged.
 
 **What this sitting does not do.** It decides no SI-35 option and supplies no
 chosen-option refusal proof. It refutes three *existential surface*
@@ -1781,8 +1799,10 @@ derive continuity from bookkeeping between runs.
 
 Protocol recorded 2026-08-02 under WP-035's SI-33 and SI-28 shares. Status:
 S1, S2, S2b, and S3 **not yet taken**, every unexecuted result cell
-deliberately so; S4's two rows are **`not established`** per the sitting
-recorded below the arm table. This subsection is an instrument, not
+deliberately so; S4's primary row and empty-slot rider are **observed**
+per sitting 2 (2026-08-04, below), its card-move rider `not yet taken`,
+and sitting 1's cross-model `not established` stands for that sitting's
+pair. This subsection is an instrument, not
 evidence. It preregisters exactly the
 successor questions the records above filed — the close-before-event/reopen
 arm the 2026-08-02 run missed, the epoch-signal characterization its decrease
@@ -1878,8 +1898,8 @@ different model.
 | S2 epoch-signal candidates across 3 induced re-arrivals | `not yet taken` |
 | S2b epoch-signal candidates across one reboot | `not yet taken` |
 | S3 L4 trials 2 and 3 | `not yet taken` |
-| S4 two-unit storage-layer serial live comparison | `not established` — 2026-08-03 sitting: the two simultaneously attached units are different bridge models (0BDA:0306 vs 2537:1081), and a different model may not approximate the second unit |
-| S4 empty-slot serial across units; card moved between readers | `not established` — rides only on a completed primary comparison; same cause |
+| S4 two-unit storage-layer serial live comparison | `observed(identical constant)` — sitting 2, 2026-08-04: two same-model units, live; one storage-layer serial value on every LUN of both — the hypothesis's predicted collision. Sitting 1 (2026-08-03): `not established` for that cross-model pair |
+| S4 empty-slot serial across units; card moved between readers | empty-slot arm `observed(identical constant)` — each unit's medium-less LUN reports its loaded LUN's serial, one constant across units; card-move arm `not yet taken` — needs the physical move, now unblocked by the completed primary |
 
 A valid run can establish only these arms. It decides no SI-33 design
 option, does not move SI-28's disposition (the register owns status), and
@@ -1936,6 +1956,107 @@ Administrators SID); OS build 10.0.26200; PowerShell 7.6.4. An independent
 second reader retrieved the transcript through the locator and rehashed it
 to the same digest and byte length before either cell left
 `not yet taken`.
+
+#### S4 sitting 2, 2026-08-04 — collision observed on a same-model pair
+
+The operator installed the ordered second unit and designated the pair for
+S4. Both attached units are the NS1081 bridge model — VID:PID `2537:1081`,
+per-LUN model strings `1081CS0`/`1081CS1`, bus-reported description
+`NS1081` on both — so model sameness holds on both declared establishment
+surfaces. The parent-record `0BDA:0306` unit is absent this sitting, and
+sitting 1's recorded rule (a second unit of either present model restores
+the arm) is the standing under which the arm ran on this pair. The
+hypothesis's `2012…5300`-form exemplar was the departed anchor's own
+constant; what this pair evaluates is the hypothesis's structural claim —
+one bridge-firmware constant shared by two distinct units of one model —
+and, per this protocol's closing rule, the result generalizes to no other
+model.
+
+**Primary row — the predicted collision, observed.** In one non-elevated
+session with both units attached, every serial-bearing surface returned
+the same value: `Win32_DiskDrive.SerialNumber`, `MSFT_Disk.SerialNumber`,
+and `MSFT_PhysicalDisk.SerialNumber` on all four LUNs of both units carry
+the model's 15-character ascending-hexadecimal placeholder (elided
+`0123…BCDE`), and the same string appears at the USB-descriptor layer of
+both units. The refutation condition — the second unit reports a
+different storage-layer serial — did not occur.
+
+**Unit distinctness, and the named instrument's failure as the finding.**
+S4 names the USB descriptor serial as the distinctness instrument. It is
+unavailable on this pair for the reason under test: both units present
+the same serial, and Windows's duplicate handling is itself visible on
+three surfaces — the first-arrived unit's USB node is keyed by the serial
+while the second, arriving nine seconds later, is keyed by the
+port-derived fallback form; the second unit's USBSTOR children carry a
+generated uniquification prefix ahead of the same serial string; and
+`CM_DEVCAP_UNIQUEID` (cfgmgr32.h 10.0.26100.0, `0x10`) is set on the
+first-arrived node and clear on the second. Distinctness is instead
+established by simultaneous enumeration: two present USB nodes on
+distinct ports of one hub, distinct addresses, distinct container ids,
+arrival timestamps nine seconds apart, each owning its own two-LUN
+storage stack with different-size media — the 64 GB-class card on the
+first-arrived unit, the 256 GB-class on the second, bound to operator
+drive letters in-transcript. This substitution is declared rather than
+smoothed: reading the establishment clause as requiring distinct serials
+before the comparison may run would make the collision outcome
+unrecordable by construction, and the preregistration's
+enumeration-failure-is-data rule states the opposite intent — merged or
+re-keyed identity under simultaneous attachment is the collision
+behavior, recorded as such.
+
+**Empty-slot rider — observed.** Each unit's medium-less LUN (`MSFT_Disk`
+size 0, no partitions) reports the same serial as its card-bearing LUN —
+the parent record's single-reader form, reproduced on each unit — and the
+value is the one constant across units.
+
+**Card-move rider — not taken.** It requires physically moving one card
+between the units within one sitting. Context recorded without filling
+it: across sittings 1 and 2 a 256 GB-class card of byte-identical size
+moved, operator-reported, from the `0BDA:0306` unit to an NS1081 unit,
+and the storage-layer serial reported for it changed from that bridge's
+constant to this one's — consistent with the record following the reader
+— but Windows exposes no medium-attributable identifier (the SI-28 record
+above), so cross-sitting medium identity rests on size alone and this
+fills no cell.
+
+Nothing here moves SI-28's disposition; the register owns status.
+
+**Corrections registry for this sitting, each caught before any cell
+moved.** (1) The transcript header mis-dates the sitting 2026-08-03; the
+capture script's own clock and both units'
+`DEVPKEY_Device_LastArrivalDate` establish 2026-08-04, and an appended
+in-transcript correction governs. The archive was staged under the
+mis-dated name and relocated, the move recorded in-transcript before the
+final digest. (2) A supplementary distinctness query's first version
+derived its unique-id line from a recalled constant — `0x40` is
+`CM_DEVCAP_RAWDEVICEOK` — and is instrument failure. (3) Its second
+version printed a decode contradicting its own retained raw value
+(`0x94` reported without `UNIQUEID`), arithmetically impossible, cause
+unestablished: instrument failure again. Raw property values from both
+stand; the qualifying derivation is version 3's, which decodes with
+per-bit literals verified against the installed `cfgmgr32.h` and refuses
+to observe unless its decoder passes a self-test on the two values in
+question.
+
+Custody: capture script (byte-identical to sitting 1, same digest
+`80dd4b49f79b595e69250cb9c0b689f721227e377e9c08f75b046547ac20a6ec`,
+8742 bytes, recorded in the transcript header before any device query),
+orientation script
+`aad092f163ec70d21b37abcbab0d22cb3fbd52836f570e44fce22143678a3950`
+(932 bytes), distinctness v3
+`e475bc6b38268db284bfb8b827619bc3c44fc7ca9dd7986ebc9d18ded612dec7`
+(4066 bytes; v1 and v2 retained in the archive with digests
+in-transcript), and complete transcript
+`aec8a3d3e9cfee42c15ac635dd1a2a6d9d7c7037a43d77f85f4771c1fbcb671f`
+(16479 bytes) archived at
+`%USERPROFILE%\partman-evidence\2026-08-04-si33si28-s4-sitting2\` on the
+operator workstation, custodian Nate McBride; SHA-256 throughout;
+per-step statuses and per-script exit codes in-transcript; elevation
+asserted in-transcript (`IsInRole(Administrator)=False`, token carries no
+Administrators SID); OS build 10.0.26200; PowerShell 7.6.4. An
+independent second reader retrieved the transcript through the locator,
+rehashed it to the same digest and byte length, and confirmed the
+archive's file inventory before any cell left `not yet taken`.
 
 ## macOS
 
@@ -3240,10 +3361,18 @@ would have been `inconclusive`, not a negative — and they were not.
 `76bbd9e122d6d672e153b7d522f801ec9d5c9e668b741ec9b2223e22ce52b994`; raw
 capture SHA-256
 `8af58b262bca69695b886519033a5dfebebf4929cabacdbc8e44a6b111c7700a`; retained
-with the void runs' records in the operator evidence store, alongside the
+with the void runs' records in the operator evidence store
+(`%USERPROFILE%\partman-evidence\SI-35-sitting-2026-08-03\`, custodian
+Nate McBride), alongside the
 host environment and teardown proofs for VMs 9421–9423. Per the protocol's
 custody rule, a second reader must retrieve and rehash the transcript before
 this record is relied on; the result pull request carries that obligation.
+The obligation is discharged twice over: the readback recorded on the
+result pull request under the operator's designation (performed by the
+producing session and recorded there as not independent), and an
+independent reader session on 2026-08-04 that retrieved both artifacts
+through the locator and rehashed each to its recorded digest, both
+matching.
 
 #### Mechanism amendment, 2026-08-03 — recorded before any output exists
 

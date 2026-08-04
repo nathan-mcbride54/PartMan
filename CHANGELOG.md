@@ -7,6 +7,29 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- The SI-33/SI-28 successor protocol's S4 collision test is executed on a
+  same-model pair (sitting 2, 2026-08-04): both NS1081-model units report
+  one identical 15-character placeholder serial at the USB-descriptor and
+  storage layers on all four LUNs — the preregistered collision — with
+  Windows re-keying the second-arrived unit by port and clearing its
+  `CM_DEVCAP_UNIQUEID` bit; the empty-slot rider is observed on both
+  units; the card-move rider stays `not yet taken`. The named distinctness
+  instrument (distinct USB serials) was unavailable for the reason under
+  test; distinctness is established by simultaneous distinct-port
+  enumeration and declared as a substitution. Custody is complete with an
+  independent second-reader rehash, and the sitting's three instrument
+  failures — a mis-dated transcript header, a recalled constant, and a
+  decode contradicting its own raw value — are recorded as corrections
+  caught before any cell moved. Additionally: the SI-35 loop and
+  Windows-rerun records' outstanding second-reader obligations are
+  discharged by an independent 2026-08-04 retrieve-and-rehash of all six
+  named artifacts (every digest matching), recorded beside the designated
+  readbacks on their pull requests with archive locators and custodian now
+  named in both records; the rerun subsection's status line still read
+  `not yet taken` under its taken-and-valid heading and now states its
+  executed status; and the observability status header, README's M0.5
+  prose, and the WP-035 row are trued to all of the above.
+
 - **The SI-35 Windows completion rerun was taken on 2026-08-04 and is valid**,
   closing the second of SI-35's three acceptance-evidence categories. All
   three added gates are satisfied: R1 total retention (a 48 KB property-bag
