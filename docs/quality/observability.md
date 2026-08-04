@@ -3141,6 +3141,28 @@ SI-34's real-partitioned-Linux and macOS observations, and does not refute
 the existential H-separation hypothesis — no claim is made about client
 interfaces outside the enumerated projection.
 
+**A coverage gate added after the result, and why that is defensible here.**
+Reviewing the instrument against gate 7 after this sitting found a latent
+false-pass path: the projection compared normalized strings, so two
+*successfully captured but empty* udev entries would have compared equal and
+printed `non-separating` — a negative produced by measuring nothing, where
+gate 7 requires `inconclusive (udev coverage gate)`. The instrument now counts
+retained properties per subject and reports `observed(absent)`, failing the
+run rather than the pair. The reachable shape is narrow, because a udev query
+exiting outside its allowed set is already refused at capture time; what was
+missing was the exit-0-but-empty case.
+
+Adding a gate after seeing output is exactly the move this protocol distrusts,
+so the claim is bounded rather than asserted. The added gate is **strictly
+stricter** — it can turn a pass into inconclusive and never the reverse — and
+the verdict was **re-derived rather than assumed**: the amended projection
+half was re-run over the retained raw capture (digest verified first), off the
+sitting host, on a different Linux machine, as an unprivileged user, and
+reported the identical verdict with every gate passing. Coverage was
+substantial, not marginal: 12 retained properties for the disk and 23 for each
+partition, in every session. Had this sitting's entries been empty, this run
+would have been `inconclusive`, not a negative — and they were not.
+
 **Artifacts.** Transcript SHA-256
 `76bbd9e122d6d672e153b7d522f801ec9d5c9e668b741ec9b2223e22ce52b994`; raw
 capture SHA-256

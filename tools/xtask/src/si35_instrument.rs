@@ -569,16 +569,34 @@ pub(crate) fn run_project(raw: &Path) -> Result<(), TaskError> {
         gates_passed = false;
     }
 
+    // Gate 7's udev coverage gate, evaluated before the decisive pair is
+    // allowed to mean anything. A successfully captured entry that retains no
+    // property at all is a no-entry state, recorded `observed(absent)`; two
+    // such projections compare equal, so without this the pair would report
+    // `non-separating` on a coverage failure — a pass produced by measuring
+    // nothing, which is exactly what the protocol forbids. Inability to
+    // determine whether an entry exists cannot reach here: the capture half
+    // refuses a udev query that exits outside its allowed set.
+    let coverage = evaluate_coverage_gate(&sessions);
+
     // The decisive pair.
     let healthy = baseline;
     let conflicting = conflicting_baseline;
-    if healthy == conflicting {
-        println!("decisive-pair candidate-projection=non-separating");
-    } else {
-        println!("decisive-pair candidate-projection=SEPARATES");
-        for difference in projection_differences(healthy, conflicting) {
-            println!("  differs: {difference}");
+    if coverage.is_empty() {
+        if healthy == conflicting {
+            println!("decisive-pair candidate-projection=non-separating");
+        } else {
+            println!("decisive-pair candidate-projection=SEPARATES");
+            for difference in projection_differences(healthy, conflicting) {
+                println!("  differs: {difference}");
+            }
         }
+    } else {
+        println!("decisive-pair candidate-projection=inconclusive (udev coverage gate)");
+        for subject in &coverage {
+            println!("  observed(absent): {subject}");
+        }
+        gates_passed = false;
     }
 
     // Privileged captures, labelled, never merged into the client projection.
@@ -658,6 +676,30 @@ fn evaluate_event_gate(sessions: &[Session]) -> bool {
         }
     }
     passed
+}
+
+/// Gate 7's udev coverage check. Returns every `entry/subject` whose
+/// successfully captured udev entry retained no property at all — a no-entry
+/// state, `observed(absent)`. A non-empty return makes the decisive pair
+/// `inconclusive (udev coverage gate)` rather than allowing two empty
+/// projections to compare equal and read as a negative result.
+fn evaluate_coverage_gate(sessions: &[Session]) -> Vec<String> {
+    let mut absent = Vec::new();
+    for session in sessions {
+        for (subject, captures) in &session.info_captures {
+            let retained = captures
+                .first()
+                .map_or(0, |capture| projection_lines(capture).len());
+            println!(
+                "gate coverage entry={} subject={subject} retained_properties={retained}",
+                session.entry
+            );
+            if retained == 0 {
+                absent.push(format!("{}/{subject}", session.entry));
+            }
+        }
+    }
+    absent
 }
 
 /// The projection content of one capture: its `E: ` lines in order, with the
@@ -1009,6 +1051,50 @@ E: DEVTYPE=partition\n";
         assert_ne!(
             projection_lines(first),
             projection_lines(reordered_properties)
+        );
+    }
+
+    // Requirements: SAFE-005, SAFE-006
+    //   A successfully captured entry retaining no property is a no-entry
+    //   state, reported so the decisive pair goes inconclusive rather than
+    //   letting two empty projections compare equal and read as a negative.
+    // Work-Package: WP-035
+    // Evidence: coverage_gate_names_entries_that_retained_no_property
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn coverage_gate_names_entries_that_retained_no_property() {
+        let populated = b"P: /devices/virtual/block/loop0\nN: loop0\nE: DEVTYPE=disk\n".to_vec();
+        // Exit 0 with a header but no properties: the reachable no-entry
+        // shape, since a nonzero udev exit is refused at capture time.
+        let empty = b"P: /devices/virtual/block/loop0\nN: loop0\n".to_vec();
+
+        let session = |entry: &str, capture: Vec<u8>| Session {
+            entry: entry.to_owned(),
+            fixture: BASIC.to_owned(),
+            partitions_observed: 0,
+            facts_line: "disk={} partitions=[]".to_owned(),
+            info_captures: vec![("disk".to_owned(), vec![capture.clone(), capture])],
+            privileged: Vec::new(),
+            monitor: Vec::new(),
+        };
+
+        assert!(
+            evaluate_coverage_gate(&[session("ok", populated)]).is_empty(),
+            "a retained property is coverage"
+        );
+        assert_eq!(
+            evaluate_coverage_gate(&[session("bare", empty.clone())]),
+            ["bare/disk"],
+            "a header-only entry is observed(absent)"
+        );
+
+        // The failure this gate exists to prevent: two empty projections are
+        // string-equal, so without the gate the pair reads as a negative.
+        let healthy = normalize_session(&session("h", empty.clone()));
+        let conflicting = normalize_session(&session("c", empty));
+        assert_eq!(
+            healthy, conflicting,
+            "two no-entry projections do compare equal"
         );
     }
 
