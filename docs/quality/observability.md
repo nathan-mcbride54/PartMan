@@ -1067,7 +1067,9 @@ resolves embedded paths elsewhere — by elision, not by dropping the field: a
 redacted citation copy (`32-measure-redacted.txt`, SHA-256
 `b46b27f22cd035e4d02a4ff03311799e29d26ed2e679129391c14b47e0dea71c`) carries
 the same content with the profile prefix and username elided, and the raw copy
-stays local and uncited. The measurement script now elides at capture time so
+stays local: its digest above binds it, and no quotation or derived value in
+this record is drawn from it rather than from the redacted copy. The
+measurement script now elides at capture time so
 a future sitting produces no such conflict. Attach transcript
 `65b7183cf0ec0c74d533186f125113fc9a56d7510b524914b9e3885fa38cfa58`; fixture
 digest table `7d3ac9e6d1e94cd6d6c3f599a66d5ca762b812542e5135aa661e718339c1112d`.
