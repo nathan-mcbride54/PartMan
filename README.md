@@ -69,9 +69,10 @@ What does exist:
   answer, refusals included.
 
 The domain crate performs no I/O and launches no process. Tier 1 retains its
-host-safe boundary. The only runnable higher-tier acceptance is WP-020's named
-non-destructive Linux-VM loop check; every generic destructive Tier-2 request
-and every Tier-3 request still fails closed.
+host-safe boundary. The two runnable higher-tier selectors are WP-020's named
+non-destructive Linux-VM loop check and WP-035's SI-35 measurement instrument
+built on it; every generic destructive Tier-2 request and every Tier-3 request
+still fails closed, and neither selector registers a destructive suite.
 
 ## Safe local gate
 
@@ -96,13 +97,21 @@ silently skipped.
 cargo xtask test --tier 1
 ```
 
-The sole higher-tier exception is:
+Two higher-tier selectors are registered, and no others:
 
 ```text
 cargo xtask test --tier 2 --profile destructive --acceptance linux-loop-read-only
+cargo xtask test --tier 2 --profile destructive --acceptance si35-loop-capture
 ```
 
-It runs only with explicit privilege in a disposable non-WSL Linux VM and only
+The second is WP-035's SI-35 measurement instrument. It runs the same
+crate-owned hold-open sessions under the same environmental gate, launches
+only predeclared read-only probers at compiled absolute paths, and emits raw
+records for an unprivileged projection half that refuses elevation. It
+registers no destructive suite either. The paragraph below describes the
+first; both share its privilege, isolation, and fail-closed discipline.
+
+The first runs only with explicit privilege in a disposable non-WSL Linux VM and only
 after SAFE-001, SAFE-002, and every SAFE-007 factor authorize the generated
 fixture backing objects. The acceptance opens the backing, loop-control, and
 loop-device descriptors `O_RDWR` for its mapping-control operations,
