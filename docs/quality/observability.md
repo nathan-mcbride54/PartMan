@@ -35,10 +35,17 @@
   empty-slot rider with it; a third sitting the same day completed the
   card-move rider: the exchange is invisible at every serial surface, and
   on a shared-constant pair unit continuity across it is unverifiable
-  unprivileged. **Every S4 arm is executed.** Increment 6's macOS and
-  real-partitioned-Linux matrices
-  and the successor protocol's S1–S3 arms remain preregistered
-  instruments, every cell `not yet taken`, establishing nothing until
+  unprivileged. **Every S4 arm is executed.** A same-day S1/S2/S2b/S3
+  sitting on the reattached parent-record reader closed SI-33's remaining
+  measurement gaps on that apparatus: close-before-event/reopen survival
+  `moved` in all three trials across true no-handle windows, L4 completed
+  at its three trials, the boundary-1 counter reset measured (five events
+  above the epoch floor before a reader re-arrival, at the floor after
+  it), and the storage-node PDO name qualified as an unprivileged epoch
+  signal while ContainerId and the USB-node PDO name were refuted. **The
+  successor protocol is fully executed.** Increment 6's macOS and
+  real-partitioned-Linux matrices are now the only preregistered
+  instruments with cells `not yet taken`, establishing nothing until
   executed.
 
 ## Why this document exists
@@ -1801,11 +1808,11 @@ derive continuity from bookkeeping between runs.
 ### SI-33/SI-28 successor protocol — preregistered 2026-08-02
 
 Protocol recorded 2026-08-02 under WP-035's SI-33 and SI-28 shares. Status:
-S1, S2, S2b, and S3 **not yet taken**, every unexecuted result cell
-deliberately so; **S4 is fully executed** across sittings 2 and 3
-(2026-08-04, below), and sitting 1's cross-model `not established` stands
-for that sitting's pair. This subsection is an instrument, not
-evidence. It preregisters exactly the
+**every arm is executed** — S4 across sittings 2 and 3 (2026-08-04), and
+S1, S2, S2b, and S3 in the same day's S1–S3 sitting recorded below them;
+sitting 1's cross-model `not established` stands for that sitting's pair.
+The preregistered text remains the instrument the results bind to; the
+dated sitting records are the evidence. It preregisters exactly the
 successor questions the records above filed — the close-before-event/reopen
 arm the 2026-08-02 run missed, the epoch-signal characterization its decrease
 demands, L4's unmet replication, and the second-reader collision question the
@@ -1896,10 +1903,10 @@ different model.
 
 | Arm | Result |
 | --- | --- |
-| S1 close-before-event/reopen survival, 3 trials | `not yet taken` |
-| S2 epoch-signal candidates across 3 induced re-arrivals | `not yet taken` |
-| S2b epoch-signal candidates across one reboot | `not yet taken` |
-| S3 L4 trials 2 and 3 | `not yet taken` |
+| S1 close-before-event/reopen survival, 3 trials | `moved` in **all three trials** — `count Δ=+1` per exchange, each read from a fresh handle after a process-local no-handle window, every empty-slot assertion and arrival bracket clean; the fail-open `unchanged` outcome never appeared (sitting of 2026-08-04, below) |
+| S2 epoch-signal candidates across 3 induced re-arrivals | storage-node PDO name **qualifies** — changed across every boundary, stable between them, readable non-elevated, counter-independent; USB-node PDO name and ContainerId **refuted** (unchanged across all three); the boundary-1 counter stood five events above the epoch floor before the re-arrival and read at the floor after it — the reset measured |
+| S2b epoch-signal candidates across one reboot | storage-node PDO name changed across the reboot as well; ContainerId constant even across it; the USB-node PDO name changed here but was already refuted by the replug boundaries; boot-time bracketed in-transcript |
+| S3 L4 trials 2 and 3 | both `count Δ=+1`, already final at the first post-reinsertion read, unchanged at +5 s and after 60 s idle, empty-slot assertion per trial — L4 reaches its originally requested three trials together with 2026-08-02's trial 1 |
 | S4 two-unit storage-layer serial live comparison | `observed(identical constant)` — sitting 2, 2026-08-04: two same-model units, live; one storage-layer serial value on every LUN of both — the hypothesis's predicted collision. Sitting 1 (2026-08-03): `not established` for that cross-model pair |
 | S4 empty-slot serial across units; card moved between readers | empty-slot arm `observed(identical constant)` — each unit's medium-less LUN reports its loaded LUN's serial, one constant across units; card-move arm `observed(serial invariant under exchange)` — sitting 3, 2026-08-04: the exchange is visible only as media facts; on this shared-constant pair follows-card versus follows-reader is undecidable by value and unit continuity is unverifiable (see the sitting-3 record) |
 
@@ -2120,6 +2127,102 @@ no Administrators SID); OS build 10.0.26200; PowerShell 7.6.4. An
 independent second reader retrieved the transcript through the locator,
 rehashed it to the same digest and byte length, and confirmed the
 archive's file inventory before the cell left `not yet taken`.
+
+#### S1–S3 sitting, 2026-08-04 — survival established, the reset measured, an epoch signal qualified
+
+The operator reattached the parent-record reader — VID:PID `0BDA:0306`,
+USB-descriptor and storage-layer serials matching the parent record's
+elided forms (`2015…1013`, `2012…5300`), the same identification strength
+sitting 1 declared — with the 64 GB-class card (Card A) seated, the second
+slot kept empty, both NS1081 units detached, and the two flash drives
+attached (byte sizes matching the parent apparatus's F1/F2). The sitting
+was turn-based: every physical step is operator-reported in chat and
+validated by a probe before the leg proceeds — the discarded-L4 audit
+rule enforced at every removal — and "immediate" post-action samples
+carry tens of seconds of turn latency, declared once in the transcript
+header; the parent ceiling already forbids attributing promptness, and no
+outcome below rests on it. The counter instrument is the parent
+protocol's preregistered P/Invoke block run one short-lived process per
+sample, so process-local closure between samples holds by process exit;
+IOCTL constants were re-verified against `winioctl.h` 10.0.26100.0 at
+staging. Candidate reads sample the three named S2 candidates on the
+reader's USB node and each USBSTOR child, labelled per node — the named
+list read on the apparatus's nodes, not an extension of it. Disk-number
+remapping after each re-arrival is folded into the post-boundary sample,
+keyed by instance id.
+
+**S3 — L4 trials 2 and 3, both `count Δ=+1`.** Same-medium out-and-back:
+the delta was already final at the first post-reinsertion read and held
+at +5 s and after a 60-second hands-off idle, in both trials; the
+empty-slot assertion returned the no-medium error mid-trial each time,
+and the arrival bracket never moved. With 2026-08-02's trial 1, the leg
+stands at its originally requested three trials, all `Δ=+1`.
+
+**S1 — `moved` in all three trials; the fail-open signal never
+appeared.** Each trial: a pre-exchange sample whose process exited before
+the event (the true no-handle window the parent run lacked), the
+empty-slot assertion mid-window (a transient probe handle, the
+preregistered mechanic), a genuine A↔B exchange validated by size class
+at the post-read, and a fresh-handle reading of `count Δ=+1`. No trial's
+arrival timestamp moved, so no trial is `void (epoch boundary)`. On this
+reader, bridge, and build, the counter survives a no-handle window and
+registers the exchange — the register's close-before-event/reopen
+survival sequence, established at three trials.
+
+**S2 — the reset measured, and one candidate qualifies.** At boundary 1
+the counter stood five exchange events above the epoch floor before the
+reader's surprise-removal and reattach, and read at the floor immediately
+after: the re-arrival reset is measured, giving the parent record's
+unexplained lower-later-reading a demonstrated mechanism. Across the
+three induced boundaries: the USB-node PDO name never changed (a
+port-slot name — refuted), ContainerId never changed (serial-derived —
+refuted), and the storage-node PDO name changed across **every** boundary
+while staying stable across quiescence and every same-instance sample —
+readable non-elevated and computed independently of the counter, so it
+**qualifies** on this sitting's boundaries. Per the preregistration,
+a qualifying signal makes cross-epoch counter readings incomparable by
+construction; it also supplies a boundary-detection token on this
+apparatus. One property is recorded as a limit rather than smoothed: the
+storage-node PDO name is a kernel object name whose allocation sequence
+restarted after the reboot, so a later epoch's value can in principle
+equal an earlier epoch's — it is a change-detection token when sampled
+across a boundary, not a globally unique epoch id, and a coincidental
+cross-boundary equality is not excluded by construction.
+
+**S2b — the reboot boundary agrees.** Boot time bracketed in-transcript
+(the pre- and post-reboot `LastBootUpTime` differ by the operator's
+restart); the storage-node PDO name changed across the reboot too;
+ContainerId stayed constant even across it; the USB-node PDO name
+changed here, but its refutation by the replug boundaries stands. The
+counter read at the floor on both sides of the reboot; the reset
+evidence is boundary 1's.
+
+Also observed, recorded as apparatus context: this reader's arrival
+timestamps never moved across any S1/S3 media exchange — this bridge
+does not re-enumerate on media change, in measured contrast to the
+NS1081 pair's behavior in the S4 card-move sitting.
+
+Nothing here decides SI-33's design; the register owns status.
+
+Custody: instruments archived with the transcript at
+`%USERPROFILE%\partman-evidence\2026-08-04-si33-s1s2s3-sitting1\` on the
+operator workstation, custodian Nate McBride; SHA-256 throughout, all
+digests recorded in the transcript header before any device query —
+probe instrument
+`0f996271c4716ace046f5ba82aa2a9a2a3956a3658f66c097f530e2a082e4e1f`
+(3170 bytes), candidate/bracket instrument
+`67d60efb8073bf5eeee863d3978709dac29f587a3c62f4754146a665ba99d7f9`
+(2747 bytes), roster instrument
+`b85df3beb672af0242c6e09b9ca9055cd7e7cb432551faba15af46d800c083aa`
+(2076 bytes); complete transcript
+`64d08b48663ae9b7089ac709c0f0d72797893dc940aafc28631dfc6aead6d383`
+(24091 bytes) with per-command exit codes, raw counter values (this file
+carries deltas only, per the parent rule), and the elevation assertion
+(`IsInRole(Administrator)=False`, token carries no Administrators SID);
+OS build 10.0.26200; PowerShell 7.6.4. An independent second reader
+retrieved the transcript through the locator, rehashed it to the same
+digest and byte length, and confirmed the archive's file inventory
+before any cell left `not yet taken`.
 
 ## macOS
 

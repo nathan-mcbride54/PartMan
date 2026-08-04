@@ -7,6 +7,27 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- The SI-33/SI-28 successor protocol's S1, S2, S2b, and S3 arms are
+  executed on the reattached parent-record reader (sitting of
+  2026-08-04), completing every arm of the protocol. S1: `moved` in all
+  three trials — `count Δ=+1` per genuine exchange, read from a fresh
+  handle after a true process-local no-handle window, every empty-slot
+  assertion and arrival bracket clean; the fail-open `unchanged` outcome
+  never appeared, establishing the register's close-before-event/reopen
+  survival sequence on this reader at three trials. S3: L4's trials 2
+  and 3 both `count Δ=+1`, final at first re-read and stable through the
+  idle re-reads, bringing the leg to its requested three trials. S2: the
+  boundary-1 counter reset is measured (five events above the epoch
+  floor before a reader re-arrival, at the floor after), the storage-node
+  PDO name qualifies as an unprivileged epoch signal — changed across
+  every induced boundary and the S2b reboot, stable between, counter-
+  independent — and ContainerId and the USB-node PDO name are refuted;
+  the qualifying token is recorded with its limit (an allocation name,
+  not a globally unique epoch id). Turn-based operation and its sample
+  latency are declared in the record; custody is complete with an
+  independent second-reader rehash; the status header, README M0.5
+  prose, and WP-035 row are trued.
+
 - The S4 card-move rider is executed (sitting 3, 2026-08-04), completing
   every S4 arm. The operator exchanged the cards between the attached
   units — the swap declared as the executed form of the preregistered
