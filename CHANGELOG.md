@@ -7,6 +7,38 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **The SI-35 hardened non-WSL confirmation protocol was taken and passed as
+  valid** on its third 2026-08-03 sitting, in fresh disposable VM 9423 at
+  `b231e0f`, after two void sittings whose instrument amendments are
+  recorded. Every validity gate passed: all ten sessions' descriptor-bound
+  bindings and byte-continuity hashes, the distinct-inode and repeat-attach
+  controls, projection stability, trial coherence, the preallocated-node
+  event shape, and the unprivileged reader's negative assertions (uid 1001,
+  no `disk` group, zero `CapEff`, denied direct loop reads). The result: the
+  named candidate client projection is **`non-separating`** for the decisive
+  healthy/conflicting GPT pair — byte-identical in every valid trial — and
+  the labelled privileged `blkid -p`/`wipefs -n` comparison was likewise
+  non-differing. The WSL2 promotion hold is lifted and **M0.5's loop
+  criterion is satisfied**, pending the protocol's second-reader rehash of
+  the retained transcript (SHA-256 `76bbd9e1…52b994`, raw capture
+  `8af58b26…c7700a`). The run chooses no SI-35 option, supplies no
+  chosen-option refusal demonstration, does not substitute for SI-34's macOS
+  and real-partitioned-Linux rows, and refutes no existential H-separation
+  hypothesis. VM 9423 was destroyed with post-destroy verification; the two
+  host-attached USB devices were never referenced and are unchanged.
+  A post-result review of the instrument against gate 7 found and closed a
+  latent false-pass path: two *successfully captured but empty* udev entries
+  would have compared equal and printed `non-separating`, where gate 7
+  requires `inconclusive (udev coverage gate)`. The instrument now counts
+  retained properties per subject and reports `observed(absent)`, failing the
+  run. Adding a gate after seeing output is the move the protocol distrusts,
+  so the claim is bounded: the gate is strictly stricter — it can only turn a
+  pass into inconclusive — and the verdict was **re-derived**, not assumed, by
+  re-running the amended projection over the digest-verified retained capture
+  off the sitting host on a different unprivileged Linux machine, with an
+  identical verdict and every gate passing. Coverage was 12 retained
+  properties for the disk and 23 per partition in every session.
+
 - The SI-35 instrument's second sitting (fresh VM 9422 at `bc922f0`) is
   recorded as **void (gate 7)** and the instrument is amended a second time,
   recorded before any subsequent run's output. The first amendment held:
