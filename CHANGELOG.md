@@ -7,6 +7,41 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **The SI-35 Windows completion rerun was taken on 2026-08-04 and is valid**,
+  closing the second of SI-35's three acceptance-evidence categories. All
+  three added gates are satisfied: R1 total retention (a 48 KB property-bag
+  record, not a summary — the 2026-08-02 query-and-discard defect does not
+  recur), R2's restored digest bracket (all seven fixtures' post-detach VHD
+  digests equal their pre-attach pair, so read-only is measured rather than
+  documented), and R3's mandatory index fallback (both `MSFT_Disk`-absent
+  fixtures probed at every `Win32_DiskDrive`-supplied index). Two consoles
+  with opposite, separately recorded privilege assertions, the measurement one
+  launched ordinarily and asserting both non-elevation and absence of the
+  Administrators group.
+  **W-H1, W-H2, and W-H3 are all refuted.** The refutation was evaluated
+  mechanically: 76 retained `MSFT_Disk`/`MSFT_Partition` fields compared
+  field-by-field between the healthy control and each of the conflicting,
+  damaged-primary, and missing-backup fixtures, excluding a named list of
+  session-local addressing fields — **exactly one field differs in each, and
+  it is `Location`, the backing file's path**, which is by-name provenance
+  rather than disk state. Every named status surface is equal, the partition
+  rows are identical (so under W-H1's own wording the primary table was
+  parsed and presented without complaint), and the layout IOCTL agrees.
+  **W-Q4 is answered `other (verbatim)`**: neither `hybrid-mbr-gpt-512` nor
+  its `mbr-basic-512` control reports any scheme — both are absent from
+  `MSFT_Disk` and their layout IOCTL fails `ERROR_IO_DEVICE` through a
+  succeeding zero-access open, with nothing flagging the aliasing.
+  A surface the parent run discarded is now retained and carries a new fact:
+  `MSFT_PhysicalDisk` reports a row for **all seven** fixtures including the
+  two `MSFT_Disk` omits, so the enumeration gap is specific to `MSFT_Disk`.
+  Recorded rather than smoothed over: R1 and this file's no-operator-paths
+  rule genuinely conflict at `MSFT_Disk.Location`, resolved by elision as the
+  protocol treats embedded paths elsewhere — a redacted citation copy is
+  cited and the raw copy stays local — and the measurement script now elides
+  at capture time. The sitting decides no SI-35 option, supplies no
+  chosen-option refusal proof, and claims nothing about interfaces it did not
+  enumerate. Second-reader readback is required before reliance.
+
 - The SI-35 instrument's second sitting (fresh VM 9422 at `bc922f0`) is
   recorded as **void (gate 7)** and the instrument is amended a second time,
   recorded before any subsequent run's output. The first amendment held:

@@ -971,7 +971,7 @@ these bounded observations rather than a platform-wide refutation.
   mean this record does not independently establish even that; it never bound
   the attach window.
 
-#### Completion rerun — preregistered, not yet taken
+#### Completion rerun — taken 2026-08-04; valid; all three hypotheses refuted
 
 Protocol recorded 2026-08-02 under WP-035's SI-35 share. Status: **not yet
 taken**; an instrument, not evidence. It reruns exactly what the 2026-08-02
@@ -1003,11 +1003,82 @@ three gates and the cells they make evaluable:
 
 | Cell | Result |
 | --- | --- |
-| W-H1 refutation condition evaluated over complete retained surfaces | `not yet taken` |
-| W-H2 same, with the which-copy limit below | `not yet taken` |
-| W-H3 same | `not yet taken` |
-| W-Q4: layout-IOCTL scheme answer for `hybrid-mbr-gpt-512` against the `mbr-basic-512` control | `not yet taken` |
-| Complete `MSFT_PhysicalDisk` / `IsReadOnly` surface retention for all seven fixtures | `not yet taken` |
+| W-H1 refutation condition evaluated over complete retained surfaces | **`refuted`** — every W1 status surface equal and the partition rows identical; see the sitting record below |
+| W-H2 same, with the which-copy limit below | **`refuted`** — W1 row equals `gpt-basic-512`'s and its partitions appear ordinarily |
+| W-H3 same | **`refuted`** — same condition, same result |
+| W-Q4: layout-IOCTL scheme answer for `hybrid-mbr-gpt-512` against the `mbr-basic-512` control | **`other (verbatim)`** — no scheme is reported for either: both are absent from `MSFT_Disk` and their layout IOCTL fails `ERROR_IO_DEVICE` (Win32 1117) through a succeeding zero-access open. Nothing flags the aliasing |
+| Complete `MSFT_PhysicalDisk` / `IsReadOnly` surface retention for all seven fixtures | **`observed`** — full property bags retained for all seven; `MSFT_PhysicalDisk` reports one fixture-matched row for **every** fixture, including the two absent from `MSFT_Disk`, and `IsReadOnly` is `True` on every enumerated disk |
+
+#### Rerun sitting, 2026-08-04 — valid; all three gates satisfied
+
+Taken 2026-08-04 on Windows build 10.0.26200.0 at repository revision
+`6b57a53`, seven fixtures attached strictly one at a time. Two consoles with
+opposite, separately recorded privilege assertions, as the parent protocol
+requires: the attach console asserted `IsInRole(Administrator) = True` and did
+only `Mount-DiskImage -Access ReadOnly -NoDriveLetter` and
+`Dismount-DiskImage`; the measurement console asserted
+`IsInRole(Administrator) = False` **and** `token carries Administrators group:
+False` — the two checks recorded separately, because a filtered token can
+carry the group. The measurement console was launched ordinarily, not as a
+child of the elevated one.
+
+**The three added gates, satisfied.** *R1* — every queried property value is
+retained verbatim; the record is a 48 KB property-bag dump, not a summary,
+and the 2026-08-02 query-and-discard defect does not recur. *R2* — every
+fixture's pre-attach and post-detach VHD digests were taken and compared
+individually, and all seven post-detach digests equal their pre-attach pair,
+so "the bytes were not altered" is measured rather than documented. *R3* —
+both fixtures absent from `MSFT_Disk` had the zero-access layout IOCTL run at
+every `Win32_DiskDrive`-supplied index in the same session; no index was
+available and left unprobed.
+
+**W-H1, W-H2, W-H3 — all three refuted.** The refutation was evaluated
+mechanically rather than by eye: 76 retained `MSFT_Disk` and `MSFT_Partition`
+fields were compared field-by-field between the healthy control and each of
+the conflicting, damaged-primary, and missing-backup fixtures, excluding a
+named list of session-local addressing fields. **Exactly one field differs in
+each comparison, and it is `Location` — the backing file's path**, which is
+by-name provenance of which file was mounted and not a property of the disk.
+Every state surface the hypotheses name is equal: `IsOffline` `False`,
+`OfflineReason` `0`, `OperationalStatus` `53264`, `HealthStatus` `0`,
+`IsReadOnly` `True`, `PartitionStyle` `2`, `NumberOfPartitions` `2`, and the
+disk `Guid` `{7a1e9153-bef6-4752-9460-8c23898f2cbf}` identical across all
+four. The partition rows are identical too — same `GptType`s, same partition
+GUIDs, same offsets, same sizes — which under W-H1's own wording means **the
+primary table was parsed** and presented without complaint. The layout IOCTL
+agrees: `PartitionStyle=1 PartitionCount=2 bytes=336` for all four.
+
+**A surface the parent run discarded, now retained.** `MSFT_PhysicalDisk`
+reports one fixture-matched row for **all seven** fixtures — including
+`mbr-basic-512` and `hybrid-mbr-gpt-512`, which have no `MSFT_Disk` row at
+all. The enumeration gap is therefore specific to `MSFT_Disk`; the layer
+beneath it sees every fixture. The pattern is exact: the two fixtures
+carrying an MBR partition table are absent from `MSFT_Disk` and their layout
+IOCTL fails, while `blank-512` and the four GPT fixtures enumerate and their
+IOCTL succeeds.
+
+**Artifacts and a recording-hygiene note.** The raw retained transcript
+(`31-measure-full.txt`, SHA-256
+`7135b19ab7efa05c6ef87640a95793fe27d771acf49340b9283e2ec3fa9ab970`) contains
+operator path elements, because `MSFT_Disk.Location` is one of the values R1
+requires retaining. That is a **conflict between R1 and this file's
+no-operator-paths recording rule**, and it is resolved the way the protocol
+resolves embedded paths elsewhere — by elision, not by dropping the field: a
+redacted citation copy (`32-measure-redacted.txt`, SHA-256
+`b46b27f22cd035e4d02a4ff03311799e29d26ed2e679129391c14b47e0dea71c`) carries
+the same content with the profile prefix and username elided, and the raw copy
+stays local and uncited. The measurement script now elides at capture time so
+a future sitting produces no such conflict. Attach transcript
+`65b7183cf0ec0c74d533186f125113fc9a56d7510b524914b9e3885fa38cfa58`; fixture
+digest table `7d3ac9e6d1e94cd6d6c3f599a66d5ca762b812542e5135aa661e718339c1112d`.
+Second-reader readback is required before this record is relied on, as the
+increment 6 matrices define.
+
+**What this sitting does not do.** It decides no SI-35 option and supplies no
+chosen-option refusal proof. It refutes three *existential surface*
+hypotheses over the enumerated interfaces only — no claim is made about
+interfaces not enumerated here. W-H2's which-GPT-copy question stays
+unmeasured, as the declared limit below already states.
 
 Declared limits: W-H2's which-GPT-copy question remains unmeasured even by
 a valid rerun — both copies of that fixture describe identical partitions,
