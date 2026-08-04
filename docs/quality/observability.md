@@ -3059,6 +3059,39 @@ Gate texts, the schedule, trial counts, hypotheses, and outcome rules are
 untouched. The next sitting runs the amended instrument from a pre-sitting
 snapshot revert.
 
+#### Second sitting, 2026-08-03 — void (gate 7); instrument amended again
+
+Run in fresh disposable VM 9422 at the amended commit `bc922f0` (same base
+image, same purge deviation; VM 9421's crash-consistent live snapshot proved
+unusable for revert — a lesson recorded for operations, not protocol — so the
+sitting used a freshly provisioned VM, which is what the protocol prefers
+anyway). The capture completed all ten sessions with exit 0. The first
+amendment held: **every control and trial-coherence comparison passed** with
+`DISKSEQ` dropped. The projection still voided the run, on gate 7 alone, for
+two narrower instrument defects:
+
+- **Stability**: the comparison was implemented over udevadm's whole
+  rendering, and the `S:` symlink block renders its set in varying order
+  between back-to-back queries — the same set-order nondeterminism `DEVLINKS`
+  shows, in a section that is not part of gate 6's projection at all. The
+  canonicalized `E:` sequences were identical.
+- **Events**: the requirement demanded 1 + partitions udev `add` events, but
+  a **preallocated loop node emits no disk `add`** — this kernel pre-creates
+  `loop0`–`loop7`, so attach produces disk `change` events plus one `add` per
+  partition. Captured event streams show exactly that shape, listener
+  readiness confirmed.
+
+The decisive-pair line the void run printed is again unusable and not
+evidence. **Amendment recorded 2026-08-03, before any subsequent run's
+output:** the stability comparison is over the projection gate 6 defines —
+the `E:` property sequence with the declared `DEVLINKS` canonicalization —
+never udevadm's addressing or symlink-presentation lines; and the event gate
+requires udev adds ≥ partitions observed plus at least one disk `change`,
+matching what a preallocated node can emit. Gate texts, schedule, trials,
+hypotheses, and outcome rules remain untouched. Raw capture and transcript
+retained externally (transcript SHA-256
+`f435cf5b6e63a68100e39d8425985436eec3a1acde44b4cd4de12bd486be5974`).
+
 #### Mechanism amendment, 2026-08-03 — recorded before any output exists
 
 No measurement has been taken and every result cell above stays exactly as

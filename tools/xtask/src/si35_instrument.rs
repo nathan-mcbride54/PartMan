@@ -565,24 +565,8 @@ pub(crate) fn run_project(raw: &Path) -> Result<(), TaskError> {
         }
     }
 
-    // Gate 7 events: at least one udev block add per session, and at least
-    // one partition add when partitions materialized. Counting only; the
-    // capture is never used to address anything.
-    for session in &sessions {
-        let text = String::from_utf8_lossy(&session.monitor);
-        let udev_adds = text
-            .lines()
-            .filter(|line| line.starts_with("UDEV") && line.contains(" add "))
-            .count();
-        let enough = udev_adds as u64 > session.partitions_observed;
-        println!(
-            "gate events entry={} udev_adds={udev_adds} required={} pass={enough}",
-            session.entry,
-            1 + session.partitions_observed
-        );
-        if !enough {
-            gates_passed = false;
-        }
+    if !evaluate_event_gate(&sessions) {
+        gates_passed = false;
     }
 
     // The decisive pair.
@@ -625,8 +609,13 @@ fn evaluate_stability_gate(sessions: &[Session]) -> bool {
     let mut passed = true;
     for session in sessions {
         for (subject, captures) in &session.info_captures {
+            // Stability is over the client projection gate 6 defines — the
+            // `E:` property sequence — not over udevadm's whole rendering.
+            // The second sitting measured the `S:` symlink block rendering
+            // its set in varying order exactly as `DEVLINKS` does; those
+            // lines duplicate the DEVLINKS set and are not projection.
             let stable = captures.len() == 2
-                && canonicalize_info(&captures[0]) == canonicalize_info(&captures[1]);
+                && projection_lines(&captures[0]) == projection_lines(&captures[1]);
             if !stable {
                 println!(
                     "gate stability entry={} subject={subject} pass=false",
@@ -638,6 +627,49 @@ fn evaluate_stability_gate(sessions: &[Session]) -> bool {
     }
     println!("gate stability pass={passed}");
     passed
+}
+
+/// Gate 7 events, counting only; the capture never addresses anything. The
+/// expected shape, measured on the second sitting: a preallocated loop node
+/// emits **no disk add** — attach produces disk `change` events plus one
+/// `add` per materialized partition. Require exactly that: udev adds at
+/// least the partitions observed, and at least one udev `change` proving
+/// the disk's configure event was processed.
+fn evaluate_event_gate(sessions: &[Session]) -> bool {
+    let mut passed = true;
+    for session in sessions {
+        let text = String::from_utf8_lossy(&session.monitor);
+        let udev_adds = text
+            .lines()
+            .filter(|line| line.starts_with("UDEV") && line.contains(" add "))
+            .count();
+        let udev_changes = text
+            .lines()
+            .filter(|line| line.starts_with("UDEV") && line.contains(" change "))
+            .count();
+        let enough = udev_adds as u64 >= session.partitions_observed && udev_changes >= 1;
+        println!(
+            "gate events entry={} udev_adds={udev_adds} udev_changes={udev_changes} \
+             required_adds={} pass={enough}",
+            session.entry, session.partitions_observed
+        );
+        if !enough {
+            passed = false;
+        }
+    }
+    passed
+}
+
+/// The projection content of one capture: its `E: ` lines in order, with the
+/// one declared `DEVLINKS` canonicalization applied. Everything else in
+/// udevadm's rendering (`P:`, `N:`, `M:`, `S:` lines) is addressing or
+/// duplicate-symlink presentation, not the udev property database.
+fn projection_lines(capture: &[u8]) -> Vec<String> {
+    canonicalize_info(capture)
+        .lines()
+        .filter(|line| line.starts_with("E: "))
+        .map(str::to_owned)
+        .collect()
 }
 
 /// The one declared rendering canonicalization: within an `E: DEVLINKS=`
@@ -941,6 +973,43 @@ E: ID_FS_TYPE=ext4\n";
 
         let untouched = "E: ID_FS_UUID=abc";
         assert_eq!(canonicalize_devlinks_line(untouched), untouched);
+    }
+
+    // Requirements: SAFE-005, SAFE-006
+    //   Stability compares the projection — the E: property sequence with the
+    //   declared DEVLINKS canonicalization — so udevadm's S:-block set-order
+    //   nondeterminism cannot fail it, while a genuinely changed property or
+    //   reordered property sequence still does.
+    // Work-Package: WP-035
+    // Evidence: stability_projection_ignores_symlink_block_order_but_not_properties
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn stability_projection_ignores_symlink_block_order_but_not_properties() {
+        let first = b"P: /devices/virtual/block/loop0/loop0p2\n\
+S: disk/by-partuuid/aa\n\
+S: disk/by-partlabel/Data\n\
+E: DEVTYPE=partition\n\
+E: DEVLINKS=/dev/disk/by-partuuid/aa /dev/disk/by-partlabel/Data\n";
+        let second = b"P: /devices/virtual/block/loop0/loop0p2\n\
+S: disk/by-partlabel/Data\n\
+S: disk/by-partuuid/aa\n\
+E: DEVTYPE=partition\n\
+E: DEVLINKS=/dev/disk/by-partlabel/Data /dev/disk/by-partuuid/aa\n";
+        assert_eq!(projection_lines(first), projection_lines(second));
+
+        let changed = b"P: /devices/virtual/block/loop0/loop0p2\n\
+S: disk/by-partuuid/aa\n\
+E: DEVTYPE=disk\n\
+E: DEVLINKS=/dev/disk/by-partuuid/aa /dev/disk/by-partlabel/Data\n";
+        assert_ne!(projection_lines(first), projection_lines(changed));
+
+        let reordered_properties =
+            b"E: DEVLINKS=/dev/disk/by-partuuid/aa /dev/disk/by-partlabel/Data\n\
+E: DEVTYPE=partition\n";
+        assert_ne!(
+            projection_lines(first),
+            projection_lines(reordered_properties)
+        );
     }
 
     // Requirements: SAFE-005

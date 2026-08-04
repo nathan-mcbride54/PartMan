@@ -7,6 +7,24 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- The SI-35 instrument's second sitting (fresh VM 9422 at `bc922f0`) is
+  recorded as **void (gate 7)** and the instrument is amended a second time,
+  recorded before any subsequent run's output. The first amendment held:
+  every control and trial-coherence comparison passed with `DISKSEQ`
+  dropped. Two narrower evaluation defects voided the run: the stability
+  comparison covered udevadm's whole rendering, and the `S:` symlink block
+  renders its set in varying order — the same nondeterminism `DEVLINKS`
+  shows, in a section that is not part of gate 6's projection; and the event
+  requirement demanded a disk `add` that a preallocated loop node never
+  emits — this kernel pre-creates `loop0`–`loop7`, so attach produces disk
+  `change` plus one `add` per partition, which the captured streams show
+  exactly. Amendments: stability now compares the gate 6 projection (the
+  `E:` sequence with the declared `DEVLINKS` canonicalization), and the
+  event gate requires adds ≥ partitions plus at least one disk `change`.
+  The void run's decisive-pair line remains unusable and unquoted. Gate
+  texts, schedule, trials, hypotheses, and outcome rules untouched;
+  transcript retained externally, SHA-256 `f435cf5b…be5974`.
+
 - The SI-35 instrument's first sitting is recorded as **void (gates 4 and
   7)** and the instrument is amended, with the amendment recorded before any
   subsequent run's output. The capture half completed all ten sessions
