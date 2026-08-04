@@ -32,8 +32,11 @@
   **observed the preregistered collision** — one identical placeholder
   serial from both units at every serial-bearing layer, the second unit
   re-keyed by port with its unique-id capability cleared — and the
-  empty-slot rider with it; only S4's card-move rider is still
-  `not yet taken`. Increment 6's macOS and real-partitioned-Linux matrices
+  empty-slot rider with it; a third sitting the same day completed the
+  card-move rider: the exchange is invisible at every serial surface, and
+  on a shared-constant pair unit continuity across it is unverifiable
+  unprivileged. **Every S4 arm is executed.** Increment 6's macOS and
+  real-partitioned-Linux matrices
   and the successor protocol's S1–S3 arms remain preregistered
   instruments, every cell `not yet taken`, establishing nothing until
   executed.
@@ -1799,10 +1802,9 @@ derive continuity from bookkeeping between runs.
 
 Protocol recorded 2026-08-02 under WP-035's SI-33 and SI-28 shares. Status:
 S1, S2, S2b, and S3 **not yet taken**, every unexecuted result cell
-deliberately so; S4's primary row and empty-slot rider are **observed**
-per sitting 2 (2026-08-04, below), its card-move rider `not yet taken`,
-and sitting 1's cross-model `not established` stands for that sitting's
-pair. This subsection is an instrument, not
+deliberately so; **S4 is fully executed** across sittings 2 and 3
+(2026-08-04, below), and sitting 1's cross-model `not established` stands
+for that sitting's pair. This subsection is an instrument, not
 evidence. It preregisters exactly the
 successor questions the records above filed — the close-before-event/reopen
 arm the 2026-08-02 run missed, the epoch-signal characterization its decrease
@@ -1899,7 +1901,7 @@ different model.
 | S2b epoch-signal candidates across one reboot | `not yet taken` |
 | S3 L4 trials 2 and 3 | `not yet taken` |
 | S4 two-unit storage-layer serial live comparison | `observed(identical constant)` — sitting 2, 2026-08-04: two same-model units, live; one storage-layer serial value on every LUN of both — the hypothesis's predicted collision. Sitting 1 (2026-08-03): `not established` for that cross-model pair |
-| S4 empty-slot serial across units; card moved between readers | empty-slot arm `observed(identical constant)` — each unit's medium-less LUN reports its loaded LUN's serial, one constant across units; card-move arm `not yet taken` — needs the physical move, now unblocked by the completed primary |
+| S4 empty-slot serial across units; card moved between readers | empty-slot arm `observed(identical constant)` — each unit's medium-less LUN reports its loaded LUN's serial, one constant across units; card-move arm `observed(serial invariant under exchange)` — sitting 3, 2026-08-04: the exchange is visible only as media facts; on this shared-constant pair follows-card versus follows-reader is undecidable by value and unit continuity is unverifiable (see the sitting-3 record) |
 
 A valid run can establish only these arms. It decides no SI-33 design
 option, does not move SI-28's disposition (the register owns status), and
@@ -2057,6 +2059,67 @@ Administrators SID); OS build 10.0.26200; PowerShell 7.6.4. An
 independent second reader retrieved the transcript through the locator,
 rehashed it to the same digest and byte length, and confirmed the
 archive's file inventory before any cell left `not yet taken`.
+
+#### S4 sitting 3, 2026-08-04 — card-move rider: the exchange is invisible except as media
+
+The operator exchanged the two cards between the attached units — a swap,
+which contains the preregistered one-card move in both directions and is
+declared as the executed form — and reported the readers stayed attached
+throughout. Instruments byte-identical to sitting 2, digests recorded in
+the transcript header before any device query.
+
+Observed, in one non-elevated session:
+
+- Every serial-bearing surface on every LUN of both units reports the
+  same constant as sittings 1 and 2: the storage-layer record is
+  **invariant under the exchange**. The exchange is visible only as media
+  facts — the by-port card mapping swapped (the port that held the
+  64 GB-class card now holds the 256 GB-class and vice versa), sizes
+  travelling with the cards, and each card's volume followed its card to
+  the other unit, bound in-transcript.
+- On a pair sharing one constant at every layer, **follows-the-card
+  versus follows-the-reader is undecidable by value**. The attribution
+  that the serial is the reader's rests on the empty-slot form, which
+  held again this sitting on both units: both medium-less LUNs still
+  report the constant.
+- **Both units re-arrived inside the exchange window** — their arrival
+  timestamps moved from the sitting-2 values to two fresh times twelve
+  seconds apart — although the operator reports the readers stayed
+  attached. Whether this bridge re-enumerates on media change or the
+  connections were disturbed by handling is not attributable
+  unprivileged; the fact is recorded at full strength because of what
+  follows from it.
+- Across those re-arrivals the **serial-derived instance identity
+  migrated to the other port**: the serial-keyed USB instance, on one
+  port at sitting 2, is on the other port at sitting 3 holding the other
+  card, while the second unit was re-keyed for its port with a fresh
+  port-derived container id. The serial-keyed badge is a first-arrival
+  artifact, not a unit identity, and physical-unit continuity across the
+  exchange is **not establishable from any surface this sitting reads**:
+  readers-stationary-with-cards-swapped and readers-swapped-with-cards
+  produce byte-identical observations on this pair. Recorded per the
+  enumeration-failure-is-data rule as the collision behavior's fullest
+  measured reach.
+- Context for S1's epoch rule, touching no S1 cell (S1 belongs to the
+  parent apparatus): on this model a media exchange can coincide with a
+  USB re-arrival — exactly the boundary S1's bracketing voids a trial
+  for.
+
+Nothing here moves SI-28's disposition; the register owns status.
+
+Custody: capture, orientation, and distinctness-v3 instruments
+byte-identical to sitting 2 (same digests, re-recorded in the header
+before any query); complete transcript
+`54459295fd2d97250bf0797186b7662d0d49b2c6b5219d6013673a73df4a76b1`
+(11824 bytes) archived at
+`%USERPROFILE%\partman-evidence\2026-08-04-si33si28-s4-sitting3\` on the
+operator workstation, custodian Nate McBride; SHA-256 throughout;
+per-step statuses and per-script exit codes in-transcript; elevation
+asserted in-transcript (`IsInRole(Administrator)=False`, token carries
+no Administrators SID); OS build 10.0.26200; PowerShell 7.6.4. An
+independent second reader retrieved the transcript through the locator,
+rehashed it to the same digest and byte length, and confirmed the
+archive's file inventory before the cell left `not yet taken`.
 
 ## macOS
 
