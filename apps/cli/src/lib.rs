@@ -49,6 +49,7 @@
 
 use std::ffi::OsString;
 
+pub mod devices;
 pub mod doctor;
 pub mod facts;
 pub mod inspect;

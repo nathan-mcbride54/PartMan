@@ -841,6 +841,7 @@ fn the_shipped_sources_read_no_environment_variable() {
         ("facts.rs", include_str!("facts.rs")),
         ("inspect.rs", include_str!("inspect.rs")),
         ("reach.rs", include_str!("reach.rs")),
+        ("devices.rs", include_str!("devices.rs")),
     ] {
         for needle in ["env::var", "env::vars", "var_os"] {
             assert!(
@@ -1073,6 +1074,7 @@ fn discovery_cannot_auto_mount_or_run_repair_tools() {
         ("facts.rs", include_str!("facts.rs")),
         ("inspect.rs", include_str!("inspect.rs")),
         ("reach.rs", include_str!("reach.rs")),
+        ("devices.rs", include_str!("devices.rs")),
     ] {
         assert!(
             !source.contains("std::process::Command") && !source.contains("process::{Command"),
@@ -1088,6 +1090,7 @@ fn discovery_cannot_auto_mount_or_run_repair_tools() {
     assert_eq!(
         modules,
         [
+            "pub mod devices;",
             "pub mod doctor;",
             "pub mod facts;",
             "pub mod inspect;",
@@ -2181,4 +2184,293 @@ fn the_enumeration_answer_publishes_reach_beside_the_gated_list() {
         "a replay answer is about a caller-named file; a platform contract is not a \
          property of that file and must not be rendered as though it were"
     );
+}
+
+#[cfg(target_os = "linux")]
+/// A synthesized sysfs/udev tree, so no Tier-1 test reads the host's real
+/// `/sys` or `/run/udev`. A path not in the map is `NotFound`, which is how
+/// the positively-absent case is exercised.
+struct FakeDeviceSource {
+    dirs: std::collections::BTreeMap<String, Vec<String>>,
+    files: std::collections::BTreeMap<String, Result<String, std::io::ErrorKind>>,
+}
+
+#[cfg(target_os = "linux")]
+impl FakeDeviceSource {
+    fn key(path: &std::path::Path) -> String {
+        path.to_string_lossy().replace('\\', "/")
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl crate::devices::DeviceSource for FakeDeviceSource {
+    fn list_dir(&self, path: &std::path::Path) -> Result<Vec<String>, std::io::Error> {
+        self.dirs
+            .get(&Self::key(path))
+            .cloned()
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "no such directory"))
+    }
+
+    fn read_value(&self, path: &std::path::Path) -> Result<String, std::io::Error> {
+        match self.files.get(&Self::key(path)) {
+            Some(Ok(value)) => Ok(value.clone()),
+            Some(Err(kind)) => Err(std::io::Error::new(*kind, "synthesized failure")),
+            None => Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "no such file",
+            )),
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+/// One whole disk plus a partition child, with a present serial, an absent
+/// wwid, an unreadable attribute and a udev record — every outcome class in
+/// one tree.
+fn one_disk_tree() -> FakeDeviceSource {
+    let mut dirs = std::collections::BTreeMap::new();
+    dirs.insert(
+        "/sys/class/block".to_owned(),
+        vec!["sda".to_owned(), "sda1".to_owned()],
+    );
+    let mut files = std::collections::BTreeMap::new();
+    files.insert(
+        "/sys/class/block/sda1/partition".to_owned(),
+        Ok("1".to_owned()),
+    );
+    files.insert(
+        "/sys/class/block/sda/size".to_owned(),
+        Ok("1000215216".to_owned()),
+    );
+    files.insert("/sys/class/block/sda/ro".to_owned(), Ok("0".to_owned()));
+    files.insert(
+        "/sys/class/block/sda/removable".to_owned(),
+        Ok("0".to_owned()),
+    );
+    files.insert(
+        "/sys/class/block/sda/queue/logical_block_size".to_owned(),
+        Ok("512".to_owned()),
+    );
+    files.insert(
+        "/sys/class/block/sda/device/serial".to_owned(),
+        Ok("S3Z9NB0K".to_owned()),
+    );
+    files.insert(
+        "/sys/class/block/sda/queue/physical_block_size".to_owned(),
+        Err(std::io::ErrorKind::PermissionDenied),
+    );
+    files.insert("/sys/class/block/sda/dev".to_owned(), Ok("8:0".to_owned()));
+    files.insert(
+        "/run/udev/data/b8:0".to_owned(),
+        Ok("S:disk/by-id/ata-X\nE:ID_SERIAL=ata-Samsung_S3Z9NB0K\nE:ID_BUS=ata\n".to_owned()),
+    );
+    FakeDeviceSource { dirs, files }
+}
+
+#[cfg(target_os = "linux")]
+fn enumerate_fake(source: &FakeDeviceSource) -> crate::devices::Enumeration {
+    crate::devices::enumerate(
+        source,
+        std::path::Path::new("/sys"),
+        std::path::Path::new("/run/udev/data"),
+    )
+}
+
+#[cfg(target_os = "linux")]
+/// The state word for an outcome, so a test can compare shapes without
+/// reaching into `inspect`'s private renderer.
+fn outcome_shape(outcome: &crate::inspect::Outcome) -> &'static str {
+    match outcome {
+        crate::inspect::Outcome::Observed(crate::inspect::ObservedValue::Absent { .. }) => "absent",
+        crate::inspect::Outcome::Observed(_) => "observed",
+        crate::inspect::Outcome::Unavailable { .. } => "unavailable",
+        crate::inspect::Outcome::Failed { .. } => "failed",
+    }
+}
+
+// Evidence: enumeration_reports_whole_devices_only
+#[test]
+#[cfg(target_os = "linux")]
+fn enumeration_reports_whole_devices_only() {
+    let source = one_disk_tree();
+    let crate::devices::Enumeration::Listed(devices) = enumerate_fake(&source) else {
+        panic!("the synthesized tree should enumerate");
+    };
+    assert_eq!(
+        devices.len(),
+        1,
+        "sda1 carries a `partition` attribute and is not a whole device"
+    );
+    assert_eq!(devices[0].kernel_name, "sda");
+    assert_eq!(
+        devices[0].selector, "device:0",
+        "selectors are session-local positions, never stable handles (SI-27)"
+    );
+}
+
+// Evidence: enumeration_keeps_the_three_outcome_classes_apart
+#[test]
+#[cfg(target_os = "linux")]
+fn enumeration_keeps_the_three_outcome_classes_apart() {
+    // ADR-C4's distinction, which an earlier draft of `inspect` got wrong: a
+    // positively determined absence is a VALUE, a read error is `failed`, and
+    // an interface that did not answer is `unavailable`. Collapsing any pair
+    // is the fail-closed violation SAFE-005 exists to prevent.
+    let source = one_disk_tree();
+    let crate::devices::Enumeration::Listed(devices) = enumerate_fake(&source) else {
+        panic!("the synthesized tree should enumerate");
+    };
+    let shape = |property: &str| {
+        devices[0]
+            .fields
+            .iter()
+            .find(|f| f.property == property)
+            .map(|f| outcome_shape(&f.outcome))
+            .unwrap_or_else(|| panic!("{property} missing from the row"))
+    };
+
+    assert_eq!(shape("device/serial"), "observed");
+    assert_eq!(
+        shape("device/wwid"),
+        "absent",
+        "an attribute that is not present is a positively determined absence"
+    );
+    assert_eq!(
+        shape("physical_block_size"),
+        "failed",
+        "an unreadable attribute is `failed`, never rendered as absence"
+    );
+    assert_eq!(
+        shape("ID_WWN"),
+        "absent",
+        "a key missing from a udev record that exists is absent, not unavailable"
+    );
+    assert_eq!(shape("ID_SERIAL"), "observed");
+}
+
+// Evidence: enumeration_is_identical_under_differing_privilege
+#[test]
+#[cfg(target_os = "linux")]
+fn enumeration_is_identical_under_differing_privilege() {
+    // The clamping obligation, made falsifiable. The record measures that
+    // `disk`-group membership alone flips raw access, so a contract that
+    // widened with privilege would make the published INV-003 reach
+    // declaration a per-user statement — which INV-003 forbids, it being a
+    // property of the contract and the platform. The adapter has no
+    // privilege-conditional branch, and this fails if one is added.
+    // An earlier version of this test enumerated the same fake source twice
+    // and compared the results. That could never fail: nothing varied between
+    // the runs, so a privilege-conditional branch would have sailed through
+    // it. Verified by mutation, which is how the weakness was found. The
+    // guard is therefore structural — the adapter must contain no way to ask
+    // what privilege it holds.
+    let source = include_str!("devices.rs");
+    for needle in [
+        "geteuid",
+        "getuid",
+        "getgid",
+        "is_root",
+        "effective_uid",
+        "PermissionDenied =>",
+    ] {
+        assert!(
+            !source.contains(needle),
+            "devices.rs contains `{needle}`: the contract must not vary with the \
+             privilege it runs under. The record measures that `disk`-group membership \
+             alone flips raw access, so a widening contract would make the published \
+             INV-003 reach declaration a per-user statement — which INV-003 forbids, \
+             it being a property of the contract and the platform"
+        );
+    }
+
+    // And the behavioural half, kept because it pins the shape even though it
+    // is the weaker of the two.
+    let tree = one_disk_tree();
+    let render = |enumeration: crate::devices::Enumeration| match enumeration {
+        crate::devices::Enumeration::Listed(devices) => devices
+            .iter()
+            .flat_map(|device| {
+                crate::devices::observations(device)
+                    .into_iter()
+                    .map(|o| format!("{}={}", o.subject, outcome_shape(&o.outcome)))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>()
+            .join("|"),
+        _ => panic!("the synthesized tree should enumerate"),
+    };
+    assert_eq!(
+        render(enumerate_fake(&tree)),
+        render(enumerate_fake(&tree)),
+        "enumeration must be reproducible"
+    );
+}
+
+// Evidence: enumeration_distinguishes_no_interface_from_no_devices
+#[test]
+#[cfg(target_os = "linux")]
+fn enumeration_distinguishes_no_interface_from_no_devices() {
+    // An empty list would say "this machine has no disks". A missing sysfs
+    // block class says "this interface is not here" — a different statement,
+    // and the only honest one.
+    let empty = FakeDeviceSource {
+        dirs: std::collections::BTreeMap::new(),
+        files: std::collections::BTreeMap::new(),
+    };
+    assert!(
+        matches!(
+            enumerate_fake(&empty),
+            crate::devices::Enumeration::Unavailable { .. }
+        ),
+        "an absent interface is `unavailable`, never an empty device list"
+    );
+}
+
+// Evidence: udev_values_carry_the_cached_caveat_in_band
+#[test]
+#[cfg(target_os = "linux")]
+fn udev_values_carry_the_cached_caveat_in_band() {
+    // The record establishes that a udev database value is what root's udevd
+    // computed at device-add time, not something this client observed. That
+    // caveat rides on every value rather than living in a comment.
+    let source = one_disk_tree();
+    let crate::devices::Enumeration::Listed(devices) = enumerate_fake(&source) else {
+        panic!("the synthesized tree should enumerate");
+    };
+    let observations = crate::devices::observations(&devices[0]);
+    let udev = observations
+        .iter()
+        .find(|o| o.subject.contains("ID_SERIAL"))
+        .expect("a udev observation");
+    assert!(
+        udev.attribution.method.contains("udevd"),
+        "a udev value must say in-band that root's udevd computed it, not this client"
+    );
+    let sysfs = observations
+        .iter()
+        .find(|o| o.subject.contains("device/serial"))
+        .expect("a sysfs observation");
+    assert!(
+        !sysfs.attribution.method.contains("udevd"),
+        "a sysfs attribute is read by this client and must not carry the udev caveat"
+    );
+}
+
+// Evidence: the_enumeration_adapter_opens_no_device_node
+#[test]
+fn the_enumeration_adapter_opens_no_device_node() {
+    // `docs/quality/test-tiers.md`'s standing claim is that no Tier-1 test
+    // opens a block device at all, read or write. This adapter is the thing
+    // that could break it, so the guard is source-text rather than a promise:
+    // reading `/sys/class/block/sda/size` is an attribute file, and a `/dev`
+    // node never appears.
+    let source = include_str!("devices.rs");
+    for needle in ["/dev/", "std::process", "Command::new"] {
+        assert!(
+            !source.contains(needle),
+            "devices.rs contains `{needle}`: this contract is sysfs and the udev \
+             database, read as files. A device node or a subprocess here breaks the \
+             tier boundary this package's own precondition exists to protect"
+        );
+    }
 }
