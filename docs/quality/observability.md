@@ -3205,14 +3205,20 @@ limits do:
   register lists three evidence categories before accepting an option: the
   loop-device measurement, the Windows equivalent, and *"a demonstration that
   whichever option is chosen still refuses rather than proceeds on
-  `gpt-conflicting-tables-512.img`"*. **All three remain unsatisfied for an
-  acceptance decision.** The Windows procedure was performed, but omitted
-  reachable layout rows, retained incomplete status surfaces, and cannot settle
-  its existential hypotheses; it therefore needs a decision-complete rerun.
-  The loop run is non-qualifying under #94 and the post-hoc normalizer. The
-  chosen-option refusal proof cannot exist before an option and implementation
-  exist. The descriptor-bound non-WSL protocol below is designed to discharge
-  only the loop category.
+  `gpt-conflicting-tables-512.img`"*. **Two are now satisfied and the third is
+  not.** The loop category is discharged by the descriptor-bound non-WSL
+  protocol below, taken 2026-08-03 and valid on its third sitting; the
+  historical WSL2 negative it was written to confirm is confirmed, and the #94
+  non-qualification no longer applies. The Windows category is discharged by
+  the completion rerun of 2026-08-04, which is valid: the original procedure
+  omitted reachable layout rows and retained incomplete status surfaces, and
+  the rerun made all three declared refutation conditions evaluable over
+  complete retained surfaces, refuted them, and answered W-Q4. **The
+  chosen-option refusal proof remains outstanding, and cannot exist before an
+  option and an implementation exist** — no SI-35 option has been chosen, so
+  this category is blocked on a decision rather than on measurement. Neither
+  discharged category resolves SI-35, and neither refutes the existential
+  H-separation hypothesis: both cover their enumerated projections only.
 - **The attach is privileged everywhere.** A separation finding here is a fact
   about what the kernel's parse leaves client-readable, not about what an
   unprivileged client can cause to be parsed. Real disks are parsed at
