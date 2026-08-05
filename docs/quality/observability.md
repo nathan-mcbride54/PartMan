@@ -6,7 +6,12 @@
   rows established 2026-08-04 by the increment 6 matrix on explicitly
   authorized passthrough fixture media; the earlier WSL2 virtual-SCSI rows
   (no partitions) and the synthetic loop run (non-qualifying) keep their
-  own records' caveats. macOS not established.** WP-035's three instruments have operator-run records dated
+  own records' caveats. macOS client rows established 2026-08-05 on Apple
+  Silicon — M1–M8 taken and valid on the second sitting, the first being void
+  on two recorded harness defects; M9 `not established` for want of Fusion
+  hardware and M10 `not yet taken` for want of a disposable macOS VM, so the
+  macOS privileged comparison is still missing. Its second-reader readback is
+  outstanding.** WP-035's three instruments have operator-run records dated
   2026-08-02, but their limits are material: SI-33 did not establish the full
   close-before-event/reopen liveness sequence; the SI-35 Windows wrapper did
   not retain every queried surface; and the SI-35 loop run was taken while
@@ -51,9 +56,16 @@
   directions, the LVM2 member-independent designator helper-only, the
   SI-34 stale-signature finding established on a real device tree, and
   the L9 collision resolving by silent last-writer-wins on every
-  UUID-keyed surface. Increment 6's macOS matrix is now the only
-  preregistered instrument with cells `not yet taken`, establishing
-  nothing until executed.
+  UUID-keyed surface. **Increment 6's macOS matrix was taken 2026-08-05**,
+  valid on its second sitting after a void first: the decisive SI-35 pair is
+  **non-separating** on macOS too, making it the third platform to answer that
+  way; every non-native signature — live ext4 with a stale mdraid superblock,
+  an mdraid member, a LUKS2 container, an LVM2 orphan — projects
+  **byte-identically to a blank disk**; APFS container membership and its UUID
+  are client-readable and the UUID is stable across a verified reboot; and the
+  unprivileged raw device read is denied. **M10, the privileged comparison
+  leg, is the one preregistered cell still `not yet taken`**, and no row above
+  substitutes for it.
 
 ## Why this document exists
 
@@ -2240,17 +2252,26 @@ before any cell left `not yet taken`.
 
 ## macOS
 
-**Not established.** Needs: IOKit / `IOMedia` property availability without
-elevation, `diskutil info -plist` fields for an APFS container and its physical
-stores, whether raw `/dev/rdiskN` reads require elevation, and what a Fusion
-container reports when one store is absent.
+**Client rows established 2026-08-05** by the increment 6 matrix on an Apple
+Silicon host: IOKit / `IOMedia` property availability without elevation,
+`diskutil` structured fields for an APFS container and its physical stores,
+and the raw `/dev/rdiskN` read policy are all measured. **The privileged
+comparison leg (M10) and the Fusion shape (M9) are not**, and neither is
+inferred from the rows that were taken — M10 needs a disposable macOS VM that
+does not exist, and Apple Silicon has no Fusion Drive, so M9 records
+`not established` as its own text requires.
 
-### Increment 6 macOS matrix — preregistered, not yet taken
+### Increment 6 macOS matrix — taken 2026-08-05; valid on the second sitting
 
-Protocol recorded 2026-08-02 under WP-035 increment 6. Status: **not yet
-taken**; every result cell is deliberately `not yet taken` and this subsection
-is an instrument, not evidence. It records no measurement, changes no register
-disposition, decides no option, and satisfies no platform-adapter criterion.
+Protocol recorded 2026-08-02 under WP-035 increment 6. Status: **taken
+2026-08-05; M1–M8 executed, M9 `not established`, M10 `not yet taken`** — the
+sitting records below the table are the evidence, and sitting 1's void is
+retained above sitting 2 rather than discarded. The remainder of this
+paragraph and the environment, setup, custody, and vocabulary text that
+follows are preregistration wording kept verbatim; they state the conditions
+the valid sitting met, not open preconditions. As preregistered, it records no
+measurement beyond its own rows, changes no register disposition, decides no
+option, and satisfies no platform-adapter criterion.
 Its rows are fixed to the evidence the register names: Part 6 precondition 1's
 separate client and helper signature/membership projections for the
 platform-applicable technologies, precondition 2's native designators, and
@@ -2296,16 +2317,16 @@ gate makes affected cells `void(<gate>)`, never a negative result.
 
 | # | Cell | Command / API | Privilege | Distinguishing condition | Invalidation conditions | Result |
 | --- | --- | --- | --- | --- | --- | --- |
-| M1 | Raw whole-device read policy, boot disk | `stat` on `/dev/disk0` and `/dev/rdisk0`; `dd if=/dev/disk0 bs=512 count=1 of=/dev/null` and the `rdisk0` equivalent | unprivileged | Whether macOS denies an unprivileged raw read as Windows and Linux do, or the `operator` group changes the answer | ambiguity about which device is the boot disk; any write-intent open | `not yet taken` |
-| M2 | IOMedia property availability | `ioreg -a -r -c IOMedia` parsed as plist | unprivileged | Which of UUID, Content, Content Hint, Size, Preferred Block Size, Whole, Leaf, Removable, BSD Name are present per media object | unparseable plist; truncated output | `not yet taken` |
-| M3 | diskutil structured projection | `diskutil list -plist`; `diskutil info -plist <BSD name>` per whole disk | unprivileged | Which identity and geometry fields the structured interface carries, against the M2 set — same facts or a different projection | non-plist output; interactive prompt | `not yet taken` |
-| M4 | APFS container and physical-store membership (precondition 1, APFS row) | `diskutil apfs list -plist` | unprivileged | Whether container UUID, physical-store references, and volume roles are client-readable without elevation | no APFS container present (impossible on a modern boot volume — record why if hit) | `not yet taken` |
-| M5 | APFS container UUID as native designator (precondition 2) | fields from M2 and M4, plus a second sitting after reboot | unprivileged | Same UUID from both interfaces and across a reboot — source, stability; collision behavior is out of reach without duplicated hardware and stays `not established` | either source missing; reboot not performed | `not yet taken` |
-| M6 | Foreign-signature fixture projection | attach each of `gpt-basic-512`, `mbr-basic-512`, `apm-basic-512`, `blank-512`; then M2/M3 against the attached device | unprivileged | What macOS reports for GPT, MBR, and its own historical APM, and whether blank and foreign are distinguishable — `not-recognized` is an expected honest outcome, not a failure | attach denied (record as `denied`, cell complete); wrong device targeted; automount observed | `not yet taken` |
-| M7 | SI-34 freshness projection, stale-signature case | attach `ext4-with-stale-mdraid-090-512.img`; capture M2/M3 projection | unprivileged | Whether any macOS client interface reports any signature fact for bytes carrying a live ext4 and a stale mdraid superblock — the platform's contribution to the freshness-projection question is which facts exist here at all | same as M6 | `not yet taken` |
-| M8 | mdraid / LUKS2 / LVM2 / ZFS on macOS (precondition 1 non-native rows) | outcome of M6/M7 interfaces for those signatures | unprivileged | Stock macOS ships no prober for these; the expected result is `not-recognized` or `not-applicable(platform)`, recorded rather than assumed — OpenZFS, if installed, would be a separately labelled non-stock projection | third-party storage kexts/extensions present and undeclared | `not yet taken` |
-| M9 | Fusion membership and shape | `diskutil apfs list -plist` on a Fusion container; the one-store-absent shape | unprivileged | What a Fusion container reports intact, and with one store absent | **conditional on representative hardware**; without it this cell remains `not established` per the increment's own rule | `not yet taken` |
-| M10 | Privileged comparison leg | raw header reads at the fixture offsets through `/dev/rdiskN` | privileged, disposable VM only | Whether the helper-side view can read what the client cannot, on the same attached fixture | any attempt on the ordinary host; no disposable macOS environment available | `not yet taken` |
+| M1 | Raw whole-device read policy, boot disk | `stat` on `/dev/disk0` and `/dev/rdisk0`; `dd if=/dev/disk0 bs=512 count=1 of=/dev/null` and the `rdisk0` equivalent | unprivileged | Whether macOS denies an unprivileged raw read as Windows and Linux do, or the `operator` group changes the answer | ambiguity about which device is the boot disk; any write-intent open | **`denied(EPERM)`** — boot disk derived, not assumed: `/` → APFS container `disk3` → physical store `disk0s2` → whole disk `disk0`. Both nodes are `root:operator`, `brw-r-----` and `crw-r-----`; the measuring user holds `admin` but **not** `operator`. `dd` of one sector returned `Operation not permitted` on both `/dev/disk0` and `/dev/rdisk0`. macOS therefore denies the unprivileged raw read as Windows and Linux do. The `operator` half of the distinguishing condition is **not established**: the mode bits show that group is the route, and no operator-group user was measured. `EPERM` rather than `EACCES` is recorded as observed and unexplained — with the user outside the owning group `EACCES` was the expected errno, so something beyond mode bits is refusing |
+| M2 | IOMedia property availability | `ioreg -a -r -c IOMedia` parsed as plist | unprivileged | Which of UUID, Content, Content Hint, Size, Preferred Block Size, Whole, Leaf, Removable, BSD Name are present per media object | unparseable plist; truncated output | **`observed`** — all nine named properties present per media object: UUID, Content, Content Hint, Size, Preferred Block Size, Whole, Leaf, Removable, BSD Name. Also present: Ejectable, Encrypted, Writable, Open, Removable, Role, GPT Attributes, Partition ID, Logical/Physical Block Size. **Limitation:** the capture is a whole-registry dump, so per-object scoping was applied off-host after the run. The presence set above is a direct read and needs no value comparison; any *separation* claim from this interface would need a normalizer declared before capture, and none was — see the sitting record |
+| M3 | diskutil structured projection | `diskutil list -plist`; `diskutil info -plist <BSD name>` per whole disk | unprivileged | Which identity and geometry fields the structured interface carries, against the M2 set — same facts or a different projection | non-plist output; interactive prompt | **`observed`** — a **different** projection from M2, not the same facts renamed. It carries scheme, size, block sizes, writability, ejectability, whole/leaf, and per-partition entries, but does not surface M2's IOKit registry identifiers. Captured unnormalized and compared byte-for-byte between fixtures, which is what makes the M6–M8 rows below citable without a normalizer |
+| M4 | APFS container and physical-store membership (precondition 1, APFS row) | `diskutil apfs list -plist` | unprivileged | Whether container UUID, physical-store references, and volume roles are client-readable without elevation | no APFS container present (impossible on a modern boot volume — record why if hit) | **`observed`** — container UUID, physical-store references, designated physical store, volume roles, and per-volume UUIDs are all readable without elevation (`APFSContainerUUID`, `PhysicalStores`, `DesignatedPhysicalStore`, `Roles`, `Volumes`, `APFSVolumeUUID`). Part 6 precondition 1's APFS row is **client-readable on this platform** |
+| M5 | APFS container UUID as native designator (precondition 2) | fields from M2 and M4, plus a second sitting after reboot | unprivileged | Same UUID from both interfaces and across a reboot — source, stability; collision behavior is out of reach without duplicated hardware and stays `not established` | either source missing; reboot not performed | **`observed(stable)`** — the same container UUID is carried by both interfaces (M4's `APFSContainerUUID` and M2's registry `UUID`), and is **identical across a verified reboot**. Form: RFC-4122, uppercase, 8-4-4-4-12; the value is machine-specific and stays in the retained transcript. The reboot is evidence, not operator recollection: `kern.boottime` was captured in both phases and differs. Collision behaviour remains **`not established`** — it needs duplicated hardware, exactly as the cell's own text says |
+| M6 | Foreign-signature fixture projection | attach each of `gpt-basic-512`, `mbr-basic-512`, `apm-basic-512`, `blank-512`; then M2/M3 against the attached device | unprivileged | What macOS reports for GPT, MBR, and its own historical APM, and whether blank and foreign are distinguishable — `not-recognized` is an expected honest outcome, not a failure | attach denied (record as `denied`, cell complete); wrong device targeted; automount observed | **`observed`, and it splits in two.** macOS **distinguishes the three schemes**: `gpt-basic-512` → `GUID_partition_scheme`, `mbr-basic-512` → `FDisk_partition_scheme`, `apm-basic-512` → `Apple_partition_scheme`, each with its partitions materialized as child BSD nodes. But **blank and foreign are `not-recognized` and mutually indistinguishable** — `blank-512` reports no `Content` and no partitions, and so does every non-native signature in M8. Attach succeeded for all ten fixtures, nothing automounted, and every digest bracket matched |
+| M7 | SI-34 freshness projection, stale-signature case | attach `ext4-with-stale-mdraid-090-512.img`; capture M2/M3 projection | unprivileged | Whether any macOS client interface reports any signature fact for bytes carrying a live ext4 and a stale mdraid superblock — the platform's contribution to the freshness-projection question is which facts exist here at all | same as M6 | **`not-recognized`** — `ext4-with-stale-mdraid-090-512`'s `diskutil info` and `diskutil list` projections are **byte-identical to `blank-512`'s**. macOS's contribution to SI-34's freshness question is therefore that **no signature fact exists at this layer at all**: the client cannot see the live ext4, the stale mdraid, or the conflict between them. The platform does not report a stale signature in preference to a live one, as Linux does — it reports neither |
+| M8 | mdraid / LUKS2 / LVM2 / ZFS on macOS (precondition 1 non-native rows) | outcome of M6/M7 interfaces for those signatures | unprivileged | Stock macOS ships no prober for these; the expected result is `not-recognized` or `not-applicable(platform)`, recorded rather than assumed — OpenZFS, if installed, would be a separately labelled non-stock projection | third-party storage kexts/extensions present and undeclared | **`not-recognized`** for mdraid, LUKS2 and LVM2 — each byte-identical to `blank-512` on both interfaces, as expected of a platform shipping no prober for them. **ZFS is `not-applicable(platform)`**: stock macOS ships no prober and the fixture catalogue contains no ZFS image, so nothing was attached for it. That is recorded rather than folded into the other three. No third-party storage extension was declared or observed |
+| M9 | Fusion membership and shape | `diskutil apfs list -plist` on a Fusion container; the one-store-absent shape | unprivileged | What a Fusion container reports intact, and with one store absent | **conditional on representative hardware**; without it this cell remains `not established` per the increment's own rule | **`not established`** — the host is Apple Silicon, which has no Fusion Drive, so the representative hardware this cell is conditional on cannot exist here. Not approximated from a two-device APFS container; degraded Fusion behaviour is not inferred from a nearby topology |
+| M10 | Privileged comparison leg | raw header reads at the fixture offsets through `/dev/rdiskN` | privileged, disposable VM only | Whether the helper-side view can read what the client cannot, on the same attached fixture | any attempt on the ordinary host; no disposable macOS environment available | **`not yet taken`** — no disposable macOS VM exists, and the protocol forbids both approximating this leg and running it on the ordinary host. Deferred deliberately, not attempted and failed. Note for whoever takes it: its question is whether the helper view reads what the client cannot **on the same attached fixture**, so a VM leg must capture both sides inside the VM or the comparison is across machines |
 
 Custody, per executed run: complete transcript retained outside the
 repository with archive locator and custodian named; hash algorithm, digest,
@@ -2316,6 +2337,124 @@ the transcript before any cell leaves `not yet taken`. Raw diagnostic output,
 machine-specific identifiers, and secrets stay out of this file; only
 normalized observations and limitations enter it. A cell that cannot meet a
 custody requirement stays `not yet taken` — custody failure is not a result.
+
+#### First sitting, 2026-08-05 — VOID (two instrument defects); amended twice
+
+The instrument's first execution, on the available Apple Silicon Mac at
+console, unprivileged (uid 501, non-root asserted in-transcript), macOS 26.3.2
+build 25D2140, SIP enabled. It is void on two defects, **both in the harness
+rather than in the operator's conduct or the platform**, and it is retained
+here for the same reason the SI-35 loop protocol retains its two void
+sittings.
+
+**Defect 1 — tool versions were never recorded.** The harness invoked
+`diskutil version` and `hdiutil version`. Neither verb exists; both exited 1
+with `did not recognize verb` and `verb not recognized`, and no version was
+captured for either tool. This subsection's custody rule requires tool
+versions, and the instrument's own environment rule makes a
+version-unrecordable tool void the cells that name it — which is most of the
+matrix. A favourable reading was available and is recorded as **rejected**:
+these are OS-bundled tools carrying no independent version string, and the OS
+build *was* recorded, so one could argue the version requirement was met by
+`sw_vers`. It is not adopted, because a stronger record was available the
+whole time and the project's rule is that a gate voids rather than gets
+argued past.
+
+**Amendment 1.** Tool identity is now a SHA-256 over each declared binary,
+recorded alongside the OS build. That is reproducible and stronger than any
+version verb would have produced, and it applies to every declared tool rather
+than the two that happened to be asked.
+
+**Defect 2 — the post phase ran without a reboot.** M5's invalidation
+condition is `reboot not performed`, and the machine did not reboot. Nothing
+in the instrument detected this. It was caught after the fact from disk
+numbering: the fixture-bearing USB volume was `disk4` in the pre phase,
+attaches consumed `disk5`, and the same volume reappeared as `disk6` in the
+post phase — a counter that never reset, where a reboot resets it. The run
+timestamps, 3 minutes 4 seconds apart, agree. **That reasoning is inference,
+not evidence**, which is itself the defect: the instrument asked the operator
+to remember a precondition instead of proving it.
+
+**Amendment 2.** `kern.boottime` is now captured in both phases and compared
+in a hard gate at the top of the post phase. An unchanged boot time announces
+`M5 → void(reboot-not-performed)` in the transcript; an absent pre-phase
+capture announces `void(reboot-unverifiable)`. The gate was tested by forcing
+each outcome before the amended harness shipped.
+
+**What the void sitting nonetheless observed**, recorded as history and not
+cited by any cell above: the M1 denial and every attach row behaved as
+sitting 2 later reproduced. Nothing in it is relied on.
+
+**Artifacts.** Retained in the operator evidence store,
+`2026-08-05-macos-increment6-sitting1` (custodian Nate McBride), 195 files
+with a SHA-256 inventory. Pre-phase transcript
+`731253f9e6f03cc12cf10a0af979bc0611d9b5de3c14b181959b344d3ff15c3a`;
+post-phase transcript
+`3fbcb584d6b64af7ec376bbcab12db129d8eab2e19c96e8519b878664bcc0bbe`.
+
+#### Second sitting, 2026-08-05 — VALID; both amendments held
+
+Same host and posture: Apple Silicon, console session, uid 501 with `admin`
+but not `operator`, macOS 26.3.2 build 25D2140, SIP enabled, capture script
+`f46500f02b3eeaf26331f11c80f18582e4a8e0d84368eea0f360fe4f3f5a7505` digested
+before the first attach.
+
+**Both amendments held.** All 24 declared binaries were SHA-256'd, including
+`diskutil` and `hdiutil`. The reboot gate passed on boot times 19 minutes
+apart, so M5's across-reboot criterion rests on a captured fact rather than on
+recollection.
+
+**Setup integrity.** The transferred `MANIFEST` was byte-identical to the one
+generated from repository revision `a6d48cc`, which also confirms fixture
+generation is deterministic across Windows and macOS. All ten attach rows
+attached, captured, and detached with the detachment confirmed; every
+before-attach and after-detach digest pair matched; nothing mounted at any
+point, so INV-006 held by construction rather than by inspection.
+
+**The result that matters for SI-35.** For the decisive pair —
+`gpt-basic-512` against `gpt-conflicting-tables-512` — `diskutil info -plist`
+and `diskutil list -plist` are **byte-identical**, unnormalized. Both fixtures
+materialize the same child nodes. **macOS is the third platform on which the
+enumerated unprivileged client projection does not separate a healthy GPT from
+one whose two tables describe different partitions**, after Linux
+(2026-08-03) and Windows (2026-08-04).
+
+**The result that matters for SI-34 and ADR-C3.** Every non-native signature —
+the live-ext4-plus-stale-mdraid fixture, the mdraid member, the LUKS2
+container, the LVM2 orphan — produces a projection **byte-identical to a
+blank disk** on both interfaces. A macOS client cannot distinguish a disk
+holding a file system from one holding nothing. This is the platform's
+strongest statement about the client/helper asymmetry precondition 1 asks
+about, and it is a fact about macOS rather than a defect in the run.
+
+**Limitations, stated rather than left to inference.**
+
+- The `ioreg` capture is a **whole-registry dump**, and no normalizer was
+  declared before capture. M2's property-presence result is a direct read and
+  needs none. **No separation claim is made from the `ioreg` interface**: a
+  raw diff of the decisive pair shows 516 differing lines, every one an
+  ambient APFS statistics counter and none naming the fixture device, and
+  scoping that away after seeing output would be exactly the post-hoc
+  normalization that disqualified the historical WSL2 loop record. The M3
+  byte-identity carries the finding instead, unnormalized.
+- Results over attached images are projections of the **DiskImages device
+  class** and are not real-media evidence. Real-media macOS rows would need
+  their own authorized fixture media and are deliberately not preregistered.
+- One host, one macOS build, one user, console session only. The SSH
+  projection is unmeasured and DiskArbitration is documented to differ.
+- M9 and M10 are not taken; nothing above substitutes for either.
+
+**What this sitting does not do.** It chooses no SI-35 option, supplies no
+chosen-option refusal demonstration, refutes no existential H-separation
+hypothesis, and decides no register disposition. Its non-separation results
+cover the enumerated projections only.
+
+**Artifacts.** Retained in the operator evidence store,
+`partman-macos-sitting-2` (custodian Nate McBride), alongside sitting 1.
+**Second-reader obligation outstanding**: no independent reader has yet
+retrieved and rehashed these transcripts. Under this subsection's custody
+rule the cells above are recorded with that obligation open, and it must be
+discharged before they are relied on by a register decision.
 
 ## Linux
 

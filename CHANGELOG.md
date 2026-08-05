@@ -7,6 +7,37 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- The increment 6 **macOS matrix is executed** (2026-08-05, Apple Silicon,
+  console session, macOS 26.3.2 build 25D2140, SIP enabled), valid on its
+  second sitting. Sitting 1 is **void on two harness defects** and is retained
+  with the amendments it produced: tool versions were captured through
+  `diskutil version` and `hdiutil version`, neither of which is a real verb,
+  so no version was recorded — now replaced by a SHA-256 over every declared
+  binary; and the post phase ran without the reboot M5 depends on, detected
+  only afterwards by disk-numbering inference — now a hard `kern.boottime`
+  gate that voids M5 in-transcript, tested by forcing each outcome before the
+  amended harness shipped. The favourable reading of defect 1, that OS-bundled
+  tools have no version beyond the recorded OS build, is recorded as
+  considered and rejected.
+
+  Substantive results: **macOS is the third platform whose enumerated
+  unprivileged projection does not separate the decisive SI-35 pair** —
+  `diskutil`'s structured output is byte-identical and unnormalized between a
+  healthy GPT and one whose two tables describe different partitions. **Every
+  non-native signature projects byte-identically to a blank disk** (live ext4
+  with a stale mdraid superblock, an mdraid member, a LUKS2 container, an LVM2
+  orphan), while GPT, MBR and APM are each named distinctly. APFS container
+  membership and its UUID are client-readable, the UUID is carried by both
+  interfaces and is stable across a verified reboot, and the unprivileged raw
+  device read is denied `EPERM` — recorded as observed and unexplained, since
+  `EACCES` was the expected errno for a user outside the owning group. M9 is
+  `not established` (Apple Silicon has no Fusion Drive) and **M10, the
+  privileged comparison leg, stays `not yet taken`** for want of a disposable
+  macOS VM. No separation claim is made from the `ioreg` interface, whose
+  capture is a whole-registry dump with no normalizer declared before it. The
+  second-reader readback is outstanding. No register disposition changes, no
+  SI-35 option is decided, and no existential hypothesis is refuted.
+
 - WP-010 files **SI-38**, the INV-003 / SAFE-002 conflict, under Section 0.2's
   requirement to file rather than silently pick a side. INV-003 requires the
   discovery layer to detect hybrid and inconsistent partition tables; SAFE-002
