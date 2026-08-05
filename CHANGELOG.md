@@ -7,6 +7,37 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **M10, the privileged comparison leg, is taken** (2026-08-05), and with it
+  **no preregistered cell on any platform is `not yet taken`**. It ran in a
+  GitHub-hosted `macos-15` runner — `RELEASE_ARM64_VMAPPLE`, macOS 15.7.7, an
+  ephemeral Apple Virtualization Framework guest destroyed at job end, which
+  the cell's environment rule admits as a hosted macOS test environment. The
+  harness captures both halves of every attachment itself, because this is a
+  different machine from the M1–M8 sitting and M10 asks about the *same*
+  attachment.
+
+  On all seven fixtures the unprivileged client's raw read was denied `EACCES`
+  while root read the device, and every helper byte-range digest equals the
+  source image's. **The decisive pair separates for the helper**: identical
+  first-64-KiB digests and differing last-64-KiB digests, placing the two
+  tables' disagreement in the backup, which no client interface on any
+  measured platform reports — and this sitting's own client half reproduces
+  that blindness. The four signatures the client called byte-identical to
+  blank each carry a distinct helper head digest.
+
+  Two incidental observations are recorded because they refine the earlier
+  sitting: the denial is `EACCES` here where the physical host gave the
+  unexplained `EPERM`, making that a contrast rather than a lone oddity
+  without attributing a cause; and the node modes differ. The client half also
+  reproduced the decisive-pair byte-identity on a different macOS major
+  version, weakening the earlier record's "one host, one build" limitation for
+  that finding only. Limitations recorded: shared-infrastructure runner, no
+  checksum-pinned image, first and last 64 KiB only, `dd` through
+  `/dev/rdiskN` and no other privileged interface. The second-reader readback
+  is outstanding. No register disposition changes, no SI-34 or SI-35 option is
+  decided, and SI-34's freshness-projection element is **not** satisfied — it
+  names a projection that does not yet exist.
+
 - WP-010's third evidence-currency pass records the macOS observability record
   on the two register surfaces that understated it (issue #155). Precondition
   1 now says all three platforms have the non-elevated record it asks for, and
