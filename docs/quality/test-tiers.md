@@ -60,12 +60,32 @@ issues no logical write, discard, or zero operation. Linux's `LOOP_CONFIGURE`
 and `LOOP_CHANGE_FD` paths may internally `fsync` and therefore write back
 already-dirty backing-file data or metadata; this is not a zero-physical-write
 claim. Product inspection retains WP-035's read-only
-open boundary, and no destructive suite or product storage adapter exists.
+open boundary, and no destructive suite exists.
+
+**A read-only product storage adapter now exists, and this sentence no longer
+says otherwise.** WP-035 increment 8 reads whole-device rows from
+`/sys/class/block` attributes and the udev database under `/run/udev/data`, as
+files. Its exact reach, narrowed here before the increment rather than after
+it: it opens no `/dev` node, launches no subprocess, adds no dependency, and
+has no privilege-conditional branch — running it as root produces the same
+answer as running it as anyone else. It reads no `ID_FS_*` signature key, no
+`ID_PART_ENTRY_*`, and no partition children, so it reports no partition-table
+state and no signature classification. Those remain gated (SI-35, SI-34) and
+unbuilt.
 
 **At Tier 1 the stronger claim does not expire: no Tier-1 test opens a block
 device at all, read or write.** Regular files are all SAFE-001 permits there —
 SI-35's filing records that limitation directly — and device reads, when they
 arrive, are operator-run or Tier-2 work, never Tier-1 tests.
+
+**The enumeration adapter does not weaken that claim, and the reason is worth
+stating rather than assuming.** Reading `/sys/class/block/sda/size` opens a
+sysfs attribute file, not the device node `/dev/sda`; the two are different
+objects and only the second is a block device. And no Tier-1 test reads the
+host's real `/sys` or `/run/udev` at all — the adapter's filesystem access is
+behind an injected seam, and the tier exercises it over a synthesized
+directory tree the test builds itself. A source-text guard holds both
+properties, so the claim above is enforced rather than promised.
 
 **SAFE-007's interlock still provides zero coverage for the product read path.**
 The read-only inspector never calls `authorize`, so nothing about the
@@ -227,5 +247,9 @@ opened handle is the authority; and a device swapped in by a rebinding race is
 opened read-only at most long enough for the handle to identify itself, then
 refused with no byte read. The doctor's roster probes launch tools at compiled
 absolute paths and open nothing else. Tier 1's filesystem access beyond those
-two stated reaches remains limited to repository-controlled files and to the
-generated fixture tree under `tests/generated/`, which `.gitignore` excludes.
+two stated reaches remains limited to repository-controlled files, to the
+generated fixture tree under `tests/generated/` which `.gitignore` excludes,
+and — added with WP-035 increment 8 — to synthesized directory trees a test
+builds and owns for the duration of that test. The enumeration adapter's
+production roots, `/sys` and `/run/udev/data`, are **not** in Tier 1's reach:
+they are compiled constants the tier never passes to the seam.
