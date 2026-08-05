@@ -7,6 +7,33 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **spec-change 6.1.0: WP-035 gains unprivileged whole-device enumeration and
+  the INV-003 reach declaration.** The read-only CLI may now report real
+  attached devices — raw identifier strings labelled by the interface that
+  reported them, under session-local selectors — so the project has a working
+  read-only alpha while the register decisions proceed in parallel.
+
+  **Minor, an addition.** No requirement in Sections 2, 3, 5, 6 or 7 is
+  retexted. INV-003 is *implemented in part*, not amended: 6.0.0 created the
+  reach obligation hours earlier and nothing implemented it. WP-035's charter
+  sentence survives verbatim and governs the new scope in full, and the change
+  adds prohibitions rather than relaxing any — no strength, no ADR-C3 state or
+  checksum, no typed Section 5 node, no artifact hash, no stable handle, no
+  same-device claim, no protection or CAP-003 verdict, and the standing gated
+  list still travels in every answer.
+
+  **WP-W100/WP-L100/WP-M100 are untouched.** Narrowing them would remove scope
+  from existing text and would be a major bump; this enumerator is interim and
+  defers to them.
+
+  M0.5's gate is **extended, not rewritten**, in the shape 4.2.0 used when it
+  created M0.5. It deliberately does not require three live adapters: a
+  platform whose access route is an open structural question ships its reach
+  declaration and a typed `not-implemented` answer naming the recorded
+  decision that defers it. Coupling M0.5's exit to that question would gate
+  every sequential milestone after it on a structural argument this change
+  exists to avoid importing.
+
 - **SI-33's liveness precondition is recorded as discharged** (decided
   2026-08-05). Its filing said "until that passes on real hardware, this is a
   hypothesis"; the 2026-08-04 sittings passed it — immediate re-read and
