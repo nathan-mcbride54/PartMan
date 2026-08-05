@@ -1,0 +1,97 @@
+# Increment 6 macOS matrix, cell M10 — the privileged comparison leg.
+#
+# M10 may run only in a disposable macOS VM or hosted macOS test environment.
+# A GitHub-hosted macOS runner is one: it is Apple Silicon, it is destroyed
+# when the job ends, and the operations here are read-only over synthetic
+# image files, which is what SAFE-001 permits. No destructive suite is
+# registered and nothing is written to any device, so SAFE-007's
+# disposable-token requirement is not engaged.
+#
+# This workflow is CI infrastructure and is WP-000's. The instrument it runs —
+# the protocol, its result cells, and the record — remain WP-035's in
+# docs/quality/observability.md.
+#
+# Deliberately not on a schedule and not on push to the default branch. A
+# measurement that runs by itself would accumulate unreviewed evidence.
+name: macOS M10 privileged comparison
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "work/wp000-macos-m10*"
+
+permissions:
+  contents: read
+
+jobs:
+  m10:
+    name: M10 privileged comparison leg
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out the revision under measurement
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Record the environment before anything runs
+        run: |
+          set -eu
+          /usr/bin/sw_vers
+          /usr/bin/uname -a
+          /usr/bin/csrutil status || echo "csrutil: unavailable in this environment"
+          /usr/bin/id
+          /usr/sbin/sysctl -n machdep.cpu.brand_string
+          /usr/sbin/sysctl -n kern.boottime
+          echo "runner arch: $(/usr/bin/uname -m)"
+
+      - name: Generate fixtures from the checked-out revision
+        run: cargo xtask fixtures
+
+      - name: Stage the harness beside its fixtures
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/m10/fixtures"
+          cp tests/generated/* "$RUNNER_TEMP/m10/fixtures/"
+          cp .github/scripts/macos-m10.sh "$RUNNER_TEMP/m10/"
+          chmod +x "$RUNNER_TEMP/m10/macos-m10.sh"
+          /usr/bin/shasum -a 256 "$RUNNER_TEMP/m10/macos-m10.sh"
+          /usr/bin/shasum -a 256 "$RUNNER_TEMP/m10/fixtures/MANIFEST"
+
+      # The harness refuses to start unless it is root AND has been told
+      # explicitly that this is a disposable environment, because M10's
+      # invalidation condition is "any attempt on the ordinary host". It then
+      # drops to the named unprivileged user for the client half of every
+      # comparison, so both halves observe the same attachment.
+      - name: Run M10
+        working-directory: ${{ runner.temp }}/m10
+        run: sudo ./macos-m10.sh --disposable-environment "$(id -un)"
+
+      - name: Summarize what the transcript recorded
+        if: always()
+        working-directory: ${{ runner.temp }}/m10
+        run: |
+          set -eu
+          if [ -f out-m10/00-transcript.txt ]; then
+            echo "--- attach/detach outcomes ---"
+            grep -E "attached |detach confirmed|DETACH FAILED|SKIPPED|no dev-entry" \
+              out-m10/00-transcript.txt || true
+            echo "--- helper vs source byte ranges ---"
+            grep -E "HELPER-|SOURCE-" out-m10/00-transcript.txt || true
+          else
+            echo "no transcript produced"
+          fi
+
+      # Artifacts on a public repository are publicly downloadable. What this
+      # carries is the identity of a runner that no longer exists, not a
+      # personal machine — which is a better custody position than a laptop
+      # capture, not a worse one. Retention is short by intent; the durable
+      # copy belongs in the operator evidence store.
+      - name: Retain the capture
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-m10-capture
+          path: ${{ runner.temp }}/m10/out-m10
+          retention-days: 7
+          if-no-files-found: warn
