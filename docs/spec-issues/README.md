@@ -725,18 +725,34 @@ that every partition-table interface is asymmetric or that the resulting
 protection verdicts differ.
 
 **What this does not establish.** The regular-file probe is not a kernel parse.
-The WSL2 loop run is historical and non-qualifying, so it establishes neither a
-positive separating contract nor a universal negative. The Windows procedure
-ran on attached fixtures but is incomplete for its pre-registered hypotheses.
-A descriptor-bound non-WSL loop rerun and a decision-complete Windows rerun are
-still outstanding.
+The 2026-08-02 WSL2 loop run is historical and non-qualifying, so it
+establishes neither a positive separating contract nor a universal negative,
+and the 2026-08-02 Windows procedure ran on attached fixtures but was
+incomplete for its pre-registered hypotheses. Both reruns have since been
+taken and are valid — and **neither separates the decisive pair either**.
+What is still not established is any positive separating contract: the
+completed runs are negatives over their enumerated projections, and a
+negative over an enumerated projection is not a proof that no
+client-readable interface separates these states.
 
 **Evidence required before any option is accepted:** (1) the descriptor-bound,
 non-WSL loop-device measurement, so the file-probing limitation is not mistaken
 for a kernel limitation; (2) the decision-complete Windows equivalent,
 including every reachable layout and retained status surface; and (3) a
 demonstration that the chosen option refuses rather than proceeds on
-`gpt-conflicting-tables-512.img`. None is presently satisfied.
+`gpt-conflicting-tables-512.img`.
+
+**(1) and (2) are satisfied as of 2026-08-04. (3) is not, and cannot be until
+an option is chosen.** (1) is discharged by the 2026-08-03 descriptor-bound
+non-WSL sitting, valid on its third attempt. (2) is discharged by the
+2026-08-04 Windows completion rerun, whose three added gates cover this
+clause's two named requirements directly: total retention of every queried
+property value, and a mandatory index-fallback layout probe at every
+`Win32_DiskDrive`-supplied index for any fixture without an `MSFT_Disk` row.
+One declared limit survives it — W-H2's which-GPT-copy question remains
+unmeasured, because both copies of that fixture describe identical partitions
+and the discriminating fixture variant belongs to WP-020's catalogue. That
+limit bounds the finding; it does not reopen the category.
 
 ## SI-33 A continuity witness for media that cannot be told apart
 
