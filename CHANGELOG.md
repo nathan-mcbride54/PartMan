@@ -7,6 +7,19 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- WP-010's bounded evidence-currency pass stops SI-35's register row
+  understating evidence WP-035 has already established (issue #142). Two of
+  its three acceptance-evidence categories are now recorded as discharged —
+  the loop category by the descriptor-bound non-WSL run of 2026-08-03, valid
+  on its third sitting, and the Windows category by the completion rerun of
+  2026-08-04 — and the third, the chosen-option refusal demonstration, is
+  recorded as blocked on a decision nobody has taken rather than on a
+  measurement anyone can schedule. The round-four observability-status
+  sentence now names macOS as the only platform still unestablished. SI-35
+  stays **Open**; no option is decided or ranked, no existential hypothesis
+  becomes refuted, no finding extends past the projection its run covered,
+  and no class, dependency, hash-visible value, requirement, or evidence
+  record changes.
 - The increment 6 real-partitioned-Linux matrix is executed in full
   (sitting of 2026-08-04): disposable Proxmox VM from the digest-verified
   jammy image, two explicitly authorized SanDisk fixture media passed
