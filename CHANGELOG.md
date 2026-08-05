@@ -7,6 +7,31 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **SI-33's liveness precondition is recorded as discharged** (decided
+  2026-08-05). Its filing said "until that passes on real hardware, this is a
+  hypothesis"; the 2026-08-04 sittings passed it — immediate re-read and
+  sixty-second idle gap both moved, close-before-event/reopen survived 3/3
+  across true no-handle windows. **SI-33 stays Open**: what the pass
+  discharges is the precondition, not the issue.
+
+  The entry records three limits the protocol declared before any data
+  existed, because the headline sentence would otherwise be read as removing
+  them: the positive cannot be attributed to exchange-synchronous detection (a
+  background poll explains it equally well, so the ceiling is "no staleness
+  observed under these conditions"); it is bounded to the slot-exchange family
+  on one reader, one bridge, one build; and the exposed reading is **not
+  globally monotone**, a measured decrease across a PnP-arrival boundary making
+  an equality-only witness unsafe, so a design must characterize the counter's
+  epoch or use another witness. No axis, design, or placement is decided, and
+  **SI-28's interim conservative floor is not relaxed** — that route is the
+  design, not the liveness pass.
+
+  Two stale statements are cleared in the same pass: Part 6's precondition 1
+  still described M10 as untaken hours after it was taken, and SI-38's
+  Dependencies paragraph still asserted a gate on SI-35 directly beneath its
+  own Resolved banner. Both are now historical rather than contradictory, and
+  the M10 sentence carries the outstanding second-reader readback.
+
 - **spec-change 6.0.0: SI-38 is resolved by ADR-0013.** INV-003's detection
   duty is scoped by privilege, and the unprivileged discovery layer must
   publish the reach of its platform contract. Accepted by Nate McBride on
