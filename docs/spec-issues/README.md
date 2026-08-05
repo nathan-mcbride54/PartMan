@@ -74,7 +74,7 @@ simply "undecided":
 | SI-11 | yes | Open, axis decided. ADR-0012 (spec 4.4.0) makes a mutating step naming a client-visible Section 2.1 non-goal node unrepresentable and retains helper recomputation. Round four still includes total fail-closed verdicts, downward reach without sibling capture, device-scope inheritance, per-operation status, step construction and decode checks over structural effects, exhaustive PART-014 classification, and the affected-set/bind-set obligations retained in Part 6. SI-29 and SI-30 retain the Storage Spaces and sealed-volume classification cases; SI-37 supplies the unequal-identifier multipath coverage case. SI-27 retains naming and edge typing; SI-34 retains verdict placement |
 | SI-27 | yes | Open. SI-12 resolved in 4.3.0 (ADR-0011), so the naming round proceeds without product deduplication. It must name both Weak and Strong equal-identifier simultaneous collisions without merging them, type the kernel-reported multipath membership edge, and preserve node identity under the accepted stability rules. SI-37, not SI-27, owns the fail-closed detection gap for unassembled paths whose identifiers differ |
 | SI-28 | yes | **Mitigated-open.** An interim conservative floor is in force and does not resolve it; Part 7 |
-| SI-33 | no | Open. The route by which SI-28's floor may later be relaxed |
+| SI-33 | no | Open. The route by which SI-28's floor may later be relaxed. **Its liveness precondition is discharged (2026-08-05)** — the counter moved on immediate re-read and after a sixty-second idle gap, and survived close-before-event/reopen in 3/3 trials — so it is no longer a hypothesis. The positive cannot be attributed to exchange-synchronous detection, is bounded to one reader/bridge/build in the slot-exchange family, and sits beside a measured non-monotonicity that makes an equality-only witness unsafe. No axis, design, or placement is decided, and SI-28's floor is not relaxed |
 | SI-34 | yes | Open. Reopens whether the protection verdict belongs in the hashed body at all |
 | SI-35 | yes | Open. Two of its three acceptance-evidence categories are now complete, and the third is blocked on a decision rather than a measurement. The loop category is discharged by the descriptor-bound non-WSL run of 2026-08-03, valid on its third sitting: the historical WSL2 negative is confirmed on qualifying ground rather than merely repeated, and issue #94's non-qualification no longer applies. The Windows category is discharged by the completion rerun of 2026-08-04, which made all three declared refutation conditions evaluable over complete retained surfaces, refuted them, and answered the hybrid question the original run left unattempted. **No chosen-option refusal demonstration exists, because no option has been chosen** — that category cannot open until an option and an implementation exist. Neither completed run separates the decisive pair, chooses an option, or refutes the existential hypothesis that some client-readable interface could; each covers only the projection it enumerated. **The SI-38 gate is lifted**: spec 6.0.0 resolved that conflict by scoping INV-003 by privilege, so an SI-35 answer no longer picks a side of it implicitly. SI-35's own axis question — who computes ADR-C3's states, and from what contract — is unblocked and undecided |
 
@@ -818,6 +818,33 @@ value moved; repeat with a sixty-second idle gap to detect poll-driven behaviour
 then close and reopen the handle and assert it survives. Until that passes on
 real hardware, this is a hypothesis.
 
+> **The liveness precondition is discharged, decided 2026-08-05.** It passed on
+> real hardware in the 2026-08-04 sittings: the immediate re-read and the
+> sixty-second idle gap both moved, and the close-before-event/reopen arm
+> survived in three of three trials across true no-handle windows.
+> **SI-33 is therefore no longer a hypothesis, and stays Open.** What the pass
+> discharges is the precondition, not the issue.
+>
+> **Three limits the protocol declared before any data existed, recorded here
+> because a reader of the sentence above will otherwise assume they are gone.**
+>
+> - **The positive cannot be attributed to exchange-synchronous detection.**
+>   Prompt movement is equally consistent with a background poll. The strongest
+>   recordable positive is *"no staleness observed under these conditions"*.
+> - **It is bounded.** Slot-exchange family only, on one reader, one bridge,
+>   one build. It generalizes to nothing else by itself.
+> - **The exposed reading is not globally monotone.** One run read a value
+>   *below* one an earlier run had already passed, across a boundary containing
+>   a timestamped PnP arrival. That measured decrease makes an **equality-only
+>   witness unsafe**, so a design must characterize the counter's epoch rather
+>   than compare values — or use another witness entirely.
+>
+> **What this does not do.** It decides no axis, no design, and no
+> body-versus-apply placement — the placement question below stays open. And it
+> **does not relax SI-28's interim conservative floor**: SI-33 is the route by
+> which that floor may later be relaxed, and the route is the design, not the
+> liveness pass.
+
 Placement is also open: a witness is compared rather than re-derived, so ADR-C2's
 rule argues for the body, but a witness that changes on every attach makes
 PLAN-006 unsatisfiable if hashed naively.
@@ -1082,13 +1109,15 @@ supported platform, under the custody rules the existing protocols use. For
 the undetected case is present, tested against `gpt-conflicting-tables-512`
 and `hybrid-mbr-gpt-512`.
 
-**Dependencies.** SI-35 cannot be decided before this resolves: an SI-35 axis
-that makes `Indeterminate` helper-only is an implicit choice of option (a),
-which is precisely the silent side-picking Section 0.2 forbids. Classified as
-a **transitive blocker** rather than an input to SI-35 because an input is
-"resolved within the consuming direct blocker's decision" and this one cannot
-be — an ADR may not amend a MUST, so it must be sequenced separately.
-`INV-004`'s adjacent clauses are untouched by this filing.
+**Dependencies, as they stood at filing.** SI-35 could not be decided before
+this resolved: an SI-35 axis making `Indeterminate` helper-only would have
+been an implicit choice of option (a), the silent side-picking Section 0.2
+forbids. It was classified a **transitive blocker** rather than an input
+because an input is "resolved within the consuming direct blocker's decision"
+and this one could not be — an ADR may not amend a MUST, so it had to be
+sequenced separately. **All of that is now history: this issue resolved in
+spec 6.0.0 and the gate on SI-35 is lifted.** `INV-004`'s adjacent clauses
+were untouched by this filing and remain so.
 
 ---
 
@@ -1863,10 +1892,12 @@ list recorded the designator table as untested and the design built on it anyway
    record; and macOS has client rows from the 2026-08-05 increment 6 matrix,
    valid on its second sitting. All three platforms now have the non-elevated
    record this precondition asks for.** That is what this precondition
-   requires and no more: it is satisfied by the *non-elevated* record, so
-   macOS's untaken privileged comparison leg (M10) does not hold it open,
-   while the same untaken leg does leave other things open — see SI-34's
-   evidence note. Its second-reader readback is outstanding. (Round three
+   requires and no more: it is satisfied by the *non-elevated* record, and the
+   privileged comparison leg falls outside what it asks for either way.
+   **M10 was subsequently taken on 2026-08-05** and is no longer the open leg
+   this sentence once described. Its second-reader readback is outstanding,
+   so nothing here should be relied on by a register decision until that is
+   discharged. (Round three
    proposed `docs/capabilities/`; it lives under `docs/quality/` instead,
    because `docs/capabilities/` is where DOC-003's generated matrix belongs and
    Section 11.7 forbids hand-editing that.)
