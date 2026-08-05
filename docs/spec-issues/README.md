@@ -75,7 +75,7 @@ simply "undecided":
 | SI-28 | yes | **Mitigated-open.** An interim conservative floor is in force and does not resolve it; Part 7 |
 | SI-33 | no | Open. The route by which SI-28's floor may later be relaxed |
 | SI-34 | yes | Open. Reopens whether the protection verdict belongs in the hashed body at all |
-| SI-35 | yes | Open. None of its three acceptance-evidence categories is complete: the Windows run omitted reachable layout rows and retained incomplete status surfaces; the WSL2 loop run is non-qualifying under issue #94 and a post-hoc normalizer; and no chosen-option refusal implementation exists yet. The retained finite projections did not separate the decisive pair, but do not prove that no client-readable interface can |
+| SI-35 | yes | Open. Two of its three acceptance-evidence categories are now complete, and the third is blocked on a decision rather than a measurement. The loop category is discharged by the descriptor-bound non-WSL run of 2026-08-03, valid on its third sitting: the historical WSL2 negative is confirmed on qualifying ground rather than merely repeated, and issue #94's non-qualification no longer applies. The Windows category is discharged by the completion rerun of 2026-08-04, which made all three declared refutation conditions evaluable over complete retained surfaces, refuted them, and answered the hybrid question the original run left unattempted. **No chosen-option refusal demonstration exists, because no option has been chosen** — that category cannot open until an option and an implementation exist. Neither completed run separates the decisive pair, chooses an option, or refutes the existential hypothesis that some client-readable interface could; each covers only the projection it enumerated |
 
 **SI-31 is resolved in spec 4.1.0 by ADR-C6.** Its answer is plain unsigned
 bytewise ordering over each element's full canonical encoding, for
@@ -636,11 +636,17 @@ Linux hardware, and macOS observability must all be established first.
 **Requirements:** ADR-C3, MODEL-005, PLAN-006, INV-003, SAFE-005, HLP-002 ·
 **Blocks 3, hash-visible**
 
-> **Evidence status 2026-08-02: all three acceptance categories remain
-> unsatisfied.** The Windows procedure omitted reachable layout rows and
-> retained incomplete status surfaces. The historical WSL2 loop run is
-> non-qualifying under issue #94 and used a post-hoc normalizer. A refusal proof
-> for the chosen option cannot exist until an option and implementation exist.
+> **Evidence status 2026-08-04: two of three acceptance categories are
+> satisfied; the third is blocked on a decision.** The loop category is
+> discharged by the descriptor-bound non-WSL run of 2026-08-03, valid on its
+> third sitting after two void sittings and their recorded instrument
+> amendments; it confirms the historical WSL2 negative on qualifying ground,
+> and issue #94's non-qualification no longer applies. The Windows category is
+> discharged by the completion rerun of 2026-08-04, which repaired the original
+> procedure's omitted layout rows and discarded status surfaces, made all three
+> declared refutation conditions evaluable, refuted them, and answered the
+> hybrid question. A refusal proof for the chosen option still cannot exist
+> until an option and implementation exist, and no option has been chosen.
 > The finite retained projections did not separate the decisive pair; that does
 > not prove that no client-readable interface can do so.
 
@@ -668,12 +674,22 @@ hybrid image's regular-file projection was also plain `gpt`.
 **The conflict.** ADR-C3 requires three partition-table states, INV-003 requires
 detecting inconsistent and hybrid tables, and the future design must say which
 observer computes which state from which contract. The named regular-file
-projection collapses a decisive pair. The Windows run did not produce a
-decision-complete counterexample because its wrapper skipped reachable layout
-queries for two enumeration-gap fixtures and discarded queried
-`MSFT_PhysicalDisk` properties. The historical loop projection cannot repair
-either gap because its attach was not descriptor-bound and its normalizer was
-changed after the first result.
+projection collapses a decisive pair. The **2026-08-02** Windows run did not
+produce a decision-complete counterexample because its wrapper skipped
+reachable layout queries for two enumeration-gap fixtures and discarded queried
+`MSFT_PhysicalDisk` properties, and the historical loop projection could not
+repair either gap because its attach was not descriptor-bound and its
+normalizer was changed after the first result. Both defects have since been
+repaired by successor runs — the descriptor-bound non-WSL loop sitting of
+2026-08-03 and the Windows completion rerun of 2026-08-04 — and **neither
+successor separates the decisive pair either**. That is what makes the
+conflict above a design question rather than a measurement gap: the
+enumerated projections are now completely retained — which is what the two
+reruns fixed — and they still do not encode ADR-C3's distinction. So the
+future design must say which observer computes which state from which
+contract, and what it does when the contract is silent. "Completely
+retained" is not "exhaustive": it means each run kept every surface it
+queried, not that every client-readable interface was queried.
 
 Raw-sector computation also has a privilege boundary: the retained
 non-elevated Windows and Linux environments denied direct device reads. That is
@@ -712,18 +728,34 @@ that every partition-table interface is asymmetric or that the resulting
 protection verdicts differ.
 
 **What this does not establish.** The regular-file probe is not a kernel parse.
-The WSL2 loop run is historical and non-qualifying, so it establishes neither a
-positive separating contract nor a universal negative. The Windows procedure
-ran on attached fixtures but is incomplete for its pre-registered hypotheses.
-A descriptor-bound non-WSL loop rerun and a decision-complete Windows rerun are
-still outstanding.
+The 2026-08-02 WSL2 loop run is historical and non-qualifying, so it
+establishes neither a positive separating contract nor a universal negative,
+and the 2026-08-02 Windows procedure ran on attached fixtures but was
+incomplete for its pre-registered hypotheses. Both reruns have since been
+taken and are valid — and **neither separates the decisive pair either**.
+What is still not established is any positive separating contract: the
+completed runs are negatives over their enumerated projections, and a
+negative over an enumerated projection is not a proof that no
+client-readable interface separates these states.
 
 **Evidence required before any option is accepted:** (1) the descriptor-bound,
 non-WSL loop-device measurement, so the file-probing limitation is not mistaken
 for a kernel limitation; (2) the decision-complete Windows equivalent,
 including every reachable layout and retained status surface; and (3) a
 demonstration that the chosen option refuses rather than proceeds on
-`gpt-conflicting-tables-512.img`. None is presently satisfied.
+`gpt-conflicting-tables-512.img`.
+
+**(1) and (2) are satisfied as of 2026-08-04. (3) is not, and cannot be until
+an option is chosen.** (1) is discharged by the 2026-08-03 descriptor-bound
+non-WSL sitting, valid on its third attempt. (2) is discharged by the
+2026-08-04 Windows completion rerun, whose three added gates cover this
+clause's two named requirements directly: total retention of every queried
+property value, and a mandatory index-fallback layout probe at every
+`Win32_DiskDrive`-supplied index for any fixture without an `MSFT_Disk` row.
+One declared limit survives it — W-H2's which-GPT-copy question remains
+unmeasured, because both copies of that fixture describe identical partitions
+and the discriminating fixture variant belongs to WP-020's catalogue. That
+limit bounds the finding; it does not reopen the category.
 
 ## SI-33 A continuity witness for media that cannot be told apart
 
@@ -1666,9 +1698,11 @@ list recorded the designator table as untested and the design built on it anyway
 
 1. **A per-platform observability record, established empirically and
    non-elevated, before any ADR freezes bytes.** Started in
-   `docs/quality/observability.md`; **Windows has hardware rows but SI-35's
-   Windows category is incomplete, Linux is partly established and its WSL2
-   loop record is non-qualifying, and macOS is not established.** (Round three
+   `docs/quality/observability.md`; **Windows has hardware rows and SI-35's
+   Windows category is now complete; Linux has real-hardware rows from the
+   2026-08-04 partitioned-media matrix and a qualifying descriptor-bound loop
+   record; macOS is still not established, and is now the only platform in
+   that state.** (Round three
    proposed `docs/capabilities/`; it lives under `docs/quality/` instead,
    because `docs/capabilities/` is where DOC-003's generated matrix belongs and
    Section 11.7 forbids hand-editing that.)
