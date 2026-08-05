@@ -25,3 +25,16 @@ node_modules/
 *.p12
 *.pfx
 
+# Operator sitting captures. `docs/quality/observability.md` requires the raw
+# transcript to be retained OUTSIDE the repository, with only normalized
+# observations committed — these drops carry machine-specific identifiers and
+# raw diagnostic output, which that custody rule keeps out by name. A capture
+# left in the working tree after a sitting is a `git add .` away from becoming
+# a commit; on 2026-08-05 a macOS drop sat untracked and unignored in the root
+# for exactly that window. Matched at any depth, for the reason `/target/`
+# already records above.
+mac-tests/
+out-pre/
+out-post/
+partman-*-sitting*/
+
