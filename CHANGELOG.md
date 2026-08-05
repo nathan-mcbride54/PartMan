@@ -7,6 +7,20 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- WP-010 files **SI-38**, the INV-003 / SAFE-002 conflict, under Section 0.2's
+  requirement to file rather than silently pick a side. INV-003 requires the
+  discovery layer to detect hybrid and inconsistent partition tables; SAFE-002
+  places that layer at no elevation; and the 2026-08-03 Linux and 2026-08-04
+  Windows runs establish that the unprivileged projection distinguishes
+  neither. HLP-002's independent re-discovery does not dissolve it, being
+  scoped "before the first write" — plan time, not inventory time — so at
+  inventory the unprivileged layer is the sole observer. Classified a
+  transitive blocker to SI-35 rather than an input, because an ADR may not
+  amend a MUST and every available resolution is a normative amendment; the
+  register's count moves to ten and the previously empty transitive class is
+  repopulated. Four resolution options are recorded and none is recommended.
+  No requirement is amended, no specification version changes, and SI-35 is
+  neither decided nor pre-empted.
 - WP-010's bounded evidence-currency pass stops SI-35's register row
   understating evidence WP-035 has already established (issue #142). Two of
   its three acceptance-evidence categories are now recorded as discharged —
