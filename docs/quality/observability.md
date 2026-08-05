@@ -2454,7 +2454,29 @@ hypothesis, and decides no register disposition. Its non-separation results
 cover the enumerated projections only.
 
 **Artifacts.** Retained in the operator evidence store,
-`partman-macos-sitting-2` (custodian Nate McBride), alongside sitting 1.
+`partman-macos-sitting-2` (custodian Nate McBride), alongside sitting 1; 206
+files. SHA-256 and byte length per transcript, **recorded 2026-08-05 after the
+omission below**:
+
+- `out-pre/00-transcript.txt` —
+  `da5506e97d75e889b0e74c78c747912051707566f450de1d701fee789590f94d`,
+  18 647 bytes.
+- `out-post/00-transcript.txt` —
+  `4f6e8916c87477869c617e28aeaf15cfd7f47cb571e7c44ae721b8f1027081cc`,
+  5 320 bytes.
+
+**The omission, recorded rather than quietly repaired.** This paragraph
+originally named the locator and custodian and no digests, while this
+subsection's custody rule requires "hash algorithm, digest, and byte length
+recorded". Sitting 1's record carries its digests; sitting 2's did not. The
+gap surfaced only when the second-reader readback was being prepared, because
+a reader cannot rehash a transcript "to its recorded digest" when no digest is
+recorded — so the obligation was not merely outstanding, it was
+**unperformable as specified**. The digests above are computed from the
+retained capture, which has not been modified since retention; that is weaker
+than a digest recorded at retention time and is stated as such rather than
+presented as equivalent.
+
 **Second-reader obligation outstanding**: no independent reader has yet
 retrieved and rehashed these transcripts. Under this subsection's custody
 rule the cells above are recorded with that obligation open, and it must be
