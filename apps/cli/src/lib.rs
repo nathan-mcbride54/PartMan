@@ -52,6 +52,7 @@ use std::ffi::OsString;
 pub mod doctor;
 pub mod facts;
 pub mod inspect;
+pub mod reach;
 
 /// The schema identifier every JSON emission carries.
 ///
