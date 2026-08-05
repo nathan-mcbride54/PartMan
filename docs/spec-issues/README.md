@@ -52,7 +52,7 @@ SI-31 — which made the register unusable as the dependency gate Section 1.11
 requires it to be. Counts drift; a table that must be edited to add a row does
 not.
 
-Every issue appears exactly once. **Nine items gate increment 3**: six direct
+Every issue appears exactly once. **Ten items gate increment 3**: seven direct
 and three inputs. Two former transitive blockers are resolved: SI-12 in spec
 4.3.0 by ADR-0011, and SI-38 in spec 6.0.0 by ADR-0013. SI-36 is withdrawn
 and gates nothing.
@@ -60,7 +60,7 @@ and gates nothing.
 | Class | Meaning | Issues |
 | --- | --- | --- |
 | **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-12, SI-31, SI-32, SI-38 |
-| **Direct blocker** | Must be decided before increment 3 writes a type | SI-11, SI-27, SI-28, SI-33, SI-34, SI-35 |
+| **Direct blocker** | Must be decided before increment 3 writes a type | SI-11, SI-27, SI-28, SI-33, SI-34, SI-35, SI-39 |
 | **Transitive blocker** | A separately sequenced prerequisite decision that must resolve before a direct blocker can be decided | *(none)* |
 | **Input** | A subquestion or evidence case resolved within the consuming direct blocker's decision | SI-29, SI-30, SI-37 (all to SI-11) |
 | **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-15, SI-16, SI-17, SI-18, SI-19, SI-20, SI-21, SI-22, SI-23, SI-24, SI-25, SI-26 |
@@ -77,6 +77,7 @@ simply "undecided":
 | SI-33 | no | Open. The route by which SI-28's floor may later be relaxed. **Its liveness precondition is discharged (2026-08-05)** — the counter moved on immediate re-read and after a sixty-second idle gap, and survived close-before-event/reopen in 3/3 trials — so it is no longer a hypothesis. The positive cannot be attributed to exchange-synchronous detection, is bounded to one reader/bridge/build in the slot-exchange family, and sits beside a measured non-monotonicity that makes an equality-only witness unsafe. No axis, design, or placement is decided, and SI-28's floor is not relaxed |
 | SI-34 | yes | Open. Reopens whether the protection verdict belongs in the hashed body at all |
 | SI-35 | yes | Open. Two of its three acceptance-evidence categories are now complete, and the third is blocked on a decision rather than a measurement. The loop category is discharged by the descriptor-bound non-WSL run of 2026-08-03, valid on its third sitting: the historical WSL2 negative is confirmed on qualifying ground rather than merely repeated, and issue #94's non-qualification no longer applies. The Windows category is discharged by the completion rerun of 2026-08-04, which made all three declared refutation conditions evaluable over complete retained surfaces, refuted them, and answered the hybrid question the original run left unattempted. **No chosen-option refusal demonstration exists, because no option has been chosen** — that category cannot open until an option and an implementation exist. Neither completed run separates the decisive pair, chooses an option, or refutes the existential hypothesis that some client-readable interface could; each covers only the projection it enumerated. **The SI-38 gate is lifted**: spec 6.0.0 resolved that conflict by scoping INV-003 by privilege, so an SI-35 answer no longer picks a side of it implicitly. SI-35's own axis question — who computes ADR-C3's states, and from what contract — is unblocked and undecided |
+| SI-39 | yes | Open, filed 2026-08-05. SAFE-003 says "A blank device can therefore be Strong"; INV-003, as ADR-0013 amended it in spec 6.0.0, forbids the unprivileged layer reporting "a medium as positively without a table" where its contract does not separate that case; and the macOS increment 6 matrix measured exactly that non-separation. So on macOS a client may not report `Absent`, cannot positively determine the state, and the device cannot be Strong — which is what SAFE-003 says it can be. Created by ADR-0013 hours before it was found, whose adversarial round did not reach SAFE-003. Its `Present` face reaches all three platforms and overlaps SI-35; that face is deliberately left undecided here |
 
 **SI-31 is resolved in spec 4.1.0 by ADR-C6.** Its answer is plain unsigned
 bytewise ordering over each element's full canonical encoding, for
@@ -1118,6 +1119,105 @@ and this one could not be — an ADR may not amend a MUST, so it had to be
 sequenced separately. **All of that is now history: this issue resolved in
 spec 6.0.0 and the gate on SI-35 is lifted.** `INV-004`'s adjacent clauses
 were untouched by this filing and remain so.
+
+## SI-39 SAFE-003 says a blank device can be Strong; INV-003 forbids the client saying so
+
+**Requirements:** SAFE-003, INV-003, ADR-C3, ADR-C4, MODEL-005, Section 0.2 ·
+**Direct blocker, hash-visible**
+
+Filed 2026-08-05 from a measurement and an adversarial review. Section 0.2
+requires this filing rather than permitting it: "If two requirements in this
+spec conflict, agents MUST stop, file a spec issue describing the conflict, and
+not silently pick a side."
+
+**This repository created the conflict, hours before finding it.** INV-003's
+governing sentence was added by ADR-0013 in spec 6.0.0 on 2026-08-05, and that
+ADR's adversarial round did not reach SAFE-003. Recording the provenance is not
+self-flagellation: a register that files a conflict as though it were
+discovered in the specification, when it was introduced into it, misleads the
+next round about where to look for others.
+
+**The two requirements, quoted.**
+
+> **SAFE-003:** Every plan that writes storage MUST bind each target to an
+> immutable identity record containing all available identifiers: … Partition-
+> table type and state, which MUST distinguish `Present` (read and hashed),
+> `Absent` (positively observed to have none), and `Indeterminate` (unreadable
+> or ambiguous). Only the first two are positively determined. **A blank device
+> can therefore be Strong**; a device whose table failed to parse cannot.
+
+> **INV-003:** Unprivileged discovery MUST detect every state its platform
+> contract can distinguish, and **MUST NOT report a state its contract cannot
+> reach**. Reporting a table as consistent, **or a medium as positively without
+> a table**, is such a report where the contract does not separate that case.
+
+**What makes it concrete.** The increment 6 macOS matrix (2026-08-05, valid on
+its second sitting) established that `blank-512` and media carrying a live
+ext4 with a stale mdraid superblock, an mdraid member, a LUKS2 container, and
+an LVM2 orphan all produce **byte-identical** unprivileged projections. The
+macOS client contract therefore does not separate the `Absent` case.
+
+So on macOS: INV-003 forbids the client reporting a blank medium as positively
+without a table; the state is therefore not positively determined; and by
+SAFE-003's own classification the device is Weak — where SAFE-003 says in terms
+that a blank device can be Strong. Both are requirements, both are quotable,
+and they cannot both hold on that platform.
+
+**Why this is not SI-38.** SI-38 was INV-003 against SAFE-002 — a Section 7
+detection duty assigned to a layer Section 3 places at no elevation. It
+resolved by scoping the duty. This is INV-003 against **SAFE-003**, about what
+an identity record may contain and what strength follows, and SI-38's
+resolution is what created it.
+
+**Why this is not SI-35, and the boundary is deliberate.** INV-003's same
+sentence also forbids "reporting a table as consistent" where the contract does
+not separate that case — and no measured client contract on any of the three
+platforms separates a healthy GPT from one whose two tables disagree. Whether
+reporting `Present` on such a medium is itself a forbidden report is a live
+question that reaches all three platforms rather than macOS alone. **It is
+recorded here and deliberately not decided**, because it overlaps SI-35's open
+axis question, and settling it inside a filing about a different conflict would
+be the silent side-picking Section 0.2 forbids.
+
+**Options, none decided and none recommended:**
+
+(a) **Amend SAFE-003's strength classification** so a positively determined
+table state is not required for Strong where the platform contract cannot
+reach it — for example by making the requirement relative to the published
+INV-003 reach. Cost: strength stops being one notion across platforms, and
+ADR-C3 chose the current rule deliberately; SI-02's resolution rests on it.
+
+(b) **Amend INV-003** so a medium the contract cannot distinguish from blank
+is reportable as `Absent` under a stated caveat. Cost: reintroduces exactly
+what ADR-0013 was written to end, since a macOS client would report `Absent`
+for a disk holding a LUKS2 container — and PART-001 initializes blank media.
+This is the option with a recorded data-loss path.
+
+(c) **Accept the consequence**: blank media are Weak on platforms whose
+contract cannot separate `Absent`, and SAFE-003's "a blank device can
+therefore be Strong" gains a platform qualifier. Cost: SAFE-003's
+weak-identity policy — pre-apply re-probe and the unattended-apply refusal —
+applies to ordinary blank media on macOS, and ADR-C3's recorded consequence
+that "a strong-identity blank removable now qualifies for SAFE-003's replug
+path-change allowance" is narrowed.
+
+(d) **Establish that some client-readable macOS interface separates the case**,
+dissolving it empirically. No candidate is named; the matrix measured the two
+interfaces the contract reads, and M10 located the separating fact behind a
+privileged read.
+
+**Evidence required before any option is accepted:** for (d), a named
+client-readable macOS interface measured to separate a blank medium from an
+occupied one, under the custody rules the existing protocols use. For (a),
+(b) and (c), a statement of what an inventory consumer and a plan may rely on
+for a medium in the unseparated case, tested against `blank-512` and
+`luks2-whole-disk-512`.
+
+**Dependencies.** The macOS rows this rests on carry an **outstanding
+second-reader readback**, so the measurement half of this filing is recorded
+subject to that obligation. Whether SI-39 must resolve before SI-35 is
+deliberately not asserted: the two interact through INV-003's single sentence,
+but no ordering between them is established here.
 
 ---
 

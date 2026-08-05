@@ -7,6 +7,32 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- WP-010 files **SI-39**, the SAFE-003 / INV-003 conflict, under Section 0.2's
+  requirement to file rather than silently pick a side. SAFE-003 says "A blank
+  device can therefore be Strong"; INV-003, as ADR-0013 amended it in spec
+  6.0.0, forbids the unprivileged layer reporting "a medium as positively
+  without a table" where its contract does not separate that case; and the
+  macOS increment 6 matrix measured that non-separation directly — `blank-512`
+  and media carrying ext4, an mdraid member, LUKS2 and LVM2 all project
+  byte-identically. So on macOS a client may not report `Absent`, the state is
+  not positively determined, and the device is Weak where SAFE-003 says it can
+  be Strong.
+
+  **The filing records that this repository created the conflict**, hours
+  before finding it: INV-003's governing sentence is ADR-0013's, and that ADR's
+  adversarial round did not reach SAFE-003. A register that files a conflict as
+  discovered when it was introduced misleads the next round about where to look.
+
+  Classified a direct blocker; the authoritative count moves to ten, seven of
+  them direct. Four resolution options are recorded and none is recommended,
+  including the one with a recorded data-loss path (amending INV-003 so a
+  medium indistinguishable from blank is reportable as `Absent`, when PART-001
+  initializes blank media). The `Present` face of the same INV-003 sentence
+  reaches all three platforms and overlaps SI-35's open axis question; it is
+  recorded as adjacent and **deliberately not decided**. The macOS rows carry an
+  outstanding second-reader readback, and the filing says so. No requirement is
+  amended and no specification version changes.
+
 - **spec-change 6.1.0: WP-035 gains unprivileged whole-device enumeration and
   the INV-003 reach declaration.** The read-only CLI may now report real
   attached devices — raw identifier strings labelled by the interface that
