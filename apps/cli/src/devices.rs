@@ -154,12 +154,30 @@ impl DeviceSource for SystemDeviceSource {
 
     fn read_value(&self, path: &Path) -> Result<String, std::io::Error> {
         let raw = std::fs::read(path)?;
-        let bounded = if raw.len() > VALUE_LIMIT {
-            &raw[..VALUE_LIMIT]
-        } else {
-            &raw[..]
-        };
-        Ok(String::from_utf8_lossy(bounded).trim_end().to_owned())
+        // Refuse rather than truncate. An earlier version sliced at
+        // VALUE_LIMIT and returned the prefix, which is byte-for-byte
+        // indistinguishable in the output from a complete read of that
+        // length — a partial answer mistaken for a whole one, which is what
+        // the sibling DEVICE_LIMIT refuses in terms.
+        if raw.len() > VALUE_LIMIT {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "attribute exceeds the value limit and was not truncated",
+            ));
+        }
+        // Non-UTF-8 is refused for the same reason: `from_utf8_lossy` would
+        // substitute U+FFFD silently, and `device/wwid` and `ID_SERIAL` are
+        // not guaranteed UTF-8. A mangled identifier is not the raw string
+        // the interface reported, which the charter requires.
+        let text = String::from_utf8(raw).map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "attribute is not UTF-8")
+        })?;
+        // Strip the single trailing newline sysfs appends, and nothing else.
+        // Trimming all trailing whitespace turned a padded SCSI vendor —
+        // `"ATA     "` — into an empty string, which `read_outcome` then
+        // reported as a positively determined absence. That is an ADR-C4
+        // violation: the attribute positively contained padding.
+        Ok(text.strip_suffix('\n').unwrap_or(&text).to_owned())
     }
 }
 
@@ -240,16 +258,27 @@ pub fn enumerate(source: &dyn DeviceSource, sysfs_root: &Path, udev_root: &Path)
         }
     };
 
-    // Whole devices only. A partition directory carries `partition`; its
-    // absence is what makes a node whole. Partition rows are INV-004's and are
-    // a declared non-goal here.
+    // Whole devices only. A node is whole when its `partition` attribute is
+    // **positively absent** — `NotFound` and nothing else.
+    //
+    // An earlier version tested `.is_ok()`, which fails open: any read error
+    // on `sda1/partition` — a masked `/sys` in a container, an LSM policy —
+    // promoted the partition into the whole-device list, where its own sector
+    // count would be reported as a device capacity. That is INV-004-shaped
+    // output from a package that declares partition rows a non-goal, produced
+    // by an unchecked error, and it is the one place in this module where the
+    // ADR-C4 distinction decides what gets reported at all.
     let mut whole = Vec::new();
     for name in names {
         let dir = block.join(&name);
-        if source.read_value(&dir.join("partition")).is_ok() {
-            continue;
+        // Only a positively determined absence admits a node. Everything
+        // else is skipped: an attribute that exists means a partition, and a
+        // read we could not make fails closed — a device omitted from an
+        // inventory is recoverable, a partition presented as a device is not.
+        let attribute = source.read_value(&dir.join("partition"));
+        if matches!(&attribute, Err(error) if error.kind() == std::io::ErrorKind::NotFound) {
+            whole.push(name);
         }
-        whole.push(name);
     }
 
     if whole.len() > DEVICE_LIMIT {

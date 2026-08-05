@@ -134,8 +134,18 @@ fn no_output_in_any_mode_contains_an_ansi_sequence() {
 fn inspect_answers_with_typed_statements_not_a_fake_topology() {
     let human = fdispatch(&["inspect".to_owned()]);
     assert_eq!(human.code, EXIT_OK);
+    // Since increment 8 the bare answer is platform-dependent: Linux has a
+    // contract and enumerates, every other platform still carries the typed
+    // no-adapter statement. The invariant this test exists for is unchanged —
+    // a typed statement or real rows, never a plausible empty machine, and
+    // never silence about what the inspector will not say.
+    #[cfg(not(target_os = "linux"))]
+    assert!(
+        human.stdout.contains("adapters: not-implemented"),
+        "a platform without a contract must say so: {}",
+        human.stdout
+    );
     for fragment in [
-        "adapters: not-implemented",
         "identity-strength: not-established (SI-28)",
         "partition-table-state: not-established (SI-35)",
         "same-device-claims: never-inferred (ADR-0011)",
@@ -152,17 +162,32 @@ fn inspect_answers_with_typed_statements_not_a_fake_topology() {
     let parsed: serde_json::Value =
         serde_json::from_str(&json.stdout).expect("the answer rides the ordinary envelope");
     let inspect_object = &parsed["outcome"]["inspect"];
-    assert_eq!(inspect_object["adapters"]["state"], "not-implemented");
-    assert_eq!(
-        inspect_object["adapters"]["reference"],
-        super::inspect::platform_adapter_package(),
-        "the statement names the package that changes it"
-    );
-    assert_eq!(
-        inspect_object["observations"].as_array().map(Vec::len),
-        Some(0),
-        "no adapter ran and the answer says so rather than inventing records"
-    );
+    #[cfg(not(target_os = "linux"))]
+    {
+        assert_eq!(inspect_object["adapters"]["state"], "not-implemented");
+        assert_eq!(
+            inspect_object["adapters"]["reference"],
+            super::inspect::platform_adapter_package(),
+            "the statement names the package that changes it"
+        );
+        assert_eq!(
+            inspect_object["observations"].as_array().map(Vec::len),
+            Some(0),
+            "no adapter ran and the answer says so rather than inventing records"
+        );
+    }
+    // On Linux a contract exists. Either it listed devices, or it said in a
+    // typed word why it did not — an empty `devices` array with no statement
+    // beside it would be the plausible empty machine this test forbids.
+    #[cfg(target_os = "linux")]
+    {
+        let listed = inspect_object["devices"].as_array().map_or(0, Vec::len);
+        assert!(
+            listed > 0 || !inspect_object["adapters"]["state"].is_null(),
+            "an empty device list must carry a typed statement saying why: {}",
+            json.stdout
+        );
+    }
     let gated = inspect_object["gated"]
         .as_array()
         .expect("the gated list is part of every inspect answer");
@@ -2107,11 +2132,21 @@ fn the_reach_declaration_claims_no_reach_this_increment() {
             state = cell.state,
         );
     }
-    assert_eq!(
-        crate::reach::REACH.contract.state,
-        "not-implemented",
-        "the contract statement must say plainly that nothing is read yet"
+    // The contract statement must describe the contract that exists, not a
+    // fixed string. An earlier version pinned "not-implemented" literally,
+    // which would have prevented the statement ever catching up to the code
+    // once increment 8 gave Linux a real contract.
+    let state = crate::reach::REACH.contract.state;
+    assert!(
+        state == "not-implemented" || state == "implemented-reaches-no-table-state",
+        "the contract statement must say either that nothing is read, or that what \n         is read reaches no table state — never claim a reach the cells deny"
     );
+    if cfg!(target_os = "linux") {
+        assert_eq!(
+            state, "implemented-reaches-no-table-state",
+            "Linux has a contract since increment 8; describing it as unimplemented \n             would make the declaration underived from the contract, which INV-003 forbids"
+        );
+    }
 }
 
 // Evidence: the_reach_declaration_reads_nothing
@@ -2325,8 +2360,10 @@ fn enumeration_keeps_the_three_outcome_classes_apart() {
             .fields
             .iter()
             .find(|f| f.property == property)
-            .map(|f| outcome_shape(&f.outcome))
-            .unwrap_or_else(|| panic!("{property} missing from the row"))
+            .map_or_else(
+                || panic!("{property} missing from the row"),
+                |f| outcome_shape(&f.outcome),
+            )
     };
 
     assert_eq!(shape("device/serial"), "observed");
