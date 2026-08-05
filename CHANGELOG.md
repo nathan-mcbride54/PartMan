@@ -7,6 +7,41 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **spec-change 6.0.0: SI-38 is resolved by ADR-0013.** INV-003's detection
+  duty is scoped by privilege, and the unprivileged discovery layer must
+  publish the reach of its platform contract. Accepted by Nate McBride on
+  2026-08-05 after an adversarial round that changed the recommendation.
+
+  The conflict was real and measured: INV-003 required the discovery layer to
+  detect hybrid and inconsistent partition tables, SAFE-002 places that layer
+  at no elevation, and the enumerated client projections on Linux
+  (2026-08-03), Windows (2026-08-04) and macOS (2026-08-05) all fail to
+  separate a healthy GPT from one whose two tables describe different
+  partitions. M10 (2026-08-05) located the separating fact in the backup
+  table, behind a read the unprivileged client is denied on the same
+  attachment.
+
+  **Major under §0.1** because it narrows an existing MUST rather than adding
+  one. The full detection set survives on the privileged path; the
+  unprivileged layer is no longer required to do what it measurably cannot,
+  and is instead required to say so.
+
+  Two rejections are recorded rather than omitted. Reporting the remainder as
+  undetermined is **unimplementable** — the client cannot identify the
+  remainder, a conflicting table presenting as an ordinary valid GPT, so the
+  rule would either never fire or mark every GPT undetermined; this was the
+  first recommendation and review killed it. Qualifying **SAFE-002** was
+  rejected on precedence: a Section 3 constraint may not be bent to satisfy a
+  Section 7 functional requirement without inverting Section 0.2's ordering.
+
+  Where the reach does not cover a state, the privileged re-discovery HLP-002
+  already requires before the first write determines it; the unprivileged
+  layer neither refuses on the ground of its own blindness nor represents that
+  blindness as a determination. SAFE-005 is unchanged. SI-38 moves to
+  Resolved, the register's count returns to nine, the transitive-blocker class
+  returns to empty, and **SI-35 is unblocked and remains a direct blocker,
+  undecided**.
+
 - **M10, the privileged comparison leg, is taken** (2026-08-05), and with it
   **no preregistered cell on any platform is `not yet taken`**. It ran in a
   GitHub-hosted `macos-15` runner — `RELEASE_ARM64_VMAPPLE`, macOS 15.7.7, an
