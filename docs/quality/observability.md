@@ -2536,8 +2536,15 @@ final normalizer was extended after inspecting output.
   was written the loop measurement was still open. The narrow claim, that
   libblkid produces identical output for the healthy and conflicting image, is
   established for files. The later non-qualifying loop record did not separate
-  them in its retained post-hoc-normalized views; the hardened rerun below is
-  still `not yet taken`.
+  them in its retained post-hoc-normalized views; the hardened rerun below was
+  **taken 2026-08-03 and is valid on its third sitting**, and it found the
+  named candidate client projection `non-separating` for the decisive pair on
+  a real loop device whose partitions were materialized — so this bullet's
+  "probing a loop device may differ" caveat is answered for that enumerated
+  projection and for no other interface. The rerun's separately labelled
+  privileged leg found `blkid -p -o udev` likewise identical across the pair;
+  that is the libblkid-specific half of this bullet, and being privileged it
+  may not be merged into any client claim.
 - One libblkid version, 2.41.0. The priority resolution and the PMBR fallback
   are implementation behaviour, not specified interfaces, and may change.
 
@@ -3198,14 +3205,20 @@ limits do:
   register lists three evidence categories before accepting an option: the
   loop-device measurement, the Windows equivalent, and *"a demonstration that
   whichever option is chosen still refuses rather than proceeds on
-  `gpt-conflicting-tables-512.img`"*. **All three remain unsatisfied for an
-  acceptance decision.** The Windows procedure was performed, but omitted
-  reachable layout rows, retained incomplete status surfaces, and cannot settle
-  its existential hypotheses; it therefore needs a decision-complete rerun.
-  The loop run is non-qualifying under #94 and the post-hoc normalizer. The
-  chosen-option refusal proof cannot exist before an option and implementation
-  exist. The descriptor-bound non-WSL protocol below is designed to discharge
-  only the loop category.
+  `gpt-conflicting-tables-512.img`"*. **Two are now satisfied and the third is
+  not.** The loop category is discharged by the descriptor-bound non-WSL
+  protocol below, taken 2026-08-03 and valid on its third sitting; the
+  historical WSL2 negative it was written to confirm is confirmed, and the #94
+  non-qualification no longer applies. The Windows category is discharged by
+  the completion rerun of 2026-08-04, which is valid: the original procedure
+  omitted reachable layout rows and retained incomplete status surfaces, and
+  the rerun made all three declared refutation conditions evaluable over
+  complete retained surfaces, refuted them, and answered W-Q4. **The
+  chosen-option refusal proof remains outstanding, and cannot exist before an
+  option and an implementation exist** — no SI-35 option has been chosen, so
+  this category is blocked on a decision rather than on measurement. Neither
+  discharged category resolves SI-35, and neither refutes the existential
+  H-separation hypothesis: both cover their enumerated projections only.
 - **The attach is privileged everywhere.** A separation finding here is a fact
   about what the kernel's parse leaves client-readable, not about what an
   unprivileged client can cause to be parsed. Real disks are parsed at
@@ -3214,9 +3227,14 @@ limits do:
 
 ### Hardened non-WSL confirmation protocol — taken 2026-08-03; valid; non-separating
 
-Protocol recorded 2026-08-02. Status: **not yet taken**. Every result cell in
-this subsection is deliberately `not yet taken`; the protocol is a future
-instrument, not evidence. It may run only in a fresh disposable non-WSL distro
+Protocol recorded 2026-08-02. Status: **taken 2026-08-03; valid on the third
+sitting; non-separating** — the confirmation-row table and the sitting records
+below the eligibility text are the evidence, and the two void sittings and
+their recorded instrument amendments precede the valid one and are retained
+rather than discarded. The remainder of this paragraph and the eligibility,
+actor, custody, and gate text that follows are preregistration wording kept
+verbatim; they state the conditions the third sitting met, not open
+preconditions. It may run only in a fresh disposable non-WSL distro
 VM — the available Proxmox host is one suitable T2 route — from a
 checksum-pinned base image, with a stock distro kernel, after issue #94
 closes **and its descriptor-bound implementation has landed and been
