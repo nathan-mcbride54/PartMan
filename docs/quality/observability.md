@@ -2536,8 +2536,15 @@ final normalizer was extended after inspecting output.
   was written the loop measurement was still open. The narrow claim, that
   libblkid produces identical output for the healthy and conflicting image, is
   established for files. The later non-qualifying loop record did not separate
-  them in its retained post-hoc-normalized views; the hardened rerun below is
-  still `not yet taken`.
+  them in its retained post-hoc-normalized views; the hardened rerun below was
+  **taken 2026-08-03 and is valid on its third sitting**, and it found the
+  named candidate client projection `non-separating` for the decisive pair on
+  a real loop device whose partitions were materialized — so this bullet's
+  "probing a loop device may differ" caveat is answered for that enumerated
+  projection and for no other interface. The rerun's separately labelled
+  privileged leg found `blkid -p -o udev` likewise identical across the pair;
+  that is the libblkid-specific half of this bullet, and being privileged it
+  may not be merged into any client claim.
 - One libblkid version, 2.41.0. The priority resolution and the PMBR fallback
   are implementation behaviour, not specified interfaces, and may change.
 
@@ -3214,9 +3221,14 @@ limits do:
 
 ### Hardened non-WSL confirmation protocol — taken 2026-08-03; valid; non-separating
 
-Protocol recorded 2026-08-02. Status: **not yet taken**. Every result cell in
-this subsection is deliberately `not yet taken`; the protocol is a future
-instrument, not evidence. It may run only in a fresh disposable non-WSL distro
+Protocol recorded 2026-08-02. Status: **taken 2026-08-03; valid on the third
+sitting; non-separating** — the confirmation-row table and the sitting records
+below the eligibility text are the evidence, and the two void sittings and
+their recorded instrument amendments precede the valid one and are retained
+rather than discarded. The remainder of this paragraph and the eligibility,
+actor, custody, and gate text that follows are preregistration wording kept
+verbatim; they state the conditions the third sitting met, not open
+preconditions. It may run only in a fresh disposable non-WSL distro
 VM — the available Proxmox host is one suitable T2 route — from a
 checksum-pinned base image, with a stock distro kernel, after issue #94
 closes **and its descriptor-bound implementation has landed and been
