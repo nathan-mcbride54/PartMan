@@ -684,9 +684,12 @@ repaired by successor runs — the descriptor-bound non-WSL loop sitting of
 2026-08-03 and the Windows completion rerun of 2026-08-04 — and **neither
 successor separates the decisive pair either**. That is what makes the
 conflict above a design question rather than a measurement gap: the
-projections are now complete and they still do not encode ADR-C3's
-distinction, so the future design must say which observer computes which
-state from which contract, and what it does when the contract is silent.
+enumerated projections are now completely retained — which is what the two
+reruns fixed — and they still do not encode ADR-C3's distinction. So the
+future design must say which observer computes which state from which
+contract, and what it does when the contract is silent. "Completely
+retained" is not "exhaustive": it means each run kept every surface it
+queried, not that every client-readable interface was queried.
 
 Raw-sector computation also has a privilege boundary: the retained
 non-elevated Windows and Linux environments denied direct device reads. That is
