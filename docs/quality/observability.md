@@ -6,12 +6,13 @@
   rows established 2026-08-04 by the increment 6 matrix on explicitly
   authorized passthrough fixture media; the earlier WSL2 virtual-SCSI rows
   (no partitions) and the synthetic loop run (non-qualifying) keep their
-  own records' caveats. macOS client rows established 2026-08-05 on Apple
-  Silicon — M1–M8 taken and valid on the second sitting, the first being void
-  on two recorded harness defects; M9 `not established` for want of Fusion
-  hardware and M10 `not yet taken` for want of a disposable macOS VM, so the
-  macOS privileged comparison is still missing. Its second-reader readback is
-  outstanding.** WP-035's three instruments have operator-run records dated
+  own records' caveats. macOS established 2026-08-05 on Apple Silicon —
+  M1–M8 taken and valid on the second sitting, the first being void on two
+  recorded harness defects, and **M10 taken the same day** in an ephemeral
+  hosted runner, where the helper reads at byte level what the client is
+  denied. Only M9 remains `not established`, Apple Silicon having no Fusion
+  Drive. **No preregistered cell on any platform is now `not yet taken`.**
+  The macOS second-reader readback is outstanding.** WP-035's three instruments have operator-run records dated
   2026-08-02, but their limits are material: SI-33 did not establish the full
   close-before-event/reopen liveness sequence; the SI-35 Windows wrapper did
   not retain every queried surface; and the SI-35 loop run was taken while
@@ -63,9 +64,12 @@
   an mdraid member, a LUKS2 container, an LVM2 orphan — projects
   **byte-identically to a blank disk**; APFS container membership and its UUID
   are client-readable and the UUID is stable across a verified reboot; and the
-  unprivileged raw device read is denied. **M10, the privileged comparison
-  leg, is the one preregistered cell still `not yet taken`**, and no row above
-  substitutes for it.
+  unprivileged raw device read is denied. **M10, the privileged comparison leg, was taken the same day** in an
+  ephemeral hosted `macos-15` runner: the client's raw read is denied while
+  root reads the true bytes, and **the decisive pair separates for the helper**
+  — identical head digests, differing tail digests, so the disagreement lives
+  in the backup table no client interface reports. The four signatures the
+  client called byte-identical to blank each carry a distinct helper digest.
 
 ## Why this document exists
 
@@ -2252,14 +2256,14 @@ before any cell left `not yet taken`.
 
 ## macOS
 
-**Client rows established 2026-08-05** by the increment 6 matrix on an Apple
-Silicon host: IOKit / `IOMedia` property availability without elevation,
-`diskutil` structured fields for an APFS container and its physical stores,
-and the raw `/dev/rdiskN` read policy are all measured. **The privileged
-comparison leg (M10) and the Fusion shape (M9) are not**, and neither is
-inferred from the rows that were taken — M10 needs a disposable macOS VM that
-does not exist, and Apple Silicon has no Fusion Drive, so M9 records
-`not established` as its own text requires.
+**Established 2026-08-05.** The client rows came from the increment 6 matrix
+on an Apple Silicon host — IOKit / `IOMedia` property availability without
+elevation, `diskutil` structured fields for an APFS container and its physical
+stores, and the raw `/dev/rdiskN` read policy. **The privileged comparison leg
+(M10) was taken the same day** in an ephemeral hosted runner, and it reads at
+byte level what the client is denied. **Only M9, the Fusion shape, remains
+`not established`**, because Apple Silicon has no Fusion Drive and the cell's
+own text forbids inferring it from a nearby topology.
 
 ### Increment 6 macOS matrix — taken 2026-08-05; valid on the second sitting
 
@@ -2326,7 +2330,7 @@ gate makes affected cells `void(<gate>)`, never a negative result.
 | M7 | SI-34 freshness projection, stale-signature case | attach `ext4-with-stale-mdraid-090-512.img`; capture M2/M3 projection | unprivileged | Whether any macOS client interface reports any signature fact for bytes carrying a live ext4 and a stale mdraid superblock — the platform's contribution to the freshness-projection question is which facts exist here at all | same as M6 | **`not-recognized`** — `ext4-with-stale-mdraid-090-512`'s `diskutil info` and `diskutil list` projections are **byte-identical to `blank-512`'s**. macOS's contribution to SI-34's freshness question is therefore that **no signature fact exists at this layer at all**: the client cannot see the live ext4, the stale mdraid, or the conflict between them. The platform does not report a stale signature in preference to a live one, as Linux does — it reports neither |
 | M8 | mdraid / LUKS2 / LVM2 / ZFS on macOS (precondition 1 non-native rows) | outcome of M6/M7 interfaces for those signatures | unprivileged | Stock macOS ships no prober for these; the expected result is `not-recognized` or `not-applicable(platform)`, recorded rather than assumed — OpenZFS, if installed, would be a separately labelled non-stock projection | third-party storage kexts/extensions present and undeclared | **`not-recognized`** for mdraid, LUKS2 and LVM2 — each byte-identical to `blank-512` on both interfaces, as expected of a platform shipping no prober for them. **ZFS is `not-applicable(platform)`**: stock macOS ships no prober and the fixture catalogue contains no ZFS image, so nothing was attached for it. That is recorded rather than folded into the other three. No third-party storage extension was declared or observed |
 | M9 | Fusion membership and shape | `diskutil apfs list -plist` on a Fusion container; the one-store-absent shape | unprivileged | What a Fusion container reports intact, and with one store absent | **conditional on representative hardware**; without it this cell remains `not established` per the increment's own rule | **`not established`** — the host is Apple Silicon, which has no Fusion Drive, so the representative hardware this cell is conditional on cannot exist here. Not approximated from a two-device APFS container; degraded Fusion behaviour is not inferred from a nearby topology |
-| M10 | Privileged comparison leg | raw header reads at the fixture offsets through `/dev/rdiskN` | privileged, disposable VM only | Whether the helper-side view can read what the client cannot, on the same attached fixture | any attempt on the ordinary host; no disposable macOS environment available | **`not yet taken`** — no disposable macOS VM exists, and the protocol forbids both approximating this leg and running it on the ordinary host. Deferred deliberately, not attempted and failed. Note for whoever takes it: its question is whether the helper view reads what the client cannot **on the same attached fixture**, so a VM leg must capture both sides inside the VM or the comparison is across machines |
+| M10 | Privileged comparison leg | raw header reads at the fixture offsets through `/dev/rdiskN` | privileged, disposable VM only | Whether the helper-side view can read what the client cannot, on the same attached fixture | any attempt on the ordinary host; no disposable macOS environment available | **`observed` — the helper reads what the client cannot, on the same attachment, on every fixture tried. Taken 2026-08-05 in a GitHub-hosted `macos-15` runner (`RELEASE_ARM64_VMAPPLE`, macOS 15.7.7) — an ephemeral Apple Virtualization Framework guest destroyed at job end. For all seven fixtures the unprivileged client's raw read was **denied `EACCES`** while root read the bytes: every helper byte-range digest equals the source image's. **The decisive pair separates for the helper and not the client**: `gpt-basic-512` and `gpt-conflicting-tables-512` have identical first-64-KiB digests and **different last-64-KiB digests**, so the disagreement lives in the backup table, which no client interface here reports. The four signatures the client called byte-identical to blank each carry a distinct helper head digest. Scope: this leg is a different machine and a different macOS from the M1–M8 sitting, which is why it re-ran the client half itself rather than comparing across hosts |
 
 Custody, per executed run: complete transcript retained outside the
 repository with archive locator and custodian named; hash algorithm, digest,
@@ -2455,6 +2459,83 @@ cover the enumerated projections only.
 retrieved and rehashed these transcripts. Under this subsection's custody
 rule the cells above are recorded with that obligation open, and it must be
 discharged before they are relied on by a register decision.
+
+#### M10 sitting, 2026-08-05 — VALID; the helper reads what the client cannot
+
+Taken in a **GitHub-hosted `macos-15` runner**, which the cell's environment
+rule admits as a "hosted macOS test environment": `RELEASE_ARM64_VMAPPLE`,
+macOS 15.7.7 build 24G720, an ephemeral Apple Virtualization Framework guest
+on Apple silicon, destroyed when the job ended. Fixtures were generated on the
+runner from the checked-out revision, so no transfer step needed verifying.
+Harness digest recorded before the first attach; all seven fixtures attached,
+captured and detached with confirmation; every before/after digest bracket
+matched; nothing mounted.
+
+**Why the client half was re-run here.** M10 asks whether the helper view
+reads what the client cannot **on the same attached fixture**. This is a
+different machine and a different macOS from the M1–M8 sitting, so comparing
+across hosts would not have answered that. The harness therefore captures both
+halves of every attachment itself: the client interfaces as an unprivileged
+user, the byte reads as root, on one attachment.
+
+**The asymmetry, at byte level.** On every fixture the unprivileged client's
+raw read was **denied `EACCES`** while root read the device. Every helper
+byte-range digest equals the corresponding range of the source image, so the
+helper reads the true bytes rather than something the platform reconstructed.
+
+**The decisive pair separates for the helper.** `gpt-basic-512` and
+`gpt-conflicting-tables-512` produce **identical first-64-KiB digests** and
+**different last-64-KiB digests**. The disagreement between the two tables
+lives in the backup, at the tail — which is exactly what the fixture is for,
+and which no client interface on any measured platform reports. The client
+halves of this same sitting reproduce that blindness: `diskutil info -plist`
+and `diskutil list -plist` are byte-identical across the pair here too.
+
+**The blank-versus-foreign collapse breaks the same way.** The four signatures
+the unprivileged client reported as byte-identical to a blank disk each carry
+a **distinct helper head digest** — the mdraid member, the LUKS2 container,
+and the LVM2 orphan differ from blank's, and the live-ext4-plus-stale-mdraid
+fixture differs at both head and tail. Four disks a macOS client calls empty
+are immediately distinguishable to a privileged reader.
+
+**Two incidental observations, recorded because they contradict or refine
+the earlier sitting.**
+
+- **`EACCES` here, `EPERM` on the laptop.** The M1–M8 sitting recorded the
+  raw-read denial as `EPERM` and flagged it as unexplained, since `EACCES`
+  was the expected errno for a user outside the owning group. This runner
+  gives the expected `EACCES` with the same `root:operator` ownership. The
+  difference between a physical host and a VM guest is now a **contrast**
+  rather than a lone oddity, but nothing here identifies its cause and no
+  attribution to SIP or any other mechanism is made.
+- **Node mode differs.** The runner's nodes are `br--r-----` / `cr--r-----`,
+  where the laptop's were `brw-r-----` / `crw-r-----`.
+
+**A generalization the earlier record could not claim.** The M1–M8 sitting
+declared "one host, one macOS build, one user" as a limitation. This sitting's
+client half ran on different hardware and a different macOS major version
+(15.7.7 against 26.3.2) and reproduced the decisive-pair byte-identity. That
+weakens the limitation for that specific finding; it does not lift it for the
+rows this sitting did not re-run.
+
+**Limitations.** A GitHub-hosted runner is a shared-infrastructure VM rather
+than a machine under this project's control, and its image is not a
+checksum-pinned artifact this repository owns. The byte ranges are the first
+and last 64 KiB only, chosen to bracket partition tables and the signature
+offsets in these fixtures; nothing is claimed about bytes between them. This
+leg used `dd` through `/dev/rdiskN` and no other privileged interface.
+
+**What this does not do.** It decides no SI-34 option and does not satisfy
+SI-34's freshness-projection element, which names a projection that does not
+yet exist. It chooses no SI-35 option and supplies no chosen-option refusal
+demonstration. It refutes no existential hypothesis.
+
+**Artifacts.** CI run 31020018982, capture retained in the operator evidence
+store as `2026-08-05-macos-m10-ci-run31020018982` (custodian Nate McBride),
+172 files with a SHA-256 inventory; transcript
+`259b1046e1d80b40fb92fcfd99ef018af86f11b7f5086aca3e5c239a15436256`. The
+workflow artifact itself is public and expires; the evidence-store copy is the
+durable one. **Second-reader obligation outstanding**, as for sitting 2.
 
 ## Linux
 
