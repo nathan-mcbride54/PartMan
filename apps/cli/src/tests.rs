@@ -840,6 +840,7 @@ fn the_shipped_sources_read_no_environment_variable() {
         ("doctor.rs", include_str!("doctor.rs")),
         ("facts.rs", include_str!("facts.rs")),
         ("inspect.rs", include_str!("inspect.rs")),
+        ("reach.rs", include_str!("reach.rs")),
     ] {
         for needle in ["env::var", "env::vars", "var_os"] {
             assert!(
@@ -1071,6 +1072,7 @@ fn discovery_cannot_auto_mount_or_run_repair_tools() {
         ("lib.rs", library),
         ("facts.rs", include_str!("facts.rs")),
         ("inspect.rs", include_str!("inspect.rs")),
+        ("reach.rs", include_str!("reach.rs")),
     ] {
         assert!(
             !source.contains("std::process::Command") && !source.contains("process::{Command"),
@@ -1089,6 +1091,7 @@ fn discovery_cannot_auto_mount_or_run_repair_tools() {
             "pub mod doctor;",
             "pub mod facts;",
             "pub mod inspect;",
+            "pub mod reach;",
             "mod tests;",
         ],
         "a new shipped module must enter this source guard before it can compile cleanly"
@@ -2045,5 +2048,137 @@ fn replay_flag_misuse_is_refused_structurally() {
     assert_eq!(
         value_like_command.code, EXIT_REFUSAL,
         "`version` after --replay is a (nonexistent) file to replay, not a second command"
+    );
+}
+
+// Evidence: the_reach_declaration_is_complete_and_ordered
+#[test]
+fn the_reach_declaration_is_complete_and_ordered() {
+    // INV-003's third bullet says the declaration "MUST NOT be omitted when
+    // the answer is `no`", which is the one property here most able to rot
+    // silently: a hand-edited platform table drops a row and nothing
+    // notices. A doc comment saying "never partial" is not that guard, so
+    // this is.
+    let declared: Vec<&str> = crate::reach::REACH
+        .cells
+        .iter()
+        .map(|cell| cell.state)
+        .collect();
+    assert_eq!(
+        declared,
+        crate::reach::STATES.to_vec(),
+        "the reach declaration must carry one cell per INV-003 state, in INV-003's order, \
+         on every platform — a missing cell is an omitted `no`, which INV-003 forbids"
+    );
+}
+
+// Evidence: the_reach_declaration_claims_no_reach_this_increment
+#[test]
+fn the_reach_declaration_claims_no_reach_this_increment() {
+    // WP-035's Section 14 row grants the declaration "for the contract this
+    // package itself reads" and closes: it "is not a claim about interfaces
+    // that contract does not read". Increment 7 reads nothing. So every
+    // answer is negative, and a `yes` cannot appear until the increment that
+    // reads the interface establishing it lands with it.
+    //
+    // This test is the reason the table is built by one `const fn` rather
+    // than hand-copied per platform: there is exactly one place a `true`
+    // could be typed, and this fails if it is.
+    for cell in &crate::reach::REACH.cells {
+        assert!(
+            !cell.distinguished,
+            "{state} is declared distinguished while this package reads no device \
+             interface. A positive answer belongs to the increment that reads the \
+             interface, cited to the observability row that establishes it",
+            state = cell.state,
+        );
+        assert_eq!(
+            cell.basis,
+            crate::reach::basis::NOT_MEASURED,
+            "{state} claims a measured basis with nothing read",
+            state = cell.state,
+        );
+        assert!(
+            cell.citation.is_none(),
+            "{state} carries a citation for a contract that reads nothing",
+            state = cell.state,
+        );
+    }
+    assert_eq!(
+        crate::reach::REACH.contract.state,
+        "not-implemented",
+        "the contract statement must say plainly that nothing is read yet"
+    );
+}
+
+// Evidence: the_reach_declaration_reads_nothing
+#[test]
+fn the_reach_declaration_reads_nothing() {
+    // "Derived from the contract rather than from any device" (INV-003) is a
+    // property of how the declaration is built, not of what it says. The
+    // module is `const` data and two renderers; it must not acquire a device
+    // read, a filesystem read, or a process launch — and it must not name a
+    // device seam even indirectly, because that is how "declared" becomes
+    // "derived" one refactor later.
+    let source = include_str!("reach.rs");
+    for needle in [
+        "std::fs",
+        "File::",
+        "read_to_string",
+        "std::process",
+        "DeviceSource",
+        "enumerate(",
+    ] {
+        assert!(
+            !source.contains(needle),
+            "reach.rs contains `{needle}`: the declaration must stay a property of the \
+             contract, declared independently of any device"
+        );
+    }
+}
+
+// Evidence: the_enumeration_answer_publishes_reach_beside_the_gated_list
+#[test]
+fn the_enumeration_answer_publishes_reach_beside_the_gated_list() {
+    // The declaration belongs to the enumeration surface, not to replay:
+    // `--replay` answers about a caller-named regular file, and a platform
+    // contract is not a property of that file. Pinning both halves, so a
+    // later edit cannot quietly move it.
+    let json = crate::inspect::no_adapter_json();
+    assert!(
+        json.contains("\"reach\""),
+        "the enumeration answer must publish the reach declaration"
+    );
+    assert!(
+        json.contains(crate::reach::REACH_SCHEMA),
+        "the reach payload must carry its own schema version"
+    );
+    assert!(
+        json.contains("\"gated\""),
+        "the gated list must still travel in every answer"
+    );
+    for state in crate::reach::STATES {
+        assert!(
+            json.contains(state),
+            "the enumeration answer omits the INV-003 state `{state}`"
+        );
+    }
+
+    let human = crate::inspect::no_adapter_human();
+    assert!(
+        human.contains("  reach (INV-003"),
+        "the human answer must publish the reach declaration"
+    );
+    assert!(
+        human.contains("  gated"),
+        "the human answer must still carry the gated list — asserting only the order \
+         of the two would pass if the gated block were dropped entirely"
+    );
+
+    let replayed = crate::inspect::replay_json(&[]);
+    assert!(
+        !replayed.contains("\"reach\""),
+        "a replay answer is about a caller-named file; a platform contract is not a \
+         property of that file and must not be rendered as though it were"
     );
 }

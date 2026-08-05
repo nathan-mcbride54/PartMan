@@ -518,10 +518,11 @@ pub fn replay_json(observations: &[Observation]) -> String {
 pub fn no_adapter_json() -> String {
     format!(
         "{{\"adapters\":{{\"state\":\"not-implemented\",\"reference\":{reference},\
-         \"detail\":{detail}}},\"observations\":[],\"gated\":{gated}}}",
+         \"detail\":{detail}}},\"observations\":[],\"gated\":{gated},\"reach\":{reach}}}",
         reference = json_escaped(platform_adapter_package()),
         detail = json_escaped(NO_ADAPTER_DETAIL),
         gated = gated_json(),
+        reach = crate::reach::reach_json(),
     )
 }
 
@@ -606,5 +607,6 @@ pub fn no_adapter_human() -> String {
         reference = platform_adapter_package(),
     );
     gated_human(&mut out);
+    crate::reach::reach_human(&mut out);
     out
 }
