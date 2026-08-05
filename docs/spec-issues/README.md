@@ -52,18 +52,16 @@ SI-31 — which made the register unusable as the dependency gate Section 1.11
 requires it to be. Counts drift; a table that must be edited to add a row does
 not.
 
-Every issue appears exactly once. **Ten items gate increment 3**: six direct,
-three inputs, and one transitive. The former transitive blocker, SI-12,
-resolved in spec 4.3.0 by ADR-0011; SI-38 repopulates that class for a
-different reason — it is a requirement conflict an ADR may not resolve, so it
-must be sequenced ahead of SI-35 rather than folded into it. SI-36 is
-withdrawn and gates nothing.
+Every issue appears exactly once. **Nine items gate increment 3**: six direct
+and three inputs. Two former transitive blockers are resolved: SI-12 in spec
+4.3.0 by ADR-0011, and SI-38 in spec 6.0.0 by ADR-0013. SI-36 is withdrawn
+and gates nothing.
 
 | Class | Meaning | Issues |
 | --- | --- | --- |
-| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-12, SI-31, SI-32 |
+| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-12, SI-31, SI-32, SI-38 |
 | **Direct blocker** | Must be decided before increment 3 writes a type | SI-11, SI-27, SI-28, SI-33, SI-34, SI-35 |
-| **Transitive blocker** | A separately sequenced prerequisite decision that must resolve before a direct blocker can be decided | SI-38 (to SI-35) |
+| **Transitive blocker** | A separately sequenced prerequisite decision that must resolve before a direct blocker can be decided | *(none)* |
 | **Input** | A subquestion or evidence case resolved within the consuming direct blocker's decision | SI-29, SI-30, SI-37 (all to SI-11) |
 | **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-15, SI-16, SI-17, SI-18, SI-19, SI-20, SI-21, SI-22, SI-23, SI-24, SI-25, SI-26 |
 | **Withdrawn** | Retained as history after the filing was shown not to be a conflict | SI-36 |
@@ -78,7 +76,7 @@ simply "undecided":
 | SI-28 | yes | **Mitigated-open.** An interim conservative floor is in force and does not resolve it; Part 7 |
 | SI-33 | no | Open. The route by which SI-28's floor may later be relaxed |
 | SI-34 | yes | Open. Reopens whether the protection verdict belongs in the hashed body at all |
-| SI-35 | yes | Open. Two of its three acceptance-evidence categories are now complete, and the third is blocked on a decision rather than a measurement. The loop category is discharged by the descriptor-bound non-WSL run of 2026-08-03, valid on its third sitting: the historical WSL2 negative is confirmed on qualifying ground rather than merely repeated, and issue #94's non-qualification no longer applies. The Windows category is discharged by the completion rerun of 2026-08-04, which made all three declared refutation conditions evaluable over complete retained surfaces, refuted them, and answered the hybrid question the original run left unattempted. **No chosen-option refusal demonstration exists, because no option has been chosen** — that category cannot open until an option and an implementation exist. Neither completed run separates the decisive pair, chooses an option, or refutes the existential hypothesis that some client-readable interface could; each covers only the projection it enumerated. **Now gated behind SI-38**: the same measurements put INV-003 and SAFE-002 in conflict, and an SI-35 answer making the decisive discrimination helper-only would pick a side of that conflict silently, which Section 0.2 forbids |
+| SI-35 | yes | Open. Two of its three acceptance-evidence categories are now complete, and the third is blocked on a decision rather than a measurement. The loop category is discharged by the descriptor-bound non-WSL run of 2026-08-03, valid on its third sitting: the historical WSL2 negative is confirmed on qualifying ground rather than merely repeated, and issue #94's non-qualification no longer applies. The Windows category is discharged by the completion rerun of 2026-08-04, which made all three declared refutation conditions evaluable over complete retained surfaces, refuted them, and answered the hybrid question the original run left unattempted. **No chosen-option refusal demonstration exists, because no option has been chosen** — that category cannot open until an option and an implementation exist. Neither completed run separates the decisive pair, chooses an option, or refutes the existential hypothesis that some client-readable interface could; each covers only the projection it enumerated. **The SI-38 gate is lifted**: spec 6.0.0 resolved that conflict by scoping INV-003 by privilege, so an SI-35 answer no longer picks a side of it implicitly. SI-35's own axis question — who computes ADR-C3's states, and from what contract — is unblocked and undecided |
 
 **SI-31 is resolved in spec 4.1.0 by ADR-C6.** Its answer is plain unsigned
 bytewise ordering over each element's full canonical encoding, for
@@ -968,9 +966,28 @@ multipath should become writable.
 
 ## SI-38 INV-003 requires the unprivileged discovery layer to detect what it measurably cannot
 
-**Requirements:** INV-003, SAFE-002, HLP-002, SAFE-005, ADR-C3, MODEL-005,
-Section 0.2 · **Transitive blocker; must resolve before SI-35 can be
-decided**
+**Requirements:** INV-003, SAFE-002, HLP-002, HLP-005, SAFE-005, ADR-C3,
+MODEL-005, Section 0.2 · **Resolved in spec 6.0.0 by ADR-0013**
+
+> **Resolved 2026-08-05 in spec 6.0.0 by ADR-0013.** INV-003's detection duty
+> is scoped by privilege: unprivileged discovery detects every state its
+> platform contract can distinguish and may not report one it cannot reach;
+> the privileged path owes the full set; and the unprivileged layer MUST
+> publish the reach of its platform contract, per-platform and independently
+> of any device. A consumer may not read an unprivileged inventory as evidence
+> that an undeclared state is absent — the privileged re-discovery HLP-002
+> already requires before the first write determines it, and the unprivileged
+> layer neither refuses on the ground of its own blindness nor represents that
+> blindness as a determination.
+>
+> **SAFE-002 is untouched.** Qualifying it was rejected on precedence: it is a
+> Section 3 constraint and bending it to satisfy a Section 7 functional
+> requirement inverts Section 0.2's ordering. The obvious alternative — detect
+> what you can and report the rest as undetermined — was rejected as
+> unimplementable, because the client cannot identify the remainder.
+>
+> This narrows an existing MUST, which is why it is a major bump. **SI-35 is
+> unblocked and remains a direct blocker.**
 
 Filed 2026-08-04 from a measurement and an adversarial review, not from a
 reading. Section 0.2 requires this filing rather than permitting it: "If two
@@ -1005,7 +1022,13 @@ measurements, recorded in `docs/quality/observability.md`:
 
 So both of INV-003's clauses that this evidence reaches — inconsistent tables
 and hybrid tables — are unsatisfied at the unprivileged layer on both measured
-platforms. macOS is not yet established and cannot narrow or widen this.
+platforms. **macOS was measured 2026-08-05 and answers the same way**: the
+client projections are byte-identical across the decisive pair there too, so
+all three supported platforms agree. The privileged leg taken the same day
+(M10) located the separating fact in the backup table, behind a read SAFE-002
+places outside the discovery layer — which is why the resolution scopes the
+duty by privilege rather than hunting for a client interface that does not
+appear to exist.
 
 **The escape that does not work.** The natural reading that dissolves the
 conflict is that the privileged helper detects these states, so the *product*
