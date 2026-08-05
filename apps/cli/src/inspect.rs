@@ -512,6 +512,93 @@ pub fn replay_json(observations: &[Observation]) -> String {
     )
 }
 
+/// Render the enumeration answer as JSON, or the no-adapter statement where
+/// this package has no contract for the platform.
+///
+/// This is the seam between "an adapter exists" and "the product uses it".
+/// Increment 8 delivered the Linux contract; every other platform still
+/// answers with the typed `not-implemented` statement naming the package that
+/// changes that, because an empty device list would say the machine has no
+/// disks.
+#[must_use]
+pub fn enumeration_json() -> String {
+    // Where this package has no contract for the platform, the answer is the
+    // existing typed `not-implemented` statement naming the package that
+    // changes that. It is deliberately NOT ADR-C4's `unavailable`: that word
+    // means the platform did not expose an answer, and this is the package
+    // not having asked. Conflating them would report a WP-035 gap as a
+    // platform limitation.
+    if !cfg!(target_os = "linux") {
+        return no_adapter_json();
+    }
+    match crate::devices::enumerate(
+        &crate::devices::SystemDeviceSource,
+        &crate::devices::sysfs_root(),
+        &crate::devices::udev_root(),
+    ) {
+        crate::devices::Enumeration::Listed(devices) => {
+            let rendered: Vec<String> = devices
+                .iter()
+                .map(|device| {
+                    let observations: Vec<Observation> = crate::devices::observations(device);
+                    let rows: Vec<String> = observations
+                        .iter()
+                        .map(|observation| {
+                            format!(
+                                "{{\"subject\":{subject},\"adapter\":{{\"name\":{name},\
+                                 \"version\":{version},\"method\":{method}}},\"outcome\":{outcome}}}",
+                                subject = json_escaped(&observation.subject),
+                                name = json_escaped(observation.attribution.adapter),
+                                version = json_escaped(observation.attribution.version),
+                                method = json_escaped(observation.attribution.method),
+                                outcome = outcome_json(&observation.outcome),
+                            )
+                        })
+                        .collect();
+                    format!(
+                        "{{\"selector\":{selector},\"kernel_name\":{kernel},\
+                         \"observations\":[{rows}]}}",
+                        selector = json_escaped(&device.selector),
+                        kernel = json_escaped(&device.kernel_name),
+                        rows = rows.join(","),
+                    )
+                })
+                .collect();
+            format!(
+                "{{\"devices\":[{devices}],\"gated\":{gated},\"reach\":{reach}}}",
+                devices = rendered.join(","),
+                gated = gated_json(),
+                reach = crate::reach::reach_json(),
+            )
+        }
+        crate::devices::Enumeration::Unavailable { reason } => format!(
+            "{{\"adapters\":{{\"state\":\"unavailable\",\"reference\":{reference},\
+             \"detail\":{detail}}},\"devices\":[],\"gated\":{gated},\"reach\":{reach}}}",
+            reference = json_escaped(platform_adapter_package()),
+            detail = json_escaped(&reason),
+            gated = gated_json(),
+            reach = crate::reach::reach_json(),
+        ),
+        crate::devices::Enumeration::Failed { error } => format!(
+            "{{\"adapters\":{{\"state\":\"failed\",\"detail\":{detail}}},\"devices\":[],\
+             \"gated\":{gated},\"reach\":{reach}}}",
+            detail = json_escaped(&error),
+            gated = gated_json(),
+            reach = crate::reach::reach_json(),
+        ),
+        crate::devices::Enumeration::OverLimit { seen } => format!(
+            "{{\"adapters\":{{\"state\":\"refused\",\"detail\":{detail}}},\"devices\":[],\
+             \"gated\":{gated},\"reach\":{reach}}}",
+            detail = json_escaped(&format!(
+                "{seen} block nodes exceeds this adapter's device limit; refused rather than \
+                 truncated, because a partial list must not be mistaken for a complete one"
+            )),
+            gated = gated_json(),
+            reach = crate::reach::reach_json(),
+        ),
+    }
+}
+
 /// Render the no-adapter inspect answer as JSON: a typed statement, the
 /// platform package that changes it, and the standing gated list.
 #[must_use]
@@ -606,6 +693,68 @@ pub fn no_adapter_human() -> String {
         "inspect\n  adapters: not-implemented ({reference})\n    {NO_ADAPTER_DETAIL}\n",
         reference = platform_adapter_package(),
     );
+    gated_human(&mut out);
+    crate::reach::reach_human(&mut out);
+    out
+}
+
+/// Render the enumeration answer for humans, or the no-adapter statement.
+#[must_use]
+pub fn enumeration_human() -> String {
+    // Same reasoning as `enumeration_json`: no contract is `not-implemented`,
+    // never ADR-C4's `unavailable`.
+    if !cfg!(target_os = "linux") {
+        return no_adapter_human();
+    }
+    let mut out = String::from("inspect\n");
+    match crate::devices::enumerate(
+        &crate::devices::SystemDeviceSource,
+        &crate::devices::sysfs_root(),
+        &crate::devices::udev_root(),
+    ) {
+        crate::devices::Enumeration::Listed(devices) => {
+            for device in &devices {
+                out.push_str("  ");
+                out.push_str(&device.selector);
+                out.push_str(" (");
+                out.push_str(&device.kernel_name);
+                out.push_str(")\n");
+                for observation in crate::devices::observations(device) {
+                    out.push_str("    ");
+                    out.push_str(&observation.subject);
+                    out.push_str(": ");
+                    out.push_str(&outcome_human(&observation.outcome));
+                    out.push('\n');
+                }
+            }
+            if devices.is_empty() {
+                out.push_str(
+                    "  no whole devices were reported by this contract. That is a \
+                     determination, not a failure to look\n",
+                );
+            }
+        }
+        crate::devices::Enumeration::Unavailable { reason } => {
+            out.push_str("  adapters: unavailable (");
+            out.push_str(platform_adapter_package());
+            out.push_str(")\n    ");
+            out.push_str(&reason);
+            out.push('\n');
+        }
+        crate::devices::Enumeration::Failed { error } => {
+            out.push_str("  adapters: failed\n    ");
+            out.push_str(&error);
+            out.push('\n');
+        }
+        crate::devices::Enumeration::OverLimit { seen } => {
+            out.push_str("  adapters: refused\n    ");
+            out.push_str(&seen.to_string());
+            out.push_str(
+                " block nodes exceeds this adapter's device limit; refused rather \
+                 than truncated\n",
+            );
+        }
+    }
     gated_human(&mut out);
     crate::reach::reach_human(&mut out);
     out

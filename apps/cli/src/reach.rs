@@ -125,11 +125,51 @@ const fn unread_contract(reference: &'static str) -> ReachDeclaration {
     }
 }
 
-/// The sentence beside every cell, stating why they are all negative.
+/// The sentence beside every cell where this package reads nothing at all.
 const DETAIL: &str = "this package reads no device interface yet, so its contract distinguishes no \
      partition-table state; every answer below is negative by the not-measured \
      default, and a positive answer arrives only with the increment that reads \
      the interface establishing it";
+
+/// The sentence where a contract exists but reads no table-state interface.
+///
+/// The distinction matters and an earlier version of this module collapsed it.
+/// "Reads nothing" and "reads identity attributes but no table-state surface"
+/// produce the same all-negative cells for different reasons, and INV-003
+/// requires the declaration be *derived from the contract* — so a contract
+/// that exists must not be described as absent.
+const DETAIL_READS_NO_TABLE_STATE: &str = "this package's contract reads whole-device identity attributes and no \
+     partition-table interface, so it distinguishes no state below; the answers are \
+     negative because nothing in this contract reaches them, not because nothing \
+     has been measured";
+
+/// Build the declaration for a platform whose contract exists but reaches no
+/// partition-table state.
+const fn read_contract_distinguishing_nothing(reference: &'static str) -> ReachDeclaration {
+    const fn cell(state: &'static str) -> ReachCell {
+        ReachCell {
+            state,
+            distinguished: false,
+            basis: basis::NOT_MEASURED,
+            citation: None,
+        }
+    }
+    ReachDeclaration {
+        contract: ContractStatement {
+            state: "implemented-reaches-no-table-state",
+            reference,
+            detail: DETAIL_READS_NO_TABLE_STATE,
+        },
+        cells: [
+            cell(STATES[0]),
+            cell(STATES[1]),
+            cell(STATES[2]),
+            cell(STATES[3]),
+            cell(STATES[4]),
+            cell(STATES[5]),
+        ],
+    }
+}
 
 /// This build's declaration.
 ///
@@ -138,7 +178,7 @@ const DETAIL: &str = "this package reads no device interface yet, so its contrac
 /// that duty stays with WP-W100, WP-L100 and WP-M100, and this declaration
 /// makes no claim about their contracts.
 pub const REACH: ReachDeclaration = if cfg!(target_os = "linux") {
-    unread_contract("WP-035 increment 8")
+    read_contract_distinguishing_nothing("WP-035 increment 8")
 } else if cfg!(target_os = "macos") {
     unread_contract("WP-035 increment 9")
 } else if cfg!(target_os = "windows") {

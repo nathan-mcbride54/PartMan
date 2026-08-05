@@ -49,6 +49,7 @@
 
 use std::ffi::OsString;
 
+pub mod devices;
 pub mod doctor;
 pub mod facts;
 pub mod inspect;
@@ -659,11 +660,11 @@ fn inspect_outcome(replay: Option<&str>, json: bool) -> Outcome {
                     Some(Command::Inspect),
                     &format!(
                         "{{\"kind\":\"ok\",\"inspect\":{}}}",
-                        inspect::no_adapter_json()
+                        inspect::enumeration_json()
                     ),
                 )
             } else {
-                inspect::no_adapter_human()
+                inspect::enumeration_human()
             },
             stderr: String::new(),
             code: EXIT_OK,
