@@ -7,6 +7,21 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- WP-010's third evidence-currency pass records the macOS observability record
+  on the two register surfaces that understated it (issue #155). Precondition
+  1 now says all three platforms have the non-elevated record it asks for, and
+  SI-34's evidence clause gains a bounded status note: its **observability
+  element is satisfied; every other element remains unsatisfied**. The note
+  states the reading it rests on — precondition 1 defines the record as
+  "established empirically and non-elevated", so macOS's untaken privileged
+  leg does not hold that element open — and records the narrower reading as
+  **rejected rather than ignored**, with what changes if it is preferred. It
+  also states what is missing on macOS under either reading: M10 is untaken,
+  so there is no privileged comparison leg, and SI-34's separate both-views
+  freshness requirement is unmeasured there and unmeasurable until M10 exists.
+  SI-34 is not resolved, its evidence clause is not discharged, no option is
+  decided or ranked, and no state, class, dependency, or metadata changes.
+
 - The increment 6 **macOS matrix is executed** (2026-08-05, Apple Silicon,
   console session, macOS 26.3.2 build 25D2140, SIP enabled), valid on its
   second sitting. Sitting 1 is **void on two harness defects** and is retained

@@ -634,6 +634,38 @@ that changes nothing must proceed and be journaled; a client claiming
 `permitted` must lose to the helper's `refused`; and Windows, real partitioned
 Linux hardware, and macOS observability must all be established first.
 
+> **Status of the observability element, 2026-08-05: satisfied. Every other
+> element of the clause above remains unsatisfied.** All three named platforms
+> now have records — Windows, real-partitioned Linux from the 2026-08-04
+> matrix, and macOS from the 2026-08-05 increment 6 matrix, valid on its
+> second sitting.
+>
+> **The reading this rests on, stated so it can be attacked.** Round four's
+> precondition 1 defines the thing being demanded as "a per-platform
+> observability record, established empirically and **non-elevated**". The
+> privileged comparison leg therefore falls outside what "observability
+> established" asks for, and macOS's untaken M10 does not hold this element
+> open. **The narrower reading — that "macOS observability" means the whole
+> matrix including its privileged leg — is recorded as rejected rather than
+> ignored**, because it is not unreasonable: it would leave this element open
+> until a disposable macOS VM exists. If that reading is preferred, this
+> element reverts to unsatisfied and nothing else in this entry changes.
+>
+> **What is missing on macOS regardless of which reading wins.** M10 is
+> `not yet taken` for want of a disposable macOS VM, so the macOS record has
+> **no privileged comparison leg at all**. The first element of the clause
+> above — the stale-signature fixture showing the freshness projection
+> comparing equal **across both views** while the helper retains both
+> signatures — is therefore **unmeasured on macOS**, and cannot be measured
+> there until M10 exists. What macOS did establish is one side of it: the
+> client sees nothing whatever for that fixture, its projection being
+> byte-identical to a blank disk. M9 is `not established` because Apple
+> Silicon has no Fusion Drive. The macOS second-reader readback is
+> outstanding.
+>
+> This note records currency. It does not resolve SI-34, discharge its
+> evidence clause, decide or rank an option, or move its state.
+
 ## SI-35 The measured client projections do not separate ADR-C3's three table states
 
 **Requirements:** ADR-C3, MODEL-005, PLAN-006, INV-003, SAFE-005, HLP-002 ·
@@ -1805,8 +1837,13 @@ list recorded the designator table as untested and the design built on it anyway
    `docs/quality/observability.md`; **Windows has hardware rows and SI-35's
    Windows category is now complete; Linux has real-hardware rows from the
    2026-08-04 partitioned-media matrix and a qualifying descriptor-bound loop
-   record; macOS is still not established, and is now the only platform in
-   that state.** (Round three
+   record; and macOS has client rows from the 2026-08-05 increment 6 matrix,
+   valid on its second sitting. All three platforms now have the non-elevated
+   record this precondition asks for.** That is what this precondition
+   requires and no more: it is satisfied by the *non-elevated* record, so
+   macOS's untaken privileged comparison leg (M10) does not hold it open,
+   while the same untaken leg does leave other things open — see SI-34's
+   evidence note. Its second-reader readback is outstanding. (Round three
    proposed `docs/capabilities/`; it lives under `docs/quality/` instead,
    because `docs/capabilities/` is where DOC-003's generated matrix belongs and
    Section 11.7 forbids hand-editing that.)
