@@ -39,8 +39,8 @@ jobs:
         run: rustup toolchain install nightly-2026-07-01 --profile minimal
       - name: Install pinned cargo-fuzz
         run: cargo install cargo-fuzz --version 0.13.2 --locked
-      # `xtask fuzz` applies the limit to each target. Two targets therefore
-      # receive 30 minutes in total, rather than the two-minute PR smoke pass.
+      # `xtask fuzz` applies the limit to each target. Three targets therefore
+      # receive 45 minutes in total, rather than the three-minute PR smoke pass.
       - name: Fuzz every current parser target
         run: cargo xtask fuzz --seconds 900
       - name: Upload crash reproducers
