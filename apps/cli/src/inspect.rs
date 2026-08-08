@@ -600,13 +600,19 @@ pub fn enumeration_json() -> String {
 }
 
 /// Render the no-adapter inspect answer as JSON: a typed statement, the
-/// platform package that changes it, and the standing gated list.
+/// platform package that changes it, the recorded decision that defers it
+/// where one exists, and the standing gated list.
 #[must_use]
 pub fn no_adapter_json() -> String {
     format!(
         "{{\"adapters\":{{\"state\":\"not-implemented\",\"reference\":{reference},\
-         \"detail\":{detail}}},\"observations\":[],\"gated\":{gated},\"reach\":{reach}}}",
+         \"deferral\":{deferral},\"detail\":{detail}}},\"observations\":[],\
+         \"gated\":{gated},\"reach\":{reach}}}",
         reference = json_escaped(platform_adapter_package()),
+        deferral = match platform_deferral() {
+            Some(decision) => json_escaped(decision),
+            None => "null".to_owned(),
+        },
         detail = json_escaped(NO_ADAPTER_DETAIL),
         gated = gated_json(),
         reach = crate::reach::reach_json(),
@@ -622,6 +628,23 @@ pub fn platform_adapter_package() -> &'static str {
         "WP-L100"
     } else {
         "WP-M100"
+    }
+}
+
+/// The recorded decision that defers this platform's WP-035 adapter, where
+/// one exists.
+///
+/// `None` means the adapter is pending from a WP-035 increment, not that
+/// nothing defers it — the distinction the M0.5 gate draws: a platform whose
+/// access route is an open structural question names the decision that
+/// defers it, and a platform whose increment is simply unbuilt names the
+/// increment. Only Windows carries a recorded deferral today.
+#[must_use]
+pub fn platform_deferral() -> Option<&'static str> {
+    if cfg!(target_os = "windows") {
+        Some(crate::reach::WINDOWS_DEFERRAL)
+    } else {
+        None
     }
 }
 
@@ -693,6 +716,11 @@ pub fn no_adapter_human() -> String {
         "inspect\n  adapters: not-implemented ({reference})\n    {NO_ADAPTER_DETAIL}\n",
         reference = platform_adapter_package(),
     );
+    if let Some(decision) = platform_deferral() {
+        out.push_str("    ");
+        out.push_str(decision);
+        out.push('\n');
+    }
     gated_human(&mut out);
     crate::reach::reach_human(&mut out);
     out

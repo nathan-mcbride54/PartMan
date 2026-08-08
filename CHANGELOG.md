@@ -7,6 +7,22 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **WP-035 increment 10 is closed as deferred, by the recorded route
+  decision its grant required** (2026-08-08). The three named routes each
+  carried a recorded cost — WMI/CIM needs FFI the crate cannot host and a
+  separate crate would break the empty-closure guard; PowerShell adds a
+  shell to the SAFE-004 roster and still needs a JSON reader; deferral is
+  the shape spec 6.1.0 built the M0.5 gate to accept — and deferral is
+  chosen, per the prior analysis and the 2026-08-08 briefs, on Nate
+  McBride's direction to proceed with the briefs' recommendations. The
+  Windows `inspect` answer now names the recorded decision in-band beside
+  WP-W100 (a `deferral` field in JSON, a line in the human answer), the
+  Windows reach reference names the decision instead of a pending
+  increment, and a Tier-1 test holds the two surfaces to the same story on
+  every platform shape. WP-W100's Section 14 row is untouched; M0.5's exit
+  is unaffected. The decision record, its costs, and its revisit conditions
+  are in `docs/work-packages/WP-035.md`.
+
 - **WP-020's increment 2f row catches up to 2026-08-03.** The delivery-status
   row still said "not yet exercised on a real kernel" five days after the
   SI-35 instrument's three sittings ran `run_probed_session` thirty times in
