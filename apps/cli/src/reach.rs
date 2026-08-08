@@ -15,14 +15,16 @@
 //!   Nothing here is derived per-device, because nothing here reads anything.
 //!   `reach.rs` may not name the device seam at all, and a Tier-1 source-text
 //!   test enforces that.
-//! - **Every answer in this increment is `no`, on every platform.** WP-035's
-//!   Section 14 row grants the declaration "for the contract this package
-//!   itself reads", and closes: "This package's reach declaration describes
-//!   its own contract and is not a claim about interfaces that contract does
-//!   not read." Increment 7 reads nothing, so the contract is empty, so it
-//!   distinguishes nothing. A measured `yes` arrives in the increment that
-//!   makes it true — 8 for Linux, 9 for macOS, 10 for Windows — landing with
-//!   the code that reads the interface, never ahead of it.
+//! - **Every answer is `no`, on every platform.** WP-035's Section 14 row
+//!   grants the declaration "for the contract this package itself reads",
+//!   and closes: "This package's reach declaration describes its own
+//!   contract and is not a claim about interfaces that contract does not
+//!   read." The Linux and macOS contracts read identity attributes and no
+//!   table-state surface — deliberately, since the scheme fields are the
+//!   register's material — and Windows is deferred by a recorded decision,
+//!   so every cell stays negative. A measured `yes` could arrive only with
+//!   an increment that reads a table-state interface, landing with the code
+//!   that reads it, never ahead of it.
 //! - **A `no` is never omitted**, and a cell no observability row establishes
 //!   is `no` by the not-measured default. It is never `yes` by inference from
 //!   a nearby platform, from an API's documented enum, or from a privileged
@@ -194,7 +196,7 @@ pub const WINDOWS_DEFERRAL: &str =
 pub const REACH: ReachDeclaration = if cfg!(target_os = "linux") {
     read_contract_distinguishing_nothing("WP-035 increment 8")
 } else if cfg!(target_os = "macos") {
-    unread_contract("WP-035 increment 9")
+    read_contract_distinguishing_nothing("WP-035 increment 9")
 } else if cfg!(target_os = "windows") {
     unread_contract(WINDOWS_DEFERRAL)
 } else {

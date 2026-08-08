@@ -34,18 +34,23 @@
 //! is ever added it arrives behind `NO_COLOR` and non-TTY detection, and the
 //! no-ANSI test moves from "always" to "when disabled".
 //!
-//! I/O reach, restated each time it grows (increments 3 and 4 grew it): the
-//! shipped binary opens no socket and reads no environment variable. Its
-//! file-system reads and process launches are exactly two: the doctor's
-//! existence checks and `--version` probes of roster tools at compiled
-//! absolute paths, and `inspect --replay`'s read of one caller-named
-//! regular file. A device named to `--replay` is refused **unread**: a
-//! pre-open look refuses it before any open in the common case, and under
-//! a rebinding race it is opened read-only at most long enough for the
-//! handle to identify itself, then refused with no byte read — no command
-//! reads a block device, and nothing opens one with write intent. The
-//! exact statements live in [`doctor`]'s and [`inspect`]'s module docs,
-//! beside the code they describe.
+//! I/O reach, restated each time it grows (increments 3, 4, 8, and 9 grew
+//! it): the shipped binary opens no socket and reads no environment
+//! variable. Its file-system reads and process launches are exactly four:
+//! the doctor's existence checks and `--version` probes of roster tools at
+//! compiled absolute paths; `inspect --replay`'s read of one caller-named
+//! regular file; the Linux enumeration's bounded reads of sysfs attribute
+//! files and the udev database (file reads — no device node is opened and
+//! no subprocess runs); and the macOS enumeration's bounded `diskutil`
+//! launches at one compiled absolute path through the same launcher
+//! controls, with their own stated output bounds. A device named to
+//! `--replay` is refused **unread**: a pre-open look refuses it before any
+//! open in the common case, and under a rebinding race it is opened
+//! read-only at most long enough for the handle to identify itself, then
+//! refused with no byte read — no command reads a block device, and
+//! nothing opens one with write intent. The exact statements live in
+//! [`doctor`]'s, [`inspect`]'s, [`devices`]'s, and [`macos`]'s module
+//! docs, beside the code they describe.
 
 use std::ffi::OsString;
 
@@ -53,6 +58,8 @@ pub mod devices;
 pub mod doctor;
 pub mod facts;
 pub mod inspect;
+pub mod macos;
+pub mod plist;
 pub mod reach;
 
 /// The schema identifier every JSON emission carries.
@@ -536,8 +543,10 @@ fn help_text() -> String {
         "partman {VERSION} — read-only CLI chassis (WP-035)\n\
          \n\
          Not a usable partition manager, and must not be represented as one.\n\
-         This chassis inspects caller-named regular files through inspect --replay,\n\
-         has no native device adapter yet, and mutates nothing ever.\n\
+         This chassis enumerates whole devices as raw identifier strings on Linux\n\
+         and macOS, replays caller-named regular files through inspect --replay,\n\
+         answers Windows with the typed statement naming the recorded decision\n\
+         that defers its adapter, and mutates nothing ever.\n\
          \n\
          Usage: partman [--json] <command>\n\
          \n\
@@ -652,7 +661,11 @@ fn set_command(
 /// The inspect command's outcome: the no-adapter statement, a replayed
 /// observation set, or a typed refusal — each on stdout in both modes,
 /// each carrying the standing gated list.
-fn inspect_outcome(replay: Option<&str>, json: bool) -> Outcome {
+fn inspect_outcome(
+    replay: Option<&str>,
+    json: bool,
+    launcher: &dyn doctor::ToolLauncher,
+) -> Outcome {
     let Some(path) = replay else {
         return Outcome {
             stdout: if json {
@@ -660,11 +673,11 @@ fn inspect_outcome(replay: Option<&str>, json: bool) -> Outcome {
                     Some(Command::Inspect),
                     &format!(
                         "{{\"kind\":\"ok\",\"inspect\":{}}}",
-                        inspect::enumeration_json()
+                        inspect::enumeration_json(launcher)
                     ),
                 )
             } else {
-                inspect::enumeration_human()
+                inspect::enumeration_human(launcher)
             },
             stderr: String::new(),
             code: EXIT_OK,
@@ -782,7 +795,9 @@ fn run(invocation: &Invocation, launcher: &dyn doctor::ToolLauncher) -> Outcome 
             stderr: String::new(),
             code: EXIT_OK,
         },
-        Command::Inspect => inspect_outcome(invocation.replay.as_deref(), invocation.json),
+        Command::Inspect => {
+            inspect_outcome(invocation.replay.as_deref(), invocation.json, launcher)
+        }
         Command::ExportDiagnostics => Outcome {
             stdout: if invocation.json {
                 envelope(
