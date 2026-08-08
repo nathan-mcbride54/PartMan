@@ -2870,6 +2870,42 @@ fn the_plist_reader_refuses_what_it_does_not_implement() {
     ));
 }
 
+// Requirements: SAFE-005
+//   The plist reader's node-count cap refuses a document holding more values than NODE_LIMIT rather than building an unbounded tree — the one declared bound neither the engine-capped fuzz target nor the grammar refusal table can reach, so this stable boundary test is its only exercise
+// Evidence: the_plist_reader_refuses_a_document_over_its_node_budget
+#[test]
+fn the_plist_reader_refuses_a_document_over_its_node_budget() {
+    use crate::plist::{NODE_LIMIT, PlistRefusal, parse};
+
+    // One flat array of NODE_LIMIT scalars: the array itself is the extra
+    // node that crosses the budget. Built with a loop (~450 KB), well under
+    // the reader's own INPUT_LIMIT, so the only cap that can fire is the
+    // one under test.
+    let mut over = String::with_capacity(NODE_LIMIT * 8 + 64);
+    over.push_str("<plist version=\"1.0\"><array>");
+    for _ in 0..NODE_LIMIT {
+        over.push_str("<true/>");
+    }
+    over.push_str("</array></plist>");
+    assert!(
+        matches!(parse(over.as_bytes()), Err(PlistRefusal::OverNodeCount)),
+        "NODE_LIMIT scalars plus their array must cross the node budget"
+    );
+
+    // One fewer scalar sits exactly at the budget and parses, so the cap
+    // is a measured boundary rather than a region this test never located.
+    let mut at_limit = String::with_capacity(NODE_LIMIT * 8 + 64);
+    at_limit.push_str("<plist version=\"1.0\"><array>");
+    for _ in 0..(NODE_LIMIT - 1) {
+        at_limit.push_str("<true/>");
+    }
+    at_limit.push_str("</array></plist>");
+    assert!(
+        parse(at_limit.as_bytes()).is_ok(),
+        "a document exactly at the node budget parses"
+    );
+}
+
 /// A launcher scripting the two diskutil invocations and recording every
 /// launch: path, arguments, and the stated output bound.
 struct DiskutilScript {
