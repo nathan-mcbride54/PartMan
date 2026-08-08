@@ -659,8 +659,10 @@ Linux hardware, and macOS observability must all be established first.
 > there until M10 exists. What macOS did establish is one side of it: the
 > client sees nothing whatever for that fixture, its projection being
 > byte-identical to a blank disk. M9 is `not established` because Apple
-> Silicon has no Fusion Drive. The macOS second-reader readback is
-> outstanding.
+> Silicon has no Fusion Drive. The macOS second-reader readback was
+> discharged 2026-08-08 by an independent reader session, every digest
+> matching; the discharge and the custody caveats it carries are recorded
+> in `docs/quality/observability.md`.
 >
 > This note records currency. It does not resolve SI-34, discharge its
 > evidence clause, decide or rank an option, or move its state.
@@ -1213,9 +1215,11 @@ occupied one, under the custody rules the existing protocols use. For (a),
 for a medium in the unseparated case, tested against `blank-512` and
 `luks2-whole-disk-512`.
 
-**Dependencies.** The macOS rows this rests on carry an **outstanding
-second-reader readback**, so the measurement half of this filing is recorded
-subject to that obligation. Whether SI-39 must resolve before SI-35 is
+**Dependencies.** The macOS rows this rests on carried an outstanding
+second-reader readback when this was filed; **that readback was discharged
+2026-08-08** by an independent reader session, every digest matching (the
+discharge and its custody caveats are in `docs/quality/observability.md`),
+so the measurement half of this filing no longer waits on custody. Whether SI-39 must resolve before SI-35 is
 deliberately not asserted: the two interact through INV-003's single sentence,
 but no ordering between them is established here.
 
@@ -1995,9 +1999,11 @@ list recorded the designator table as untested and the design built on it anyway
    requires and no more: it is satisfied by the *non-elevated* record, and the
    privileged comparison leg falls outside what it asks for either way.
    **M10 was subsequently taken on 2026-08-05** and is no longer the open leg
-   this sentence once described. Its second-reader readback is outstanding,
-   so nothing here should be relied on by a register decision until that is
-   discharged. (Round three
+   this sentence once described. Its second-reader readback was discharged
+   2026-08-08 by an independent reader session, every digest matching, so
+   the custody hold this paragraph placed on register decisions is lifted;
+   the discharge and its caveats are recorded in
+   `docs/quality/observability.md`. (Round three
    proposed `docs/capabilities/`; it lives under `docs/quality/` instead,
    because `docs/capabilities/` is where DOC-003's generated matrix belongs and
    Section 11.7 forbids hand-editing that.)
