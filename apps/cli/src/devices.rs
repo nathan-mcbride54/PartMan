@@ -63,6 +63,10 @@ pub const VALUE_LIMIT: usize = 4096;
 pub struct RawField {
     /// The reporting interface, compile-time and never caller-supplied.
     pub interface: &'static str,
+    /// The attribution method carried on the observation: how the value
+    /// was obtained, including any in-band caveat (the udev rows carry
+    /// theirs here). Compile-time, set by the adapter that read the field.
+    pub method: &'static str,
     /// That interface's own property name, verbatim.
     pub property: String,
     /// How the value ended, in ADR-C4's vocabulary.
@@ -222,6 +226,9 @@ const UDEV: &str = "linux-udev-db";
 const UDEV_CAVEAT: &str =
     "cached value computed by root's udevd at device-add time, not observed by this client";
 
+/// The method statement carried on every sysfs value.
+const SYSFS_METHOD: &str = "bounded read of a sysfs attribute file";
+
 /// This adapter's attribution, on every observation it makes.
 fn attribution(interface: &'static str, method: &'static str) -> Attribution {
     Attribution {
@@ -295,6 +302,7 @@ pub fn enumerate(source: &dyn DeviceSource, sysfs_root: &Path, udev_root: &Path)
             for (property, relative) in SYSFS_FIELDS {
                 fields.push(RawField {
                     interface: SYSFS,
+                    method: SYSFS_METHOD,
                     property: (*property).to_owned(),
                     outcome: read_outcome(source, &dir.join(relative)),
                 });
@@ -303,6 +311,7 @@ pub fn enumerate(source: &dyn DeviceSource, sysfs_root: &Path, udev_root: &Path)
             for (property, outcome) in udev_fields(source, udev_root, &dir) {
                 fields.push(RawField {
                     interface: UDEV,
+                    method: UDEV_CAVEAT,
                     property,
                     outcome,
                 });
@@ -449,14 +458,7 @@ pub fn observations(device: &Device) -> Vec<Observation> {
         .iter()
         .map(|field| Observation {
             subject: format!("{}:{}", field.interface, field.property),
-            attribution: attribution(
-                field.interface,
-                if field.interface == UDEV {
-                    UDEV_CAVEAT
-                } else {
-                    "bounded read of a sysfs attribute file"
-                },
-            ),
+            attribution: attribution(field.interface, field.method),
             outcome: clone_outcome(&field.outcome),
         })
         .collect()

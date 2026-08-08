@@ -28,6 +28,13 @@ impl ToolLauncher for NothingInstalled {
     fn probe_version(&self, path: &Path) -> ProbeOutcome {
         panic!("probe of {} without a prior existence hit", path.display());
     }
+    // A launch failure rather than a panic, deliberately: on the macOS CI
+    // leg the contract-wide tests reach the enumeration through this
+    // launcher, and the honest outcome of "nothing exists here" is a failed
+    // launch the answer must carry as `failed` — never a fake empty machine.
+    fn launch(&self, _path: &Path, _arguments: &[&str], _output_limit: usize) -> ProbeOutcome {
+        ProbeOutcome::LaunchFailed("this launcher launches nothing".to_owned())
+    }
 }
 
 /// [`dispatch_with`] over [`NothingInstalled`]: the pure dispatch every
@@ -134,15 +141,25 @@ fn no_output_in_any_mode_contains_an_ansi_sequence() {
 fn inspect_answers_with_typed_statements_not_a_fake_topology() {
     let human = fdispatch(&["inspect".to_owned()]);
     assert_eq!(human.code, EXIT_OK);
-    // Since increment 8 the bare answer is platform-dependent: Linux has a
-    // contract and enumerates, every other platform still carries the typed
-    // no-adapter statement. The invariant this test exists for is unchanged —
-    // a typed statement or real rows, never a plausible empty machine, and
-    // never silence about what the inspector will not say.
-    #[cfg(not(target_os = "linux"))]
+    // Since increment 8 the bare answer is platform-dependent: Linux and
+    // macOS have contracts and enumerate — through this test's launcher,
+    // which launches nothing, so the macOS answer here is the enumeration's
+    // typed `failed`, never a fake empty machine — while Windows carries
+    // the typed no-adapter statement naming its recorded deferral. The
+    // invariant this test exists for is unchanged: a typed statement or
+    // real rows, never a plausible empty machine, and never silence about
+    // what the inspector will not say.
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     assert!(
         human.stdout.contains("adapters: not-implemented"),
         "a platform without a contract must say so: {}",
+        human.stdout
+    );
+    #[cfg(target_os = "macos")]
+    assert!(
+        human.stdout.contains("adapters: failed"),
+        "a failed launch must be carried as failed, never rendered as an empty \
+         machine: {}",
         human.stdout
     );
     for fragment in [
@@ -162,7 +179,7 @@ fn inspect_answers_with_typed_statements_not_a_fake_topology() {
     let parsed: serde_json::Value =
         serde_json::from_str(&json.stdout).expect("the answer rides the ordinary envelope");
     let inspect_object = &parsed["outcome"]["inspect"];
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
         assert_eq!(inspect_object["adapters"]["state"], "not-implemented");
         assert_eq!(
@@ -174,6 +191,19 @@ fn inspect_answers_with_typed_statements_not_a_fake_topology() {
             inspect_object["observations"].as_array().map(Vec::len),
             Some(0),
             "no adapter ran and the answer says so rather than inventing records"
+        );
+    }
+    #[cfg(target_os = "macos")]
+    {
+        assert_eq!(
+            inspect_object["adapters"]["state"], "failed",
+            "this test's launcher launches nothing, and the JSON answer must say \
+             failed rather than invent devices or an empty machine"
+        );
+        assert_eq!(
+            inspect_object["devices"].as_array().map(Vec::len),
+            Some(0),
+            "a failed enumeration reports no devices beside its typed state"
         );
     }
     // On Linux a contract exists. Either it listed devices, or it said in a
@@ -845,7 +875,7 @@ fn no_output_in_any_mode_carries_an_environment_value() {
 }
 
 // Requirements: SEC-007, SAFE-006
-//   The shipped sources contain no environment read — env::var, env::vars, and var_os are absent from every shipped source file the test enumerates: lib.rs, main.rs, doctor.rs, facts.rs, and inspect.rs — so an environment value cannot reach output regardless of which variables the host sets; compile-time env::consts and env! are the allowed forms
+//   The shipped sources contain no environment read — env::var, env::vars, and var_os are absent from every shipped source file the test enumerates: lib.rs, main.rs, doctor.rs, facts.rs, inspect.rs, reach.rs, devices.rs, macos.rs, and plist.rs — so an environment value cannot reach output regardless of which variables the host sets; compile-time env::consts and env! are the allowed forms
 // Evidence: the_shipped_sources_read_no_environment_variable
 #[test]
 fn the_shipped_sources_read_no_environment_variable() {
@@ -867,6 +897,8 @@ fn the_shipped_sources_read_no_environment_variable() {
         ("inspect.rs", include_str!("inspect.rs")),
         ("reach.rs", include_str!("reach.rs")),
         ("devices.rs", include_str!("devices.rs")),
+        ("macos.rs", include_str!("macos.rs")),
+        ("plist.rs", include_str!("plist.rs")),
     ] {
         for needle in ["env::var", "env::vars", "var_os"] {
             assert!(
@@ -1029,6 +1061,12 @@ fn the_doctor_probes_only_compiled_absolute_paths() {
         fn probe_version(&self, path: &Path) -> ProbeOutcome {
             panic!("probe of {} without an existence hit", path.display());
         }
+        fn launch(&self, path: &Path, _arguments: &[&str], _output_limit: usize) -> ProbeOutcome {
+            panic!(
+                "the doctor must not use the argument channel: {}",
+                path.display()
+            );
+        }
     }
 
     let recording = Recording {
@@ -1086,7 +1124,7 @@ fn the_doctor_probes_only_compiled_absolute_paths() {
 }
 
 // Requirements: INV-006
-//   The current shipped source graph has no auto-mount or repair execution route: every production source outside doctor is pinned free of direct process-command construction, the module declaration set is closed, and the production doctor launcher accepts no caller arguments and invokes every compiled roster path with fixed informational --version; alternate spellings remain a named review obligation, bounded by denied unsafe code and the empty shipped dependency closure
+//   The current shipped source graph has no auto-mount or repair execution route: every production source outside doctor is pinned free of direct process-command construction, the module declaration set is closed, the production doctor launcher invokes every compiled roster path with fixed informational --version, and the launcher's argument-bearing channel has exactly one shipped caller — the macOS adapter's two fixed diskutil invocations; alternate spellings remain a named review obligation, bounded by denied unsafe code and the empty shipped dependency closure
 // Evidence: discovery_cannot_auto_mount_or_run_repair_tools
 #[test]
 fn discovery_cannot_auto_mount_or_run_repair_tools() {
@@ -1100,6 +1138,8 @@ fn discovery_cannot_auto_mount_or_run_repair_tools() {
         ("inspect.rs", include_str!("inspect.rs")),
         ("reach.rs", include_str!("reach.rs")),
         ("devices.rs", include_str!("devices.rs")),
+        ("macos.rs", include_str!("macos.rs")),
+        ("plist.rs", include_str!("plist.rs")),
     ] {
         assert!(
             !source.contains("std::process::Command") && !source.contains("process::{Command"),
@@ -1119,6 +1159,8 @@ fn discovery_cannot_auto_mount_or_run_repair_tools() {
             "pub mod doctor;",
             "pub mod facts;",
             "pub mod inspect;",
+            "pub mod macos;",
+            "pub mod plist;",
             "pub mod reach;",
             "mod tests;",
         ],
@@ -1147,13 +1189,39 @@ fn discovery_cannot_auto_mount_or_run_repair_tools() {
     let implementation = &doctor[start..end];
     assert_eq!(
         implementation.matches("launch_bounded(").count(),
-        1,
-        "the production launcher has one fixed invocation route"
+        2,
+        "the production launcher has exactly two invocation routes: the fixed version \
+         probe, and the argument-bearing channel the enumeration seam declares"
     );
     assert!(
-        implementation.contains("launch_bounded(path, &[\"--version\"])")
-            && !implementation.contains("arguments"),
-        "the production route must remain version-only and expose no argument channel"
+        implementation.contains("launch_bounded(path, &[\"--version\"], OUTPUT_LIMIT_PER_STREAM)"),
+        "the version probe stays fixed: literal --version under the doctor's own bound"
+    );
+    // The argument-bearing channel exists for the enumeration adapters, and
+    // exactly one shipped module calls it. A second caller is a reviewed
+    // event, not a drive-by; this pin is what makes it one. The pin's reach
+    // is the direct spelling, as with the environment guard: smuggling
+    // routes are closed by the empty shipped closure and the
+    // wildcard-import lint, and the residue is review's.
+    for (file, source) in [
+        ("lib.rs", library),
+        ("main.rs", include_str!("main.rs")),
+        ("facts.rs", include_str!("facts.rs")),
+        ("inspect.rs", include_str!("inspect.rs")),
+        ("reach.rs", include_str!("reach.rs")),
+        ("devices.rs", include_str!("devices.rs")),
+        ("plist.rs", include_str!("plist.rs")),
+    ] {
+        assert!(
+            !source.contains(".launch("),
+            "{file} calls the launcher's argument channel; macos.rs is its only \
+             shipped caller"
+        );
+    }
+    assert_eq!(
+        include_str!("macos.rs").matches(".launch(").count(),
+        2,
+        "the macOS adapter launches exactly its two fixed diskutil invocations"
     );
 }
 
@@ -1171,6 +1239,12 @@ impl ToolLauncher for Scripted {
     }
     fn probe_version(&self, _path: &Path) -> ProbeOutcome {
         (self.outcome)()
+    }
+    fn launch(&self, path: &Path, _arguments: &[&str], _output_limit: usize) -> ProbeOutcome {
+        panic!(
+            "this launcher scripts version probes only: {}",
+            path.display()
+        );
     }
 }
 
@@ -2147,6 +2221,12 @@ fn the_reach_declaration_claims_no_reach_this_increment() {
             "Linux has a contract since increment 8; describing it as unimplemented \n             would make the declaration underived from the contract, which INV-003 forbids"
         );
     }
+    if cfg!(target_os = "macos") {
+        assert_eq!(
+            state, "implemented-reaches-no-table-state",
+            "macOS has a contract since increment 9, and the same derivation rule holds"
+        );
+    }
 }
 
 // Evidence: the_reach_declaration_reads_nothing
@@ -2563,5 +2643,469 @@ fn the_enumeration_adapter_opens_no_device_node() {
              database, read as files. A device node or a subprocess here breaks the \
              tier boundary this package's own precondition exists to protect"
         );
+    }
+}
+
+/// The XML plist skeleton the captures use, wrapped around one dict body.
+fn plist_document(dict_body: &str) -> Vec<u8> {
+    format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+         <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \
+         \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
+         <plist version=\"1.0\">\n<dict>\n{dict_body}</dict>\n</plist>\n"
+    )
+    .into_bytes()
+}
+
+/// A `diskutil list -plist`-shaped document: the nested
+/// `AllDisksAndPartitions` container the reader must traverse without
+/// flattening, then the `WholeDisks` array the adapter consumes.
+fn list_shaped(names: &[&str]) -> Vec<u8> {
+    use std::fmt::Write as _;
+    let mut entries = String::new();
+    for name in names {
+        writeln!(entries, "\t\t<string>{name}</string>").expect("writing into a String");
+    }
+    plist_document(&format!(
+        "\t<key>AllDisksAndPartitions</key>\n\t<array>\n\t\t<dict>\n\
+         \t\t\t<key>Content</key>\n\t\t\t<string>GUID_partition_scheme</string>\n\
+         \t\t\t<key>Partitions</key>\n\t\t\t<array/>\n\t\t</dict>\n\t</array>\n\
+         \t<key>WholeDisks</key>\n\t<array>\n{entries}\t</array>\n"
+    ))
+}
+
+/// A `diskutil info -plist`-shaped document mirroring the sitting-2
+/// capture: scalars of all three kinds, a positively empty string, and an
+/// empty-element nested dict.
+fn info_shaped() -> Vec<u8> {
+    plist_document(
+        "\t<key>BusProtocol</key>\n\t<string>USB</string>\n\
+         \t<key>DeviceBlockSize</key>\n\t<integer>512</integer>\n\
+         \t<key>DeviceNode</key>\n\t<string>/dev/disk4</string>\n\
+         \t<key>Ejectable</key>\n\t<true/>\n\
+         \t<key>Internal</key>\n\t<false/>\n\
+         \t<key>IORegistryEntryName</key>\n\t<string>USB SanDisk 3.2Gen1 Media</string>\n\
+         \t<key>MediaName</key>\n\t<string>SanDisk 3.2Gen1</string>\n\
+         \t<key>Removable</key>\n\t<true/>\n\
+         \t<key>RemovableMedia</key>\n\t<true/>\n\
+         \t<key>SMARTDeviceSpecificKeysMayVaryNotGuaranteed</key>\n\t<dict/>\n\
+         \t<key>Size</key>\n\t<integer>250148290560</integer>\n\
+         \t<key>TotalSize</key>\n\t<integer>250148290560</integer>\n\
+         \t<key>VirtualOrPhysical</key>\n\t<string>Physical</string>\n\
+         \t<key>VolumeName</key>\n\t<string></string>\n",
+    )
+}
+
+// Requirements: INV-006
+//   The bounded plist reader parses the measured diskutil shapes — the XML declaration, the DOCTYPE, nested containers, all three scalar kinds, empty-element forms, and the five predefined entities — extracting WholeDisks names and top-level info scalars verbatim, with a present-and-empty string and a present-but-container value each kept distinct from absence
+// Evidence: the_plist_reader_reads_the_measured_diskutil_shapes
+#[test]
+fn the_plist_reader_reads_the_measured_diskutil_shapes() {
+    let names = crate::plist::whole_disks(&list_shaped(&["disk0", "disk4"]))
+        .expect("the measured list shape parses");
+    assert_eq!(names, ["disk0", "disk4"]);
+
+    let fields = crate::plist::info_fields(&info_shaped()).expect("the measured info shape parses");
+    let get = |key: &str| {
+        fields
+            .iter()
+            .find(|(name, _)| name == key)
+            .map(|(_, value)| value)
+    };
+    match get("MediaName") {
+        Some(crate::plist::InfoValue::Scalar(text)) => assert_eq!(text, "SanDisk 3.2Gen1"),
+        _ => panic!("MediaName must be a raw scalar"),
+    }
+    match get("Size") {
+        Some(crate::plist::InfoValue::Scalar(text)) => assert_eq!(text, "250148290560"),
+        _ => panic!("Size must stay raw digit text, never a number"),
+    }
+    match get("Removable") {
+        Some(crate::plist::InfoValue::Scalar(text)) => assert_eq!(text, "true"),
+        _ => panic!("a boolean renders as its textual form"),
+    }
+    assert!(
+        matches!(
+            get("VolumeName"),
+            Some(crate::plist::InfoValue::EmptyString)
+        ),
+        "a present-and-empty string is not absence and not a scalar"
+    );
+    assert!(
+        matches!(
+            get("SMARTDeviceSpecificKeysMayVaryNotGuaranteed"),
+            Some(crate::plist::InfoValue::Container)
+        ),
+        "a nested container is present-but-not-scalar, never flattened"
+    );
+    assert!(
+        get("Content").is_none(),
+        "the fixture carries no Content key at top level"
+    );
+
+    // The five predefined entities decode; nothing else does (below).
+    let entity_doc = plist_document(
+        "\t<key>MediaName</key>\n\t<string>a &amp; b &lt;c&gt; &quot;d&quot; \
+         &apos;e&apos;</string>\n",
+    );
+    let fields = crate::plist::info_fields(&entity_doc).expect("predefined entities decode");
+    match &fields[0].1 {
+        crate::plist::InfoValue::Scalar(text) => assert_eq!(text, "a & b <c> \"d\" 'e'"),
+        _ => panic!("the entity string is a scalar"),
+    }
+}
+
+// Requirements: SAFE-005
+//   The bounded plist reader fails closed on every construct outside its stated grammar — data, date, and real elements, comments, CDATA, numeric character references, undefined entities, a DOCTYPE internal subset, duplicate dictionary keys, non-UTF-8 bytes, over-depth nesting, oversize values, markup inside text, trailing bytes, and non-digit integers — refusing the whole input rather than substituting, truncating, or skipping
+// Evidence: the_plist_reader_refuses_what_it_does_not_implement
+#[test]
+fn the_plist_reader_refuses_what_it_does_not_implement() {
+    use crate::plist::{PlistRefusal, parse};
+
+    let cases: [(&str, Vec<u8>, PlistRefusal); 12] = [
+        (
+            "a data element",
+            plist_document("\t<key>K</key>\n\t<data>AAEC</data>\n"),
+            PlistRefusal::Unsupported("a data element"),
+        ),
+        (
+            "a date element",
+            plist_document("\t<key>K</key>\n\t<date>2026-08-08T00:00:00Z</date>\n"),
+            PlistRefusal::Unsupported("a date element"),
+        ),
+        (
+            "a real element",
+            plist_document("\t<key>K</key>\n\t<real>1.5</real>\n"),
+            PlistRefusal::Unsupported("a real element"),
+        ),
+        (
+            "a comment",
+            plist_document("\t<key>K</key>\n\t<!-- hidden --><true/>\n"),
+            PlistRefusal::Unsupported("a comment"),
+        ),
+        (
+            "a CDATA section",
+            plist_document("\t<key>K</key>\n\t<![CDATA[x]]><true/>\n"),
+            PlistRefusal::Unsupported("a CDATA section"),
+        ),
+        (
+            "a numeric character reference",
+            plist_document("\t<key>K</key>\n\t<string>&#65;</string>\n"),
+            PlistRefusal::Unsupported(
+                "a character reference beyond the five predefined entities",
+            ),
+        ),
+        (
+            "an undefined entity",
+            plist_document("\t<key>K</key>\n\t<string>&nbsp;</string>\n"),
+            PlistRefusal::Unsupported(
+                "a character reference beyond the five predefined entities",
+            ),
+        ),
+        (
+            "a duplicate dict key",
+            plist_document("\t<key>K</key>\n\t<true/>\n\t<key>K</key>\n\t<false/>\n"),
+            PlistRefusal::Malformed("a duplicate dict key"),
+        ),
+        (
+            "a DOCTYPE internal subset",
+            b"<?xml version=\"1.0\"?>\n<!DOCTYPE plist [<!ENTITY x \"y\">]>\n<plist version=\"1.0\"><dict/></plist>"
+                .to_vec(),
+            PlistRefusal::Unsupported("a DOCTYPE internal subset"),
+        ),
+        (
+            "markup inside a text element",
+            plist_document("\t<key>K</key>\n\t<string>a<b</string>\n"),
+            PlistRefusal::Malformed("markup inside a text element"),
+        ),
+        (
+            "a non-digit integer body",
+            plist_document("\t<key>K</key>\n\t<integer>0x10</integer>\n"),
+            PlistRefusal::Malformed("a non-digit integer body"),
+        ),
+        (
+            "bytes after the document",
+            b"<?xml version=\"1.0\"?>\n<plist version=\"1.0\"><dict/></plist>trailing".to_vec(),
+            PlistRefusal::Malformed("bytes after </plist>"),
+        ),
+    ];
+    for (name, bytes, expected) in cases {
+        match parse(&bytes) {
+            Err(refusal) => assert_eq!(refusal, expected, "{name}: wrong refusal"),
+            Ok(_) => panic!("{name}: accepted by a reader that must refuse it"),
+        }
+    }
+
+    // Non-UTF-8 refuses before any parsing.
+    let mut broken = plist_document("\t<key>K</key>\n\t<string>ok</string>\n");
+    broken[100] = 0xFF;
+    assert!(matches!(parse(&broken), Err(PlistRefusal::NotUtf8)));
+
+    // Over-depth nesting refuses at the stated limit.
+    let mut nested = String::new();
+    for _ in 0..=crate::plist::DEPTH_LIMIT {
+        nested.push_str("<array>");
+    }
+    for _ in 0..=crate::plist::DEPTH_LIMIT {
+        nested.push_str("</array>");
+    }
+    let deep = format!("<plist version=\"1.0\">{nested}</plist>").into_bytes();
+    assert!(matches!(parse(&deep), Err(PlistRefusal::OverDepth)));
+
+    // An oversize text run refuses rather than truncating.
+    let long = "x".repeat(crate::plist::VALUE_LIMIT + 1);
+    let oversize = plist_document(&format!("\t<key>K</key>\n\t<string>{long}</string>\n"));
+    assert!(matches!(
+        parse(&oversize),
+        Err(PlistRefusal::OverValueLength)
+    ));
+}
+
+/// A launcher scripting the two diskutil invocations and recording every
+/// launch: path, arguments, and the stated output bound.
+struct DiskutilScript {
+    list: fn() -> ProbeOutcome,
+    info: fn(&str) -> ProbeOutcome,
+    calls: std::cell::RefCell<Vec<(String, Vec<String>, usize)>>,
+}
+
+impl DiskutilScript {
+    fn new(list: fn() -> ProbeOutcome, info: fn(&str) -> ProbeOutcome) -> Self {
+        Self {
+            list,
+            info,
+            calls: std::cell::RefCell::new(Vec::new()),
+        }
+    }
+}
+
+impl ToolLauncher for DiskutilScript {
+    fn exists(&self, _path: &Path) -> bool {
+        false
+    }
+    fn probe_version(&self, path: &Path) -> ProbeOutcome {
+        panic!("the enumeration must not version-probe: {}", path.display());
+    }
+    fn launch(&self, path: &Path, arguments: &[&str], output_limit: usize) -> ProbeOutcome {
+        self.calls.borrow_mut().push((
+            path.display().to_string(),
+            arguments.iter().map(|a| (*a).to_owned()).collect(),
+            output_limit,
+        ));
+        match arguments {
+            ["list", "-plist"] => (self.list)(),
+            ["info", "-plist", name] => (self.info)(name),
+            other => panic!("an unexpected launch shape: {other:?}"),
+        }
+    }
+}
+
+fn completed(stdout: Vec<u8>) -> ProbeOutcome {
+    ProbeOutcome::Completed {
+        stdout,
+        stderr: Vec::new(),
+    }
+}
+
+// Requirements: INV-006, SAFE-004
+//   The macOS adapter launches exactly diskutil list -plist and one info -plist per whole device, at the compiled absolute path with the stated output bounds, and reports the roster keys as raw interface-labelled strings — a missing key as a positively determined absence, a present-but-container value as a typed failure, never flattened — under session-local selectors in list order
+// Evidence: the_macos_adapter_reports_raw_fields_from_fixed_launches
+#[test]
+fn the_macos_adapter_reports_raw_fields_from_fixed_launches() {
+    let script = DiskutilScript::new(
+        || completed(list_shaped(&["disk0", "disk4"])),
+        |name| match name {
+            "disk0" => completed(info_shaped()),
+            // disk4's record carries no MediaName, so that key must come
+            // back as a positively determined absence, not a failure.
+            "disk4" => completed(plist_document(
+                "\t<key>Size</key>\n\t<integer>1024</integer>\n\
+                 \t<key>Ejectable</key>\n\t<dict/>\n",
+            )),
+            other => panic!("info for an unlisted device: {other}"),
+        },
+    );
+
+    let listed = crate::macos::enumerate(&script);
+    let crate::devices::Enumeration::Listed(devices) = listed else {
+        panic!("two scripted disks must list");
+    };
+    assert_eq!(devices.len(), 2);
+    assert_eq!(devices[0].selector, "device:0");
+    assert_eq!(devices[0].kernel_name, "disk0");
+    assert_eq!(devices[1].selector, "device:1");
+    assert_eq!(devices[1].kernel_name, "disk4");
+
+    for device in &devices {
+        assert_eq!(
+            device.fields.len(),
+            crate::macos::INFO_KEYS.len(),
+            "every roster key answers, in ADR-C4's vocabulary, on every device"
+        );
+    }
+
+    let field = |device: usize, key: &str| {
+        devices[device]
+            .fields
+            .iter()
+            .find(|field| field.property == key)
+            .expect("every roster key is present as a row")
+    };
+    match &field(0, "MediaName").outcome {
+        super::inspect::Outcome::Observed(super::inspect::ObservedValue::Decimal(text)) => {
+            assert_eq!(text, "SanDisk 3.2Gen1");
+        }
+        _ => panic!("a present scalar reports its raw string"),
+    }
+    match &field(1, "MediaName").outcome {
+        super::inspect::Outcome::Observed(super::inspect::ObservedValue::Absent { reason }) => {
+            assert!(reason.contains("not present"), "absence carries its reason");
+        }
+        _ => panic!("a missing key is a positively determined absence"),
+    }
+    match &field(1, "Ejectable").outcome {
+        super::inspect::Outcome::Failed { error } => {
+            assert!(
+                error.contains("not a scalar"),
+                "a container-valued roster key is a typed failure, never flattened"
+            );
+        }
+        _ => panic!("a present-but-container value must not read as absence or a value"),
+    }
+
+    let calls = script.calls.borrow();
+    assert_eq!(
+        calls.len(),
+        3,
+        "one list launch, one info launch per device"
+    );
+    for (path, _, _) in calls.iter() {
+        assert_eq!(
+            path,
+            crate::macos::DISKUTIL,
+            "only the compiled absolute path runs"
+        );
+    }
+    assert_eq!(calls[0].1, ["list", "-plist"]);
+    assert_eq!(calls[0].2, crate::macos::LIST_OUTPUT_LIMIT);
+    assert_eq!(calls[1].1, ["info", "-plist", "disk0"]);
+    assert_eq!(calls[1].2, crate::macos::INFO_OUTPUT_LIMIT);
+    assert_eq!(calls[2].1, ["info", "-plist", "disk4"]);
+}
+
+// Requirements: SAFE-005
+//   The macOS adapter fails closed on every launch and shape defect: a nonzero diskutil exit is a failure whose output is never parsed even when parseable, over-limit output refuses rather than truncates, a whole-disk name outside disk-then-digits is refused before it reaches argv, a device count over the limit refuses rather than truncates, and one device's info failure fails that device's rows without touching its neighbours
+// Evidence: the_macos_adapter_fails_closed_on_launch_and_shape_defects
+#[test]
+fn the_macos_adapter_fails_closed_on_launch_and_shape_defects() {
+    use crate::devices::Enumeration;
+
+    // A nonzero exit with a perfectly parseable device list on stdout: the
+    // list must NOT appear. If the adapter parsed it anyway, this returns
+    // Listed and the assertion names the defect.
+    let script = DiskutilScript::new(
+        || ProbeOutcome::NonzeroExit {
+            code: Some(1),
+            stdout: list_shaped(&["disk0"]),
+            stderr: Vec::new(),
+        },
+        |_| panic!("no info launch may follow a failed list"),
+    );
+    match crate::macos::enumerate(&script) {
+        Enumeration::Failed { error } => {
+            assert!(
+                error.contains("not parsed"),
+                "the failure says the output was not parsed: {error}"
+            );
+        }
+        _ => panic!("a nonzero list exit is a failure, never evidence"),
+    }
+
+    let script = DiskutilScript::new(
+        || ProbeOutcome::OverOutputLimit,
+        |_| panic!("no info launch may follow a refused list"),
+    );
+    match crate::macos::enumerate(&script) {
+        Enumeration::Failed { error } => {
+            assert!(error.contains("refused rather than truncated"), "{error}");
+        }
+        _ => panic!("over-limit list output must refuse"),
+    }
+
+    // A name that is not disk-then-digits is refused before any info launch.
+    let script = DiskutilScript::new(
+        || completed(list_shaped(&["disk0", "-verbose"])),
+        |_| panic!("a refused name must not reach a launcher"),
+    );
+    match crate::macos::enumerate(&script) {
+        Enumeration::Failed { error } => {
+            assert!(error.contains("disk<digits>"), "{error}");
+        }
+        _ => panic!("an unexpected whole-disk name must refuse the enumeration"),
+    }
+
+    // One device's info failure fails that device's rows and no other's.
+    let script = DiskutilScript::new(
+        || completed(list_shaped(&["disk0", "disk1"])),
+        |name| match name {
+            "disk0" => ProbeOutcome::TimedOut,
+            "disk1" => completed(info_shaped()),
+            other => panic!("info for an unlisted device: {other}"),
+        },
+    );
+    match crate::macos::enumerate(&script) {
+        Enumeration::Listed(devices) => {
+            assert_eq!(devices.len(), 2);
+            assert!(
+                devices[0]
+                    .fields
+                    .iter()
+                    .all(|field| matches!(field.outcome, super::inspect::Outcome::Failed { .. })),
+                "every row of the failed device carries the failure"
+            );
+            assert!(
+                devices[1]
+                    .fields
+                    .iter()
+                    .any(|field| matches!(field.outcome, super::inspect::Outcome::Observed(_))),
+                "the neighbour's rows are untouched by the failure"
+            );
+        }
+        _ => panic!("a per-device info failure does not unlist the device"),
+    }
+
+    // More names than the device limit refuses rather than truncates, and
+    // no info launch follows the refusal.
+    let many: Vec<String> = (0..=crate::devices::DEVICE_LIMIT)
+        .map(|index| format!("disk{index}"))
+        .collect();
+    let refs: Vec<&str> = many.iter().map(String::as_str).collect();
+    match crate::macos::enumerate(&OverLimitScript {
+        stdout: list_shaped(&refs),
+    }) {
+        Enumeration::OverLimit { seen } => assert_eq!(seen, crate::devices::DEVICE_LIMIT + 1),
+        _ => panic!("a device count over the limit refuses rather than truncates"),
+    }
+}
+
+/// A launcher for the over-limit case: answers the list launch with a
+/// prepared document and refuses to be asked anything further.
+struct OverLimitScript {
+    stdout: Vec<u8>,
+}
+
+impl ToolLauncher for OverLimitScript {
+    fn exists(&self, _path: &Path) -> bool {
+        false
+    }
+    fn probe_version(&self, path: &Path) -> ProbeOutcome {
+        panic!("no version probe here: {}", path.display());
+    }
+    fn launch(&self, _path: &Path, arguments: &[&str], _limit: usize) -> ProbeOutcome {
+        assert_eq!(arguments, ["list", "-plist"], "no launch past the refusal");
+        ProbeOutcome::Completed {
+            stdout: self.stdout.clone(),
+            stderr: Vec::new(),
+        }
     }
 }
