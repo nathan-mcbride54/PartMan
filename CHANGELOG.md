@@ -7,6 +7,24 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **The macOS second-reader readback is discharged** (2026-08-08). An
+  independent reader session — not the session that produced any of the three
+  records — retrieved both `partman-macos-sitting-2` transcripts and the M10
+  transcript through their evidence-store locators and rehashed each to its
+  recorded digest, all three matching; sitting 2's byte lengths matched as
+  recorded, and the M10 capture's full 172-entry SHA-256 inventory was
+  additionally rehashed with every entry matching. Each record's custody
+  caveat travels into the discharge rather than being erased by it: sitting
+  2's digests were computed after retention from an unmodified copy, so its
+  matching rehash confirms the copy unchanged since 2026-08-05 and nothing
+  stronger, while M10's digest was recorded at retention and its rehash
+  carries the full property. The readback also surfaced and recorded an
+  omission of sitting 2's class in the M10 record — a digest with no byte
+  length, where the custody rule requires both; 23 516 bytes is now recorded
+  as a readback-time measurement, stated as such. This discharge removes the
+  custody caveat the SI-34 currency note and SI-39's dependency paragraph
+  carry; it resolves neither issue and decides nothing on the register.
+
 - WP-010 files **SI-39**, the SAFE-003 / INV-003 conflict, under Section 0.2's
   requirement to file rather than silently pick a side. SAFE-003 says "A blank
   device can therefore be Strong"; INV-003, as ADR-0013 amended it in spec
