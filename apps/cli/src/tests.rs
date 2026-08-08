@@ -811,6 +811,15 @@ fn no_output_in_any_mode_carries_an_environment_value() {
         std::env::consts::ARCH,
         VERSION,
         ENVELOPE_SCHEMA,
+        // GitHub's Windows runners export RUNNER_OS=Windows, and since
+        // increment 9 the help text names the deferred platform in prose —
+        // static compile-time text, verified by inspection, with the
+        // env-read source guard proving no environment read exists. The
+        // exact value is exempted per this test's own remedy rather than
+        // contorting user-facing text to dodge the tripwire. ("Linux" and
+        // "macOS" never reach the sweep: both are under the six-character
+        // floor.)
+        "Windows",
     ];
 
     // SEC-006's deny-floor categories, probed with this host's real values.
