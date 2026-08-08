@@ -2175,6 +2175,60 @@ fn the_reach_declaration_reads_nothing() {
     }
 }
 
+// Requirements: SAFE-005, Section 14
+//   A platform whose adapter is deferred by a recorded decision names that decision in its typed not-implemented answer and its reach reference — a decision, not a promise — while a platform whose increment is merely pending still names the increment, and the two shapes are never conflated
+// Evidence: a_deferred_platform_names_the_recorded_decision_not_a_promise
+#[test]
+fn a_deferred_platform_names_the_recorded_decision_not_a_promise() {
+    // The M0.5 gate admits exactly two honest shapes for a platform without
+    // an adapter: an increment that will read its interfaces, or a recorded
+    // decision that defers them. Windows carries the deferral (the WP-035
+    // increment 10 route decision); macOS carries a pending increment; Linux
+    // carries a contract and no statement at all. Each platform asserts its
+    // own shape, so this test means something different — and true — on all
+    // three CI legs.
+    if cfg!(target_os = "windows") {
+        let decision = super::inspect::platform_deferral()
+            .expect("Windows carries a recorded deferral decision");
+        assert!(
+            decision.contains("WP-W100") && decision.contains("2026-08-08"),
+            "the deferral must name the owning package and the decision date: {decision}"
+        );
+        assert_eq!(
+            crate::reach::REACH.contract.reference,
+            decision,
+            "the reach reference and the inspect answer must name the same decision, \
+             or a reader is told two different stories about why Windows waits"
+        );
+        let json = fdispatch(&["inspect".to_owned(), "--json".to_owned()]);
+        let parsed: serde_json::Value =
+            serde_json::from_str(&json.stdout).expect("the answer rides the ordinary envelope");
+        assert_eq!(
+            parsed["outcome"]["inspect"]["adapters"]["deferral"], decision,
+            "the typed not-implemented answer must carry the recorded decision in-band"
+        );
+        let human = fdispatch(&["inspect".to_owned()]);
+        assert!(
+            human.stdout.contains(decision),
+            "the human answer must name the recorded decision too: {}",
+            human.stdout
+        );
+    } else {
+        assert!(
+            super::inspect::platform_deferral().is_none(),
+            "only Windows carries a recorded deferral; a pending increment must not \
+             be dressed as a decision"
+        );
+    }
+    if cfg!(target_os = "macos") {
+        assert_eq!(
+            crate::reach::REACH.contract.reference,
+            "WP-035 increment 9",
+            "macOS is pending its increment, not deferred, and the reference says which"
+        );
+    }
+}
+
 // Evidence: the_enumeration_answer_publishes_reach_beside_the_gated_list
 #[test]
 fn the_enumeration_answer_publishes_reach_beside_the_gated_list() {

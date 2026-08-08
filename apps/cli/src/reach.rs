@@ -171,18 +171,32 @@ const fn read_contract_distinguishing_nothing(reference: &'static str) -> ReachD
     }
 }
 
+/// The recorded decision that defers the Windows enumeration adapter.
+///
+/// WP-035's grant opened increment 10 only after a recorded choice among its
+/// three named routes, and the recorded choice is deferral: no route is
+/// simultaneously dependency-free, `unsafe`-free, and clean against the
+/// tool-invocation rules, so the interim Windows adapter is not built and
+/// the duty stays where Section 14 always placed it. The record is in
+/// `docs/work-packages/WP-035.md`; this constant is how the Windows answer
+/// names a decision rather than a promise, which is the shape the M0.5 gate
+/// was written to accept.
+pub const WINDOWS_DEFERRAL: &str =
+    "deferred to WP-W100 by the WP-035 increment 10 route decision (2026-08-08)";
+
 /// This build's declaration.
 ///
-/// The reference names the increment that will read this platform's
-/// interfaces, not a package that owes the product's own INV-003 duty —
-/// that duty stays with WP-W100, WP-L100 and WP-M100, and this declaration
-/// makes no claim about their contracts.
+/// The reference names what changes the platform's answer: the increment
+/// that will read its interfaces where one is pending, or the recorded
+/// decision that defers it where none is. Neither form claims another
+/// package's contract — the product's own INV-003 duty stays with WP-W100,
+/// WP-L100 and WP-M100, and this declaration makes no claim about theirs.
 pub const REACH: ReachDeclaration = if cfg!(target_os = "linux") {
     read_contract_distinguishing_nothing("WP-035 increment 8")
 } else if cfg!(target_os = "macos") {
     unread_contract("WP-035 increment 9")
 } else if cfg!(target_os = "windows") {
-    unread_contract("WP-035 increment 10")
+    unread_contract(WINDOWS_DEFERRAL)
 } else {
     unread_contract("no increment is scheduled for this platform")
 };
