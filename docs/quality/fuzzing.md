@@ -7,8 +7,10 @@ untriaged crashes or hangs.
 
 ## Targets
 
-`fuzz/fuzz_targets/` currently holds two. Both drive the `pce/1` codec, which is
-a plan and journal deserializer under Section 11.4's list.
+`fuzz/fuzz_targets/` currently holds three. The first two drive the `pce/1`
+codec, which is a plan and journal deserializer under Section 11.4's list;
+the third drives the CLI's bounded plist reader, a parser of externally
+supplied subprocess bytes.
 
 ### `decode_is_canonical`
 
@@ -44,6 +46,39 @@ third target that would exercise the same value generator and parser.
 `Value` is built from raw entropy inside the target rather than by deriving
 `Arbitrary` on the domain type, so the domain crate carries no fuzzing
 dependency.
+
+### `plist_bounds_hold`
+
+Drives `apps/cli`'s bounded XML plist reader — WP-035 increment 9's parser
+for `diskutil` output, and the target that increment recorded as in flight
+when it landed. Asserts the property that makes the reader's promise a
+property rather than prose:
+
+> For any input, `parse` either refuses with a typed error, or returns a
+> value inside every bound the module declares — container depth, total
+> value count, and per-text-run length.
+
+The two extraction entry points (`whole_disks`, `info_fields`) run on every
+input too: they must never panic, and an input either accepts must be an
+input `parse` accepts, so extraction stays a view over the grammar rather
+than a second grammar. Reachability under the engine's 4,096-byte input cap
+is stated exactly, because a bound the fuzzer cannot reach is asserted
+prose, not a searched property: the **depth** cap is reachable (seventeen
+nested containers fit in ~120 bytes) and is what this target genuinely
+searches; the oversize, over-value, and over-node refusals all need inputs
+larger than the cap, so they rest on the stable unit tests — where the
+first two are covered, and the node cap's test lands with WP-035's next
+chassis change, recorded there rather than rounded up here. What the target
+adds beyond the caps is the panic-freedom and extractor-consistency search
+over the whole grammar. The CLI crate carries no fuzzing dependency:
+like the codec targets, this one lives here, and `fuzz/` alone depends on
+`partman-cli` — the shipped binary's empty dependency closure is untouched.
+
+What runs a target is `FUZZ_TARGETS` in `tools/xtask/src/main.rs`, which is
+WP-000's row and lands in the change that follows this one; until it does,
+this target exists and builds but no scheduled or smoke run drives it. That
+gap is hours wide by design — two owners, two changes — and this sentence
+exists so the gap is a recorded state rather than a discovered one.
 
 ## The same property, on stable
 
