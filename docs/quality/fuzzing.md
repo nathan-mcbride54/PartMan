@@ -66,19 +66,20 @@ is stated exactly, because a bound the fuzzer cannot reach is asserted
 prose, not a searched property: the **depth** cap is reachable (seventeen
 nested containers fit in ~120 bytes) and is what this target genuinely
 searches; the oversize, over-value, and over-node refusals all need inputs
-larger than the cap, so they rest on the stable unit tests — where the
-first two are covered, and the node cap's test lands with WP-035's next
-chassis change, recorded there rather than rounded up here. What the target
+larger than the cap, so they rest on the stable unit tests, where all
+three are covered — the node cap's boundary test landed with the WP-035
+change that followed this target, closing the gap this sentence once
+recorded. What the target
 adds beyond the caps is the panic-freedom and extractor-consistency search
 over the whole grammar. The CLI crate carries no fuzzing dependency:
 like the codec targets, this one lives here, and `fuzz/` alone depends on
 `partman-cli` — the shipped binary's empty dependency closure is untouched.
 
-What runs a target is `FUZZ_TARGETS` in `tools/xtask/src/main.rs`, which is
-WP-000's row and lands in the change that follows this one; until it does,
-this target exists and builds but no scheduled or smoke run drives it. That
-gap is hours wide by design — two owners, two changes — and this sentence
-exists so the gap is a recorded state rather than a discovered one.
+What runs a target is `FUZZ_TARGETS` in `tools/xtask/src/main.rs`, WP-000's
+row, which registered this target in the change that followed its landing —
+so the recorded hours-wide gap between "exists and builds" and "driven by
+every smoke and scheduled run" opened and closed as designed, two owners,
+two changes, neither ahead of its code.
 
 ## The same property, on stable
 
@@ -164,9 +165,9 @@ it can be attached to a report rather than committed.
 The `Maintenance` workflow runs every Monday at 06:00 UTC and is also manually
 triggerable. It restores the newest earlier `fuzz/corpus/` cache, gives each
 current target 900 seconds, and saves the expanded corpus under an immutable
-per-run key. A scheduled run therefore explores for 30 minutes across the two
-current targets and starts from discoveries made by earlier successful runs;
-the pull-request job remains a fresh 60-second-per-target smoke pass.
+per-run key. A scheduled run therefore explores for 45 minutes across the
+three current targets and starts from discoveries made by earlier successful
+runs; the pull-request job remains a fresh 60-second-per-target smoke pass.
 
 The [first full maintenance
 run](https://github.com/nathan-mcbride54/PartMan/actions/runs/30582127980/job/91004698510)
