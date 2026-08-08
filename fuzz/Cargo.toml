@@ -21,6 +21,7 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 arbitrary = "1"
 partman-domain = { path = "../crates/domain" }
+partman-cli = { path = "../apps/cli" }
 
 [[bin]]
 name = "decode_is_canonical"
@@ -32,6 +33,13 @@ bench = false
 [[bin]]
 name = "roundtrip_value"
 path = "fuzz_targets/roundtrip_value.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "plist_bounds_hold"
+path = "fuzz_targets/plist_bounds_hold.rs"
 test = false
 doc = false
 bench = false
