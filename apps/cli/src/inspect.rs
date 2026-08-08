@@ -516,26 +516,39 @@ pub fn replay_json(observations: &[Observation]) -> String {
 /// this package has no contract for the platform.
 ///
 /// This is the seam between "an adapter exists" and "the product uses it".
-/// Increment 8 delivered the Linux contract; every other platform still
-/// answers with the typed `not-implemented` statement naming the package that
-/// changes that, because an empty device list would say the machine has no
-/// disks.
+/// Increment 8 delivered the Linux contract and increment 9 the macOS one;
+/// Windows answers with the typed `not-implemented` statement naming
+/// WP-W100 and the recorded decision that defers it, because an empty
+/// device list would say the machine has no disks.
+///
+/// The launcher is threaded from dispatch rather than constructed here, so
+/// no Tier-1 test can reach a real `diskutil` launch by accident — the
+/// spec's Tier-1 rule is that no test launches a platform enumeration tool.
 #[must_use]
-pub fn enumeration_json() -> String {
+pub fn enumeration_json(launcher: &dyn crate::doctor::ToolLauncher) -> String {
     // Where this package has no contract for the platform, the answer is the
     // existing typed `not-implemented` statement naming the package that
     // changes that. It is deliberately NOT ADR-C4's `unavailable`: that word
     // means the platform did not expose an answer, and this is the package
     // not having asked. Conflating them would report a WP-035 gap as a
     // platform limitation.
+    if cfg!(target_os = "macos") {
+        return enumeration_result_json(&crate::macos::enumerate(launcher));
+    }
     if !cfg!(target_os = "linux") {
         return no_adapter_json();
     }
-    match crate::devices::enumerate(
+    enumeration_result_json(&crate::devices::enumerate(
         &crate::devices::SystemDeviceSource,
         &crate::devices::sysfs_root(),
         &crate::devices::udev_root(),
-    ) {
+    ))
+}
+
+/// Render one enumeration result as JSON — shared by every platform with a
+/// contract, so two adapters cannot teach two output shapes.
+fn enumeration_result_json(result: &crate::devices::Enumeration) -> String {
+    match result {
         crate::devices::Enumeration::Listed(devices) => {
             let rendered: Vec<String> = devices
                 .iter()
@@ -575,14 +588,14 @@ pub fn enumeration_json() -> String {
             "{{\"adapters\":{{\"state\":\"unavailable\",\"reference\":{reference},\
              \"detail\":{detail}}},\"devices\":[],\"gated\":{gated},\"reach\":{reach}}}",
             reference = json_escaped(platform_adapter_package()),
-            detail = json_escaped(&reason),
+            detail = json_escaped(reason),
             gated = gated_json(),
             reach = crate::reach::reach_json(),
         ),
         crate::devices::Enumeration::Failed { error } => format!(
             "{{\"adapters\":{{\"state\":\"failed\",\"detail\":{detail}}},\"devices\":[],\
              \"gated\":{gated},\"reach\":{reach}}}",
-            detail = json_escaped(&error),
+            detail = json_escaped(error),
             gated = gated_json(),
             reach = crate::reach::reach_json(),
         ),
@@ -590,8 +603,8 @@ pub fn enumeration_json() -> String {
             "{{\"adapters\":{{\"state\":\"refused\",\"detail\":{detail}}},\"devices\":[],\
              \"gated\":{gated},\"reach\":{reach}}}",
             detail = json_escaped(&format!(
-                "{seen} block nodes exceeds this adapter's device limit; refused rather than \
-                 truncated, because a partial list must not be mistaken for a complete one"
+                "{seen} whole-device entries exceeds this adapter's device limit; refused rather \
+                 than truncated, because a partial list must not be mistaken for a complete one"
             )),
             gated = gated_json(),
             reach = crate::reach::reach_json(),
@@ -728,20 +741,29 @@ pub fn no_adapter_human() -> String {
 
 /// Render the enumeration answer for humans, or the no-adapter statement.
 #[must_use]
-pub fn enumeration_human() -> String {
+pub fn enumeration_human(launcher: &dyn crate::doctor::ToolLauncher) -> String {
     // Same reasoning as `enumeration_json`: no contract is `not-implemented`,
     // never ADR-C4's `unavailable`.
+    if cfg!(target_os = "macos") {
+        return enumeration_result_human(&crate::macos::enumerate(launcher));
+    }
     if !cfg!(target_os = "linux") {
         return no_adapter_human();
     }
-    let mut out = String::from("inspect\n");
-    match crate::devices::enumerate(
+    enumeration_result_human(&crate::devices::enumerate(
         &crate::devices::SystemDeviceSource,
         &crate::devices::sysfs_root(),
         &crate::devices::udev_root(),
-    ) {
+    ))
+}
+
+/// Render one enumeration result for humans — shared for the same reason
+/// as the JSON sibling.
+fn enumeration_result_human(result: &crate::devices::Enumeration) -> String {
+    let mut out = String::from("inspect\n");
+    match result {
         crate::devices::Enumeration::Listed(devices) => {
-            for device in &devices {
+            for device in devices {
                 out.push_str("  ");
                 out.push_str(&device.selector);
                 out.push_str(" (");
@@ -766,20 +788,20 @@ pub fn enumeration_human() -> String {
             out.push_str("  adapters: unavailable (");
             out.push_str(platform_adapter_package());
             out.push_str(")\n    ");
-            out.push_str(&reason);
+            out.push_str(reason);
             out.push('\n');
         }
         crate::devices::Enumeration::Failed { error } => {
             out.push_str("  adapters: failed\n    ");
-            out.push_str(&error);
+            out.push_str(error);
             out.push('\n');
         }
         crate::devices::Enumeration::OverLimit { seen } => {
             out.push_str("  adapters: refused\n    ");
             out.push_str(&seen.to_string());
             out.push_str(
-                " block nodes exceeds this adapter's device limit; refused rather \
-                 than truncated\n",
+                " whole-device entries exceeds this adapter's device limit; refused \
+                 rather than truncated\n",
             );
         }
     }

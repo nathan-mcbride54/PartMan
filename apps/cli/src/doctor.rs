@@ -166,6 +166,14 @@ pub trait ToolLauncher {
     /// Launch `path --version` under the SAFE-004-derived controls described
     /// above and report how it ended.
     fn probe_version(&self, path: &Path) -> ProbeOutcome;
+    /// Launch one compiled absolute executable with a fixed structured
+    /// argument array under the same controls as [`Self::probe_version`] —
+    /// cleared environment plus `LC_ALL=C`, no shell, no `PATH` lookup,
+    /// bounded output, the same time limit — with the per-stream output
+    /// bound stated by the caller, because a version banner and a device
+    /// enumeration are legitimately different sizes and one constant serving
+    /// both would be wrong in one direction or the other.
+    fn launch(&self, path: &Path, arguments: &[&str], output_limit: usize) -> ProbeOutcome;
 }
 
 /// The real launcher: `fs::metadata` for existence, `std::process::Command`
@@ -183,14 +191,19 @@ impl ToolLauncher for SystemLauncher {
     }
 
     fn probe_version(&self, path: &Path) -> ProbeOutcome {
-        launch_bounded(path, &["--version"])
+        launch_bounded(path, &["--version"], OUTPUT_LIMIT_PER_STREAM)
+    }
+
+    fn launch(&self, path: &Path, arguments: &[&str], output_limit: usize) -> ProbeOutcome {
+        launch_bounded(path, arguments, output_limit)
     }
 }
 
 /// Launch one absolute executable with a structured argument array under the
-/// doctor's limits. Split out privately so Tier 1 can prove both successful
-/// and unsuccessful exits without adding another executable class.
-fn launch_bounded(path: &Path, arguments: &[&str]) -> ProbeOutcome {
+/// doctor's controls and the caller's per-stream output bound. Split out
+/// privately so Tier 1 can prove both successful and unsuccessful exits
+/// without adding another executable class.
+fn launch_bounded(path: &Path, arguments: &[&str], output_limit: usize) -> ProbeOutcome {
     let mut command = std::process::Command::new(path);
     command
         .args(arguments)
@@ -218,10 +231,10 @@ fn launch_bounded(path: &Path, arguments: &[&str]) -> ProbeOutcome {
     let (stdout_sender, stdout_receiver) = std::sync::mpsc::channel();
     let (stderr_sender, stderr_receiver) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        let _ = stdout_sender.send(drain_bounded(stdout_pipe));
+        let _ = stdout_sender.send(drain_bounded(stdout_pipe, output_limit));
     });
     std::thread::spawn(move || {
-        let _ = stderr_sender.send(drain_bounded(stderr_pipe));
+        let _ = stderr_sender.send(drain_bounded(stderr_pipe, output_limit));
     });
 
     let deadline = Instant::now() + LAUNCH_TIME_LIMIT;
@@ -265,19 +278,19 @@ fn launch_bounded(path: &Path, arguments: &[&str]) -> ProbeOutcome {
     }
 }
 
-/// Read up to [`OUTPUT_LIMIT_PER_STREAM`] bytes from a pipe, then keep draining and
-/// discarding so the writer can finish. Returns the bounded bytes and
-/// whether the limit was exceeded.
-fn drain_bounded(pipe: Option<impl Read>) -> (Vec<u8>, bool) {
+/// Read up to `limit` bytes from a pipe, then keep draining and discarding
+/// so the writer can finish. Returns the bounded bytes and whether the
+/// limit was exceeded.
+fn drain_bounded(pipe: Option<impl Read>, limit: usize) -> (Vec<u8>, bool) {
     let mut buffer = Vec::new();
     let Some(mut pipe) = pipe else {
         return (buffer, false);
     };
-    let cap = u64::try_from(OUTPUT_LIMIT_PER_STREAM).expect("the limit fits");
+    let cap = u64::try_from(limit).expect("the limit fits");
     let _ = pipe.by_ref().take(cap + 1).read_to_end(&mut buffer);
-    let overflowed = buffer.len() > OUTPUT_LIMIT_PER_STREAM;
+    let overflowed = buffer.len() > limit;
     if overflowed {
-        buffer.truncate(OUTPUT_LIMIT_PER_STREAM);
+        buffer.truncate(limit);
         let _ = std::io::copy(&mut pipe, &mut std::io::sink());
     }
     (buffer, overflowed)
@@ -646,13 +659,17 @@ mod launcher_tests {
         assert_eq!(OUTPUT_LIMIT_PER_STREAM, 4096);
         assert_eq!(OUTPUT_CAPTURE_LIMIT, 8192);
 
-        let (at_limit, overflowed) =
-            drain_bounded(Some(Cursor::new(vec![b'x'; OUTPUT_LIMIT_PER_STREAM])));
+        let (at_limit, overflowed) = drain_bounded(
+            Some(Cursor::new(vec![b'x'; OUTPUT_LIMIT_PER_STREAM])),
+            OUTPUT_LIMIT_PER_STREAM,
+        );
         assert_eq!(at_limit.len(), OUTPUT_LIMIT_PER_STREAM);
         assert!(!overflowed);
 
-        let (truncated, overflowed) =
-            drain_bounded(Some(Cursor::new(vec![b'x'; OUTPUT_LIMIT_PER_STREAM + 1])));
+        let (truncated, overflowed) = drain_bounded(
+            Some(Cursor::new(vec![b'x'; OUTPUT_LIMIT_PER_STREAM + 1])),
+            OUTPUT_LIMIT_PER_STREAM,
+        );
         assert_eq!(truncated.len(), OUTPUT_LIMIT_PER_STREAM);
         assert!(overflowed);
     }
@@ -689,7 +706,11 @@ mod launcher_tests {
     // Evidence: the_real_launcher_preserves_a_nonzero_exit_as_failure
     #[test]
     fn the_real_launcher_preserves_a_nonzero_exit_as_failure() {
-        match launch_bounded(test_git(), &["--partman-intentional-invalid-option"]) {
+        match launch_bounded(
+            test_git(),
+            &["--partman-intentional-invalid-option"],
+            OUTPUT_LIMIT_PER_STREAM,
+        ) {
             ProbeOutcome::NonzeroExit {
                 code,
                 stdout,

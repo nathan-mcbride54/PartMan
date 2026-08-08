@@ -7,6 +7,37 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **WP-035 increment 9 delivers the macOS enumeration adapter** (2026-08-08),
+  on the decided bounded-reader route: no dependency taken, the
+  empty-dependency-closure guard intact, and a hand-written XML plist reader
+  whose grammar is exactly what the measured `diskutil` captures use — data,
+  date, real, comments, CDATA, numeric character references, undefined
+  entities, DOCTYPE internal subsets, duplicate keys, non-UTF-8 bytes,
+  over-depth, and oversize values all refuse the whole input with typed
+  errors rather than substituting or truncating. The adapter launches
+  `diskutil list -plist` once and `info -plist` once per whole device, at
+  the compiled absolute path through the launcher seam, which gains an
+  argument-bearing method with caller-stated per-stream output bounds (the
+  doctor's version probe keeps its own 4096-byte bound; the enumeration
+  states 4 MiB for the list and 64 KiB per info); a source-pinned guard
+  holds the macOS adapter as that channel's only shipped caller. Twelve
+  identity keys report as raw interface-labelled strings — `Content`, UUID,
+  and APFS fields deliberately unread, because the scheme name is SI-35's
+  material and increment 7's adversarial round already refused cells built
+  on it — with a missing key a positively determined absence, a
+  present-but-container value a typed failure never flattened, a nonzero
+  diskutil exit a failure whose output is never parsed, and a `WholeDisks`
+  name outside disk-then-digits refused before it reaches argv. The macOS
+  reach declaration moves to implemented-reaches-no-table-state with every
+  cell still negative, the same shape Linux took in increment 8. The
+  enumeration is threaded through the injected launcher from dispatch, so
+  no Tier-1 test can launch a real diskutil, and the adapter module
+  compiles on every platform so its tests run on all three CI legs. The
+  reader is a parser of externally supplied bytes: its Section 11.4 fuzz
+  target lands as its own chain — the fuzz crate and `fuzzing.md` are
+  WP-010's and the xtask target list is WP-000's — and is **in flight, not
+  silently absent**; this entry is the record that says so.
+
 - **WP-035 increment 10 is closed as deferred, by the recorded route
   decision its grant required** (2026-08-08). The three named routes each
   carried a recorded cost — WMI/CIM needs FFI the crate cannot host and a
