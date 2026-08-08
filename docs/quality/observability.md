@@ -12,7 +12,11 @@
   hosted runner, where the helper reads at byte level what the client is
   denied. Only M9 remains `not established`, Apple Silicon having no Fusion
   Drive. **No preregistered cell on any platform is now `not yet taken`.**
-  The macOS second-reader readback is outstanding.** WP-035's three instruments have operator-run records dated
+  The macOS second-reader readback was discharged 2026-08-08 by an
+  independent reader session: both sitting 2 transcripts and the M10
+  transcript retrieved through their locators and rehashed, every digest
+  matching, with the caveat each record carries stated there rather than
+  erased.** WP-035's three instruments have operator-run records dated
   2026-08-02, but their limits are material: SI-33 did not establish the full
   close-before-event/reopen liveness sequence; the SI-35 Windows wrapper did
   not retain every queried surface; and the SI-35 loop run was taken while
@@ -2477,10 +2481,18 @@ retained capture, which has not been modified since retention; that is weaker
 than a digest recorded at retention time and is stated as such rather than
 presented as equivalent.
 
-**Second-reader obligation outstanding**: no independent reader has yet
-retrieved and rehashed these transcripts. Under this subsection's custody
-rule the cells above are recorded with that obligation open, and it must be
-discharged before they are relied on by a register decision.
+**Second-reader obligation discharged 2026-08-08.** An independent reader
+session — not the session that produced this record or computed the digests
+above — retrieved both transcripts through the locator, rehashed each, and
+confirmed the archive readable: `out-pre/00-transcript.txt` matched its
+recorded digest at 18 647 bytes, `out-post/00-transcript.txt` matched at
+5 320 bytes, and the store holds the 206 files this paragraph counts. The
+discharge does not launder the omission above into the stronger property:
+a matching rehash confirms the retained copy is unchanged since the digests
+were computed on 2026-08-05, not that the digests were taken at retention.
+Sitting 2's custody remains what the omission paragraph says it is —
+locator and custodian recorded at the time, digests recorded later from an
+unmodified copy.
 
 #### M10 sitting, 2026-08-05 — VALID; the helper reads what the client cannot
 
@@ -2557,7 +2569,22 @@ store as `2026-08-05-macos-m10-ci-run31020018982` (custodian Nate McBride),
 172 files with a SHA-256 inventory; transcript
 `259b1046e1d80b40fb92fcfd99ef018af86f11b7f5086aca3e5c239a15436256`. The
 workflow artifact itself is public and expires; the evidence-store copy is the
-durable one. **Second-reader obligation outstanding**, as for sitting 2.
+durable one.
+
+**An omission of sitting 2's class, recorded at readback.** This paragraph
+recorded the transcript's digest and no byte length, where the custody rule
+requires both. The length is 23 516 bytes, measured 2026-08-08 from the
+retained capture; like sitting 2's digests it is a value taken later from an
+unmodified copy, not a retention-time record, and is stated as such. The
+digest itself was recorded at retention, so the transcript's custody is
+stronger than sitting 2's on that axis and weaker on none.
+
+**Second-reader obligation discharged 2026-08-08.** An independent reader
+session retrieved the transcript through the locator and rehashed it to its
+recorded digest, matching — and because M10's digest was recorded at
+retention, this rehash carries the property sitting 2's cannot. The reader
+also rehashed every entry of the capture's SHA-256 inventory: all 172 match,
+and the store holds those 172 files plus the inventory itself, readable.
 
 ## Linux
 
