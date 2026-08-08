@@ -7,6 +7,19 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **WP-020's increment 2f row catches up to 2026-08-03.** The delivery-status
+  row still said "not yet exercised on a real kernel" five days after the
+  SI-35 instrument's three sittings ran `run_probed_session` thirty times in
+  the disposable VMs — the exact first exercise the row itself predicted. The
+  row now records that fact at its correct strength: the two void sittings'
+  defects all lived in the instrument's unprivileged projection half, none in
+  the session protocol, whose capture half completed cleanly in all three
+  sittings; and thirty clean sessions under the SI-35 protocol's gates are
+  that record's evidence, not a registered 2f acceptance, of which none
+  exists and none is claimed. The "weaker than 2e by construction" boundary
+  is untouched. The historical 2f delivery entry below correctly said "no
+  real loop device ran" at its writing and stays as written.
+
 - **The macOS second-reader readback is discharged** (2026-08-08). An
   independent reader session — not the session that produced any of the three
   records — retrieved both `partman-macos-sitting-2` transcripts and the M10
