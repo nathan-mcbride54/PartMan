@@ -7,6 +7,43 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **spec-change 11.0.0: SI-11 is resolved by ADR-0018, on the fourth
+  round.** The protection closure is computed, total, and fail-closed.
+  Per-node verdicts are three-valued with an `Indeterminate` residual —
+  never `Permitted` by default, round three's fail-open arm inverted
+  and property-tested — computed from a named two-layer helper evidence
+  contract: the helper's own bounded, enumerating, fuzz-obligated
+  parsers over raw device bytes (ADR-0014's architecture generalized
+  from the table to every on-disk verdict input), named per-platform
+  state APIs for the rest, and a protective join. That discharges the
+  named-contract hard input ADR-0016 transferred to this round. A
+  mutating step's affected set closes over destroyed substrate —
+  downward containment bounded by the destroyed ranges, upward backing,
+  downward production — with release counted as destruction, so the
+  recorded root-on-ZFS-over-LUKS destruction path refuses while the
+  no-sibling-capture theorem is a committed property test and creating
+  a partition beside a pool member constructs. Device scope inverts to
+  a closed positive local-transport list; capability status is computed
+  from canonical steps by the same closure, so CAP-005 agreement holds
+  by construction; source classes are never suppressed; PART-014
+  classification is exhaustive, Regime B, and outside the body. A
+  closed three-entry acknowledgment vocabulary — release,
+  opaque-destruction, identity-bound-restore — replaces both silent
+  permission and forever-refusal, the consumed-member case deliberately
+  unrepresentable. SI-29 resolves within the decision (the narrow
+  boundary: file systems inside a Storage Space are ordinary targets
+  within the provisioned block interface, health-gated — the narrowing
+  that makes this major); SI-30 resolves within it
+  (deletion-by-containing-erase severed from sealed-object
+  modification, routed via MAC-009 and the documented-paths clause, an
+  empty-in-v1 step family); SI-37 is reclassified — open, off the
+  increment-3 gate, its dual-path matrix now relaxation evidence. The
+  locked-container residual is stated in the resolution banner rather
+  than rounded away, and the write-path demonstrations join the
+  SI-33/SI-34/SI-35 obligations on the first write-capable increment.
+  The gate on increment 3 drops to two items, both direct: SI-27,
+  SI-28.
+
 - **spec-change 10.0.0: SI-33 is resolved by ADR-0017.** The continuity
   witness exists and is a refusal input, never an assurance: an
   epoch-token/counter field of SAFE-003's identity record —

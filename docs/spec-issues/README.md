@@ -52,33 +52,37 @@ SI-31 — which made the register unusable as the dependency gate Section 1.11
 requires it to be. Counts drift; a table that must be edited to add a row does
 not.
 
-Every issue appears exactly once. **Six items gate increment 3**: three direct
-and three inputs. Two former transitive blockers are resolved: SI-12 in spec
-4.3.0 by ADR-0011, and SI-38 in spec 6.0.0 by ADR-0013. Four direct blockers
-are resolved: SI-39 in spec 7.0.0 by ADR-0015, SI-35 in spec 8.0.0 by
-ADR-0014's axis carried to its instrument — the register's first
+Every issue appears exactly once. **Two items gate increment 3**, both
+direct: SI-27 and SI-28. Two former transitive blockers are resolved: SI-12
+in spec 4.3.0 by ADR-0011, and SI-38 in spec 6.0.0 by ADR-0013. Five direct
+blockers are resolved: SI-39 in spec 7.0.0 by ADR-0015, SI-35 in spec 8.0.0
+by ADR-0014's axis carried to its instrument — the register's first
 measurement-born direct blocker to close end to end — SI-34 in spec 9.0.0
 by ADR-0016, the placement question closed by the architecture the SI-35
-resolution built, and SI-33 in spec 10.0.0 by ADR-0017, the witness
-designed inside its own measured limits. SI-36 is withdrawn and
-gates nothing.
+resolution built, SI-33 in spec 10.0.0 by ADR-0017, the witness
+designed inside its own measured limits, and SI-11 — the register's
+longest-running direct blocker, four rounds — in spec 11.0.0 by ADR-0018,
+the protection closure computed, total, and fail-closed, with SI-29 and
+SI-30 resolved within its decision and SI-37 reclassified: open, off this
+gate, its dual-path matrix now the acceptance evidence for relaxing the
+populations the closure blocks rather than a precondition on the type.
+SI-36 is withdrawn and gates nothing.
 
 | Class | Meaning | Issues |
 | --- | --- | --- |
-| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-12, SI-31, SI-32, SI-33, SI-34, SI-35, SI-38, SI-39 |
-| **Direct blocker** | Must be decided before increment 3 writes a type | SI-11, SI-27, SI-28 |
+| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-11, SI-12, SI-29, SI-30, SI-31, SI-32, SI-33, SI-34, SI-35, SI-38, SI-39 |
+| **Direct blocker** | Must be decided before increment 3 writes a type | SI-27, SI-28 |
 | **Transitive blocker** | A separately sequenced prerequisite decision that must resolve before a direct blocker can be decided | *(none)* |
-| **Input** | A subquestion or evidence case resolved within the consuming direct blocker's decision | SI-29, SI-30, SI-37 (all to SI-11) |
-| **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-15, SI-16, SI-17, SI-18, SI-19, SI-20, SI-21, SI-22, SI-23, SI-24, SI-25, SI-26 |
+| **Input** | A subquestion or evidence case resolved within the consuming direct blocker's decision | *(none — SI-29 and SI-30 resolved within SI-11's decision; SI-37 reclassified below)* |
+| **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-15, SI-16, SI-17, SI-18, SI-19, SI-20, SI-21, SI-22, SI-23, SI-24, SI-25, SI-26, SI-37 (before the spec change that first moves a closure-blocked multipath-capable population to `Permitted`; ADR-0018) |
 | **Withdrawn** | Retained as history after the filing was shown not to be a conflict | SI-36 |
 
-The direct blockers, with the state each is actually in — not all three are
+The direct blockers, with the state each is actually in — neither is
 simply "undecided":
 
 | Issue | Hash-visible | State |
 | --- | --- | --- |
-| SI-11 | yes | Open, axis decided. ADR-0012 (spec 4.4.0) makes a mutating step naming a client-visible Section 2.1 non-goal node unrepresentable and retains helper recomputation. Round four still includes total fail-closed verdicts, downward reach without sibling capture, device-scope inheritance, per-operation status, step construction and decode checks over structural effects, exhaustive PART-014 classification, and the affected-set/bind-set obligations retained in Part 6. SI-29 and SI-30 retain the Storage Spaces and sealed-volume classification cases; SI-37 supplies the unequal-identifier multipath coverage case. SI-27 retains naming and edge typing. **ADR-0016 (9.0.0) adds a hard input**: the verdict binds to a named, deterministic helper evidence contract with measured re-probe stability — an unnamed evidence set is round two's refuted premise returned. Verdict placement itself is resolved (body, helper-authored at validation) and is no longer this round's to decide |
-| SI-27 | yes | Open. SI-12 resolved in 4.3.0 (ADR-0011), so the naming round proceeds without product deduplication. It must name both Weak and Strong equal-identifier simultaneous collisions without merging them, type the kernel-reported multipath membership edge, and preserve node identity under the accepted stability rules. SI-37, not SI-27, owns the fail-closed detection gap for unassembled paths whose identifiers differ |
+| SI-27 | yes | Open. SI-12 resolved in 4.3.0 (ADR-0011), so the naming round proceeds without product deduplication. It must name both Weak and Strong equal-identifier simultaneous collisions without merging them, type the kernel-reported multipath membership edge, and preserve node identity under the accepted stability rules. SI-37, not SI-27, owns the fail-closed detection gap for unassembled paths whose identifiers differ. **ADR-0018 (11.0.0) hands over two requirements**: any edge kind its round adds must preserve the no-sibling-capture theorem's premise — no backing or production edge targets a physical device — or re-prove the theorem under the new edge set before acceptance; and every edge kind carries a semantics class so the bind set's reverse-traversal rule ("the bytes of A live within or derive from B") slots it in without restatement |
 | SI-28 | yes | **Mitigated-open.** An interim conservative floor is in force and does not resolve it; Part 7. SI-33's resolution (ADR-0017, 10.0.0) adds the continuity witness as a refusal input on qualified apparatus and **relaxes nothing here**: the floor-relaxation route is now that ADR's named revisit condition, requiring apparatus-qualification evidence and its own round |
 
 **SI-31 is resolved in spec 4.1.0 by ADR-C6.** Its answer is plain unsigned
@@ -91,7 +95,8 @@ unsorted and includes both the comparator disagreement and exact depth boundary,
 so it exercises the decision instead of preserving a prearranged answer.
 
 Round one is recorded in Part 4, round two in Part 5, round three in Part 6, and
-SI-28's fourth round in Part 7.
+SI-28's fourth round in Part 7. SI-11's fourth round — the accepted one — is
+recorded in ADR-0018, its session round document being an untracked artifact.
 
 **SI-28's interim posture is decided, and it is a mitigation rather than a
 resolution.** The decision owner chose the conservative floor: destructive
@@ -310,6 +315,43 @@ Whether `SnapshotKind` must cover VSS and Btrfs is a specification question.
 
 ## SI-11 Is non-goal protection a type-level impossibility or a runtime guard?
 
+> **Resolved 2026-08-09 in spec 11.0.0 by ADR-0018, on the fourth
+> round.** The closure exists and is computed, total, and fail-closed:
+> per-node verdicts are three-valued with an `Indeterminate` residual —
+> round three's fail-open arm inverted and property-tested — computed
+> from a named two-layer helper evidence contract (own enumerating
+> byte-layer parsers generalizing ADR-0014's architecture, named
+> state-layer APIs, a protective join), which discharges ADR-0016's
+> named-contract hard input. A mutating step's affected set closes over
+> destroyed substrate — downward containment range-bounded, upward
+> backing, downward production — with release counted as destruction,
+> so round three's root-on-ZFS-over-LUKS destruction path refuses while
+> the no-sibling-capture theorem is a committed property test and
+> creating a partition beside a pool member constructs. Device scope
+> inverts to a closed positive local-transport list; capability status
+> is computed from canonical steps by the same closure (CAP-005
+> agreement by construction); source classes are never suppressed;
+> PART-014 classification is exhaustive, Regime B, outside the body. A
+> closed three-entry acknowledgment vocabulary (release,
+> opaque-destruction, identity-bound-restore) replaces both silent
+> permission and forever-refusal, with the consumed-member case
+> deliberately unrepresentable. SI-29 and SI-30 are resolved within
+> this decision (their entries below); SI-37 is reclassified — open,
+> off the increment-3 gate, its matrix now relaxation evidence.
+> **What is not demonstrated, because no write path exists, is named as
+> obligations on the first write-capable increment beside the
+> SI-33/SI-34/SI-35 banner obligations**: the consumed-member refusal,
+> the release-acknowledgment path on the stale-tail shrink, the
+> locked-layer acknowledgment path, and the
+> `gpt-conflicting-tables-512` restore-only rule, each
+> mutation-verified. **One residual is stated rather than rounded
+> away**: a non-goal hidden inside a locked encryption layer is
+> destroyed blind if the user records the opaque-destruction
+> acknowledgment — opacity is physical, the guarantee's scope is
+> observable topology, and the design makes the blind spot a typed,
+> confirmed act rather than a silent default. The filing and round
+> history below are retained as the record.
+
 > **Axis decided 2026-08-02 in spec 4.4.0 by ADR-0012; the issue stays open.**
 > A mutating step naming a client-visible Section 2.1 non-goal node is
 > unrepresentable in the plan type, with the helper's recomputation retained.
@@ -329,7 +371,7 @@ Whether `SnapshotKind` must cover VSS and Btrfs is a specification question.
 
 **Requirements:** Section 2.1, Section 6, SAFE-005, PART-014, CAP-001, CAP-002,
 CAP-003, CAP-005, HLP-002, MODEL-005, PLAN-004, CONC-001, CONC-005, PART-009,
-PART-012, Section 20, Section 0.2 · **Blocks 3, hash-visible**
+PART-012, Section 20, Section 0.2 · **Resolved** (was: blocks 3, hash-visible)
 
 Section 2.1 says the product MUST NOT mutate ZFS, Storage Spaces, LDM, or
 Fusion — absolute. The mechanism it supplies, PART-014 protected objects, is
@@ -409,7 +451,23 @@ and per transport.
 
 ## SI-29 Does Storage Spaces protection cover content inside a space?
 
-**Requirements:** Section 2.1, WIN-003, PART-014 · **Blocks 3, hash-visible**
+> **Resolved 2026-08-09 in spec 11.0.0, within SI-11's decision
+> (ADR-0018).** The narrow reading, with a geometry line: the protected
+> objects are the pool, the spaces as structural objects, and the
+> member-disk substrates — not the file systems inside a space. An NTFS
+> resize strictly within a space's already-provisioned block interface,
+> through the platform's own documented API, is an ordinary target;
+> anything changing the space's own geometry or membership is
+> pool/space mutation and refuses. Two gates travel with the
+> permission: mutation inside a space is `blocked` while the pool is
+> degraded or a thin space's allocation headroom cannot be verified,
+> and the write path is the documented API only. The broad reading was
+> rejected on its measured cost — every Storage Spaces user loses NTFS
+> resize for a protection Section 2.1's own words ("pools/spaces") do
+> not claim. This is the narrowing that makes 11.0.0 major. The filing
+> below is retained as the record.
+
+**Requirements:** Section 2.1, WIN-003, PART-014 · **Resolved** (was: blocks 3, hash-visible)
 
 Section 2.1 says "detect, represent, and protect pools/spaces; no pool or space
 mutation". WIN-003 says Storage Spaces are "detected, represented, and protected
@@ -424,7 +482,26 @@ not migratable later.
 
 ## SI-30 Does "never modified" for the sealed system volume cover deletion?
 
-**Requirements:** Section 2.1, MAC-009, PART-014, CAP-003 · **Blocks 3**
+> **Resolved 2026-08-09 in spec 11.0.0, within SI-11's decision
+> (ADR-0018).** Deletion-by-containing-erase is severed from
+> modification of the sealed object. The sealed volume and signed
+> system snapshots, as direct targets, are refused for every mutating
+> class, in every environment, with no acknowledgment route — "never
+> modified," absolute. A whole-container or whole-device destructive
+> step that reaches them only through substrate destruction is governed
+> by Section 2.1's documented-supported-paths clause and MAC-009's
+> Recovery rule, through a named, closed step family that is **empty in
+> v1** — today every such erase refuses through the closure like any
+> other reached non-goal and reports `unsupported` as any unimplemented
+> operation does, and implementing Apple's documented path someday is a
+> Regime C matter, not a closure amendment. This resolves the axis
+> round one and round three each froze by accident, in opposite
+> directions: neither `unsupported`-everywhere (round one's error,
+> which MAC-009's `blocked` text contradicts) nor an acknowledgment
+> route (the sealed object has none). The filing below is retained as
+> the record.
+
+**Requirements:** Section 2.1, MAC-009, PART-014, CAP-003 · **Resolved** (was: blocks 3)
 
 Section 2.1 requires that Apple sealed system volumes and signed system snapshots
 are "never modified" and limits boot-volume work to documented supported paths.
@@ -942,10 +1019,33 @@ PLAN-006 unsatisfiable if hashed naively.
 
 ## SI-37 The multipath refusal has no fail-closed rule for unassembled paths with unequal identifiers
 
+> **Reclassified 2026-08-09 in spec 11.0.0 by ADR-0018: open, no longer
+> gating increment 3.** The fail-closed design home this filing asked
+> of SI-11's round exists: the device-scope transport arm is a closed
+> positive local-transport list (everything else `Indeterminate` or
+> refused as remote), and the positive-local population carries
+> per-transport path-multiplicity contracts — NVMe's own
+> shared-capability report and subsystem grouping, SAS/SCSI
+> device-reported WWN equality firing ADR-0011's existing ambiguity
+> rule, SATA/USB/SD point-to-point by transport construction — with an
+> `unavailable` answer, or reported multi-path capability without a
+> platform-assembled node, `blocked`. The filed population is therefore
+> typed and fail-closed, which is what lets increment 3 write the type.
+> **SI-37 is deliberately not resolved**: its own evidence clause
+> requires the per-platform dual-path matrix and negative controls
+> before any option is accepted, and no such measurement exists. The
+> matrix becomes the acceptance evidence for any future arm moving a
+> closure-blocked multipath-capable population to `Permitted` — the
+> SI-28-floor pattern applied to multipath. Its class moves to Later,
+> pinned to the spec change that would first relax those populations.
+> The filing below is retained as the record, and its evidence clause
+> is unchanged.
+
 **Requirements:** Section 2.1, ADR-0011, ADR-0012, SAFE-003, SAFE-005,
 MODEL-003, MODEL-004, MODEL-005, PLAN-006, INV-001, INV-008, CAP-001,
-CAP-003, HLP-002, LIN-006 · **Input to SI-11; gates 3 through SI-11,
-hash-visible**
+CAP-003, HLP-002, LIN-006 · **Open, Later** (was: input to SI-11, gating 3
+through SI-11; reclassified in 11.0.0, hash-visible pending its own
+resolution)
 
 Filed 2026-08-02 by the post-acceptance integrity review of ADR-0011.
 
@@ -1697,6 +1797,22 @@ ADR-C2's requirement that identical hardware produce equal digests:
 That is a new blocking gap, filed below as SI-27.
 
 ## SI-27 The hashed body has no node-naming rule
+
+> **Round-four handover, 2026-08-09 (ADR-0018).** SI-11's resolution
+> states two requirements on this round's edge work, recorded here so
+> the naming round designs against its consumer. First: the
+> no-sibling-capture theorem's premise — no backing or production edge
+> targets a physical device — is quantified over edge kinds, so any
+> kind this round adds (the multipath membership edge ADR-0011
+> deferred here, the host-backed-virtual-device edge round three's
+> record requires) must preserve that premise or the theorem must be
+> re-proved under the new edge set before acceptance, as a property
+> test, not an argument. Second: every edge kind carries a semantics
+> class, because ADR-0018's bind set traverses "the bytes of A live
+> within or derive from B" in reverse over semantics, not over names —
+> a new kind with the right class is traversed with no restatement,
+> and that is what closes CONC-001's currently-empty loop-device bind
+> set when the host-backing edge lands.
 
 **Requirements:** Section 5, MODEL-002, MODEL-005, ADR-C2, SAFE-003, ADR-C3,
 LIN-006, ADR-0011 · **Blocks 3, hash-visible**
