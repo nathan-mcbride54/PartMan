@@ -4,6 +4,7 @@ members = [
     "crates/domain",
     "crates/ffi-linux-loop",
     "crates/fixtures",
+    "crates/table-parser",
     "crates/tokens",
     "tools/slint-feasibility",
     "tools/xtask",

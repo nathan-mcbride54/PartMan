@@ -179,6 +179,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "partman-table-parser"
+version = "0.0.0"
+dependencies = [
+ "partman-fixtures",
+ "sha2",
+]
+
+[[package]]
 name = "partman-tokens"
 version = "0.0.0"
 dependencies = [
