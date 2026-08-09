@@ -52,22 +52,24 @@ SI-31 — which made the register unusable as the dependency gate Section 1.11
 requires it to be. Counts drift; a table that must be edited to add a row does
 not.
 
-Every issue appears exactly once. **Nine items gate increment 3**: six direct
+Every issue appears exactly once. **Eight items gate increment 3**: five direct
 and three inputs. Two former transitive blockers are resolved: SI-12 in spec
-4.3.0 by ADR-0011, and SI-38 in spec 6.0.0 by ADR-0013. SI-39, the register's
-one direct blocker resolved to date, resolved in spec 7.0.0 by ADR-0015.
-SI-36 is withdrawn and gates nothing.
+4.3.0 by ADR-0011, and SI-38 in spec 6.0.0 by ADR-0013. Two direct blockers
+are resolved: SI-39 in spec 7.0.0 by ADR-0015, and SI-35 in spec 8.0.0 by
+ADR-0014's axis carried to its instrument — the register's first
+measurement-born direct blocker to close end to end. SI-36 is withdrawn and
+gates nothing.
 
 | Class | Meaning | Issues |
 | --- | --- | --- |
-| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-12, SI-31, SI-32, SI-38, SI-39 |
-| **Direct blocker** | Must be decided before increment 3 writes a type | SI-11, SI-27, SI-28, SI-33, SI-34, SI-35 |
+| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-12, SI-31, SI-32, SI-35, SI-38, SI-39 |
+| **Direct blocker** | Must be decided before increment 3 writes a type | SI-11, SI-27, SI-28, SI-33, SI-34 |
 | **Transitive blocker** | A separately sequenced prerequisite decision that must resolve before a direct blocker can be decided | *(none)* |
 | **Input** | A subquestion or evidence case resolved within the consuming direct blocker's decision | SI-29, SI-30, SI-37 (all to SI-11) |
 | **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-15, SI-16, SI-17, SI-18, SI-19, SI-20, SI-21, SI-22, SI-23, SI-24, SI-25, SI-26 |
 | **Withdrawn** | Retained as history after the filing was shown not to be a conflict | SI-36 |
 
-The direct blockers, with the state each is actually in — not all six are
+The direct blockers, with the state each is actually in — not all five are
 simply "undecided":
 
 | Issue | Hash-visible | State |
@@ -77,7 +79,6 @@ simply "undecided":
 | SI-28 | yes | **Mitigated-open.** An interim conservative floor is in force and does not resolve it; Part 7 |
 | SI-33 | no | Open. The route by which SI-28's floor may later be relaxed. **Its liveness precondition is discharged (2026-08-05)** — the counter moved on immediate re-read and after a sixty-second idle gap, and survived close-before-event/reopen in 3/3 trials — so it is no longer a hypothesis. The positive cannot be attributed to exchange-synchronous detection, is bounded to one reader/bridge/build in the slot-exchange family, and sits beside a measured non-monotonicity that makes an equality-only witness unsafe. No axis, design, or placement is decided, and SI-28's floor is not relaxed |
 | SI-34 | yes | Open. Reopens whether the protection verdict belongs in the hashed body at all |
-| SI-35 | yes | **Open, axis decided.** ADR-0014 (2026-08-08) makes the privileged helper the sole author of ADR-C3's partition-table state, computed from its own raw-sector parser — the only contract measured to separate the decisive pair, `blkid`/`wipefs` having failed it too — with the client emitting no table state on any platform, the state living in the hashed body of helper-produced artifacts stamped at validation, and client artifacts staying unhashed-or-unbound hints. ADR-C4's guard is satisfied unamended; the fork's priced permission (decided separately 2026-08-08) goes unused. INV-003's `Present` face, deliberately parked here by SI-39's filing, resolves for the client — no table-state report means no forbidden consistency report — while the helper's detection duty stands per ADR-0013. Resolution waits on the parser, its Section 11.4 fuzz target, and the refusal demonstration on `gpt-conflicting-tables-512` that the evidence clause has always required. Two of its three acceptance-evidence categories were already complete; the third opened when the option was chosen and closes when the parser demonstrates refusal. The loop category is discharged by the descriptor-bound non-WSL run of 2026-08-03, valid on its third sitting: the historical WSL2 negative is confirmed on qualifying ground rather than merely repeated, and issue #94's non-qualification no longer applies. The Windows category is discharged by the completion rerun of 2026-08-04, which made all three declared refutation conditions evaluable over complete retained surfaces, refuted them, and answered the hybrid question the original run left unattempted. **No chosen-option refusal demonstration exists, because no option has been chosen** — that category cannot open until an option and an implementation exist. Neither completed run separates the decisive pair, chooses an option, or refutes the existential hypothesis that some client-readable interface could; each covers only the projection it enumerated. **The SI-38 gate is lifted**: spec 6.0.0 resolved that conflict by scoping INV-003 by privilege, so an SI-35 answer no longer picks a side of it implicitly. SI-35's own axis question — who computes ADR-C3's states, and from what contract — is unblocked and undecided |
 
 **SI-31 is resolved in spec 4.1.0 by ADR-C6.** Its answer is plain unsigned
 bytewise ordering over each element's full canonical encoding, for
@@ -669,8 +670,33 @@ Linux hardware, and macOS observability must all be established first.
 
 ## SI-35 The measured client projections do not separate ADR-C3's three table states
 
+> **Resolved 2026-08-09 in spec 8.0.0, by ADR-0014's axis carried to its
+> instrument.** The privileged helper is the sole author of ADR-C3's
+> partition-table state, from its own raw-sector parser
+> (`crates/table-parser`) — the only contract the completed campaign
+> found separating; the client emits no table state on any platform,
+> which resolves the `Present` face SI-39 parked here by construction
+> (no report, no forbidden report); the state lives in the hashed body,
+> helper-stamped at validation, ADR-C4's guard satisfied unamended; and
+> `Present`'s checksum is fixed over copy-invariant content per
+> `schemas/table-checksum.md`, closing the basis question open since
+> round one. The evidence clause's refusal demonstration is discharged
+> **at its honest scope**: the parser classifies the decisive
+> `gpt-conflicting-tables-512` as `Indeterminate`-ambiguous and
+> `gpt-both-copies-invalid-512` as `Indeterminate`-unreadable, both
+> mutation-verified, with claimed-never-`Absent` a searched fuzz
+> property — and what is **not** demonstrated, because it cannot exist
+> before increment 3, is an end-to-end refusal by a running write path.
+> **That re-demonstration is a named obligation on the first
+> write-capable increment**, in this banner rather than a review memory:
+> the increment that first wires a write path must show
+> `gpt-conflicting-tables-512` refused through SAFE-005 and PART-001's
+> categorical invariant, end to end, before any destructive capability
+> is represented as working. The filing and its evidence history below
+> are retained as the record.
+
 **Requirements:** ADR-C3, MODEL-005, PLAN-006, INV-003, SAFE-005, HLP-002 ·
-**Blocks 3, hash-visible**
+**Resolved** (was: blocks 3, hash-visible)
 
 > **Evidence status 2026-08-04: two of three acceptance categories are
 > satisfied; the third is blocked on a decision.** The loop category is
