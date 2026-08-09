@@ -144,6 +144,28 @@ fn table_mutations() -> Vec<Mutation> {
             },
         },
         Mutation {
+            fixture: "gpt-both-copies-invalid-512.img",
+            breaks: "the primary is repaired, so one authority remains and the table is \
+                     determinable after all",
+            expect: "still checksums",
+            apply: |bytes| repair_gpt(bytes, 512, 512),
+        },
+        Mutation {
+            fixture: "gpt-both-copies-invalid-512.img",
+            breaks: "the primary stops claiming to be a table, collapsing unreadable into absent",
+            expect: "collapse into absent",
+            apply: |bytes| bytes[512..520].fill(0),
+        },
+        Mutation {
+            fixture: "gpt-both-copies-invalid-512.img",
+            breaks: "the protective MBR stops asserting a GPT exists",
+            expect: "signature is gone",
+            apply: |bytes| {
+                bytes[510] = 0;
+                bytes[511] = 0;
+            },
+        },
+        Mutation {
             fixture: "gpt-missing-backup-512.img",
             breaks: "something reappears in the last sector",
             expect: "backup survives",

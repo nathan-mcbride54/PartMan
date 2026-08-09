@@ -155,6 +155,21 @@ fn gpt_expectations() -> Vec<ProberExpectation> {
                    watching rather than merely recording.",
         },
         ProberExpectation {
+            fixture: "gpt-both-copies-invalid-512.img",
+            fs_type: None,
+            fs_uuid: None,
+            fs_label: None,
+            part_table_type: Some("PMBR"),
+            signatures: &[(0x1fe, "PMBR")],
+            blkid_names_it_from: None,
+            note: "Neither corrupt copy is reported: a header that fails its CRC is invisible \
+                   to libblkid, exactly as the invalid-primary row already showed for one copy. \
+                   What survives is the protective MBR, so the probe falls back to PMBR — the \
+                   disk still claims a GPT exists and no tool can read one. The unprivileged \
+                   projection therefore shows this as indistinguishable from a 4Kn table probed \
+                   at the wrong sector size, which is its own small finding.",
+        },
+        ProberExpectation {
             fixture: "gpt-missing-backup-512.img",
             fs_type: None,
             fs_uuid: None,

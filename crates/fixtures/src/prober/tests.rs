@@ -312,7 +312,10 @@ fn the_comparison_is_capable_of_failing_in_every_direction() {
 /// over the whole catalogue.
 ///
 /// Recorded 2026-07-28 from `libblkid` 2.41.0 (util-linux 2.41, 18 March 2025)
-/// on Debian, probing the generated images as regular files. Pasted rather than
+/// on Debian, probing the generated images as regular files; the
+/// `gpt-both-copies-invalid-512.img` block was recorded 2026-08-09 from the
+/// same tool versions on the same distribution, when the SI-35 resolution
+/// round added that fixture. Pasted rather than
 /// summarized, escapes and column padding included, so the parsers are tested
 /// against what the tools emit rather than against a tidied version of it.
 ///
@@ -342,6 +345,9 @@ UDEV ID_PART_TABLE_TYPE=gpt
 WIPE 0x200    gpt
 WIPE 0x3ffe00 gpt
 WIPE 0x1fe    PMBR
+FIXTURE gpt-both-copies-invalid-512.img
+UDEV ID_PART_TABLE_TYPE=PMBR
+WIPE 0x1fe  PMBR
 FIXTURE gpt-conflicting-tables-512.img
 UDEV ID_PART_TABLE_UUID=7a1e9153-bef6-4752-9460-8c23898f2cbf
 UDEV ID_PART_TABLE_TYPE=gpt

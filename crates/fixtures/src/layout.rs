@@ -514,5 +514,16 @@ pub fn corrupt_primary_header_crc(image: &mut Image) {
     image.write_at(1, 16, &crc);
 }
 
+/// Flip one byte of the backup GPT header's own CRC, so the copy still
+/// claims to be a table ("EFI PART" survives) and no longer verifies —
+/// unreadable, never mistakable for absent.
+pub fn corrupt_backup_header_crc(image: &mut Image) {
+    let last = image.sectors() - 1;
+    let mut crc = [0_u8; 4];
+    crc.copy_from_slice(image.read(last, 16, 4));
+    crc[0] ^= 0xff;
+    image.write_at(last, 16, &crc);
+}
+
 #[cfg(test)]
 mod tests;
