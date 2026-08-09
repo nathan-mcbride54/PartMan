@@ -492,25 +492,33 @@ fn check_gpt_both_invalid(bytes: &[u8]) -> Result<(), String> {
     // degrades into the blank-media shape, which is a different fixture
     // and a different ADR-C3 state.
     if bytes[512..520] != *b"EFI PART" {
-        return Err("the primary no longer claims to be a table; unreadable must not \
+        return Err(
+            "the primary no longer claims to be a table; unreadable must not \
                     collapse into absent"
-            .to_owned());
+                .to_owned(),
+        );
     }
     let backup_offset = bytes.len() - 512;
     if bytes[backup_offset..backup_offset + 8] != *b"EFI PART" {
-        return Err("the backup no longer claims to be a table; unreadable must not \
+        return Err(
+            "the backup no longer claims to be a table; unreadable must not \
                     collapse into absent"
-            .to_owned());
+                .to_owned(),
+        );
     }
     if gpt_header(bytes, 512).is_some() {
-        return Err("the primary header still checksums, so one authority remains and \
+        return Err(
+            "the primary header still checksums, so one authority remains and \
                     this is the invalid-primary fixture, not this one"
-            .to_owned());
+                .to_owned(),
+        );
     }
     if gpt_header(bytes, backup_offset).is_some() {
-        return Err("the backup header still checksums, so one authority remains and \
+        return Err(
+            "the backup header still checksums, so one authority remains and \
                     the table is determinable"
-            .to_owned());
+                .to_owned(),
+        );
     }
     // The protective MBR must survive: it is what keeps asserting a GPT
     // exists while neither copy can be read, which is the unreadable arm's
