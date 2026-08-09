@@ -1163,10 +1163,11 @@ fn npm(directory: &Path, args: &[&str]) -> Result<(), TaskError> {
 }
 
 /// Every fuzz target in `fuzz/fuzz_targets`, in the order they are run.
-const FUZZ_TARGETS: [&str; 3] = [
+const FUZZ_TARGETS: [&str; 4] = [
     "decode_is_canonical",
     "roundtrip_value",
     "plist_bounds_hold",
+    "table_claims_never_vanish",
 ];
 
 /// `LibFuzzer`'s bounded execution contract, shared by smoke and long runs.
