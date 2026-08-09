@@ -22,6 +22,7 @@ libfuzzer-sys = "0.4"
 arbitrary = "1"
 partman-domain = { path = "../crates/domain" }
 partman-cli = { path = "../apps/cli" }
+partman-table-parser = { path = "../crates/table-parser" }
 
 [[bin]]
 name = "decode_is_canonical"
@@ -40,6 +41,13 @@ bench = false
 [[bin]]
 name = "plist_bounds_hold"
 path = "fuzz_targets/plist_bounds_hold.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "table_claims_never_vanish"
+path = "fuzz_targets/table_claims_never_vanish.rs"
 test = false
 doc = false
 bench = false

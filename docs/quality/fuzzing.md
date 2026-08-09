@@ -7,10 +7,11 @@ untriaged crashes or hangs.
 
 ## Targets
 
-`fuzz/fuzz_targets/` currently holds three. The first two drive the `pce/1`
+`fuzz/fuzz_targets/` currently holds four. The first two drive the `pce/1`
 codec, which is a plan and journal deserializer under Section 11.4's list;
 the third drives the CLI's bounded plist reader, a parser of externally
-supplied subprocess bytes.
+supplied subprocess bytes; the fourth drives the table parser, the SI-35
+resolution's classifier of raw on-disk table bytes.
 
 ### `decode_is_canonical`
 
@@ -80,6 +81,35 @@ row, which registered this target in the change that followed its landing —
 so the recorded hours-wide gap between "exists and builds" and "driven by
 every smoke and scheduled run" opened and closed as designed, two owners,
 two changes, neither ahead of its code.
+
+### `table_claims_never_vanish`
+
+Drives `crates/table-parser` — the SI-35 resolution's raw-sector
+classifier, ADR-0014's contract, and a Section 11.4 parser of on-disk
+metadata in the most literal sense. Asserts panic-freedom over arbitrary
+windows and geometry, that broken calls land in typed refusals, and the
+load-bearing safety line as a searched property:
+
+> A claimed table never classifies as `Absent`: if the head carries a
+> protective-MBR `0xEE` entry or a GPT magic at LBA 1, the answer is
+> `Present` or `Indeterminate`, never blank.
+
+That line is what PART-001's categorical invariant will key off, and a
+byte pattern that smuggled a claimed-but-mangled table into `Absent`
+would be the unreadable-collapses-into-absent conflation ADR-C4 refused.
+Reachability under the engine's 4,096-byte cap, stated exactly: claim
+shapes (magic, protective and hybrid MBRs) and every refusal arm are
+easily reachable; a fully CRC-valid GPT copy is corpus-dependent, so the
+`Present` paths rest primarily on the stable unit suite, which classifies
+every catalogue fixture and mutation-verifies both `Indeterminate` arms.
+What the target genuinely searches is the claimed-never-`Absent` line and
+panic-freedom over the grammar nobody hand-writes.
+
+What runs a target is `FUZZ_TARGETS` in `tools/xtask/src/main.rs`,
+WP-000's row, landing in the change that follows this one; until it does,
+this target exists and builds but no scheduled or smoke run drives it —
+the same recorded, hours-wide, two-owner gap the plist target's landing
+opened and closed, stated here for the same reason.
 
 ## The same property, on stable
 
