@@ -1,14 +1,14 @@
 # ADR-0015: A blank device is Strong where a contract positively determines absence
 
-- Status: **Proposed — awaiting acceptance by the decision owner. Nothing
-  below is in force, no spec version changes, and SI-39 remains Open until
-  this line is replaced by an acceptance record.**
-- Date: 2026-08-08 (drafted; the recommendation round of the same date is
-  the input, `docs/reviews/SI-39_RECOMMENDATION_ROUND_2026-08-08.md`)
-- Spec version: 7.0.0 (on acceptance; major under §0.1, and deliberately so
-  — see Decision)
-- Work packages blocked: WP-010 increment 3 (SI-39 resolved on acceptance;
-  SI-11, SI-27, SI-28, SI-33, SI-34, SI-35 unchanged)
+- Status: Accepted
+- Date: 2026-08-08. Accepted by Nate McBride the same day, from the same
+  day's adversarially reviewed recommendation round
+  (`docs/reviews/SI-39_RECOMMENDATION_ROUND_2026-08-08.md`, an untracked
+  session artifact; this ADR restates everything load-bearing from it).
+- Spec version: 7.0.0 (major under §0.1, and deliberately so — see
+  Decision)
+- Work packages blocked: WP-010 increment 3 (SI-39 resolved; SI-11,
+  SI-27, SI-28, SI-33, SI-34, SI-35 unchanged)
 - Requirement IDs: SAFE-003, INV-003, PART-001, HLP-002, SAFE-005, UI-009,
   ADR-C3, ADR-C4, Section 0.2
 - Decision owners: Nate McBride
@@ -148,7 +148,8 @@ safety the weak-identity path does not already provide.
 ## Decision
 
 Option (c), landed as spec 7.0.0's amendment to SAFE-003's derived
-sentence. **SI-39 moves to Resolved on acceptance.**
+sentence. **SI-39 moves to Resolved** — the register's first direct
+blocker resolved.
 
 **Major under §0.1, stated before anyone asks:** the amendment narrows
 what an existing requirement's text claims, which is a semantic change to
