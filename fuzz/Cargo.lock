@@ -134,6 +134,14 @@ dependencies = [
  "libfuzzer-sys",
  "partman-cli",
  "partman-domain",
+ "partman-table-parser",
+]
+
+[[package]]
+name = "partman-table-parser"
+version = "0.0.0"
+dependencies = [
+ "sha2",
 ]
 
 [[package]]
