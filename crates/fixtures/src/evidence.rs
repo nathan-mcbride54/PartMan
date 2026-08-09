@@ -237,6 +237,12 @@ pub fn claims() -> Vec<Claim> {
             check: check_gpt_conflicting,
         },
         Claim {
+            fixture: "gpt-both-copies-invalid-512.img",
+            property: "both copies claim tables and neither checksums — ADR-C3 Indeterminate \
+                       on the unreadable arm, never mistakable for blank",
+            check: check_gpt_both_invalid,
+        },
+        Claim {
             fixture: "gpt-missing-backup-512.img",
             property: "a valid primary with no backup at all",
             check: check_gpt_missing_backup,
@@ -478,6 +484,52 @@ fn check_gpt_invalid_primary(bytes: &[u8]) -> Result<(), String> {
     // entry array is all zeros checksums perfectly and restores a disk with no
     // partitions at all, which REC-001 would have nothing to do with.
     expect_partitions_usable(bytes, &backup, 512, 2)
+}
+
+fn check_gpt_both_invalid(bytes: &[u8]) -> Result<(), String> {
+    expect_length(bytes, FIXTURE_BYTES)?;
+    // Both copies must still CLAIM to be tables: erase the magic and this
+    // degrades into the blank-media shape, which is a different fixture
+    // and a different ADR-C3 state.
+    if bytes[512..520] != *b"EFI PART" {
+        return Err(
+            "the primary no longer claims to be a table; unreadable must not \
+                    collapse into absent"
+                .to_owned(),
+        );
+    }
+    let backup_offset = bytes.len() - 512;
+    if bytes[backup_offset..backup_offset + 8] != *b"EFI PART" {
+        return Err(
+            "the backup no longer claims to be a table; unreadable must not \
+                    collapse into absent"
+                .to_owned(),
+        );
+    }
+    if gpt_header(bytes, 512).is_some() {
+        return Err(
+            "the primary header still checksums, so one authority remains and \
+                    this is the invalid-primary fixture, not this one"
+                .to_owned(),
+        );
+    }
+    if gpt_header(bytes, backup_offset).is_some() {
+        return Err(
+            "the backup header still checksums, so one authority remains and \
+                    the table is determinable"
+                .to_owned(),
+        );
+    }
+    // The protective MBR must survive: it is what keeps asserting a GPT
+    // exists while neither copy can be read, which is the unreadable arm's
+    // defining shape.
+    if bytes[510..512] != [0x55, 0xaa] {
+        return Err("the protective MBR signature is gone".to_owned());
+    }
+    if bytes[450] != 0xee {
+        return Err("the protective MBR no longer carries its 0xEE partition".to_owned());
+    }
+    Ok(())
 }
 
 fn check_gpt_conflicting(bytes: &[u8]) -> Result<(), String> {

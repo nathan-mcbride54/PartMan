@@ -178,7 +178,7 @@ reports status only and never redefines either.
 | `xtask` single entry point works locally and in CI | Met |
 | Schemas versioned, with cross-language hash golden tests (MODEL-005) | Partial — the golden tests exist and gate CI; MODEL-003 schema versioning is not implemented |
 | CODEOWNERS enforces ownership | Partial — `cargo xtask verify-change-ownership` now rejects a diff touching paths outside the assignment its commits declare, judged against the base revision. CODEOWNERS itself still only requires an owner's review, and sub-file grants ("this package's own status rows") stay a review obligation no path checker can express |
-| T1 fixture generator produces images | Met — `cargo xtask fixtures` produces 13 images deterministically (WP-020 increment 1) |
+| T1 fixture generator produces images | Met — `cargo xtask fixtures` produces 14 images deterministically (WP-020 increment 1; the fourteenth, `gpt-both-copies-invalid-512`, added 2026-08-09 for the SI-35 resolution's unreadable arm) |
 | Accessibility harness runs | Partial — `cargo xtask tokens` computes UI-001/007/008 from `schemas/design-tokens.json` and gates CI (WP-030 increment 1). The rejected Slint report keeps all ten `G-AX-*` rows inconclusive; it confirms rather than closes the missing keyboard, screen-reader, zoom, text-spacing, high-contrast, rendered-state, and reduced-motion evidence |
 
 The three partial rows are tracked as known gaps in

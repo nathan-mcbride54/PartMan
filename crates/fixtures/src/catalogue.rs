@@ -79,6 +79,15 @@ pub fn catalogue() -> Vec<Fixture> {
             build: gpt_missing_backup,
         },
         Fixture {
+            name: "gpt-both-copies-invalid-512.img",
+            rationale: "ADR-C3 Indeterminate on the unreadable arm: both copies still claim \
+                        to be tables and neither checksums, while the protective MBR keeps \
+                        asserting a GPT exists. The SI-35 resolution round found this row of \
+                        the classification untestable without a fixture — added so the \
+                        both-copies-invalid case is measured, never prose",
+            build: gpt_both_copies_invalid,
+        },
+        Fixture {
             name: "hybrid-mbr-gpt-512.img",
             rationale: "INV-003 hybrid tables: one disk described twice, by two schemes that can \
                         disagree. SI-27 records this as a node-naming collision family",
@@ -174,6 +183,16 @@ fn mbr_basic() -> Image {
 fn gpt_invalid_primary() -> Image {
     let mut image = gpt_basic(SectorSize::B512, SECTORS_4MIB_512);
     layout::corrupt_primary_header_crc(&mut image);
+    image
+}
+
+/// A GPT where neither copy checksums: both headers still claim "EFI PART"
+/// and the protective MBR still asserts a GPT exists, so the table is
+/// unreadable — positively distinct from a disk that never had one.
+fn gpt_both_copies_invalid() -> Image {
+    let mut image = gpt_basic(SectorSize::B512, SECTORS_4MIB_512);
+    layout::corrupt_primary_header_crc(&mut image);
+    layout::corrupt_backup_header_crc(&mut image);
     image
 }
 
