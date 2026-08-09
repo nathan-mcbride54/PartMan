@@ -106,10 +106,9 @@ What the target genuinely searches is the claimed-never-`Absent` line and
 panic-freedom over the grammar nobody hand-writes.
 
 What runs a target is `FUZZ_TARGETS` in `tools/xtask/src/main.rs`,
-WP-000's row, landing in the change that follows this one; until it does,
-this target exists and builds but no scheduled or smoke run drives it —
-the same recorded, hours-wide, two-owner gap the plist target's landing
-opened and closed, stated here for the same reason.
+WP-000's row, which registered this target in the change that followed
+its landing — the recorded two-owner gap opened and closed as designed a
+second time, neither change ahead of its code.
 
 ## The same property, on stable
 
@@ -195,8 +194,8 @@ it can be attached to a report rather than committed.
 The `Maintenance` workflow runs every Monday at 06:00 UTC and is also manually
 triggerable. It restores the newest earlier `fuzz/corpus/` cache, gives each
 current target 900 seconds, and saves the expanded corpus under an immutable
-per-run key. A scheduled run therefore explores for 45 minutes across the
-three current targets and starts from discoveries made by earlier successful
+per-run key. A scheduled run therefore explores for 60 minutes across the
+four current targets and starts from discoveries made by earlier successful
 runs; the pull-request job remains a fresh 60-second-per-target smoke pass.
 
 The [first full maintenance
