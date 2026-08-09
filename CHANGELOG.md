@@ -7,6 +7,32 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **The table parser lands: ADR-0014's contract becomes code, and the
+  SI-35 refusal demonstration's classification half runs at Tier 1.**
+  `crates/table-parser` (reserved by the 2026-08-09 governance change) is
+  the pure, bounded, `unsafe`-free classifier of caller-supplied head and
+  tail windows — the exact shape M10 measured as separating — into
+  ADR-C3's three states: GPT both-copies parsing with header and
+  entry-array CRC validation, MBR protective/hybrid/standalone reading,
+  APM recognition, no I/O, no process, no Section 5 type. The accepted
+  classification table holds against every catalogue fixture, in tests
+  that build the images in memory from source: the decisive
+  `gpt-conflicting-tables-512` classifies `Indeterminate` on the
+  ambiguous arm (mutation-verified: a parser that crowns the primary
+  fails the test by name), `gpt-both-copies-invalid-512` on the
+  unreadable arm (mutation-verified against the absent-collapse),
+  one-valid-authority shapes are `Present` with their condition per the
+  fixtures' own recorded claims, and every signature-only medium is
+  `Absent` — which says nothing about data. The `Present` checksum is
+  SHA-256 over copy-invariant content, proven copy-invariant by the
+  fixture pair that shares one table across different carrying copies;
+  probing a 4Kn medium under a 512-byte contract answers
+  `Indeterminate`, reproducing the measured libblkid trap honestly. The
+  state type carries no proceed-enabling reading, pinned by source scan.
+  Its Section 11.4 fuzz target follows in this chain's next change,
+  searching the load-bearing line: a claimed table never classifies as
+  `Absent`.
+
 - **ADR-0014 fixes SI-35's axis: the helper is the sole author of
   partition-table state.** Drafted and accepted 2026-08-08 from two
   adversarially reviewed rounds the same day — the ADR-C4 guard fork

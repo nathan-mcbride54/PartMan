@@ -1,0 +1,22 @@
+[package]
+name = "partman-table-parser"
+description = "Pure, bounded classification of partition-table bytes into ADR-C3's states (SI-35 resolution, ADR-0014)"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+# The Present{checksum} digest. Same pinned major as the rest of the
+# workspace; no new supply-chain surface.
+sha2 = { version = "0.11.0", default-features = false }
+
+[dev-dependencies]
+# Tests classify the catalogue's images, built in memory from source — no
+# file I/O, no device, and the fixtures' own evidence claims stay the
+# single source of what each image is.
+partman-fixtures = { path = "../fixtures" }
