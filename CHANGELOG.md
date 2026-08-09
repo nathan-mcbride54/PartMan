@@ -7,6 +7,35 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **ADR-0014 fixes SI-35's axis: the helper is the sole author of
+  partition-table state.** Drafted and accepted 2026-08-08 from two
+  adversarially reviewed rounds the same day — the ADR-C4 guard fork
+  (decided separately: the guard is a priced permission, four conditions,
+  recorded inside the ADR) and the axis round itself. Two measured facts
+  drove it: nothing separates the decisive GPT pair except raw sector
+  bytes — every client projection on three platforms failed, and so did
+  the privileged `blkid`/`wipefs` probes — and ADR-C3's `Present` means
+  "read and hashed," which no denied-raw-read client can produce. So the
+  helper computes all three states from its own raw-sector parser (a
+  Section 11.4 fuzz-obligated parser, landing later), the client emits no
+  table state on any platform — which also resolves INV-003's `Present`
+  face for the client, parked at SI-35 by SI-39's filing — and the state
+  lives in the hashed body of helper-produced artifacts, stamped at
+  validation, where the flow already puts the helper before the user's
+  hash-bound authorization. ADR-C4's guard is satisfied unamended; the
+  fork's priced permission goes unused. The sweep the axis round demanded
+  found the structural confirmation: PLAN-006's body-hash equality plus
+  Section 6's bound source-snapshot hash require the authorized plan to
+  bind a validation-produced snapshot, so client views are proposals and
+  the user authorizes what the helper established. **SI-35 stays Open,
+  axis decided** (the ADR-0012 shape): resolution waits on the parser and
+  its refusal demonstration on `gpt-conflicting-tables-512`. No spec text
+  changes with this ADR — the amendments it necessitates (PART-001's
+  categorical invariant, ADR-C2's authoring verb, Section 6's
+  bound-at-validation wording, the client prohibition) are enumerated in
+  its Consequences and land with the resolution round. The register's
+  direct-blocker count is unchanged.
+
 - **spec-change 7.0.0: SI-39 is resolved by ADR-0015.** SAFE-003's
   blank-can-be-Strong derivation is scoped to the observing contract.
   Drafted 2026-08-08 from the same day's adversarially reviewed
