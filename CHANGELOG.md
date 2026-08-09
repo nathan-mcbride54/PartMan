@@ -7,6 +7,25 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **spec-change 8.0.0: SI-35 is resolved.** The chain the 2026-08-09
+  resolution round accepted closes with the normative instrument: the
+  four amendments ADR-0014's Consequences enumerated before any was
+  drafted (PART-001's categorical helper invariant — the major;
+  MODEL-005's named authoring-at-validation verb, closed to the one
+  field only the helper derives; Section 6 binding the
+  validation-produced snapshot hash; INV-003 stating the
+  client-emits-no-table-state consequence in terms), plus the
+  `Present {checksum}` basis open since round one, fixed over
+  copy-invariant content in `schemas/table-checksum.md`. The refusal
+  demonstration is discharged at its honest scope — classification of
+  both decisive fixtures, mutation-verified, with claimed-never-`Absent`
+  a searched fuzz property — and the end-to-end write-path
+  re-demonstration is a named obligation on the first write-capable
+  increment, recorded in SI-35's resolution banner rather than a review
+  memory. The register's gate on increment 3 drops to eight items, five
+  direct: SI-11, SI-27, SI-28, SI-33, SI-34. Chain: #185 governance,
+  #186 fixture, #187 parser, #188 fuzz target, #189 registration, this.
+
 - **The table parser lands: ADR-0014's contract becomes code, and the
   SI-35 refusal demonstration's classification half runs at Tier 1.**
   `crates/table-parser` (reserved by the 2026-08-09 governance change) is
