@@ -52,33 +52,34 @@ SI-31 — which made the register unusable as the dependency gate Section 1.11
 requires it to be. Counts drift; a table that must be edited to add a row does
 not.
 
-Every issue appears exactly once. **Eight items gate increment 3**: five direct
+Every issue appears exactly once. **Seven items gate increment 3**: four direct
 and three inputs. Two former transitive blockers are resolved: SI-12 in spec
-4.3.0 by ADR-0011, and SI-38 in spec 6.0.0 by ADR-0013. Two direct blockers
-are resolved: SI-39 in spec 7.0.0 by ADR-0015, and SI-35 in spec 8.0.0 by
+4.3.0 by ADR-0011, and SI-38 in spec 6.0.0 by ADR-0013. Three direct blockers
+are resolved: SI-39 in spec 7.0.0 by ADR-0015, SI-35 in spec 8.0.0 by
 ADR-0014's axis carried to its instrument — the register's first
-measurement-born direct blocker to close end to end. SI-36 is withdrawn and
+measurement-born direct blocker to close end to end — and SI-34 in spec
+9.0.0 by ADR-0016, the placement question closed by the architecture the
+SI-35 resolution built. SI-36 is withdrawn and
 gates nothing.
 
 | Class | Meaning | Issues |
 | --- | --- | --- |
-| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-12, SI-31, SI-32, SI-35, SI-38, SI-39 |
-| **Direct blocker** | Must be decided before increment 3 writes a type | SI-11, SI-27, SI-28, SI-33, SI-34 |
+| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-12, SI-31, SI-32, SI-34, SI-35, SI-38, SI-39 |
+| **Direct blocker** | Must be decided before increment 3 writes a type | SI-11, SI-27, SI-28, SI-33 |
 | **Transitive blocker** | A separately sequenced prerequisite decision that must resolve before a direct blocker can be decided | *(none)* |
 | **Input** | A subquestion or evidence case resolved within the consuming direct blocker's decision | SI-29, SI-30, SI-37 (all to SI-11) |
 | **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-15, SI-16, SI-17, SI-18, SI-19, SI-20, SI-21, SI-22, SI-23, SI-24, SI-25, SI-26 |
 | **Withdrawn** | Retained as history after the filing was shown not to be a conflict | SI-36 |
 
-The direct blockers, with the state each is actually in — not all five are
+The direct blockers, with the state each is actually in — not all four are
 simply "undecided":
 
 | Issue | Hash-visible | State |
 | --- | --- | --- |
-| SI-11 | yes | Open, axis decided. ADR-0012 (spec 4.4.0) makes a mutating step naming a client-visible Section 2.1 non-goal node unrepresentable and retains helper recomputation. Round four still includes total fail-closed verdicts, downward reach without sibling capture, device-scope inheritance, per-operation status, step construction and decode checks over structural effects, exhaustive PART-014 classification, and the affected-set/bind-set obligations retained in Part 6. SI-29 and SI-30 retain the Storage Spaces and sealed-volume classification cases; SI-37 supplies the unequal-identifier multipath coverage case. SI-27 retains naming and edge typing; SI-34 retains verdict placement |
+| SI-11 | yes | Open, axis decided. ADR-0012 (spec 4.4.0) makes a mutating step naming a client-visible Section 2.1 non-goal node unrepresentable and retains helper recomputation. Round four still includes total fail-closed verdicts, downward reach without sibling capture, device-scope inheritance, per-operation status, step construction and decode checks over structural effects, exhaustive PART-014 classification, and the affected-set/bind-set obligations retained in Part 6. SI-29 and SI-30 retain the Storage Spaces and sealed-volume classification cases; SI-37 supplies the unequal-identifier multipath coverage case. SI-27 retains naming and edge typing. **ADR-0016 (9.0.0) adds a hard input**: the verdict binds to a named, deterministic helper evidence contract with measured re-probe stability — an unnamed evidence set is round two's refuted premise returned. Verdict placement itself is resolved (body, helper-authored at validation) and is no longer this round's to decide |
 | SI-27 | yes | Open. SI-12 resolved in 4.3.0 (ADR-0011), so the naming round proceeds without product deduplication. It must name both Weak and Strong equal-identifier simultaneous collisions without merging them, type the kernel-reported multipath membership edge, and preserve node identity under the accepted stability rules. SI-37, not SI-27, owns the fail-closed detection gap for unassembled paths whose identifiers differ |
 | SI-28 | yes | **Mitigated-open.** An interim conservative floor is in force and does not resolve it; Part 7 |
 | SI-33 | no | Open. The route by which SI-28's floor may later be relaxed. **Its liveness precondition is discharged (2026-08-05)** — the counter moved on immediate re-read and after a sixty-second idle gap, and survived close-before-event/reopen in 3/3 trials — so it is no longer a hypothesis. The positive cannot be attributed to exchange-synchronous detection, is bounded to one reader/bridge/build in the slot-exchange family, and sits beside a measured non-monotonicity that makes an equality-only witness unsafe. No axis, design, or placement is decided, and SI-28's floor is not relaxed |
-| SI-34 | yes | Open. Reopens whether the protection verdict belongs in the hashed body at all |
 
 **SI-31 is resolved in spec 4.1.0 by ADR-C6.** Its answer is plain unsigned
 bytewise ordering over each element's full canonical encoding, for
@@ -565,7 +566,34 @@ pass, so fold all three into one spec change rather than three.
 
 ## SI-34 Should the derived protection verdict be frozen into the hashed body?
 
-**Requirements:** MODEL-005, PLAN-006, HLP-002, CAP-007, SAFE-005, Section 0.2 · **Blocks 3, hash-visible**
+> **Resolved 2026-08-09 in spec 9.0.0 by ADR-0016.** Yes — and the
+> premise that made yes dangerous is gone. The verdict is hashed-body
+> content, **helper-authored at validation** from a named evidence
+> contract, recomputed at revalidation and before first write, any
+> within-target divergence rejecting under SAFE-003/PLAN-006's existing
+> rules. The filed options all bridged a two-observer world ADR-0014
+> removed: no client authors any bindable artifact, so option (c)'s
+> freshness projection and monotone floor — and its two open
+> dependencies, projection membership and the monotonicity proof —
+> dissolve with the second author, while (c)'s point survives by
+> construction: a client cannot weaken the safety decision, because no
+> client claim is representable. The evidence clause is discharged at
+> its honest scope: the both-views stale-signature comparison is
+> measured on real Linux (L10, both directions, double-capture-stable)
+> and on macOS (M7 client-blind; M10 helper-distinct — the currency
+> note below predated M10's taking and its "cannot be measured until
+> M10 exists" is corrected by that taking); the client-permitted-loses
+> contest dissolves unrepresentable. **What is not demonstrated,
+> because no write path exists to demonstrate it on, is named here as
+> obligations on the first write-capable increment, beside SI-35's:** a
+> helper-only fact that changes protection rejects before the first
+> write with a structured divergence, and out-of-target evidence blocks
+> nothing — both on the stale-signature fixture family,
+> mutation-verified. The verdict's internal shape stays SI-11's, with
+> ADR-0016's named-contract requirement as a hard input; naming stays
+> SI-27's. The filing and its history below are retained as the record.
+
+**Requirements:** MODEL-005, PLAN-006, HLP-002, CAP-007, SAFE-005, Section 0.2 · **Resolved** (was: blocks 3, hash-visible)
 
 Filed after a project review, and after the measurement that reopened it. This
 issue exists because the answer was previously treated as settled using a

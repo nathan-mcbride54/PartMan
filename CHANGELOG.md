@@ -7,6 +7,34 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **spec-change 9.0.0: SI-34 is resolved by ADR-0016.** The derived
+  protection verdict is hashed-body content, helper-authored at
+  validation — ADR-0014's architecture applied to the second and last
+  field only the helper derives, in the adversarial round the register
+  recorded that option (c) never had. Major, because it changes what
+  8.0.0's closed authoring-set sentence claims: the set holds exactly
+  two named entries and stays closed to creep. The filed options all
+  bridged a two-observer world 8.0.0 removed — (a)'s clamp blinded the
+  helper for an agreement no longer needed, (b) un-authenticated the
+  value the user most needs bound, and (c)'s
+  freshness-projection-plus-floor machinery dissolves with the second
+  author, its two open dependencies (projection membership, the
+  monotonicity proof) having been costs of bridging authors. What
+  survives of (c) is its point, by construction: a client cannot weaken
+  the safety decision, because no client claim is representable in a
+  bindable artifact. Within-target divergence between stamp and
+  recomputation rejects under existing SAFE-003/PLAN-006 rules; the
+  journaled-continue relaxation is foreseen, not foreclosed. The round's
+  sharpest finding transfers to SI-11 as a hard input — the verdict
+  binds to a named, deterministic helper evidence contract with measured
+  re-probe stability, the intra-helper wipefs/blkid asymmetry making an
+  unnamed set round two's refuted premise returned. Write-path
+  demonstrations are named obligations on the first write-capable
+  increment, in the resolution banner beside SI-35's. The entry's stale
+  M10-not-taken currency is corrected in the same change. The register's
+  gate on increment 3 drops to seven items, four direct: SI-11, SI-27,
+  SI-28, SI-33.
+
 - **spec-change 8.0.0: SI-35 is resolved.** The chain the 2026-08-09
   resolution round accepted closes with the normative instrument: the
   four amendments ADR-0014's Consequences enumerated before any was
