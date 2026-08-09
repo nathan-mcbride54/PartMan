@@ -81,9 +81,39 @@ struct Mutation {
 /// catalogue on this branch and the entire 64-test suite stayed green.
 fn mutations() -> Vec<Mutation> {
     let mut all = table_mutations();
+    all.extend(both_invalid_mutations());
     all.extend(partition_mutations());
     all.extend(signature_mutations());
     all
+}
+
+/// Mutations against the both-copies-invalid fixture, one per arm of its
+/// three-property claim.
+fn both_invalid_mutations() -> Vec<Mutation> {
+    vec![
+        Mutation {
+            fixture: "gpt-both-copies-invalid-512.img",
+            breaks: "the primary is repaired, so one authority remains and the table is \
+                     determinable after all",
+            expect: "still checksums",
+            apply: |bytes| repair_gpt(bytes, 512, 512),
+        },
+        Mutation {
+            fixture: "gpt-both-copies-invalid-512.img",
+            breaks: "the primary stops claiming to be a table, collapsing unreadable into absent",
+            expect: "collapse into absent",
+            apply: |bytes| bytes[512..520].fill(0),
+        },
+        Mutation {
+            fixture: "gpt-both-copies-invalid-512.img",
+            breaks: "the protective MBR stops asserting a GPT exists",
+            expect: "signature is gone",
+            apply: |bytes| {
+                bytes[510] = 0;
+                bytes[511] = 0;
+            },
+        },
+    ]
 }
 
 /// Mutations that damage a table's structure outright.
@@ -141,28 +171,6 @@ fn table_mutations() -> Vec<Mutation> {
             apply: |bytes| {
                 let last = bytes.len() - 512;
                 bytes[last + 24] ^= 0xff;
-            },
-        },
-        Mutation {
-            fixture: "gpt-both-copies-invalid-512.img",
-            breaks: "the primary is repaired, so one authority remains and the table is \
-                     determinable after all",
-            expect: "still checksums",
-            apply: |bytes| repair_gpt(bytes, 512, 512),
-        },
-        Mutation {
-            fixture: "gpt-both-copies-invalid-512.img",
-            breaks: "the primary stops claiming to be a table, collapsing unreadable into absent",
-            expect: "collapse into absent",
-            apply: |bytes| bytes[512..520].fill(0),
-        },
-        Mutation {
-            fixture: "gpt-both-copies-invalid-512.img",
-            breaks: "the protective MBR stops asserting a GPT exists",
-            expect: "signature is gone",
-            apply: |bytes| {
-                bytes[510] = 0;
-                bytes[511] = 0;
             },
         },
         Mutation {
