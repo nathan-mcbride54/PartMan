@@ -7,6 +7,29 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **spec-change 10.0.0: SI-33 is resolved by ADR-0017.** The continuity
+  witness exists and is a refusal input, never an assurance: an
+  epoch-token/counter field of SAFE-003's identity record —
+  client-readable and helper-verified like a serial, deliberately not a
+  MODEL-005 authoring-set entry, the set staying closed at two — scoped
+  to exchange-capable targets on qualified apparatus, one qualified
+  today. The semantics are the measurements': comparable only within an
+  unchanged epoch token and never on a decrease (a reset the token
+  failed to witness, the adversarial round's finding), movement or
+  incomparability rejecting covered targets under the existing
+  identity-change rule, and `no-exchange-observed` — the liveness
+  ceiling's own words, the vocabulary's strongest — relaxing nothing
+  anywhere, so staleness on unmeasured hardware costs exactly the
+  assurance that was never claimed. The S4-measured undetectable vector
+  — swap between plan and apply on media whose every identifier is
+  identical — becomes a refusal where the apparatus is qualified.
+  SI-28's floor and Mitigated-open state are untouched; the relaxation
+  route is ADR-0017's named revisit condition. SI-33 becomes
+  hash-visible through the placement this resolution decided, and its
+  row is corrected. Major, because an existing requirement's record
+  contents change. The gate on increment 3 drops to six items, three
+  direct: SI-11, SI-27, SI-28.
+
 - **spec-change 9.0.0: SI-34 is resolved by ADR-0016.** The derived
   protection verdict is hashed-body content, helper-authored at
   validation — ADR-0014's architecture applied to the second and last
