@@ -52,15 +52,16 @@ SI-31 — which made the register unusable as the dependency gate Section 1.11
 requires it to be. Counts drift; a table that must be edited to add a row does
 not.
 
-Every issue appears exactly once. **Ten items gate increment 3**: seven direct
+Every issue appears exactly once. **Nine items gate increment 3**: six direct
 and three inputs. Two former transitive blockers are resolved: SI-12 in spec
-4.3.0 by ADR-0011, and SI-38 in spec 6.0.0 by ADR-0013. SI-36 is withdrawn
-and gates nothing.
+4.3.0 by ADR-0011, and SI-38 in spec 6.0.0 by ADR-0013. SI-39, the register's
+one direct blocker resolved to date, resolved in spec 7.0.0 by ADR-0015.
+SI-36 is withdrawn and gates nothing.
 
 | Class | Meaning | Issues |
 | --- | --- | --- |
-| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-12, SI-31, SI-32, SI-38 |
-| **Direct blocker** | Must be decided before increment 3 writes a type | SI-11, SI-27, SI-28, SI-33, SI-34, SI-35, SI-39 |
+| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-12, SI-31, SI-32, SI-38, SI-39 |
+| **Direct blocker** | Must be decided before increment 3 writes a type | SI-11, SI-27, SI-28, SI-33, SI-34, SI-35 |
 | **Transitive blocker** | A separately sequenced prerequisite decision that must resolve before a direct blocker can be decided | *(none)* |
 | **Input** | A subquestion or evidence case resolved within the consuming direct blocker's decision | SI-29, SI-30, SI-37 (all to SI-11) |
 | **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-15, SI-16, SI-17, SI-18, SI-19, SI-20, SI-21, SI-22, SI-23, SI-24, SI-25, SI-26 |
@@ -77,7 +78,6 @@ simply "undecided":
 | SI-33 | no | Open. The route by which SI-28's floor may later be relaxed. **Its liveness precondition is discharged (2026-08-05)** — the counter moved on immediate re-read and after a sixty-second idle gap, and survived close-before-event/reopen in 3/3 trials — so it is no longer a hypothesis. The positive cannot be attributed to exchange-synchronous detection, is bounded to one reader/bridge/build in the slot-exchange family, and sits beside a measured non-monotonicity that makes an equality-only witness unsafe. No axis, design, or placement is decided, and SI-28's floor is not relaxed |
 | SI-34 | yes | Open. Reopens whether the protection verdict belongs in the hashed body at all |
 | SI-35 | yes | Open. Two of its three acceptance-evidence categories are now complete, and the third is blocked on a decision rather than a measurement. The loop category is discharged by the descriptor-bound non-WSL run of 2026-08-03, valid on its third sitting: the historical WSL2 negative is confirmed on qualifying ground rather than merely repeated, and issue #94's non-qualification no longer applies. The Windows category is discharged by the completion rerun of 2026-08-04, which made all three declared refutation conditions evaluable over complete retained surfaces, refuted them, and answered the hybrid question the original run left unattempted. **No chosen-option refusal demonstration exists, because no option has been chosen** — that category cannot open until an option and an implementation exist. Neither completed run separates the decisive pair, chooses an option, or refutes the existential hypothesis that some client-readable interface could; each covers only the projection it enumerated. **The SI-38 gate is lifted**: spec 6.0.0 resolved that conflict by scoping INV-003 by privilege, so an SI-35 answer no longer picks a side of it implicitly. SI-35's own axis question — who computes ADR-C3's states, and from what contract — is unblocked and undecided |
-| SI-39 | yes | Open, filed 2026-08-05. SAFE-003 says "A blank device can therefore be Strong"; INV-003, as ADR-0013 amended it in spec 6.0.0, forbids the unprivileged layer reporting "a medium as positively without a table" where its contract does not separate that case; and the macOS increment 6 matrix measured exactly that non-separation. So on macOS a client may not report `Absent`, cannot positively determine the state, and the device cannot be Strong — which is what SAFE-003 says it can be. Created by ADR-0013 hours before it was found, whose adversarial round did not reach SAFE-003. Its `Present` face reaches all three platforms and overlaps SI-35; that face is deliberately left undecided here |
 
 **SI-31 is resolved in spec 4.1.0 by ADR-C6.** Its answer is plain unsigned
 bytewise ordering over each element's full canonical encoding, for
@@ -1124,8 +1124,26 @@ were untouched by this filing and remain so.
 
 ## SI-39 SAFE-003 says a blank device can be Strong; INV-003 forbids the client saying so
 
+> **Resolved 2026-08-08 in spec 7.0.0 by ADR-0015.** SAFE-003's
+> blank-can-be-Strong derivation is scoped to the observing contract; the
+> strength rule itself is untouched, so Strong means the same thing on
+> every platform and only the attainable population varies. On a platform
+> whose client contract does not separate the absent case — macOS, by the
+> increment 6 measurement this filing rests on — client-derived records
+> for blank media are Weak by the rule's own terms, PART-001 routes
+> through the weak-identity path whose pre-apply re-probe is the
+> separating observation (M10), and the plan's claim is "initialize this
+> device, which the client could not distinguish from occupied," never
+> "this medium is blank." Rejected and recorded in the ADR: reach-relative
+> strength (weakens the guarantee, not the population), reportable-`Absent`
+> under caveat (the recorded data-loss path), a split client/helper
+> strength vocabulary, and option (d) retained as a self-executing revisit
+> condition rather than a resolution. The `Present` face of INV-003's
+> sentence stays deliberately with SI-35, exactly as filed. The filing
+> below is retained as history.
+
 **Requirements:** SAFE-003, INV-003, ADR-C3, ADR-C4, MODEL-005, Section 0.2 ·
-**Direct blocker, hash-visible**
+**Resolved** (was: direct blocker, hash-visible)
 
 Filed 2026-08-05 from a measurement and an adversarial review. Section 0.2
 requires this filing rather than permitting it: "If two requirements in this
