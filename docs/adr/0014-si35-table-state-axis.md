@@ -1,13 +1,11 @@
 # ADR-0014: The helper is the sole author of partition-table state
 
-- Status: **Proposed — awaiting acceptance by the decision owner. The
-  *axis* this drafts was accepted by Nate McBride on 2026-08-08 from the
-  same day's adversarially reviewed round
-  (`docs/reviews/SI-35_AXIS_ROUND_2026-08-08.md`, untracked session
-  artifact; everything load-bearing is restated here). This text is its
-  instrument and awaits its own acceptance; until this line is replaced
-  by an acceptance record, SI-35's register row does not change.**
-- Date: 2026-08-08
+- Status: Accepted
+- Date: 2026-08-08. The axis was accepted by Nate McBride from the same
+  day's adversarially reviewed round
+  (`docs/reviews/SI-35_AXIS_ROUND_2026-08-08.md`, an untracked session
+  artifact; everything load-bearing is restated here), and this text was
+  accepted by Nate McBride the same day as its instrument.
 - Spec version: none — deliberately. This ADR fixes a design axis inside
   the specification's existing texts; the normative amendments it makes
   necessary are enumerated under Consequences and land with SI-35's
