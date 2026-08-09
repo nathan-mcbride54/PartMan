@@ -7,6 +7,41 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **spec-change 7.0.0: SI-39 is resolved by ADR-0015.** SAFE-003's
+  blank-can-be-Strong derivation is scoped to the observing contract.
+  Drafted 2026-08-08 from the same day's adversarially reviewed
+  recommendation round; **acceptance is recorded in the ADR itself and
+  this entry lands only with it** — an unaccepted draft of this entry on a
+  branch is a proposal, not a change.
+
+  The conflict was measured: INV-003 (6.0.0) forbids the client reporting
+  a medium as positively without a table where its contract does not
+  separate that case; the macOS matrix measured `blank-512` as
+  byte-identical to four occupied media; so no macOS client-derived blank
+  record is positively determined, while SAFE-003 said such a device can
+  be Strong. The repair is scoped to the one false sentence: **the
+  strength rule is untouched**, Strong keeps one invariant meaning
+  everywhere, and only the attainable population varies by contract —
+  which is what rejected reach-relative strength (option (a)). Rejected
+  with it, and recorded in the ADR: reportable-`Absent` under caveat (the
+  recorded data-loss path — PART-001 initializes blank media), a split
+  client/helper strength vocabulary, and a hoped-for separating interface
+  (kept as a self-executing revisit condition, since the contract-relative
+  wording restores client-side Strong without amendment if one is ever
+  measured).
+
+  The accepted consequence, stated rather than smoothed: on macOS, blank
+  media carry Weak identity at plan time — PART-001 initialization takes
+  typed device-name confirmation, an immediate pre-apply re-probe (M10
+  measured the re-probe's observer as the one that separates), and no
+  unattended apply without the recorded override. The plan's claim on
+  such media is "initialize this device, which the client could not
+  distinguish from occupied," never "this medium is blank." **Major under
+  §0.1** — it narrows an existing requirement's claim, the class 3.1.0
+  mis-numbered. SI-39 moves to Resolved, the register's gate on
+  increment 3 drops to nine items (six direct), and SI-35's `Present`
+  face stays deliberately untouched.
+
 - **WP-035 increment 9 delivers the macOS enumeration adapter** (2026-08-08),
   on the decided bounded-reader route: no dependency taken, the
   empty-dependency-closure guard intact, and a hand-written XML plist reader
