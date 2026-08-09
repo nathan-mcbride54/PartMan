@@ -7,6 +7,33 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **spec-change 11.1.0: SI-27 is resolved by ADR-0019, on its round
+  four.** Node identifiers are derived, kind-discriminated positional
+  addresses — the surviving decomposition kept: an address, never a
+  device identity — computed from fields ADR-0018's evidence contract
+  reads, canonicalized by the contract's one named source per platform
+  verbatim, recomputed at every decode by the schema-validation pass,
+  which rejects unknown referents. Equal derived addresses collapse
+  before encoding into counted, flagged, indeterminate collision
+  groups whose operands are blocked pairwise — the representation of
+  the ambiguity ADR-0011/SAFE-005 already declare, preserving two-ness
+  and never silent, with the whole-host unencodability failure the
+  register's governing finding condemns impossible by construction.
+  The ancestor-only address property is a committed property test;
+  nothing re-designates on a duplicate-designator clone. The four
+  collision families each get a mechanism: the platform-membership
+  edge (typed; path-set encoding untouched, deferred per ADR-0011),
+  BackingExtent with the host-backing edge (closing CONC-001's empty
+  loop-device bind set and round three's own-fixtures-collide defect),
+  offset-qualified signature addresses (the stale pair is the
+  committed two-address regression), and role-discriminated table
+  views with partitions re-parented onto the table and verbatim
+  conflicting-entry evidence scoped by ADR-0018's closure. The
+  preserved-unknown budgets are fixed and the redaction rule
+  versioned. Minor: Section 5 and MODEL-002 gain additions, LIN-006's
+  deferred-edge-kind clause gains its promised pointer, no existing
+  claim narrows. The gate on increment 3 drops to one item: SI-28.
+
 - **spec-change 11.0.0: SI-11 is resolved by ADR-0018, on the fourth
   round.** The protection closure is computed, total, and fail-closed.
   Per-node verdicts are three-valued with an `Indeterminate` residual —

@@ -52,37 +52,39 @@ SI-31 — which made the register unusable as the dependency gate Section 1.11
 requires it to be. Counts drift; a table that must be edited to add a row does
 not.
 
-Every issue appears exactly once. **Two items gate increment 3**, both
-direct: SI-27 and SI-28. Two former transitive blockers are resolved: SI-12
-in spec 4.3.0 by ADR-0011, and SI-38 in spec 6.0.0 by ADR-0013. Five direct
+Every issue appears exactly once. **One item gates increment 3: SI-28.**
+Two former transitive blockers are resolved: SI-12
+in spec 4.3.0 by ADR-0011, and SI-38 in spec 6.0.0 by ADR-0013. Six direct
 blockers are resolved: SI-39 in spec 7.0.0 by ADR-0015, SI-35 in spec 8.0.0
 by ADR-0014's axis carried to its instrument — the register's first
 measurement-born direct blocker to close end to end — SI-34 in spec 9.0.0
 by ADR-0016, the placement question closed by the architecture the SI-35
 resolution built, SI-33 in spec 10.0.0 by ADR-0017, the witness
-designed inside its own measured limits, and SI-11 — the register's
+designed inside its own measured limits, SI-11 — the register's
 longest-running direct blocker, four rounds — in spec 11.0.0 by ADR-0018,
 the protection closure computed, total, and fail-closed, with SI-29 and
-SI-30 resolved within its decision and SI-37 reclassified: open, off this
+SI-30 resolved within its decision and SI-37 reclassified (open, off this
 gate, its dual-path matrix now the acceptance evidence for relaxing the
-populations the closure blocks rather than a precondition on the type.
-SI-36 is withdrawn and gates nothing.
+populations the closure blocks rather than a precondition on the type),
+and SI-27 in spec 11.1.0 by ADR-0019 — node names as derived positional
+addresses whose collisions produce counted, indeterminate, always-encodable
+groups, the two new edge kinds typed, the theorem re-proof handed to
+increment 3 as a property test. SI-36 is withdrawn and gates nothing.
 
 | Class | Meaning | Issues |
 | --- | --- | --- |
-| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-11, SI-12, SI-29, SI-30, SI-31, SI-32, SI-33, SI-34, SI-35, SI-38, SI-39 |
-| **Direct blocker** | Must be decided before increment 3 writes a type | SI-27, SI-28 |
+| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-11, SI-12, SI-27, SI-29, SI-30, SI-31, SI-32, SI-33, SI-34, SI-35, SI-38, SI-39 |
+| **Direct blocker** | Must be decided before increment 3 writes a type | SI-28 |
 | **Transitive blocker** | A separately sequenced prerequisite decision that must resolve before a direct blocker can be decided | *(none)* |
 | **Input** | A subquestion or evidence case resolved within the consuming direct blocker's decision | *(none — SI-29 and SI-30 resolved within SI-11's decision; SI-37 reclassified below)* |
 | **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-15, SI-16, SI-17, SI-18, SI-19, SI-20, SI-21, SI-22, SI-23, SI-24, SI-25, SI-26, SI-37 (before the spec change that first moves a closure-blocked multipath-capable population to `Permitted`; ADR-0018) |
 | **Withdrawn** | Retained as history after the filing was shown not to be a conflict | SI-36 |
 
-The direct blockers, with the state each is actually in — neither is
-simply "undecided":
+The one remaining direct blocker, with the state it is actually in —
+not simply "undecided":
 
 | Issue | Hash-visible | State |
 | --- | --- | --- |
-| SI-27 | yes | Open. SI-12 resolved in 4.3.0 (ADR-0011), so the naming round proceeds without product deduplication. It must name both Weak and Strong equal-identifier simultaneous collisions without merging them, type the kernel-reported multipath membership edge, and preserve node identity under the accepted stability rules. SI-37, not SI-27, owns the fail-closed detection gap for unassembled paths whose identifiers differ. **ADR-0018 (11.0.0) hands over two requirements**: any edge kind its round adds must preserve the no-sibling-capture theorem's premise — no backing or production edge targets a physical device — or re-prove the theorem under the new edge set before acceptance; and every edge kind carries a semantics class so the bind set's reverse-traversal rule ("the bytes of A live within or derive from B") slots it in without restatement |
 | SI-28 | yes | **Mitigated-open.** An interim conservative floor is in force and does not resolve it; Part 7. SI-33's resolution (ADR-0017, 10.0.0) adds the continuity witness as a refusal input on qualified apparatus and **relaxes nothing here**: the floor-relaxation route is now that ADR's named revisit condition, requiring apparatus-qualification evidence and its own round |
 
 **SI-31 is resolved in spec 4.1.0 by ADR-C6.** Its answer is plain unsigned
@@ -1798,6 +1800,41 @@ That is a new blocking gap, filed below as SI-27.
 
 ## SI-27 The hashed body has no node-naming rule
 
+> **Resolved 2026-08-09 in spec 11.1.0 by ADR-0019, on its round
+> four.** Node identifiers are derived, kind-discriminated positional
+> addresses — the round-three decomposition kept: an address, never a
+> device identity — computed from fields ADR-0018's evidence contract
+> reads, canonicalized by the contract's one named source per platform
+> verbatim (no transformation, so the divergence-worse-than-collision
+> hazard is structurally absent), recomputed at every decode by the
+> schema-validation pass. Equal derived addresses collapse, before
+> encoding, into counted, flagged, indeterminate **collision groups**
+> whose operands are `blocked` pairwise — the representation of the
+> ambiguity Section 2.1/ADR-0011 already declare, preserving two-ness
+> and never silent, and the answer to this filing's
+> indistinguishable-devices demand: the snapshot always encodes, the
+> limitation attaches to exactly the colliding targets, and
+> individually distinct addresses were established to require an
+> excluded input. The ancestor-only address property is a committed
+> property test; a duplicate-designator clone re-designates nothing.
+> The four round-three collision families each have a mechanism:
+> multipath via the **platform-membership** edge (typed here, its
+> path-set encoding untouched and deferred per ADR-0011), virtual
+> devices via `BackingExtent` and the **host-backing** edge (closing
+> CONC-001's empty loop-device bind set and the own-fixtures-collide
+> defect), stale signatures via offset-qualified addresses (the
+> stale-pair fixture is the committed two-address regression), and
+> table entries via role-discriminated views with partitions
+> re-parented onto the table and `ConflictingTableEntry` evidence
+> nodes scoped by ADR-0018's closure. Preconditions 2–4: the Linux
+> designator rows exist; the Windows and macOS rows are named evidence
+> obligations with designator-less aggregates `Indeterminate`
+> meanwhile; `probe_tag` is discharged by the evidence contract; the
+> preserved-unknown budgets are fixed (depth 4, 32 KiB, normative
+> truncation-with-digest, versioned redaction). The theorem re-proof
+> under the extended edge set lands with increment 3 as a property
+> test. The filing and round history below are retained as the record.
+
 > **Round-four handover, 2026-08-09 (ADR-0018).** SI-11's resolution
 > states two requirements on this round's edge work, recorded here so
 > the naming round designs against its consumer. First: the
@@ -1815,7 +1852,7 @@ That is a new blocking gap, filed below as SI-27.
 > set when the host-backing edge lands.
 
 **Requirements:** Section 5, MODEL-002, MODEL-005, ADR-C2, SAFE-003, ADR-C3,
-LIN-006, ADR-0011 · **Blocks 3, hash-visible**
+LIN-006, ADR-0011 · **Resolved** (was: blocks 3, hash-visible)
 
 Until now the body was a bag of values with no internal references, so node
 identity never had to be canonical. Any protection closure, and any faithful
