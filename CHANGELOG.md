@@ -242,6 +242,25 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **WP-035: the gated-surface list stops citing resolved register
+  items as open gates (#197).** The SI-12 re-attribution shape applied
+  to five Boundary entries: the protection-verdict entry moves from
+  "SI-11 (inputs SI-29, SI-30, SI-37)" to ADR-0018 (SI-29/SI-30
+  resolved within it, SI-37 reclassified open at Later); the
+  node/snapshot/hash/plan entry from SI-27/SI-34/SI-35 to ADRs
+  0019/0016/0014 plus the unconsumed `crates/domain` increment-3
+  types; the stable-handle entry from SI-27 to ADR-0019; the
+  table-state entry from SI-35 to ADR-0014's standing helper-sole-
+  author rule; and the `IdentityStrength` entry narrows to SI-28
+  alone, the one citation that is still an open register item. Every
+  prohibition is unchanged — each entry's authority moved from an open
+  question to an accepted decision plus types this chassis does not
+  consume. Docs-only: the chassis's own in-band gate references and
+  the README rows that describe them still carry the old citations and
+  are deliberately untouched here — they are product bytes pinned by
+  tests, filed as their own follow-up rather than swept silently into
+  a docs pass.
+
 - **Register: SI-28 reclassified off the increment-3 gate; nothing
   gates increment 3.** Decided by the decision owner 2026-08-09, the
   SI-37 pattern applied to the register's last direct blocker, under
