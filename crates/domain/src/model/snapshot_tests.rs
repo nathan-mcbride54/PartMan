@@ -3,7 +3,9 @@
 
 use crate::canonical;
 
+use super::naming::AggregateTechnology;
 use super::naming::{NamingFields, SignatureFamily, TableRole, derive_id};
+use super::protection::{Facts, HostRange, StepRanges, TransportClass, Verdict};
 use super::provenance::{Confidence, Method, Observation, Outcome, PropertyObservations};
 use super::snapshot::{SnapshotKind, SnapshotSchemaError, TopologySnapshot};
 use super::topology::{Edge, EdgeKind};
@@ -46,6 +48,7 @@ fn small_capture() -> TopologySnapshot {
                 target: signature_id,
             },
         ],
+        Facts::default(),
     )
     .expect("assembles")
 }
@@ -82,11 +85,17 @@ fn the_body_hash_is_independent_of_observation_order() {
         false,
         vec![dev.clone(), table.clone()],
         vec![edge],
+        Facts::default(),
     )
     .expect("assembles");
-    let reversed =
-        TopologySnapshot::assemble(SnapshotKind::Captured, false, vec![table, dev], vec![edge])
-            .expect("assembles");
+    let reversed = TopologySnapshot::assemble(
+        SnapshotKind::Captured,
+        false,
+        vec![table, dev],
+        vec![edge],
+        Facts::default(),
+    )
+    .expect("assembles");
     assert_eq!(
         forward.body_hash().expect("hashable"),
         reversed.body_hash().expect("hashable")
@@ -101,12 +110,22 @@ fn the_body_hash_is_independent_of_observation_order() {
 // Evidence: captured_and_simulated_never_hash_equal
 #[test]
 fn captured_and_simulated_never_hash_equal() {
-    let captured =
-        TopologySnapshot::assemble(SnapshotKind::Captured, false, vec![device(b"D0")], vec![])
-            .expect("assembles");
-    let simulated =
-        TopologySnapshot::assemble(SnapshotKind::Simulated, false, vec![device(b"D0")], vec![])
-            .expect("assembles");
+    let captured = TopologySnapshot::assemble(
+        SnapshotKind::Captured,
+        false,
+        vec![device(b"D0")],
+        vec![],
+        Facts::default(),
+    )
+    .expect("assembles");
+    let simulated = TopologySnapshot::assemble(
+        SnapshotKind::Simulated,
+        false,
+        vec![device(b"D0")],
+        vec![],
+        Facts::default(),
+    )
+    .expect("assembles");
     assert_ne!(
         captured.body_hash().expect("hashable"),
         simulated.body_hash().expect("hashable")
@@ -119,12 +138,22 @@ fn captured_and_simulated_never_hash_equal() {
 // Evidence: a_transitional_snapshot_never_hashes_like_a_stable_one
 #[test]
 fn a_transitional_snapshot_never_hashes_like_a_stable_one() {
-    let stable =
-        TopologySnapshot::assemble(SnapshotKind::Captured, false, vec![device(b"D0")], vec![])
-            .expect("assembles");
-    let transitional =
-        TopologySnapshot::assemble(SnapshotKind::Captured, true, vec![device(b"D0")], vec![])
-            .expect("assembles");
+    let stable = TopologySnapshot::assemble(
+        SnapshotKind::Captured,
+        false,
+        vec![device(b"D0")],
+        vec![],
+        Facts::default(),
+    )
+    .expect("assembles");
+    let transitional = TopologySnapshot::assemble(
+        SnapshotKind::Captured,
+        true,
+        vec![device(b"D0")],
+        vec![],
+        Facts::default(),
+    )
+    .expect("assembles");
     assert_ne!(
         stable.body_hash().expect("hashable"),
         transitional.body_hash().expect("hashable")
@@ -199,6 +228,7 @@ fn a_forged_forbidden_edge_refuses_at_decode() {
             source: dev_id,
             target: signature_id,
         }],
+        Facts::default(),
     )
     .expect("assembles");
     let body = snapshot.body_value().expect("body");
@@ -240,6 +270,7 @@ fn a_mis_sorted_set_is_refused_not_repaired() {
         false,
         vec![device(b"A"), device(b"B")],
         vec![],
+        Facts::default(),
     )
     .expect("assembles");
     let body = snapshot.body_value().expect("body");
@@ -309,6 +340,7 @@ fn collision_groups_round_trip_and_forged_counts_refuse() {
         false,
         vec![device(b"SAME"), device(b"SAME")],
         vec![],
+        Facts::default(),
     )
     .expect("assembles");
     let body = snapshot.body_value().expect("body");
@@ -415,5 +447,165 @@ fn absence_is_a_value_not_an_unavailability() {
     assert_eq!(
         absent_and_present.derive_confidence().expect("derivable"),
         Confidence::Conflicting
+    );
+}
+
+// Requirements: MODEL-005, SAFE-005
+//   Facts are body content: an extent, transport, or member count edit
+//   moves the body hash, and the facts round-trip through the typed
+//   boundary — the verdict's inputs are authenticated.
+// Evidence: facts_are_authenticated_body_content
+#[test]
+fn facts_are_authenticated_body_content() {
+    let dev = device(b"D0");
+    let dev_id = derive_id(&dev).expect("derivable");
+    let mut facts = Facts::default();
+    facts.transports.insert(dev_id, TransportClass::Sata);
+    facts.extents.insert(
+        dev_id,
+        HostRange {
+            host: dev_id,
+            start: 0,
+            length: 1 << 30,
+        },
+    );
+    let snapshot = TopologySnapshot::assemble(
+        SnapshotKind::Captured,
+        false,
+        vec![dev.clone()],
+        vec![],
+        facts.clone(),
+    )
+    .expect("assembles");
+    let baseline = snapshot.body_hash().expect("hashable");
+
+    let mut moved = facts.clone();
+    moved.transports.insert(dev_id, TransportClass::Usb);
+    let with_moved =
+        TopologySnapshot::assemble(SnapshotKind::Captured, false, vec![dev], vec![], moved)
+            .expect("assembles");
+    assert_ne!(with_moved.body_hash().expect("hashable"), baseline);
+
+    let bytes = canonical::encode(&snapshot.body_value().expect("body")).expect("encodable");
+    let rebuilt = TopologySnapshot::from_canonical_body(&bytes).expect("round-trips");
+    assert_eq!(rebuilt.facts(), snapshot.facts());
+}
+
+// Requirements: MODEL-005
+//   A fact on a kind that does not carry it is a typed refusal: a
+//   transport on an aggregate, a member count on a device.
+// Evidence: misplaced_facts_are_typed_refusals
+#[test]
+fn misplaced_facts_are_typed_refusals() {
+    let vg = NamingFields::Aggregate {
+        technology: AggregateTechnology::Lvm2,
+        designator: Some(b"vg".to_vec()),
+    };
+    let snapshot = TopologySnapshot::assemble(
+        SnapshotKind::Captured,
+        false,
+        vec![vg],
+        vec![],
+        Facts::default(),
+    )
+    .expect("assembles");
+    let body = snapshot.body_value().expect("body");
+    let canonical::Value::Map(mut map) = body else {
+        panic!("body is a map");
+    };
+    let Some(canonical::Value::Array(nodes)) = map.get_mut("nodes") else {
+        panic!("nodes present");
+    };
+    let canonical::Value::Map(entry) = &mut nodes[0] else {
+        panic!("entry is a map");
+    };
+    entry.insert(
+        "transport".to_owned(),
+        canonical::Value::Text("sata".to_owned()),
+    );
+    let bytes = canonical::encode(&canonical::Value::Map(map)).expect("encodable");
+    assert!(matches!(
+        TopologySnapshot::from_canonical_body(&bytes),
+        Err(SnapshotSchemaError::MisplacedFact { key: "transport" })
+    ));
+}
+
+// Requirements: MODEL-002, MODEL-005, SAFE-005
+//   The full-stack regression: a decoded body's own authenticated facts
+//   drive the closure, and initializing the device refuses through the
+//   pool — encode, decode, refuse, with no out-of-band input.
+// Evidence: a_decoded_body_refuses_the_pool_end_to_end
+#[test]
+fn a_decoded_body_refuses_the_pool_end_to_end() {
+    let sda = device(b"SDA");
+    let sda_id = derive_id(&sda).expect("derivable");
+    let member = NamingFields::BackingSignature {
+        host: sda_id,
+        family: SignatureFamily::Zfs,
+        primary_offset: 512 << 20,
+    };
+    let member_id = derive_id(&member).expect("derivable");
+    let pool = NamingFields::Aggregate {
+        technology: AggregateTechnology::Zfs,
+        designator: Some(b"tank".to_vec()),
+    };
+    let pool_id = derive_id(&pool).expect("derivable");
+    let mut facts = Facts::default();
+    facts.transports.insert(sda_id, TransportClass::Sata);
+    facts.extents.insert(
+        sda_id,
+        HostRange {
+            host: sda_id,
+            start: 0,
+            length: 1 << 30,
+        },
+    );
+    facts.extents.insert(
+        member_id,
+        HostRange {
+            host: sda_id,
+            start: 512 << 20,
+            length: 1 << 20,
+        },
+    );
+    let snapshot = TopologySnapshot::assemble(
+        SnapshotKind::Captured,
+        false,
+        vec![sda, member, pool],
+        vec![
+            Edge {
+                kind: EdgeKind::Containment,
+                source: sda_id,
+                target: member_id,
+            },
+            Edge {
+                kind: EdgeKind::Backing,
+                source: member_id,
+                target: pool_id,
+            },
+        ],
+        facts,
+    )
+    .expect("assembles");
+    let bytes = canonical::encode(&snapshot.body_value().expect("body")).expect("encodable");
+    let rebuilt = TopologySnapshot::from_canonical_body(&bytes).expect("round-trips");
+    let initialize = StepRanges {
+        written_table_extents: vec![],
+        consumed: vec![],
+        destroyed: vec![HostRange {
+            host: sda_id,
+            start: 0,
+            length: 1 << 30,
+        }],
+    };
+    let refusal = rebuilt
+        .step_constructs(sda_id, &initialize)
+        .expect_err("the decoded body refuses through the pool");
+    assert!(matches!(refusal.verdict, Verdict::Refused { .. }));
+    let affected =
+        super::protection::affected_set(rebuilt.topology(), rebuilt.facts(), sda_id, &initialize);
+    assert!(
+        affected.contains(&pool_id),
+        "the pool is reached from the decoded body's own facts"
     );
 }

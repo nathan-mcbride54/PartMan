@@ -7,6 +7,26 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-010 increment 3f: the protection facts are body content.**
+  The snapshot body carries, per node, the evidence-contract facts
+  the closure consumes — host-qualified extents, the device transport
+  class, the aggregate's self-reported member count — extending
+  ADR-0016's logic to the verdict's inputs: what the verdict reads,
+  the authorization commits to. A fact edit moves the body hash; the
+  facts round-trip through the typed boundary and are covered by its
+  decode-recompute equality; a fact on a kind that does not carry it
+  (a transport on an aggregate, a member count on a device, an extent
+  on a volume) is a typed `MisplacedFact` refusal. The full-stack
+  regression closes the loop the whole increment built toward:
+  encode a body carrying a ZFS member and its pool, decode it at the
+  boundary, and the rebuilt snapshot's **own authenticated facts**
+  refuse initializing the device through the pool — no out-of-band
+  input anywhere. `TopologySnapshot::step_constructs` is the
+  convenience that runs ADR-0018's closure directly off a decoded
+  body. The plan-step constructor with ADR-0012's compile-fail proof,
+  the acknowledgment vocabulary, and the canonical-step capability
+  computation remain the next slices.
+
 - **WP-010 increment 3e: ADR-0018's protection layer as pure
   functions.** `model::protection` lands the closure and verdicts the
   register's longest round decided: the three-valued verdict whose

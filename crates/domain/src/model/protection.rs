@@ -71,7 +71,7 @@ pub enum TransportClass {
 /// Each map is keyed by address; absence of a fact is honest absence and
 /// fails closed at the arm that needs it. The facts are supplied by the
 /// contract's byte and state layers; nothing here reads a device.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Facts {
     /// Each node's extent in its host's address space, for the
     /// extent-bearing kinds.

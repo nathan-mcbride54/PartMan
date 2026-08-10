@@ -27,6 +27,7 @@ use std::fmt;
 use crate::canonical::{self, Hash, Value};
 
 use super::naming::{self, FieldParseError, NamingFields, NodeEntry};
+use super::protection::{Facts, HostRange, ProtectionRefusal, StepRanges, TransportClass};
 use super::provenance::PropertyObservations;
 use super::topology::{Edge, EdgeKind, Topology, TopologyError};
 
@@ -69,13 +70,19 @@ pub struct TopologySnapshot {
     kind: SnapshotKind,
     transitional: bool,
     topology: Topology,
+    facts: Facts,
     /// The unhashed envelope. Public: editing it must never move the body
     /// hash, and a test holds that property.
     pub envelope: SnapshotEnvelope,
 }
 
 impl TopologySnapshot {
-    /// Assemble a snapshot from observed nodes and edges.
+    /// Assemble a snapshot from observed nodes, edges, and the
+    /// evidence-contract facts the protection layer consumes.
+    ///
+    /// The facts are body content (increment 3f): they are verdict
+    /// inputs, and ADR-0016's logic extends to them — what the verdict
+    /// reads, the authorization must commit to.
     ///
     /// # Errors
     ///
@@ -85,12 +92,14 @@ impl TopologySnapshot {
         transitional: bool,
         nodes: Vec<NamingFields>,
         edges: Vec<Edge>,
+        facts: Facts,
     ) -> Result<Self, SnapshotError> {
         let topology = Topology::build(nodes, edges).map_err(SnapshotError::Topology)?;
         Ok(Self {
             kind,
             transitional,
             topology,
+            facts,
             envelope: SnapshotEnvelope::default(),
         })
     }
@@ -113,6 +122,27 @@ impl TopologySnapshot {
         &self.topology
     }
 
+    /// The body-carried evidence facts.
+    #[must_use]
+    pub const fn facts(&self) -> &Facts {
+        &self.facts
+    }
+
+    /// Whether a step constructs against this snapshot's own
+    /// authenticated facts (ADR-0018, over the body's topology and
+    /// facts).
+    ///
+    /// # Errors
+    ///
+    /// [`ProtectionRefusal`] naming the reached node and its verdict.
+    pub fn step_constructs(
+        &self,
+        target: super::naming::NodeId,
+        ranges: &StepRanges,
+    ) -> Result<std::collections::BTreeSet<super::naming::NodeId>, ProtectionRefusal> {
+        super::protection::step_constructs(&self.topology, &self.facts, target, ranges)
+    }
+
     /// The body as a canonical value (MODEL-005's hashed side).
     ///
     /// # Errors
@@ -133,7 +163,7 @@ impl TopologySnapshot {
                 self.topology
                     .entries()
                     .iter()
-                    .map(entry_value)
+                    .map(|entry| entry_value(entry, &self.facts))
                     .collect::<Vec<_>>(),
             )?,
         );
@@ -201,9 +231,9 @@ impl TopologySnapshot {
                 });
             }
         };
-        let nodes = parse_nodes(&map)?;
+        let (nodes, facts) = parse_nodes(&map)?;
         let edges = parse_edges(&map)?;
-        let rebuilt = Self::assemble(kind, transitional, nodes, edges)
+        let rebuilt = Self::assemble(kind, transitional, nodes, edges, facts)
             .map_err(SnapshotSchemaError::Rebuild)?;
         let recomputed = rebuilt
             .body_value()
@@ -228,29 +258,75 @@ fn sorted_set(mut elements: Vec<Value>) -> Result<Value, SnapshotError> {
     ))
 }
 
-fn entry_value(entry: &NodeEntry) -> Value {
-    match entry {
-        NodeEntry::Single { fields, .. } => naming::fields_value(fields),
-        NodeEntry::Group {
-            count,
-            duplicate_designator,
-            fields,
-            ..
-        } => {
-            let Value::Map(mut map) = naming::fields_value(fields) else {
-                unreachable!("fields_value always builds a map");
-            };
-            map.insert(
-                "collision_count".to_owned(),
-                Value::Unsigned(u64::from(*count)),
-            );
-            map.insert(
-                "duplicate_designator".to_owned(),
-                Value::Bool(*duplicate_designator),
-            );
-            Value::Map(map)
+fn entry_value(entry: &NodeEntry, facts: &Facts) -> Value {
+    let Value::Map(mut map) = (match entry {
+        NodeEntry::Single { fields, .. } | NodeEntry::Group { fields, .. } => {
+            naming::fields_value(fields)
         }
+    }) else {
+        unreachable!("fields_value always builds a map");
+    };
+    if let NodeEntry::Group {
+        count,
+        duplicate_designator,
+        ..
+    } = entry
+    {
+        map.insert(
+            "collision_count".to_owned(),
+            Value::Unsigned(u64::from(*count)),
+        );
+        map.insert(
+            "duplicate_designator".to_owned(),
+            Value::Bool(*duplicate_designator),
+        );
     }
+    let id = entry.id();
+    if let Some(extent) = facts.extents.get(&id) {
+        map.insert(
+            "extent_host".to_owned(),
+            Value::Bytes(extent.host.as_bytes().to_vec()),
+        );
+        map.insert("extent_start".to_owned(), Value::Unsigned(extent.start));
+        map.insert("extent_length".to_owned(), Value::Unsigned(extent.length));
+    }
+    if let Some(transport) = facts.transports.get(&id) {
+        map.insert(
+            "transport".to_owned(),
+            Value::Text(transport_tag(*transport).to_owned()),
+        );
+    }
+    if let Some(count) = facts.member_counts.get(&id) {
+        map.insert("member_count".to_owned(), Value::Unsigned(*count));
+    }
+    Value::Map(map)
+}
+
+const fn transport_tag(transport: TransportClass) -> &'static str {
+    match transport {
+        TransportClass::NvmePcie => "nvme-pcie",
+        TransportClass::Sata => "sata",
+        TransportClass::SasDirect => "sas-direct",
+        TransportClass::Usb => "usb",
+        TransportClass::SdMmc => "sd-mmc",
+        TransportClass::ParavirtualLocal => "paravirtual-local",
+        TransportClass::RecognizedRemote => "recognized-remote",
+        TransportClass::Unrecognized => "unrecognized",
+    }
+}
+
+fn transport_from_tag(tag: &str) -> Option<TransportClass> {
+    Some(match tag {
+        "nvme-pcie" => TransportClass::NvmePcie,
+        "sata" => TransportClass::Sata,
+        "sas-direct" => TransportClass::SasDirect,
+        "usb" => TransportClass::Usb,
+        "sd-mmc" => TransportClass::SdMmc,
+        "paravirtual-local" => TransportClass::ParavirtualLocal,
+        "recognized-remote" => TransportClass::RecognizedRemote,
+        "unrecognized" => TransportClass::Unrecognized,
+        _ => return None,
+    })
 }
 
 fn edge_value(edge: &Edge) -> Value {
@@ -274,12 +350,15 @@ fn edge_value(edge: &Edge) -> Value {
     Value::Map(map)
 }
 
-fn parse_nodes(map: &BTreeMap<String, Value>) -> Result<Vec<NamingFields>, SnapshotSchemaError> {
+fn parse_nodes(
+    map: &BTreeMap<String, Value>,
+) -> Result<(Vec<NamingFields>, Facts), SnapshotSchemaError> {
     let Some(Value::Array(entries)) = map.get("nodes") else {
         return Err(SnapshotSchemaError::MissingField { key: "nodes" });
     };
     canonical::set::validate_array(entries, 1).map_err(SnapshotSchemaError::SetOrder)?;
     let mut nodes = Vec::new();
+    let mut facts = Facts::default();
     for entry in entries {
         let Value::Map(entry_map) = entry else {
             return Err(SnapshotSchemaError::NotAnEntryMap);
@@ -297,13 +376,81 @@ fn parse_nodes(map: &BTreeMap<String, Value>) -> Result<Vec<NamingFields>, Snaps
         if count >= 2 && !matches!(flagged, Some(Value::Bool(_))) {
             return Err(SnapshotSchemaError::BadCollisionCount);
         }
+        let extent = extract_extent(&mut fields_only)?;
+        let transport = match fields_only.remove("transport") {
+            None => None,
+            Some(Value::Text(tag)) => Some(
+                transport_from_tag(&tag)
+                    .ok_or(SnapshotSchemaError::BadFact { key: "transport" })?,
+            ),
+            Some(_) => return Err(SnapshotSchemaError::BadFact { key: "transport" }),
+        };
+        let member_count = match fields_only.remove("member_count") {
+            None => None,
+            Some(Value::Unsigned(count)) => Some(count),
+            Some(_) => {
+                return Err(SnapshotSchemaError::BadFact {
+                    key: "member_count",
+                });
+            }
+        };
         let fields = naming::fields_from_map(&fields_only).map_err(SnapshotSchemaError::Field)?;
+        if transport.is_some() && !matches!(fields, NamingFields::PhysicalDevice { .. }) {
+            return Err(SnapshotSchemaError::MisplacedFact { key: "transport" });
+        }
+        if member_count.is_some() && !matches!(fields, NamingFields::Aggregate { .. }) {
+            return Err(SnapshotSchemaError::MisplacedFact {
+                key: "member_count",
+            });
+        }
+        if extent.is_some()
+            && matches!(
+                fields,
+                NamingFields::Aggregate { .. }
+                    | NamingFields::MultipathNode { .. }
+                    | NamingFields::EncryptionLayer { .. }
+                    | NamingFields::Volume { .. }
+            )
+        {
+            return Err(SnapshotSchemaError::MisplacedFact { key: "extent_host" });
+        }
+        let id = naming::derive_id(&fields).map_err(|_| SnapshotSchemaError::NotAnEntryMap)?;
+        if let Some(extent) = extent {
+            facts.extents.insert(id, extent);
+        }
+        if let Some(transport) = transport {
+            facts.transports.insert(id, transport);
+        }
+        if let Some(count) = member_count {
+            facts.member_counts.insert(id, count);
+        }
         let copies = usize::try_from(count).map_err(|_| SnapshotSchemaError::BadCollisionCount)?;
         for _ in 0..copies {
             nodes.push(fields.clone());
         }
     }
-    Ok(nodes)
+    Ok((nodes, facts))
+}
+
+fn extract_extent(
+    fields_only: &mut BTreeMap<String, Value>,
+) -> Result<Option<HostRange>, SnapshotSchemaError> {
+    let host = fields_only.remove("extent_host");
+    let start = fields_only.remove("extent_start");
+    let length = fields_only.remove("extent_length");
+    match (host, start, length) {
+        (None, None, None) => Ok(None),
+        (Some(Value::Bytes(host)), Some(Value::Unsigned(start)), Some(Value::Unsigned(length))) => {
+            let host = naming::id_from_bytes(&host)
+                .ok_or(SnapshotSchemaError::BadFact { key: "extent_host" })?;
+            Ok(Some(HostRange {
+                host,
+                start,
+                length,
+            }))
+        }
+        _ => Err(SnapshotSchemaError::BadFact { key: "extent_host" }),
+    }
 }
 
 fn parse_edges(map: &BTreeMap<String, Value>) -> Result<Vec<Edge>, SnapshotSchemaError> {
@@ -399,6 +546,18 @@ pub enum SnapshotSchemaError {
     NotAnEntryMap,
     /// A collision count below two, or group flags on a singleton.
     BadCollisionCount,
+    /// A fact field with the wrong shape or an unknown tag.
+    BadFact {
+        /// The fact's key.
+        key: &'static str,
+    },
+    /// A fact on a kind that does not carry it (a transport on a
+    /// partition, a member count on a device, an extent on an
+    /// aggregate).
+    MisplacedFact {
+        /// The fact's key.
+        key: &'static str,
+    },
     /// A node entry does not parse as naming fields.
     Field(FieldParseError),
     /// An edge kind tag this build does not know.
@@ -423,6 +582,10 @@ impl fmt::Display for SnapshotSchemaError {
             Self::SetOrder(error) => write!(formatter, "set order violated: {error:?}"),
             Self::NotAnEntryMap => formatter.write_str("malformed entry"),
             Self::BadCollisionCount => formatter.write_str("invalid collision-group fields"),
+            Self::BadFact { key } => write!(formatter, "malformed fact `{key}`"),
+            Self::MisplacedFact { key } => {
+                write!(formatter, "fact `{key}` on a kind that does not carry it")
+            }
             Self::Field(error) => write!(formatter, "node entry: {error}"),
             Self::UnknownEdgeKind => formatter.write_str("unknown edge kind"),
             Self::BadEdgeEndpoint => formatter.write_str("edge endpoint is not an address"),
