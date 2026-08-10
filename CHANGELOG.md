@@ -7,6 +7,35 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-010 increment 3e: ADR-0018's protection layer as pure
+  functions.** `model::protection` lands the closure and verdicts the
+  register's longest round decided: the three-valued verdict whose
+  residual arm is `Indeterminate` — never `Permitted`, round three's
+  fail-open default inverted — with the enumerated arms (ZFS, Storage
+  Spaces, and LDM refuse; Fusion refuses by ADR-C5's self-reported
+  member count and permits at one; the device-scope transport arm is
+  the closed positive local list with recognized-remote refusing and
+  unrecognized indeterminate; orphan signatures are the remediable
+  indeterminate arm; collision groups are never operands), node-local
+  inheritance from a node's own producer and own root device only,
+  the effect-table range sets with release counted as destruction,
+  and the affected-set fixpoint. The fixpoint carries two destruction
+  classes deliberately: range-destroyed nodes are reached by the
+  declared ranges themselves and never cascade through containment —
+  the module's first draft cascaded them, re-derived round two's
+  sibling capture through a device's own self-extent, and was caught
+  by the committed regression before it ever compiled green — while
+  cascade-destroyed consumers and products (whose substrate died with
+  their evidence or producer) descend into their hosted content. The
+  committed regressions hold: creating beside a pool member
+  constructs while initializing the device refuses through the pool;
+  the sibling ESP is never captured; and the round-three killer — the
+  LUKS descent — reaches the pool below through production over
+  destroyed substrate. Facts (extents, transports, member counts)
+  arrive as evidence-contract inputs; carrying them in the snapshot
+  body, and the plan-step constructor with its compile-fail proof,
+  are later slices. Nothing here authorizes anything.
+
 - **WP-010 increment 3d: SAFE-003's identity record (ADR-C3, ADR-C4's
   guard, ADR-0014's vocabulary, ADR-0015, ADR-0017).**
   `model::identity` lands the immutable target record: all available
