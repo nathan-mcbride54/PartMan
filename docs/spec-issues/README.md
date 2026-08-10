@@ -124,6 +124,15 @@ issued against it. **SI-28 stays open**, because the floor does not discriminate
 two media and Part 7's warning against false closure applies to it as much as to
 any other proposal.
 
+> **Dated history — retained as filed.** The five paragraphs below, through
+> "A second instance has since been measured, in a different layer.", record
+> the state as of the SI-34 filing. Both questions they hold open have since
+> closed: SI-35 resolved in spec 8.0.0 by ADR-0014, and SI-34 resolved in
+> spec 9.0.0 by ADR-0016 — the placement question closed by the architecture
+> the SI-35 resolution built, so the closing advice below is addressed to a
+> decision that no longer exists. Current status lives in the authoritative
+> table above and the SI-34 and SI-35 entries below.
+
 **Half the approach is settled; the other half is reopened.** Protection is
 proven by computation and never accepted as a client declaration — that has
 survived every round and is not in question.
