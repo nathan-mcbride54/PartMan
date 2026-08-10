@@ -242,6 +242,26 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **Register: the Part 1 framing block that still described SI-34's
+  placement as open is marked as dated history (#198).** The bounded
+  integrity pass the 2026-08-10 grant authorizes, executed exactly to
+  its reach: a dated-history banner now prefaces the five paragraphs
+  from "Half the approach is settled; the other half is reopened."
+  through the measured-second-instance paragraph, recording that SI-35
+  resolved in spec 8.0.0 by ADR-0014 and SI-34 in spec 9.0.0 by
+  ADR-0016 — the placement question closed by the architecture the
+  SI-35 resolution built, so the block's closing advice is addressed
+  to a decision that no longer exists — and directing current status
+  to the authoritative table and the issues' own entries. The
+  paragraphs stay verbatim as history; no state, class, dependency,
+  option, evidence record, or normative text moves. The issue's
+  requested sweep of Part 1's remaining framing prose found nothing
+  else superseded by the 7.0.0–11.1.0 resolutions: the status prose
+  and table are current through 11.1.0, the SI-31 and SI-28 paragraphs
+  state their resolved and Mitigated-open postures accurately, and
+  "Read SI-28 first" stands — consistent with the reclassification
+  record, which moved SI-28's class, not its openness.
+
 - **WP-035: the gated-surface list stops citing resolved register
   items as open gates (#197).** The SI-12 re-attribution shape applied
   to five Boundary entries: the protection-verdict entry moves from
