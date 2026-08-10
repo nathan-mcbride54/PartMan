@@ -17,14 +17,15 @@
 //! register says so:
 //!
 //! - **No `Content`, no partition-scheme field of any spelling.** The
-//!   scheme name is partition-table material (SI-35, gated), and the
-//!   increment 7 adversarial round refused reach cells resting on it — the
-//!   hybrid trap it recorded still stands. The reach declaration therefore
-//!   stays all-negative: this contract reads identity attributes and no
-//!   table-state surface.
+//!   scheme name is partition-table material — helper-authored under
+//!   ADR-0014, never this client's — and the increment 7 adversarial
+//!   round refused reach cells resting on it; the hybrid trap it recorded
+//!   still stands. The reach declaration therefore stays all-negative:
+//!   this contract reads identity attributes and no table-state surface.
 //! - **No UUID keys and no APFS fields.** A `DiskUUID` is derived from the
-//!   partition scheme and APFS membership is SI-34/SI-35 material; both
-//!   are the register's to unlock, not an inventory's to report.
+//!   partition scheme, and APFS membership is table-state and verdict
+//!   material — ADR-0014's and ADR-0016's helper-authored layers, not an
+//!   inventory's to report.
 //! - **No partition rows.** The `WholeDisks` array is the only source of
 //!   devices, so there is no filter that could fail open and promote a
 //!   partition — the shape the Linux adapter had to defend with an

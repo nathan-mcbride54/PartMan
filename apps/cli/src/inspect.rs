@@ -7,9 +7,10 @@
 //!
 //! - **Bytes, never classifications.** An observation reports what was read,
 //!   in hex, labelled by the adapter that read it. Whether those bytes are a
-//!   partition table, and what state it is in, is exactly what SI-35 holds
-//!   open — the inspector prints the raw material and the standing gated
-//!   list, and the reader does the interpreting.
+//!   partition table, and what state it is in, is exactly what ADR-0014
+//!   assigns to the privileged helper's raw-sector parser and denies this
+//!   client permanently — the inspector prints the raw material and the
+//!   standing gated list, and the reader does the interpreting.
 //! - **ADR-C4's outcome vocabulary, as written.** `observed` carries bytes
 //!   or a positively determined absence — absence is a value, and the
 //!   state word says so. `unavailable` is the platform not exposing an
@@ -20,7 +21,9 @@
 //!   is the fail-closed violation SAFE-005 exists to prevent.
 //! - **No path echo, no stable handle.** The replayed object is reported
 //!   under a session-local selector; the caller knows what they named, and
-//!   a path is on SEC-006's deny-floor. SI-27 keeps stable handles gated.
+//!   a path is on SEC-006's deny-floor. Stable handles stay absent:
+//!   ADR-0019's derived addresses are WP-010's landed types, and nothing
+//!   wires them into this chassis.
 //!
 //! The replay adapter reads one caller-named **regular file**. Anything
 //! else is refused unread: a pre-open look refuses devices and directories
@@ -122,8 +125,10 @@ pub struct ReplayRefusal {
 
 /// The byte ranges the replay adapter probes: offsets where storage formats
 /// customarily place structure, so the raw material is useful to a reader —
-/// who does the interpreting themselves, because classification is gated
-/// (SI-35, SI-28; the standing list travels in every inspect answer).
+/// who does the interpreting themselves, because classification is not this
+/// client's: table state is helper-authored (ADR-0014) and strength
+/// attribution stays open (SI-28; the standing list travels in every
+/// inspect answer).
 pub const PROBES: &[(u64, u64)] = &[(0, 16), (510, 2), (512, 16), (1024, 16)];
 
 /// The standing gated-surface list, rendered in every inspect answer —
@@ -137,16 +142,22 @@ pub const PROBES: &[(u64, u64)] = &[(0, 16), (510, 2), (512, 16), (1024, 16)];
 /// `not-established` by open question — the prohibition is identical; its
 /// authority changed from a question to an answer, and citing the retired
 /// question would be the drift the register's sole-authority rule forbids.
+/// ADR-0014 (spec 8.0.0) resolved SI-35 the same way: the privileged
+/// helper is the sole author of table state from its own raw-sector
+/// parser, so `partition-table-state` is `helper-authored` by decision —
+/// this client never computes it, which is a standing rule now rather
+/// than a question someone might answer differently later.
 pub const GATED: &[(&str, &str, &str)] = &[
     ("identity-strength", "not-established", "SI-28"),
-    ("partition-table-state", "not-established", "SI-35"),
+    ("partition-table-state", "helper-authored", "ADR-0014"),
     ("same-device-claims", "never-inferred", "ADR-0011"),
 ];
 
 /// The session-local selector for the one replayed object. One constant,
 /// shared by both renderers, so the two cannot drift; the `0` is the
 /// session index the boundary requires in place of any stable handle
-/// (SI-27), and the parser refuses a second object per invocation.
+/// (ADR-0019's derived addresses are unconsumed here), and the parser
+/// refuses a second object per invocation.
 pub const REPLAY_SELECTOR: &str = "replay:0";
 
 // Linux does not assign these flags uniformly across its supported ABIs.

@@ -164,7 +164,7 @@ fn inspect_answers_with_typed_statements_not_a_fake_topology() {
     );
     for fragment in [
         "identity-strength: not-established (SI-28)",
-        "partition-table-state: not-established (SI-35)",
+        "partition-table-state: helper-authored (ADR-0014)",
         "same-device-claims: never-inferred (ADR-0011)",
     ] {
         assert!(
@@ -225,7 +225,7 @@ fn inspect_answers_with_typed_statements_not_a_fake_topology() {
         serde_json::Value::Array(gated.clone()),
         serde_json::json!([
             {"surface": "identity-strength", "state": "not-established", "gate": "SI-28"},
-            {"surface": "partition-table-state", "state": "not-established", "gate": "SI-35"},
+            {"surface": "partition-table-state", "state": "helper-authored", "gate": "ADR-0014"},
             {"surface": "same-device-claims", "state": "never-inferred", "gate": "ADR-0011"},
         ]),
         "the complete ordered gate contract is pinned: no duplicate, extra, or omitted entry"
@@ -345,19 +345,24 @@ fn domain_requests_refuse_with_exact_typed_gates_and_no_payload() {
     let cases = [
         (
             "inventory",
-            "not-established",
-            "SI-27, SI-28, SI-35",
-            "a canonical inventory payload is not established: node naming and collision \
-             behavior (SI-27), identity strength (SI-28), and partition-table state (SI-35) \
-             remain open; use partman inspect for adapter-attributed observations",
+            "not-implemented",
+            "SI-28, ADR-0014, ADR-0019",
+            "a canonical inventory payload is decided but not consumed here: node naming \
+             and collision behavior are ADR-0019's landed types and partition-table state \
+             is helper-authored under ADR-0014 (never computed by this client), while \
+             identity-strength attribution stays open (SI-28); no increment wires WP-010's \
+             types into this chassis; use partman inspect for adapter-attributed \
+             observations",
         ),
         (
             "topology",
-            "not-established",
-            "SI-27, SI-28, SI-34, SI-35",
-            "a versioned TopologySnapshot payload is not established: node naming (SI-27), \
-             identity strength (SI-28), protection placement (SI-34), and partition-table \
-             state (SI-35) remain open; no partial snapshot is emitted",
+            "not-implemented",
+            "SI-28, ADR-0014, ADR-0016, ADR-0019",
+            "the TopologySnapshot body is decided and typed (WP-010 increment 3): node \
+             naming by ADR-0019, verdict placement by ADR-0016, and table state \
+             helper-authored at validation by ADR-0014 — a valid snapshot is the helper's \
+             to produce, never this unprivileged client's — while identity-strength \
+             attribution stays open (SI-28); no partial snapshot is emitted",
         ),
         (
             "capabilities",
@@ -2033,7 +2038,7 @@ fn inspect_reports_bytes_never_classifications() {
     );
     for fragment in [
         "identity-strength: not-established (SI-28)",
-        "partition-table-state: not-established (SI-35)",
+        "partition-table-state: helper-authored (ADR-0014)",
         "same-device-claims: never-inferred (ADR-0011)",
     ] {
         assert!(
@@ -2482,7 +2487,7 @@ fn enumeration_reports_whole_devices_only() {
     assert_eq!(devices[0].kernel_name, "sda");
     assert_eq!(
         devices[0].selector, "device:0",
-        "selectors are session-local positions, never stable handles (SI-27)"
+        "selectors are session-local positions, never stable handles (ADR-0019's addresses are unconsumed here)"
     );
 }
 
