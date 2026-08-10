@@ -6,6 +6,9 @@
 //! decode/validate/hash boundary land in later slices.
 
 pub mod naming;
+pub mod topology;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod topology_tests;
