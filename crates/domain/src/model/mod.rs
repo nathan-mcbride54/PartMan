@@ -13,6 +13,7 @@
 pub mod capability;
 pub mod identity;
 pub mod naming;
+pub mod plan;
 pub mod protection;
 pub mod provenance;
 pub mod snapshot;
@@ -23,6 +24,8 @@ pub mod topology;
 mod capability_tests;
 #[cfg(test)]
 mod identity_tests;
+#[cfg(test)]
+mod plan_tests;
 #[cfg(test)]
 mod protection_tests;
 #[cfg(test)]

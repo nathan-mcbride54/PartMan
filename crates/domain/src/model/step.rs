@@ -38,6 +38,47 @@ use super::naming::NodeId;
 use super::protection::{IndeterminateGround, StepRanges, Verdict, affected_set, node_verdict};
 use super::snapshot::TopologySnapshot;
 
+/// PLAN-004's ordinal severity scale.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Severity {
+    /// 0 — no change to storage.
+    Informational,
+    /// 1 — fully undoable via an emitted reversal plan.
+    Reversible,
+    /// 2 — interrupts service with no expected data loss.
+    Disruptive,
+    /// 3 — data is relocated or transformed; loss possible on failure.
+    DataMoving,
+    /// 4 — data is intentionally destroyed.
+    Destructive,
+}
+
+/// PLAN-004's orthogonal step flags — five booleans deliberately,
+/// mirroring the requirement's own enumeration.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)]
+pub struct StepFlags {
+    /// Touches encryption, keys, or authorization state.
+    pub security_sensitive: bool,
+    /// Cannot be undone once started.
+    pub irreversible_after_start: bool,
+    /// Requires the target offline.
+    pub requires_offline: bool,
+    /// Requires a reboot.
+    pub requires_reboot: bool,
+    /// Requires the rescue environment.
+    pub requires_rescue: bool,
+}
+
+/// A step's declared risk (PLAN-004): severity plus orthogonal flags.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StepRisk {
+    /// The ordinal severity.
+    pub severity: Severity,
+    /// The orthogonal flags.
+    pub flags: StepFlags,
+}
+
 /// ADR-0018's closed acknowledgment vocabulary. Each entry names the
 /// exact node it covers; an acknowledgment for one node covers no other,
 /// and no entry exists that covers a refusal.
@@ -90,6 +131,7 @@ pub struct PlanStep {
     ranges: StepRanges,
     affected: BTreeSet<NodeId>,
     acknowledgments: Vec<Acknowledgment>,
+    risk: StepRisk,
 }
 
 impl PlanStep {
@@ -112,6 +154,7 @@ impl PlanStep {
         target: NodeId,
         ranges: StepRanges,
         acknowledgments: Vec<Acknowledgment>,
+        risk: StepRisk,
     ) -> Result<Self, StepRefusal> {
         let topology = snapshot.topology();
         let facts = snapshot.facts();
@@ -164,7 +207,14 @@ impl PlanStep {
             ranges,
             affected,
             acknowledgments,
+            risk,
         })
+    }
+
+    /// The step's declared risk (PLAN-004).
+    #[must_use]
+    pub const fn risk(&self) -> StepRisk {
+        self.risk
     }
 
     /// The step's target.
