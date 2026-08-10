@@ -54,6 +54,23 @@ export interface SetVectors {
   readonly depth: readonly SetDepthVector[]
 }
 
+/** One increment-3 body vector: a full hashed-body value tree. */
+export interface BodyVector {
+  readonly name: string
+  readonly value: Value
+  readonly canonical: string
+  readonly sha256: string
+  /** For plans and node entries: the snapshot vector each is tied to. */
+  readonly snapshot?: string
+}
+
+/** All cross-language vectors for the increment-3 body schemas. */
+export interface BodyVectors {
+  readonly snapshots: readonly BodyVector[]
+  readonly plans: readonly BodyVector[]
+  readonly nodeEntries: readonly BodyVector[]
+}
+
 /**
  * The JSON representation of a value.
  *
@@ -92,6 +109,12 @@ export function fixturePath(): string {
 export function setFixturePath(): string {
   const here = dirname(fileURLToPath(import.meta.url))
   return join(here, '..', '..', '..', 'schemas', 'domain', 'canonical-set-vectors.json')
+}
+
+/** Absolute path of the increment-3 body-schema fixture. */
+export function bodyFixturePath(): string {
+  const here = dirname(fileURLToPath(import.meta.url))
+  return join(here, '..', '..', '..', 'schemas', 'domain', 'body-vectors.json')
 }
 
 /** Load and build every vector in the shared fixture. */
@@ -166,5 +189,37 @@ export function loadSetVectors(): SetVectors {
       elementArrayDepth: entry.element_array_depth,
       accepted: entry.accepted,
     })),
+  }
+}
+
+/** Load the increment-3 body-schema vectors. */
+export function loadBodyVectors(): BodyVectors {
+  interface RawBodyVector {
+    name: string
+    value: JsonValue
+    canonical: string
+    sha256: string
+    snapshot?: string
+  }
+  const raw = JSON.parse(readFileSync(bodyFixturePath(), 'utf8')) as {
+    profile: string
+    snapshots: RawBodyVector[]
+    plans: RawBodyVector[]
+    node_entries: RawBodyVector[]
+  }
+  if (raw.profile !== 'pce/1') {
+    throw new Error(`body fixture declares profile ${raw.profile}, expected pce/1`)
+  }
+  const one = (entry: RawBodyVector): BodyVector => ({
+    name: entry.name,
+    value: build(entry.value),
+    canonical: entry.canonical,
+    sha256: entry.sha256,
+    ...(entry.snapshot === undefined ? {} : { snapshot: entry.snapshot }),
+  })
+  return {
+    snapshots: raw.snapshots.map(one),
+    plans: raw.plans.map(one),
+    nodeEntries: raw.node_entries.map(one),
   }
 }

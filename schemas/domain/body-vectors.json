@@ -1,0 +1,1304 @@
+{
+  "node_entries": [
+    {
+      "canonical": "a3646b696e646f706879736963616c2d6465766963656673657269616c475645432d4d494e6b746f74616c5f62797465731a40000000",
+      "name": "node-entry-plain-device",
+      "sha256": "5f9630cd50e5178ad9a5d76788a96ed1b2e3d2724772a746f1d615c6012111f1",
+      "snapshot": "snapshot-minimal-captured",
+      "value": {
+        "map": [
+          [
+            "kind",
+            {
+              "text": "physical-device"
+            }
+          ],
+          [
+            "serial",
+            {
+              "bytes": "5645432d4d494e"
+            }
+          ],
+          [
+            "total_bytes",
+            {
+              "uint": "1073741824"
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "canonical": "a3646b696e6466766f6c756d65646e616d65477665632d766f6c6870726f6475636572582088d184710eab279a0c89b53ed7c6d2dce3b847956aaa07a4c679e9130deb1cf6",
+      "name": "node-entry-volume-0",
+      "sha256": "bdc0144034cb73ace214b5bf2c8854711b87136848d524f80f490427864a272b",
+      "snapshot": "snapshot-full-captured",
+      "value": {
+        "map": [
+          [
+            "kind",
+            {
+              "text": "volume"
+            }
+          ],
+          [
+            "name",
+            {
+              "bytes": "7665632d766f6c"
+            }
+          ],
+          [
+            "producer",
+            {
+              "bytes": "88d184710eab279a0c89b53ed7c6d2dce3b847956aaa07a4c679e9130deb1cf6"
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "canonical": "a3646b696e6469706172746974696f6e6c706172656e745f7461626c6558205130f5a536592c916e665d0dc6db970eeb11cf632f353f8b7453d72872b4ed206c73746172745f6f66667365741a00100000",
+      "name": "node-entry-partition-1",
+      "sha256": "136f3d18adee38322eaf68ee2aeb2bb6a9a026bb8f3a9435f402f910dffbd2c9",
+      "snapshot": "snapshot-full-captured",
+      "value": {
+        "map": [
+          [
+            "kind",
+            {
+              "text": "partition"
+            }
+          ],
+          [
+            "parent_table",
+            {
+              "bytes": "5130f5a536592c916e665d0dc6db970eeb11cf632f353f8b7453d72872b4ed20"
+            }
+          ],
+          [
+            "start_offset",
+            {
+              "uint": "1048576"
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "canonical": "a3646b696e646f706172746974696f6e2d7461626c6564726f6c656367707466706172656e7458208f307d56428bde2d0b31bf05c75ce3c9a0f16087d9888ccc5ebb38a36820818e",
+      "name": "node-entry-partition-table-2",
+      "sha256": "ec87c1f6307f3d7f6979498035f72c90912817b1a1cdf0dd8911af8a32e5c919",
+      "snapshot": "snapshot-full-captured",
+      "value": {
+        "map": [
+          [
+            "kind",
+            {
+              "text": "partition-table"
+            }
+          ],
+          [
+            "parent",
+            {
+              "bytes": "8f307d56428bde2d0b31bf05c75ce3c9a0f16087d9888ccc5ebb38a36820818e"
+            }
+          ],
+          [
+            "role",
+            {
+              "text": "gpt"
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "canonical": "a464686f7374582067e7e355e611de1ef2df08345aaa2b45db626e1dae60f0f4ae80876509168953646b696e646b66696c652d73797374656d6766735f6b696e646465787434717375706572626c6f636b5f6f6666736574190400",
+      "name": "node-entry-file-system-3",
+      "sha256": "ca0f3750e78075efeb02f4363adf5a365e1a261651442aa7f730f63bf23f424e",
+      "snapshot": "snapshot-full-captured",
+      "value": {
+        "map": [
+          [
+            "fs_kind",
+            {
+              "text": "ext4"
+            }
+          ],
+          [
+            "host",
+            {
+              "bytes": "67e7e355e611de1ef2df08345aaa2b45db626e1dae60f0f4ae80876509168953"
+            }
+          ],
+          [
+            "kind",
+            {
+              "text": "file-system"
+            }
+          ],
+          [
+            "superblock_offset",
+            {
+              "uint": "1024"
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "canonical": "a4646b696e64696167677265676174656a64657369676e61746f724b5645432d4d442d555549446a746563686e6f6c6f6779666d64726169646c6d656d6265725f636f756e7402",
+      "name": "node-entry-aggregate-4",
+      "sha256": "f87da7fd132c915b030c47530f1ccbf00503f3187c90446bc05d485f5a5b915c",
+      "snapshot": "snapshot-full-captured",
+      "value": {
+        "map": [
+          [
+            "designator",
+            {
+              "bytes": "5645432d4d442d55554944"
+            }
+          ],
+          [
+            "kind",
+            {
+              "text": "aggregate"
+            }
+          ],
+          [
+            "member_count",
+            {
+              "uint": "2"
+            }
+          ],
+          [
+            "technology",
+            {
+              "text": "mdraid"
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "canonical": "a5646b696e646f706879736963616c2d6465766963656673657269616c455645432d41697472616e73706f727464736174616b7461626c655f7374617465a26573746174656770726573656e7468636865636b73756d582062e6321198dc8f6d511445c8f2bb02f50b380b18210619012723f11e250e3be36b746f74616c5f62797465731a40000000",
+      "name": "node-entry-physical-device-5",
+      "sha256": "8172038cb40932c579332383948635b363cf1b0d95a4dfaf3733603c7086274d",
+      "snapshot": "snapshot-full-captured",
+      "value": {
+        "map": [
+          [
+            "kind",
+            {
+              "text": "physical-device"
+            }
+          ],
+          [
+            "serial",
+            {
+              "bytes": "5645432d41"
+            }
+          ],
+          [
+            "table_state",
+            {
+              "map": [
+                [
+                  "checksum",
+                  {
+                    "bytes": "62e6321198dc8f6d511445c8f2bb02f50b380b18210619012723f11e250e3be3"
+                  }
+                ],
+                [
+                  "state",
+                  {
+                    "text": "present"
+                  }
+                ]
+              ]
+            }
+          ],
+          [
+            "total_bytes",
+            {
+              "uint": "1073741824"
+            }
+          ],
+          [
+            "transport",
+            {
+              "text": "sata"
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "canonical": "a5646b696e646f706879736963616c2d6465766963656673657269616c475645432d4455506b746f74616c5f62797465731a400000006f636f6c6c6973696f6e5f636f756e7402746475706c69636174655f64657369676e61746f72f4",
+      "name": "node-entry-physical-device-6-group",
+      "sha256": "0c7f5e1b518ce38c3281d90ad079d19d00defea48042c6af010d845f4c572028",
+      "snapshot": "snapshot-full-captured",
+      "value": {
+        "map": [
+          [
+            "collision_count",
+            {
+              "uint": "2"
+            }
+          ],
+          [
+            "duplicate_designator",
+            {
+              "bool": false
+            }
+          ],
+          [
+            "kind",
+            {
+              "text": "physical-device"
+            }
+          ],
+          [
+            "serial",
+            {
+              "bytes": "5645432d445550"
+            }
+          ],
+          [
+            "total_bytes",
+            {
+              "uint": "1073741824"
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "canonical": "a764686f73745820cb381cb31285df1d9f28c6de604f97c27c6d4ff5b11f74ee7deb745f34a53d71646b696e64716261636b696e672d7369676e61747572656666616d696c796a6d64726169642d312e786b657874656e745f686f73745820cb381cb31285df1d9f28c6de604f97c27c6d4ff5b11f74ee7deb745f34a53d716c657874656e745f73746172741910006d657874656e745f6c656e6774681a000100006e7072696d6172795f6f6666736574191000",
+      "name": "node-entry-backing-signature-7",
+      "sha256": "89e979253636ef711d1310dba2c1cd1d4f197e2ccb1c5df0a7cdca1b8ac06c6f",
+      "snapshot": "snapshot-full-captured",
+      "value": {
+        "map": [
+          [
+            "extent_host",
+            {
+              "bytes": "cb381cb31285df1d9f28c6de604f97c27c6d4ff5b11f74ee7deb745f34a53d71"
+            }
+          ],
+          [
+            "extent_length",
+            {
+              "uint": "65536"
+            }
+          ],
+          [
+            "extent_start",
+            {
+              "uint": "4096"
+            }
+          ],
+          [
+            "family",
+            {
+              "text": "mdraid-1.x"
+            }
+          ],
+          [
+            "host",
+            {
+              "bytes": "cb381cb31285df1d9f28c6de604f97c27c6d4ff5b11f74ee7deb745f34a53d71"
+            }
+          ],
+          [
+            "kind",
+            {
+              "text": "backing-signature"
+            }
+          ],
+          [
+            "primary_offset",
+            {
+              "uint": "4096"
+            }
+          ]
+        ]
+      }
+    }
+  ],
+  "plans": [
+    {
+      "canonical": "a865737465707381a765666c61677380667461726765745820abdfbfccb868d260c63d13a51a5bb35e40b229b2c395caa002e145410b00978868636f6e73756d656480687365766572697479046964657374726f79656481a364686f73745820abdfbfccb868d260c63d13a51a5bb35e40b229b2c395caa002e145410b00978865737461727400666c656e6774681a400000006f61636b6e6f776c6564676d656e747380757772697474656e5f7461626c655f657874656e74738066736368656d616c706172746d616e2e706c616e67706c616e5f69644d7665632d706c616e2d62617265696e6f745f61667465721a655542806a637265617465645f61741a6553f1006a6964656e746974696573a06d736e617073686f745f68617368582080f578a3c695d29f6c81cdebf746eb2a64e871716e631d0aa0ef99319e191abe6e736368656d615f76657273696f6e01",
+      "name": "plan-bare-wipe",
+      "sha256": "d97dcd18d2a2352333f6c14163dbd0c7bc8591dac70e0e2666e7747b6eaf1dbf",
+      "snapshot": "snapshot-plan-base-captured",
+      "value": {
+        "map": [
+          [
+            "created_at",
+            {
+              "uint": "1700000000"
+            }
+          ],
+          [
+            "identities",
+            {
+              "map": []
+            }
+          ],
+          [
+            "not_after",
+            {
+              "uint": "1700086400"
+            }
+          ],
+          [
+            "plan_id",
+            {
+              "bytes": "7665632d706c616e2d62617265"
+            }
+          ],
+          [
+            "schema",
+            {
+              "text": "partman.plan"
+            }
+          ],
+          [
+            "schema_version",
+            {
+              "uint": "1"
+            }
+          ],
+          [
+            "snapshot_hash",
+            {
+              "bytes": "80f578a3c695d29f6c81cdebf746eb2a64e871716e631d0aa0ef99319e191abe"
+            }
+          ],
+          [
+            "steps",
+            {
+              "array": [
+                {
+                  "map": [
+                    [
+                      "acknowledgments",
+                      {
+                        "array": []
+                      }
+                    ],
+                    [
+                      "consumed",
+                      {
+                        "array": []
+                      }
+                    ],
+                    [
+                      "destroyed",
+                      {
+                        "array": [
+                          {
+                            "map": [
+                              [
+                                "host",
+                                {
+                                  "bytes": "abdfbfccb868d260c63d13a51a5bb35e40b229b2c395caa002e145410b009788"
+                                }
+                              ],
+                              [
+                                "length",
+                                {
+                                  "uint": "1073741824"
+                                }
+                              ],
+                              [
+                                "start",
+                                {
+                                  "uint": "0"
+                                }
+                              ]
+                            ]
+                          }
+                        ]
+                      }
+                    ],
+                    [
+                      "flags",
+                      {
+                        "array": []
+                      }
+                    ],
+                    [
+                      "severity",
+                      {
+                        "uint": "4"
+                      }
+                    ],
+                    [
+                      "target",
+                      {
+                        "bytes": "abdfbfccb868d260c63d13a51a5bb35e40b229b2c395caa002e145410b009788"
+                      }
+                    ],
+                    [
+                      "written_table_extents",
+                      {
+                        "array": []
+                      }
+                    ]
+                  ]
+                }
+              ]
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "canonical": "a865737465707381a765666c61677380667461726765745820abdfbfccb868d260c63d13a51a5bb35e40b229b2c395caa002e145410b00978868636f6e73756d656480687365766572697479046964657374726f79656481a364686f73745820abdfbfccb868d260c63d13a51a5bb35e40b229b2c395caa002e145410b00978865737461727400666c656e6774681a400000006f61636b6e6f776c6564676d656e747380757772697474656e5f7461626c655f657874656e74738066736368656d616c706172746d616e2e706c616e67706c616e5f69644e7665632d706c616e2d626f756e64696e6f745f61667465721a655542806a637265617465645f61741a6553f1006a6964656e746974696573a1784061626466626663636238363864323630633633643133613531613562623335653430623232396232633339356361613030326531343534313062303039373838a7657461626c65a26573746174656770726573656e7468636865636b73756d582062e6321198dc8f6d511445c8f2bb02f50b380b18210619012723f11e250e3be36673657269616c485645432d504c414e6b746f74616c5f62797465731a400000006e6f735f696e7374616e63655f6964487665632d6f732d306f636f6e6e656374696f6e5f70617468567063692d303030303a30303a31662e322d6174612d31736c6f676963616c5f736563746f725f73697a6519020074706879736963616c5f736563746f725f73697a651910006d736e617073686f745f68617368582080f578a3c695d29f6c81cdebf746eb2a64e871716e631d0aa0ef99319e191abe6e736368656d615f76657273696f6e01",
+      "name": "plan-bound-identity-wipe",
+      "sha256": "5a041d9dddf0ebdcb47a5b5f58a9775d3440977b87fc996e61bfeea53fa64d2f",
+      "snapshot": "snapshot-plan-base-captured",
+      "value": {
+        "map": [
+          [
+            "created_at",
+            {
+              "uint": "1700000000"
+            }
+          ],
+          [
+            "identities",
+            {
+              "map": [
+                [
+                  "abdfbfccb868d260c63d13a51a5bb35e40b229b2c395caa002e145410b009788",
+                  {
+                    "map": [
+                      [
+                        "connection_path",
+                        {
+                          "bytes": "7063692d303030303a30303a31662e322d6174612d31"
+                        }
+                      ],
+                      [
+                        "logical_sector_size",
+                        {
+                          "uint": "512"
+                        }
+                      ],
+                      [
+                        "os_instance_id",
+                        {
+                          "bytes": "7665632d6f732d30"
+                        }
+                      ],
+                      [
+                        "physical_sector_size",
+                        {
+                          "uint": "4096"
+                        }
+                      ],
+                      [
+                        "serial",
+                        {
+                          "bytes": "5645432d504c414e"
+                        }
+                      ],
+                      [
+                        "table",
+                        {
+                          "map": [
+                            [
+                              "checksum",
+                              {
+                                "bytes": "62e6321198dc8f6d511445c8f2bb02f50b380b18210619012723f11e250e3be3"
+                              }
+                            ],
+                            [
+                              "state",
+                              {
+                                "text": "present"
+                              }
+                            ]
+                          ]
+                        }
+                      ],
+                      [
+                        "total_bytes",
+                        {
+                          "uint": "1073741824"
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              ]
+            }
+          ],
+          [
+            "not_after",
+            {
+              "uint": "1700086400"
+            }
+          ],
+          [
+            "plan_id",
+            {
+              "bytes": "7665632d706c616e2d626f756e64"
+            }
+          ],
+          [
+            "schema",
+            {
+              "text": "partman.plan"
+            }
+          ],
+          [
+            "schema_version",
+            {
+              "uint": "1"
+            }
+          ],
+          [
+            "snapshot_hash",
+            {
+              "bytes": "80f578a3c695d29f6c81cdebf746eb2a64e871716e631d0aa0ef99319e191abe"
+            }
+          ],
+          [
+            "steps",
+            {
+              "array": [
+                {
+                  "map": [
+                    [
+                      "acknowledgments",
+                      {
+                        "array": []
+                      }
+                    ],
+                    [
+                      "consumed",
+                      {
+                        "array": []
+                      }
+                    ],
+                    [
+                      "destroyed",
+                      {
+                        "array": [
+                          {
+                            "map": [
+                              [
+                                "host",
+                                {
+                                  "bytes": "abdfbfccb868d260c63d13a51a5bb35e40b229b2c395caa002e145410b009788"
+                                }
+                              ],
+                              [
+                                "length",
+                                {
+                                  "uint": "1073741824"
+                                }
+                              ],
+                              [
+                                "start",
+                                {
+                                  "uint": "0"
+                                }
+                              ]
+                            ]
+                          }
+                        ]
+                      }
+                    ],
+                    [
+                      "flags",
+                      {
+                        "array": []
+                      }
+                    ],
+                    [
+                      "severity",
+                      {
+                        "uint": "4"
+                      }
+                    ],
+                    [
+                      "target",
+                      {
+                        "bytes": "abdfbfccb868d260c63d13a51a5bb35e40b229b2c395caa002e145410b009788"
+                      }
+                    ],
+                    [
+                      "written_table_extents",
+                      {
+                        "array": []
+                      }
+                    ]
+                  ]
+                }
+              ]
+            }
+          ]
+        ]
+      }
+    }
+  ],
+  "profile": "pce/1",
+  "snapshots": [
+    {
+      "canonical": "a565656467657380656e6f64657381a3646b696e646f706879736963616c2d6465766963656673657269616c475645432d4d494e6b746f74616c5f62797465731a4000000066736368656d617822706172746d616e2e746f706f6c6f67792d736e617073686f742e63617074757265646c7472616e736974696f6e616cf46e736368656d615f76657273696f6e01",
+      "name": "snapshot-minimal-captured",
+      "sha256": "67e8f1d117860ff6579eaf248b3ca8ac8c691f014bdb8faf94f88d800e448b9f",
+      "value": {
+        "map": [
+          [
+            "edges",
+            {
+              "array": []
+            }
+          ],
+          [
+            "nodes",
+            {
+              "array": [
+                {
+                  "map": [
+                    [
+                      "kind",
+                      {
+                        "text": "physical-device"
+                      }
+                    ],
+                    [
+                      "serial",
+                      {
+                        "bytes": "5645432d4d494e"
+                      }
+                    ],
+                    [
+                      "total_bytes",
+                      {
+                        "uint": "1073741824"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            }
+          ],
+          [
+            "schema",
+            {
+              "text": "partman.topology-snapshot.captured"
+            }
+          ],
+          [
+            "schema_version",
+            {
+              "uint": "1"
+            }
+          ],
+          [
+            "transitional",
+            {
+              "bool": false
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "canonical": "a565656467657380656e6f64657381a3646b696e646f706879736963616c2d6465766963656673657269616c475645432d4d494e6b746f74616c5f62797465731a4000000066736368656d617823706172746d616e2e746f706f6c6f67792d736e617073686f742e73696d756c617465646c7472616e736974696f6e616cf56e736368656d615f76657273696f6e01",
+      "name": "snapshot-minimal-simulated-transitional",
+      "sha256": "9832bd1a235ee4bb3143b5066c269bc9fa22ec05d86e0d2d2a62c950af89f09e",
+      "value": {
+        "map": [
+          [
+            "edges",
+            {
+              "array": []
+            }
+          ],
+          [
+            "nodes",
+            {
+              "array": [
+                {
+                  "map": [
+                    [
+                      "kind",
+                      {
+                        "text": "physical-device"
+                      }
+                    ],
+                    [
+                      "serial",
+                      {
+                        "bytes": "5645432d4d494e"
+                      }
+                    ],
+                    [
+                      "total_bytes",
+                      {
+                        "uint": "1073741824"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            }
+          ],
+          [
+            "schema",
+            {
+              "text": "partman.topology-snapshot.simulated"
+            }
+          ],
+          [
+            "schema_version",
+            {
+              "uint": "1"
+            }
+          ],
+          [
+            "transitional",
+            {
+              "bool": true
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "canonical": "a565656467657386a3646b696e64676261636b696e6766736f757263655820e129cf66d4549b1378c5f734595189bfd9322555cc7df5c0330baf387a1f66ea66746172676574582088d184710eab279a0c89b53ed7c6d2dce3b847956aaa07a4c679e9130deb1cf6a3646b696e646a70726f64756374696f6e66736f75726365582088d184710eab279a0c89b53ed7c6d2dce3b847956aaa07a4c679e9130deb1cf666746172676574582067e7e355e611de1ef2df08345aaa2b45db626e1dae60f0f4ae80876509168953a3646b696e646b636f6e7461696e6d656e7466736f7572636558205130f5a536592c916e665d0dc6db970eeb11cf632f353f8b7453d72872b4ed20667461726765745820cb381cb31285df1d9f28c6de604f97c27c6d4ff5b11f74ee7deb745f34a53d71a3646b696e646b636f6e7461696e6d656e7466736f75726365582067e7e355e611de1ef2df08345aaa2b45db626e1dae60f0f4ae8087650916895366746172676574582012713254efef3cd9e0e3164a853f12a15c72a69eb709bd4ade6aa62dc6cb7282a3646b696e646b636f6e7461696e6d656e7466736f7572636558208f307d56428bde2d0b31bf05c75ce3c9a0f16087d9888ccc5ebb38a36820818e6674617267657458205130f5a536592c916e665d0dc6db970eeb11cf632f353f8b7453d72872b4ed20a3646b696e646b636f6e7461696e6d656e7466736f757263655820cb381cb31285df1d9f28c6de604f97c27c6d4ff5b11f74ee7deb745f34a53d71667461726765745820e129cf66d4549b1378c5f734595189bfd9322555cc7df5c0330baf387a1f66ea656e6f64657388a3646b696e6466766f6c756d65646e616d65477665632d766f6c6870726f6475636572582088d184710eab279a0c89b53ed7c6d2dce3b847956aaa07a4c679e9130deb1cf6a3646b696e6469706172746974696f6e6c706172656e745f7461626c6558205130f5a536592c916e665d0dc6db970eeb11cf632f353f8b7453d72872b4ed206c73746172745f6f66667365741a00100000a3646b696e646f706172746974696f6e2d7461626c6564726f6c656367707466706172656e7458208f307d56428bde2d0b31bf05c75ce3c9a0f16087d9888ccc5ebb38a36820818ea464686f7374582067e7e355e611de1ef2df08345aaa2b45db626e1dae60f0f4ae80876509168953646b696e646b66696c652d73797374656d6766735f6b696e646465787434717375706572626c6f636b5f6f6666736574190400a4646b696e64696167677265676174656a64657369676e61746f724b5645432d4d442d555549446a746563686e6f6c6f6779666d64726169646c6d656d6265725f636f756e7402a5646b696e646f706879736963616c2d6465766963656673657269616c455645432d41697472616e73706f727464736174616b7461626c655f7374617465a26573746174656770726573656e7468636865636b73756d582062e6321198dc8f6d511445c8f2bb02f50b380b18210619012723f11e250e3be36b746f74616c5f62797465731a40000000a5646b696e646f706879736963616c2d6465766963656673657269616c475645432d4455506b746f74616c5f62797465731a400000006f636f6c6c6973696f6e5f636f756e7402746475706c69636174655f64657369676e61746f72f4a764686f73745820cb381cb31285df1d9f28c6de604f97c27c6d4ff5b11f74ee7deb745f34a53d71646b696e64716261636b696e672d7369676e61747572656666616d696c796a6d64726169642d312e786b657874656e745f686f73745820cb381cb31285df1d9f28c6de604f97c27c6d4ff5b11f74ee7deb745f34a53d716c657874656e745f73746172741910006d657874656e745f6c656e6774681a000100006e7072696d6172795f6f666673657419100066736368656d617822706172746d616e2e746f706f6c6f67792d736e617073686f742e63617074757265646c7472616e736974696f6e616cf46e736368656d615f76657273696f6e01",
+      "name": "snapshot-full-captured",
+      "sha256": "cb81e8a2ad98826d2037e043840a73d9b074d89d398fac9c8b124fb044cb73f9",
+      "value": {
+        "map": [
+          [
+            "edges",
+            {
+              "array": [
+                {
+                  "map": [
+                    [
+                      "kind",
+                      {
+                        "text": "backing"
+                      }
+                    ],
+                    [
+                      "source",
+                      {
+                        "bytes": "e129cf66d4549b1378c5f734595189bfd9322555cc7df5c0330baf387a1f66ea"
+                      }
+                    ],
+                    [
+                      "target",
+                      {
+                        "bytes": "88d184710eab279a0c89b53ed7c6d2dce3b847956aaa07a4c679e9130deb1cf6"
+                      }
+                    ]
+                  ]
+                },
+                {
+                  "map": [
+                    [
+                      "kind",
+                      {
+                        "text": "production"
+                      }
+                    ],
+                    [
+                      "source",
+                      {
+                        "bytes": "88d184710eab279a0c89b53ed7c6d2dce3b847956aaa07a4c679e9130deb1cf6"
+                      }
+                    ],
+                    [
+                      "target",
+                      {
+                        "bytes": "67e7e355e611de1ef2df08345aaa2b45db626e1dae60f0f4ae80876509168953"
+                      }
+                    ]
+                  ]
+                },
+                {
+                  "map": [
+                    [
+                      "kind",
+                      {
+                        "text": "containment"
+                      }
+                    ],
+                    [
+                      "source",
+                      {
+                        "bytes": "5130f5a536592c916e665d0dc6db970eeb11cf632f353f8b7453d72872b4ed20"
+                      }
+                    ],
+                    [
+                      "target",
+                      {
+                        "bytes": "cb381cb31285df1d9f28c6de604f97c27c6d4ff5b11f74ee7deb745f34a53d71"
+                      }
+                    ]
+                  ]
+                },
+                {
+                  "map": [
+                    [
+                      "kind",
+                      {
+                        "text": "containment"
+                      }
+                    ],
+                    [
+                      "source",
+                      {
+                        "bytes": "67e7e355e611de1ef2df08345aaa2b45db626e1dae60f0f4ae80876509168953"
+                      }
+                    ],
+                    [
+                      "target",
+                      {
+                        "bytes": "12713254efef3cd9e0e3164a853f12a15c72a69eb709bd4ade6aa62dc6cb7282"
+                      }
+                    ]
+                  ]
+                },
+                {
+                  "map": [
+                    [
+                      "kind",
+                      {
+                        "text": "containment"
+                      }
+                    ],
+                    [
+                      "source",
+                      {
+                        "bytes": "8f307d56428bde2d0b31bf05c75ce3c9a0f16087d9888ccc5ebb38a36820818e"
+                      }
+                    ],
+                    [
+                      "target",
+                      {
+                        "bytes": "5130f5a536592c916e665d0dc6db970eeb11cf632f353f8b7453d72872b4ed20"
+                      }
+                    ]
+                  ]
+                },
+                {
+                  "map": [
+                    [
+                      "kind",
+                      {
+                        "text": "containment"
+                      }
+                    ],
+                    [
+                      "source",
+                      {
+                        "bytes": "cb381cb31285df1d9f28c6de604f97c27c6d4ff5b11f74ee7deb745f34a53d71"
+                      }
+                    ],
+                    [
+                      "target",
+                      {
+                        "bytes": "e129cf66d4549b1378c5f734595189bfd9322555cc7df5c0330baf387a1f66ea"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            }
+          ],
+          [
+            "nodes",
+            {
+              "array": [
+                {
+                  "map": [
+                    [
+                      "kind",
+                      {
+                        "text": "volume"
+                      }
+                    ],
+                    [
+                      "name",
+                      {
+                        "bytes": "7665632d766f6c"
+                      }
+                    ],
+                    [
+                      "producer",
+                      {
+                        "bytes": "88d184710eab279a0c89b53ed7c6d2dce3b847956aaa07a4c679e9130deb1cf6"
+                      }
+                    ]
+                  ]
+                },
+                {
+                  "map": [
+                    [
+                      "kind",
+                      {
+                        "text": "partition"
+                      }
+                    ],
+                    [
+                      "parent_table",
+                      {
+                        "bytes": "5130f5a536592c916e665d0dc6db970eeb11cf632f353f8b7453d72872b4ed20"
+                      }
+                    ],
+                    [
+                      "start_offset",
+                      {
+                        "uint": "1048576"
+                      }
+                    ]
+                  ]
+                },
+                {
+                  "map": [
+                    [
+                      "kind",
+                      {
+                        "text": "partition-table"
+                      }
+                    ],
+                    [
+                      "parent",
+                      {
+                        "bytes": "8f307d56428bde2d0b31bf05c75ce3c9a0f16087d9888ccc5ebb38a36820818e"
+                      }
+                    ],
+                    [
+                      "role",
+                      {
+                        "text": "gpt"
+                      }
+                    ]
+                  ]
+                },
+                {
+                  "map": [
+                    [
+                      "fs_kind",
+                      {
+                        "text": "ext4"
+                      }
+                    ],
+                    [
+                      "host",
+                      {
+                        "bytes": "67e7e355e611de1ef2df08345aaa2b45db626e1dae60f0f4ae80876509168953"
+                      }
+                    ],
+                    [
+                      "kind",
+                      {
+                        "text": "file-system"
+                      }
+                    ],
+                    [
+                      "superblock_offset",
+                      {
+                        "uint": "1024"
+                      }
+                    ]
+                  ]
+                },
+                {
+                  "map": [
+                    [
+                      "designator",
+                      {
+                        "bytes": "5645432d4d442d55554944"
+                      }
+                    ],
+                    [
+                      "kind",
+                      {
+                        "text": "aggregate"
+                      }
+                    ],
+                    [
+                      "member_count",
+                      {
+                        "uint": "2"
+                      }
+                    ],
+                    [
+                      "technology",
+                      {
+                        "text": "mdraid"
+                      }
+                    ]
+                  ]
+                },
+                {
+                  "map": [
+                    [
+                      "kind",
+                      {
+                        "text": "physical-device"
+                      }
+                    ],
+                    [
+                      "serial",
+                      {
+                        "bytes": "5645432d41"
+                      }
+                    ],
+                    [
+                      "table_state",
+                      {
+                        "map": [
+                          [
+                            "checksum",
+                            {
+                              "bytes": "62e6321198dc8f6d511445c8f2bb02f50b380b18210619012723f11e250e3be3"
+                            }
+                          ],
+                          [
+                            "state",
+                            {
+                              "text": "present"
+                            }
+                          ]
+                        ]
+                      }
+                    ],
+                    [
+                      "total_bytes",
+                      {
+                        "uint": "1073741824"
+                      }
+                    ],
+                    [
+                      "transport",
+                      {
+                        "text": "sata"
+                      }
+                    ]
+                  ]
+                },
+                {
+                  "map": [
+                    [
+                      "collision_count",
+                      {
+                        "uint": "2"
+                      }
+                    ],
+                    [
+                      "duplicate_designator",
+                      {
+                        "bool": false
+                      }
+                    ],
+                    [
+                      "kind",
+                      {
+                        "text": "physical-device"
+                      }
+                    ],
+                    [
+                      "serial",
+                      {
+                        "bytes": "5645432d445550"
+                      }
+                    ],
+                    [
+                      "total_bytes",
+                      {
+                        "uint": "1073741824"
+                      }
+                    ]
+                  ]
+                },
+                {
+                  "map": [
+                    [
+                      "extent_host",
+                      {
+                        "bytes": "cb381cb31285df1d9f28c6de604f97c27c6d4ff5b11f74ee7deb745f34a53d71"
+                      }
+                    ],
+                    [
+                      "extent_length",
+                      {
+                        "uint": "65536"
+                      }
+                    ],
+                    [
+                      "extent_start",
+                      {
+                        "uint": "4096"
+                      }
+                    ],
+                    [
+                      "family",
+                      {
+                        "text": "mdraid-1.x"
+                      }
+                    ],
+                    [
+                      "host",
+                      {
+                        "bytes": "cb381cb31285df1d9f28c6de604f97c27c6d4ff5b11f74ee7deb745f34a53d71"
+                      }
+                    ],
+                    [
+                      "kind",
+                      {
+                        "text": "backing-signature"
+                      }
+                    ],
+                    [
+                      "primary_offset",
+                      {
+                        "uint": "4096"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            }
+          ],
+          [
+            "schema",
+            {
+              "text": "partman.topology-snapshot.captured"
+            }
+          ],
+          [
+            "schema_version",
+            {
+              "uint": "1"
+            }
+          ],
+          [
+            "transitional",
+            {
+              "bool": false
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "canonical": "a565656467657380656e6f64657381a8646b696e646f706879736963616c2d6465766963656673657269616c485645432d504c414e697472616e73706f727464736174616b657874656e745f686f73745820abdfbfccb868d260c63d13a51a5bb35e40b229b2c395caa002e145410b0097886b7461626c655f7374617465a26573746174656770726573656e7468636865636b73756d582062e6321198dc8f6d511445c8f2bb02f50b380b18210619012723f11e250e3be36b746f74616c5f62797465731a400000006c657874656e745f7374617274006d657874656e745f6c656e6774681a4000000066736368656d617822706172746d616e2e746f706f6c6f67792d736e617073686f742e63617074757265646c7472616e736974696f6e616cf46e736368656d615f76657273696f6e01",
+      "name": "snapshot-plan-base-captured",
+      "sha256": "80f578a3c695d29f6c81cdebf746eb2a64e871716e631d0aa0ef99319e191abe",
+      "value": {
+        "map": [
+          [
+            "edges",
+            {
+              "array": []
+            }
+          ],
+          [
+            "nodes",
+            {
+              "array": [
+                {
+                  "map": [
+                    [
+                      "extent_host",
+                      {
+                        "bytes": "abdfbfccb868d260c63d13a51a5bb35e40b229b2c395caa002e145410b009788"
+                      }
+                    ],
+                    [
+                      "extent_length",
+                      {
+                        "uint": "1073741824"
+                      }
+                    ],
+                    [
+                      "extent_start",
+                      {
+                        "uint": "0"
+                      }
+                    ],
+                    [
+                      "kind",
+                      {
+                        "text": "physical-device"
+                      }
+                    ],
+                    [
+                      "serial",
+                      {
+                        "bytes": "5645432d504c414e"
+                      }
+                    ],
+                    [
+                      "table_state",
+                      {
+                        "map": [
+                          [
+                            "checksum",
+                            {
+                              "bytes": "62e6321198dc8f6d511445c8f2bb02f50b380b18210619012723f11e250e3be3"
+                            }
+                          ],
+                          [
+                            "state",
+                            {
+                              "text": "present"
+                            }
+                          ]
+                        ]
+                      }
+                    ],
+                    [
+                      "total_bytes",
+                      {
+                        "uint": "1073741824"
+                      }
+                    ],
+                    [
+                      "transport",
+                      {
+                        "text": "sata"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            }
+          ],
+          [
+            "schema",
+            {
+              "text": "partman.topology-snapshot.captured"
+            }
+          ],
+          [
+            "schema_version",
+            {
+              "uint": "1"
+            }
+          ],
+          [
+            "transitional",
+            {
+              "bool": false
+            }
+          ]
+        ]
+      }
+    }
+  ]
+}

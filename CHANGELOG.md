@@ -7,6 +7,29 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-010 increment 3k: the body-format record and its cross-language
+  proof.** The three body schemas increment 3 delivered get their
+  `schemas/domain/` documents — `topology-snapshot-body.md`,
+  `plan-body.md`, `node-entry-format.md`, each recording a decided
+  format and deciding nothing (a field exists because a slice delivered
+  it, never because a document says so) — and the MODEL-005 parity
+  proof extends to them through one shared fixture,
+  `schemas/domain/body-vectors.json`. The vectors are the Rust
+  constructors' own pinned output: four snapshots (minimal, its
+  simulated/transitional twin, the full capture with every fact class
+  and a collision group, the plan base), two plans over that base (the
+  bare destructive wipe and its identity-bound twin, each recording
+  the digest of the snapshot vector it binds — the PLAN-006 binding
+  held across the fixture itself), and nine node entries pinned
+  standalone and required to appear verbatim in their snapshot's
+  `nodes` set. `crates/domain/tests/body_vectors.rs` proves the
+  constructors reproduce every recorded byte and the typed boundaries
+  round-trip them; `packages/canonical/src/body-vectors.test.ts`
+  proves the TypeScript codec reproduces the same bytes and digests
+  from the same trees, riding the existing required cross-language
+  job. No domain constructor exists in TypeScript on purpose: that
+  side re-encodes decided trees, it does not build topologies.
+
 - **WP-010 increment 3j: the authoring set, structural.** MODEL-005's
   two authored fields land in the shapes their ADRs decided. ADR-C3's
   table state becomes a snapshot **fact** — body content per device,
