@@ -446,20 +446,29 @@ pub fn absorb(nodes: Vec<NamingFields>) -> Result<Vec<NodeEntry>, NamingError> {
         .collect())
 }
 
-const fn kind_tag(fields: &NamingFields) -> &'static str {
-    match fields {
-        NamingFields::PhysicalDevice { .. } => "physical-device",
-        NamingFields::PartitionTable { .. } => "partition-table",
-        NamingFields::Partition { .. } => "partition",
-        NamingFields::BackingSignature { .. } => "backing-signature",
-        NamingFields::FileSystem { .. } => "file-system",
-        NamingFields::EncryptionLayer { .. } => "encryption-layer",
-        NamingFields::Aggregate { .. } => "aggregate",
-        NamingFields::Volume { .. } => "volume",
-        NamingFields::BackingExtent { .. } => "backing-extent",
-        NamingFields::MultipathNode { .. } => "multipath-node",
-        NamingFields::ConflictingTableEntry { .. } => "conflicting-table-entry",
+impl NamingFields {
+    /// The node's kind name — the same tag the address preimage carries,
+    /// and the vocabulary the edge endpoint-pair table speaks.
+    #[must_use]
+    pub const fn kind_name(&self) -> &'static str {
+        match self {
+            Self::PhysicalDevice { .. } => "physical-device",
+            Self::PartitionTable { .. } => "partition-table",
+            Self::Partition { .. } => "partition",
+            Self::BackingSignature { .. } => "backing-signature",
+            Self::FileSystem { .. } => "file-system",
+            Self::EncryptionLayer { .. } => "encryption-layer",
+            Self::Aggregate { .. } => "aggregate",
+            Self::Volume { .. } => "volume",
+            Self::BackingExtent { .. } => "backing-extent",
+            Self::MultipathNode { .. } => "multipath-node",
+            Self::ConflictingTableEntry { .. } => "conflicting-table-entry",
+        }
     }
+}
+
+const fn kind_tag(fields: &NamingFields) -> &'static str {
+    fields.kind_name()
 }
 
 fn insert_fields(preimage: &mut BTreeMap<String, Value>, fields: &NamingFields) {

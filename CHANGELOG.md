@@ -7,6 +7,27 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-010 increment 3b: edges and topology construction (ADR-0019,
+  ADR-0018's semantics-class handover).** `model::topology` adds the
+  five MODEL-002 edge kinds, each carrying its semantics class —
+  containment, backing, production, and host-backing are
+  bytes-within-or-derive and bind-traversed; platform-membership is
+  platform-asserted, detection-only, and bind-inert until the spec
+  change ADR-0011 names — and `Topology::build`, the fail-closed
+  construction boundary: nodes absorb per 3a's collision rule, and
+  edges are refused as typed values (never a panic, never an encoder
+  failure) for unknown referents, self-edges, duplicates, and any
+  endpoint pair outside the edge kind's pair table. The
+  no-sibling-capture theorem's premise — no backing, production, or
+  host-backing edge targets a physical device — is a property of that
+  table, enforced at construction and proved by exhaustive enumeration
+  over every (kind, source, target) triple rather than sampled. The
+  assembled-multipath shape is a committed regression: two
+  equal-identity paths group, and the membership edge targets the
+  grouped member entry. Snapshots, provenance, schema versioning, and
+  the typed decode/validate/hash boundary remain later slices; nothing
+  here hashes an artifact or authorizes anything.
+
 - **WP-010 increment 3a: node naming lands as code (ADR-0019).**
   `crates/domain` gains the `model::naming` module: `NodeId` as a
   derived, document-local positional address — the SHA-256 of a
