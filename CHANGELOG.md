@@ -7,6 +7,27 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-010 increment 3g: the protection gate on capability (ADR-0018's
+  canonical-step rule).** `model::capability` models CAP-002's fourteen
+  operations separately with ADR-0018's class partition — detect, read,
+  check, and copy-as-source are source class and never suppressed by a
+  verdict (WIN-003's detection duty and WIN-004's copy-off escape stay
+  advertised); the ten mutating operations are gated. Each mutating
+  operation defines a canonical effect-table entry over its target —
+  the minimal invariant ranges derivable with no plan in scope, with a
+  destructive operation destroying the target's extent and content
+  operations deferring to the plan step's authoritative declared
+  ranges — and `protection_gate` is the same closure the constructor
+  runs, so the capability surface and the planner cannot disagree on a
+  target/operation pair: CAP-005 agreement is enumerated over every
+  pair in the pool layout rather than argued. Refusals map to
+  `unsupported` with the citing ground; indeterminacies map to
+  `blocked`, remediable — the orphan-signature host blocks rather than
+  refuses forever. `Clear` is deliberately not a CAP-003 `supported`
+  claim: WP-050's engine layers tool, version, and evidence gates on
+  top, and CAP-007 keeps every client-shown status advisory. Five
+  tests, including the enumerated agreement sweep.
+
 - **WP-010 increment 3f: the protection facts are body content.**
   The snapshot body carries, per node, the evidence-contract facts
   the closure consumes — host-qualified extents, the device transport
