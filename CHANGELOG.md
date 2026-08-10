@@ -7,6 +7,27 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-010 increment 3d: SAFE-003's identity record (ADR-C3, ADR-C4's
+  guard, ADR-0014's vocabulary, ADR-0015, ADR-0017).**
+  `model::identity` lands the immutable target record: all available
+  identifiers as contract-source-verbatim bytes, geometry, ADR-C3's
+  three-valued table state — with ADR-C4's guard held in bytes
+  (present, absent, and indeterminate are three pairwise distinct body
+  values, by test) — and ADR-0017's continuity witness. Strength is
+  derived, never stored: no field carries it, `strength()` computes
+  SAFE-003's rule (a device whose table failed to parse cannot be
+  Strong even with a serial; a positively absent table supports
+  Strong), and a forged `strength` key in body bytes refuses as an
+  undeclared field. The witness comparison follows the measured
+  semantics exactly: comparable only within an unchanged epoch token,
+  a decrease is a reset the token failed to witness and is
+  incomparable, movement is exchange-observed, and the closed outcome
+  vocabulary contains no word stronger than the liveness ceiling's
+  own. The helper-authored enforcement for the table state lands at
+  the plan boundary in a later slice; this module defines the shared
+  vocabulary. Seven tests, including the ADR-C4 verification row and
+  every witness arm.
+
 - **WP-010 increment 3c: the snapshot body, envelope, and typed
   boundary (MODEL-003, MODEL-004, MODEL-005, MODEL-006, ADR-C2,
   ADR-C4, CONC-004).** `model::snapshot` gives the topology snapshot
