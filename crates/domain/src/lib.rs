@@ -5,3 +5,4 @@
 //! and never touches storage.
 
 pub mod canonical;
+pub mod model;
