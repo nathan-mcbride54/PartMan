@@ -212,7 +212,7 @@ fn insert_optional(map: &mut BTreeMap<String, Value>, key: &str, bytes: Option<&
     }
 }
 
-fn table_value(table: &TableState) -> Value {
+pub(crate) fn table_value(table: &TableState) -> Value {
     let mut map = BTreeMap::new();
     match table {
         TableState::Present { checksum } => {
@@ -311,7 +311,9 @@ fn optional_unsigned(
     }
 }
 
-fn table_from_map(map: &BTreeMap<String, Value>) -> Result<TableState, IdentityParseError> {
+pub(crate) fn table_from_map(
+    map: &BTreeMap<String, Value>,
+) -> Result<TableState, IdentityParseError> {
     let state = match map.get("state") {
         Some(Value::Text(text)) => text.as_str(),
         _ => return Err(IdentityParseError::BadField { key: "table" }),

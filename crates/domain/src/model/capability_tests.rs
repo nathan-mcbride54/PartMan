@@ -113,6 +113,7 @@ fn pool_layout() -> Layout {
             extents,
             transports,
             member_counts: BTreeMap::new(),
+            table_states: BTreeMap::new(),
         },
         sda: sda_id,
         member: member_id,

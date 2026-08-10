@@ -27,6 +27,7 @@ use std::fmt;
 
 use crate::canonical::{self, Hash, Value};
 
+use super::identity::{DeviceIdentity, identity_from_map};
 use super::naming::{self, NodeId};
 use super::protection::{HostRange, StepRanges};
 use super::snapshot::TopologySnapshot;
@@ -54,6 +55,7 @@ pub struct OperationPlan {
     created_at: u64,
     snapshot_hash: Hash,
     validity: ValidityWindow,
+    identities: BTreeMap<String, DeviceIdentity>,
     steps: Vec<PlanStep>,
 }
 
@@ -70,6 +72,7 @@ impl OperationPlan {
         created_at: u64,
         snapshot: &TopologySnapshot,
         validity: ValidityWindow,
+        identities: BTreeMap<NodeId, DeviceIdentity>,
         steps: Vec<PlanStep>,
     ) -> Result<Self, PlanError> {
         let snapshot_hash = snapshot.body_hash().map_err(|_| PlanError::Snapshot)?;
@@ -78,8 +81,20 @@ impl OperationPlan {
             created_at,
             snapshot_hash,
             validity,
+            identities: identities
+                .into_iter()
+                .map(|(id, identity)| (id.to_string(), identity))
+                .collect(),
             steps,
         })
+    }
+
+    /// The bound identities, keyed by the target's address in hex
+    /// (Section 6: complete bound device identities; strength is derived
+    /// from each record, never stored).
+    #[must_use]
+    pub const fn identities(&self) -> &BTreeMap<String, DeviceIdentity> {
+        &self.identities
     }
 
     /// The bound snapshot body hash (PLAN-006).
@@ -125,6 +140,15 @@ impl OperationPlan {
             Value::Unsigned(self.validity.not_after),
         );
         body.insert(
+            "identities".to_owned(),
+            Value::Map(
+                self.identities
+                    .iter()
+                    .map(|(key, identity)| (key.clone(), identity.body_value()))
+                    .collect(),
+            ),
+        );
+        body.insert(
             "steps".to_owned(),
             Value::Array(self.steps.iter().map(step_value).collect()),
         );
@@ -168,6 +192,7 @@ impl OperationPlan {
                     | "created_at"
                     | "snapshot_hash"
                     | "not_after"
+                    | "identities"
                     | "steps"
             ) {
                 return Err(PlanSchemaError::UnknownField { key: key.clone() });
@@ -207,6 +232,30 @@ impl OperationPlan {
         if claimed_hash != actual.as_bytes() {
             return Err(PlanSchemaError::SnapshotMismatch);
         }
+        let Some(Value::Map(identity_values)) = map.get("identities") else {
+            return Err(PlanSchemaError::MissingField { key: "identities" });
+        };
+        let mut identities = BTreeMap::new();
+        for (key, value) in identity_values {
+            let Value::Map(identity_map) = value else {
+                return Err(PlanSchemaError::MalformedIdentity);
+            };
+            let identity =
+                identity_from_map(identity_map).map_err(|_| PlanSchemaError::MalformedIdentity)?;
+            // The authored-field rule (ADR-0014, MODEL-005's authoring
+            // set): where the helper-produced snapshot carries a table
+            // state for this device, a plan identity claiming a
+            // different state never validates. The snapshot's fact is
+            // the stamp; the plan's claim must agree or the plan is a
+            // client-authored divergence.
+            let id_bytes = hex_to_id(key).ok_or(PlanSchemaError::MalformedIdentity)?;
+            if let Some(stamped) = snapshot.facts().table_states.get(&id_bytes)
+                && *stamped != identity.table
+            {
+                return Err(PlanSchemaError::AuthoredFieldMismatch);
+            }
+            identities.insert(key.clone(), identity);
+        }
         let Some(Value::Array(step_values)) = map.get("steps") else {
             return Err(PlanSchemaError::MissingField { key: "steps" });
         };
@@ -219,6 +268,7 @@ impl OperationPlan {
             created_at,
             snapshot_hash: actual,
             validity: ValidityWindow { not_after },
+            identities,
             steps,
         };
         let recomputed = rebuilt
@@ -385,6 +435,19 @@ fn parse_step(value: &Value, snapshot: &TopologySnapshot) -> Result<PlanStep, Pl
     .map_err(PlanSchemaError::Step)
 }
 
+fn hex_to_id(text: &str) -> Option<NodeId> {
+    if text.len() != 64 {
+        return None;
+    }
+    let mut bytes = Vec::with_capacity(32);
+    let mut chars = text.chars();
+    while let (Some(high), Some(low)) = (chars.next(), chars.next()) {
+        let value = u8::from_str_radix(&format!("{high}{low}"), 16).ok()?;
+        bytes.push(value);
+    }
+    naming::id_from_bytes(&bytes)
+}
+
 fn parse_node(value: Option<&Value>) -> Result<NodeId, PlanSchemaError> {
     match value {
         Some(Value::Bytes(bytes)) => {
@@ -486,6 +549,12 @@ pub enum PlanSchemaError {
     SnapshotUnhashable,
     /// A step, range, acknowledgment, severity, or flag is malformed.
     MalformedStep,
+    /// A bound identity does not parse, or its key is not an address.
+    MalformedIdentity,
+    /// A plan identity's authored field disagrees with the snapshot's
+    /// stamp — the client-authored value that never validates
+    /// (ADR-0014, MODEL-005's authoring set).
+    AuthoredFieldMismatch,
     /// A step failed recomputation through the sole constructor — the
     /// hand-forged artifact, refused.
     Step(StepRefusal),
@@ -507,6 +576,9 @@ impl fmt::Display for PlanSchemaError {
             }
             Self::SnapshotUnhashable => formatter.write_str("supplied snapshot not hashable"),
             Self::MalformedStep => formatter.write_str("malformed step"),
+            Self::MalformedIdentity => formatter.write_str("malformed bound identity"),
+            Self::AuthoredFieldMismatch => formatter
+                .write_str("a bound identity's authored field disagrees with the snapshot's stamp"),
             Self::Step(refusal) => write!(formatter, "step recomputation refused: {refusal}"),
             Self::RecomputationMismatch => {
                 formatter.write_str("rebuilt plan does not reproduce the input bytes")

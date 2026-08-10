@@ -26,6 +26,7 @@ use std::fmt;
 
 use crate::canonical::{self, Hash, Value};
 
+use super::identity::{table_from_map, table_value};
 use super::naming::{self, FieldParseError, NamingFields, NodeEntry};
 use super::protection::{Facts, HostRange, ProtectionRefusal, StepRanges, TransportClass};
 use super::provenance::PropertyObservations;
@@ -299,6 +300,9 @@ fn entry_value(entry: &NodeEntry, facts: &Facts) -> Value {
     if let Some(count) = facts.member_counts.get(&id) {
         map.insert("member_count".to_owned(), Value::Unsigned(*count));
     }
+    if let Some(state) = facts.table_states.get(&id) {
+        map.insert("table_state".to_owned(), table_value(state));
+    }
     Value::Map(map)
 }
 
@@ -394,6 +398,14 @@ fn parse_nodes(
                 });
             }
         };
+        let table_state = match fields_only.remove("table_state") {
+            None => None,
+            Some(Value::Map(state_map)) => Some(
+                table_from_map(&state_map)
+                    .map_err(|_| SnapshotSchemaError::BadFact { key: "table_state" })?,
+            ),
+            Some(_) => return Err(SnapshotSchemaError::BadFact { key: "table_state" }),
+        };
         let fields = naming::fields_from_map(&fields_only).map_err(SnapshotSchemaError::Field)?;
         if transport.is_some() && !matches!(fields, NamingFields::PhysicalDevice { .. }) {
             return Err(SnapshotSchemaError::MisplacedFact { key: "transport" });
@@ -402,6 +414,9 @@ fn parse_nodes(
             return Err(SnapshotSchemaError::MisplacedFact {
                 key: "member_count",
             });
+        }
+        if table_state.is_some() && !matches!(fields, NamingFields::PhysicalDevice { .. }) {
+            return Err(SnapshotSchemaError::MisplacedFact { key: "table_state" });
         }
         if extent.is_some()
             && matches!(
@@ -423,6 +438,9 @@ fn parse_nodes(
         }
         if let Some(count) = member_count {
             facts.member_counts.insert(id, count);
+        }
+        if let Some(state) = table_state {
+            facts.table_states.insert(id, state);
         }
         let copies = usize::try_from(count).map_err(|_| SnapshotSchemaError::BadCollisionCount)?;
         for _ in 0..copies {
