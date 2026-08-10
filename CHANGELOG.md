@@ -7,6 +7,23 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **Register: SI-28 reclassified off the increment-3 gate; nothing
+  gates increment 3.** Decided by the decision owner 2026-08-09, the
+  SI-37 pattern applied to the register's last direct blocker, under
+  the WP-010 grant landed the same day. SI-28 stays Mitigated-open —
+  not Resolved, Part 7's warning in full force — its interim
+  conservative floor unchanged and its relaxation route staying
+  ADR-0017's named revisit condition. Only the class moves: the floor
+  is computable from decided, contract-readable facts (transport
+  class, removability, identifier presence), so no undecided hashed
+  field feeds it, and the refused population can hold no issued
+  authorization for a later discriminating mechanism to invalidate.
+  The priced cost is stated in the entry's banner: a future mechanism
+  adding an identity-record field pays a MODEL-003 schema major after
+  implementation exists, accepted because the alternative was gating
+  the domain model on a mechanism nobody can measure. WP-010's stage
+  line now reads unblocked; increment 3 may start.
+
 - **spec-change 11.1.0: SI-27 is resolved by ADR-0019, on its round
   four.** Node identifiers are derived, kind-discriminated positional
   addresses — the surviving decomposition kept: an address, never a

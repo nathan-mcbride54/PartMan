@@ -52,7 +52,20 @@ SI-31 — which made the register unusable as the dependency gate Section 1.11
 requires it to be. Counts drift; a table that must be edited to add a row does
 not.
 
-Every issue appears exactly once. **One item gates increment 3: SI-28.**
+Every issue appears exactly once. **Nothing gates increment 3.** SI-28 —
+the register's last direct blocker — was reclassified off the gate on
+2026-08-09 by the decision owner, the SI-37 pattern: it stays
+**Mitigated-open**, its interim conservative floor in force and unchanged,
+its relaxation route staying ADR-0017's named revisit condition; only its
+class moved, because the floor refuses the affected population from
+decided, contract-readable facts (transport class, removability,
+identifier presence — no undecided hashed field is an input to it), and a
+refused population can hold no issued authorization for a later
+discriminating mechanism to invalidate. The priced cost, accepted
+knowingly: if that mechanism ever adds an identity-record field, it pays a
+MODEL-003 schema major after implementation exists — accepted because the
+alternative was gating the entire domain model on a mechanism with no
+measurement route.
 Two former transitive blockers are resolved: SI-12
 in spec 4.3.0 by ADR-0011, and SI-38 in spec 6.0.0 by ADR-0013. Six direct
 blockers are resolved: SI-39 in spec 7.0.0 by ADR-0015, SI-35 in spec 8.0.0
@@ -74,18 +87,18 @@ increment 3 as a property test. SI-36 is withdrawn and gates nothing.
 | Class | Meaning | Issues |
 | --- | --- | --- |
 | **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-11, SI-12, SI-27, SI-29, SI-30, SI-31, SI-32, SI-33, SI-34, SI-35, SI-38, SI-39 |
-| **Direct blocker** | Must be decided before increment 3 writes a type | SI-28 |
+| **Direct blocker** | Must be decided before increment 3 writes a type | *(none — SI-28 reclassified below, 2026-08-09)* |
 | **Transitive blocker** | A separately sequenced prerequisite decision that must resolve before a direct blocker can be decided | *(none)* |
 | **Input** | A subquestion or evidence case resolved within the consuming direct blocker's decision | *(none — SI-29 and SI-30 resolved within SI-11's decision; SI-37 reclassified below)* |
-| **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-15, SI-16, SI-17, SI-18, SI-19, SI-20, SI-21, SI-22, SI-23, SI-24, SI-25, SI-26, SI-37 (before the spec change that first moves a closure-blocked multipath-capable population to `Permitted`; ADR-0018) |
+| **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-15, SI-16, SI-17, SI-18, SI-19, SI-20, SI-21, SI-22, SI-23, SI-24, SI-25, SI-26, SI-37 (before the spec change that first moves a closure-blocked multipath-capable population to `Permitted`; ADR-0018), SI-28 (**Mitigated-open**, floor in force; before the round that either relaxes the floor under ADR-0017's revisit condition or lands a discriminating mechanism; reclassified off the increment-3 gate 2026-08-09) |
 | **Withdrawn** | Retained as history after the filing was shown not to be a conflict | SI-36 |
 
-The one remaining direct blocker, with the state it is actually in —
-not simply "undecided":
-
-| Issue | Hash-visible | State |
-| --- | --- | --- |
-| SI-28 | yes | **Mitigated-open.** An interim conservative floor is in force and does not resolve it; Part 7. SI-33's resolution (ADR-0017, 10.0.0) adds the continuity witness as a refusal input on qualified apparatus and **relaxes nothing here**: the floor-relaxation route is now that ADR's named revisit condition, requiring apparatus-qualification evidence and its own round |
+No direct blockers remain. SI-28's Mitigated-open state — the interim
+conservative floor of Part 7's aftermath, in force and unchanged; SI-33's
+witness landed as its refusal input; relaxation parked behind ADR-0017's
+named revisit condition — is recorded in its entry and its Later-class row
+above, with the reclassification banner in the entry carrying the decision
+and its priced cost.
 
 **SI-31 is resolved in spec 4.1.0 by ADR-C6.** Its answer is plain unsigned
 bytewise ordering over each element's full canonical encoding, for
@@ -392,6 +405,28 @@ placement, recovery, or ruleset questions.
 
 ## SI-28 A card reader's serial identifies the transport, not the medium
 
+> **Reclassified 2026-08-09 by the decision owner: off the increment-3
+> gate, the SI-37 pattern.** SI-28 stays **Mitigated-open** — not
+> Resolved, and Part 7's warning against false closure stands in full.
+> The interim conservative floor is in force and unchanged: destructive
+> whole-device operations on removable media behind a bridge exposing no
+> medium-attributable identifier are refused. SI-33's continuity witness
+> (10.0.0) is landed as the refusal input on qualified apparatus, and
+> the floor's relaxation route stays ADR-0017's named revisit condition,
+> requiring apparatus-qualification evidence and its own round. What
+> moves is only the class: the floor is computable from decided,
+> contract-readable facts — transport class, removability, identifier
+> presence — so no undecided hashed field is an input to it, and the
+> refused population can hold no issued authorization for a later
+> discriminating mechanism to invalidate. **The priced cost, accepted
+> knowingly**: a future mechanism that resolves this issue by adding an
+> identity-record field pays a MODEL-003 schema major after
+> implementation exists — the class of cost the register's preamble
+> warns has no cheap exit — accepted because the alternative was gating
+> the entire domain model on a mechanism nobody can currently measure.
+> This reclassification resolves nothing, relaxes nothing, and licenses
+> no closure; the filing and Part 7 remain the record.
+
 > **Confirmed on hardware, 2026-07-28.** Not a hypothesis. A USB SD reader
 > enumerates two LUNs — one holding a card, one **empty** — and both report the
 > same disk serial. A slot containing no medium cannot be reporting the medium's
@@ -401,7 +436,9 @@ placement, recovery, or ruleset questions.
 > `docs/quality/observability.md`. One round of resolution has already failed;
 > see Part 7.
 
-**Requirements:** SAFE-003, ADR-C3, ACC-014, UI-009, SEC-002 · **Blocks 3, hash-visible**
+**Requirements:** SAFE-003, ADR-C3, ACC-014, UI-009, SEC-002 ·
+**Mitigated-open, Later** (was: direct blocker, blocks 3; reclassified off
+the gate 2026-08-09; hash-visible pending its own resolution)
 
 SAFE-003 anticipates that a USB bridge or SD reader may expose *no* stable
 hardware identifier, and classifies the record Weak when that happens. It does
