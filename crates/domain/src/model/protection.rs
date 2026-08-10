@@ -141,7 +141,7 @@ pub enum IndeterminateGround {
 /// The effect-table entry a step declares (ADR-0018 2.3): the three range
 /// sets over host-qualified extents. Release is destruction — a released
 /// range belongs in `destroyed` even though no byte is overwritten.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct StepRanges {
     /// The exact table extents written (never the parent device).
     pub written_table_extents: Vec<HostRange>,

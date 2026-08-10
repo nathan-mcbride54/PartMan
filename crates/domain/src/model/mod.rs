@@ -16,6 +16,7 @@ pub mod naming;
 pub mod protection;
 pub mod provenance;
 pub mod snapshot;
+pub mod step;
 pub mod topology;
 
 #[cfg(test)]
@@ -26,6 +27,8 @@ mod identity_tests;
 mod protection_tests;
 #[cfg(test)]
 mod snapshot_tests;
+#[cfg(test)]
+mod step_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

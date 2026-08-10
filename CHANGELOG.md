@@ -7,6 +7,29 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-010 increment 3h: the mutating step's sole constructor, and
+  ADR-0012's proof (spec 4.4.0's commitment, discharged).**
+  `model::step` lands `PlanStep` with private fields and one
+  constructor: `PlanStep::mutating` runs ADR-0018's closure over the
+  snapshot's own authenticated facts and returns a typed refusal
+  instead of a value for any non-permitted reach — a mutating sentence
+  naming a protected node has no spelling, and the `compile_fail`
+  doctest is the construction-refusal proof in the pattern the CLI
+  chassis set, verified by the compiler on every test run. ADR-0018's
+  acknowledgment vocabulary lands closed at its decided three:
+  `Release` converts exactly the orphan-signature indeterminacy on
+  exactly the node it names (recorded at plan creation, re-derived at
+  validation where a consumed object diverges and rejects);
+  `OpaqueDestruction` and `IdentityBoundRestore` are carried so the
+  set is closed but refuse at construction until their arms exist; a
+  refused node is coverable by no acknowledgment — the
+  consumed-member case is deliberately unrepresentable, which is what
+  separates this from PART-014's bypassable gloss. Five tests: the
+  refused-reach-even-acknowledged refusal, the orphan's lawful
+  release, wrong-node and unmodelled-kind refusals, and the clean
+  construct. The helper's independent recomputation at validation is
+  the retained second layer, landing with the plan boundary.
+
 - **WP-010 increment 3g: the protection gate on capability (ADR-0018's
   canonical-step rule).** `model::capability` models CAP-002's fourteen
   operations separately with ADR-0018's class partition — detect, read,
