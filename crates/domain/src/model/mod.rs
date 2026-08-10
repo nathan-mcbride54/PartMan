@@ -10,6 +10,7 @@
 //! provenance ([`provenance::PropertyObservations`]). Identity records,
 //! verdicts, plans, and their constructors land in later slices.
 
+pub mod capability;
 pub mod identity;
 pub mod naming;
 pub mod protection;
@@ -17,6 +18,8 @@ pub mod provenance;
 pub mod snapshot;
 pub mod topology;
 
+#[cfg(test)]
+mod capability_tests;
 #[cfg(test)]
 mod identity_tests;
 #[cfg(test)]
