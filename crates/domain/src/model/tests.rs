@@ -13,7 +13,7 @@ fn device(serial: Option<&[u8]>, wwn: Option<&[u8]>, total_bytes: u64) -> Naming
     }
 }
 
-// Requirements: MODEL-005 (ADR-0019 §canonicalization-by-source)
+// Requirements: MODEL-005
 //   The derivation is a pure function of the fields: same input, same address.
 // Evidence: derivation_is_deterministic
 #[test]
@@ -24,7 +24,7 @@ fn derivation_is_deterministic() {
     assert_eq!(first, second);
 }
 
-// Requirements: MODEL-005 (ADR-0019 naming maps)
+// Requirements: MODEL-005
 //   Distinct contract-source identifier bytes derive distinct addresses.
 // Evidence: distinct_serials_derive_distinct_addresses
 #[test]
@@ -34,9 +34,9 @@ fn distinct_serials_derive_distinct_addresses() {
     assert_ne!(a, b);
 }
 
-// Requirements: MODEL-005, SAFE-005 (ADR-0019 collision groups; the measured
-//   L9 byte-identical pair)
-//   Byte-identical simultaneous devices absorb into one counted group; the
+// Requirements: MODEL-005, SAFE-005
+//   ADR-0019's collision group on the measured L9 byte-identical pair:
+//   byte-identical simultaneous devices absorb into one counted group; the
 //   snapshot still exists and the limitation attaches to the pair.
 // Evidence: byte_identical_devices_absorb_into_a_counted_group
 #[test]
@@ -57,7 +57,7 @@ fn byte_identical_devices_absorb_into_a_counted_group() {
     }
 }
 
-// Requirements: MODEL-005 (ADR-0019 §address property)
+// Requirements: MODEL-005
 //   A node's address depends only on itself and its ancestors: adding an
 //   unrelated device with its own subtree changes no existing address.
 // Evidence: an_address_depends_only_on_the_node_and_its_ancestors
@@ -99,7 +99,7 @@ fn an_address_depends_only_on_the_node_and_its_ancestors() {
     assert!(entries.iter().any(|entry| entry.id() == part_id));
 }
 
-// Requirements: MODEL-005 (ADR-0019 collision groups)
+// Requirements: MODEL-005
 //   Absorption is a deterministic function of the observed multiset,
 //   independent of enumeration order.
 // Evidence: absorption_is_independent_of_input_order
@@ -113,7 +113,7 @@ fn absorption_is_independent_of_input_order() {
     assert_eq!(forward, reversed);
 }
 
-// Requirements: MODEL-005 (ADR-0019 collision groups)
+// Requirements: MODEL-005
 //   Absorption is total and counts correctly: n equal nodes, one entry,
 //   count n.
 // Evidence: absorption_counts_every_colliding_member
@@ -128,7 +128,7 @@ fn absorption_counts_every_colliding_member() {
     }
 }
 
-// Requirements: MODEL-005, FS-008 (ADR-0019 duplicate-designator flag)
+// Requirements: MODEL-005, FS-008
 //   A cloned aggregate pair groups flagged, and a child named from the
 //   shared address keeps its address when the clone arrives — nothing
 //   re-designates.
@@ -168,7 +168,7 @@ fn duplicate_designator_groups_flag_and_nothing_re_designates() {
     assert_eq!(derive_id(&lv).expect("derivable"), lv_id_before);
 }
 
-// Requirements: MODEL-002, INV-008 (ADR-0019; the L-F stale-pair fixture)
+// Requirements: MODEL-002, INV-008
 //   The stale pair is two addresses on one host: a live ext4 file system at
 //   its superblock offset and an end-anchored mdraid 0.90 signature are
 //   distinct nodes — what round three's device projection could not
@@ -194,7 +194,7 @@ fn the_stale_pair_is_two_addresses() {
     assert_eq!(entries.len(), 2);
 }
 
-// Requirements: MODEL-002 (ADR-0019 table views)
+// Requirements: MODEL-002
 //   A hybrid table's aliased extent is two addresses under two view roles —
 //   parent-plus-offset injectivity restored by re-parenting onto the table.
 // Evidence: a_hybrid_aliased_extent_is_two_addresses_under_two_views
@@ -225,7 +225,7 @@ fn a_hybrid_aliased_extent_is_two_addresses_under_two_views() {
     );
 }
 
-// Requirements: MODEL-002 (ADR-C5 unrecognized variants; ADR-0019)
+// Requirements: MODEL-002
 //   Unrecognized discriminants carry their raw bytes, so two distinct
 //   unknown values never share an address, and a crafted raw value never
 //   collides with a known tag.
@@ -255,7 +255,7 @@ fn unrecognized_discriminants_are_distinct_by_raw_bytes() {
     );
 }
 
-// Requirements: MODEL-005 (ADR-0019 designator-absent aggregates)
+// Requirements: MODEL-005
 //   Designator-less aggregates of one technology collide with each other
 //   and with nothing else; the group is representable, not an error.
 // Evidence: designator_absent_aggregates_group_among_themselves
@@ -292,7 +292,7 @@ fn designator_absent_aggregates_group_among_themselves() {
     }
 }
 
-// Requirements: MODEL-005 (ADR-0019 §BackingExtent)
+// Requirements: MODEL-005
 //   A backing extent names from its host and locator; two loop devices
 //   backed by distinct files are distinct addresses — round three's
 //   equal-size fixture collision is gone.
