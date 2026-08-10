@@ -5,6 +5,33 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ## Unreleased
 
+### Added
+
+- **WP-010 increment 3a: node naming lands as code (ADR-0019).**
+  `crates/domain` gains the `model::naming` module: `NodeId` as a
+  derived, document-local positional address — the SHA-256 of a
+  domain-separated canonical preimage (`partman.node-id`, version 1)
+  over the node's kind tag and ADR-0019's per-kind naming fields, with
+  parent addresses embedded as digest bytes — plus collision-group
+  absorption: same-kind nodes deriving equal addresses collapse into
+  one counted entry whose construction is a deterministic,
+  order-independent function of the observed multiset, flagged
+  `duplicate_designator` for the cloned-aggregate case, total over
+  every well-formed multiset so no observed content makes a node set
+  unrepresentable. Identifier bytes are contract-source-verbatim (no
+  case folding, no prefix stripping); the exclusion list stays out of
+  every naming map. Twelve tests land the committed regressions:
+  determinism, the ancestor-only address property, the L9
+  byte-identical group with count, order-independence, count
+  correctness, the duplicate-designator flag with
+  nothing-re-designates, the stale-pair two-address case, the hybrid
+  aliased-extent two-view case, unrecognized-discriminant raw-byte
+  distinctness, designator-absent aggregate grouping, and distinct
+  backing files as distinct addresses. Node payloads, edges,
+  snapshots, provenance, and the typed decode/validate/hash boundary
+  are later slices; nothing here hashes an artifact or authorizes
+  anything.
+
 ### Changed
 
 - **Register: SI-28 reclassified off the increment-3 gate; nothing
