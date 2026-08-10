@@ -62,6 +62,7 @@ fn plan_over(snapshot: &TopologySnapshot, step: PlanStep) -> OperationPlan {
         ValidityWindow {
             not_after: 1_700_086_400,
         },
+        std::collections::BTreeMap::new(),
         vec![step],
     )
     .expect("assembles")
@@ -255,6 +256,7 @@ fn plan_severity_is_the_maximum_step_severity() {
         ValidityWindow {
             not_after: 1_700_086_400,
         },
+        std::collections::BTreeMap::new(),
         vec![low, high],
     )
     .expect("assembles");
@@ -286,4 +288,101 @@ fn unknown_plan_and_step_fields_are_refused() {
         OperationPlan::from_canonical_body(&bytes, &snapshot),
         Err(PlanSchemaError::UnknownField { .. })
     ));
+}
+
+// Requirements: SAFE-003, MODEL-005
+//   The authored-field rule at the boundary (ADR-0014, MODEL-005's
+//   authoring set): where the helper-produced snapshot stamps a table
+//   state, a plan identity claiming a different state never validates;
+//   an agreeing identity round-trips.
+// Evidence: a_client_authored_table_state_never_validates
+#[test]
+fn a_client_authored_table_state_never_validates() {
+    use super::identity::{DeviceIdentity, IndeterminateCause, TableState};
+
+    let dev = device(b"D0");
+    let dev_id = derive_id(&dev).expect("derivable");
+    let mut facts = Facts::default();
+    facts.transports.insert(dev_id, TransportClass::Sata);
+    facts.extents.insert(
+        dev_id,
+        HostRange {
+            host: dev_id,
+            start: 0,
+            length: 1 << 30,
+        },
+    );
+    // The helper's stamp: the parser found this device Indeterminate.
+    facts.table_states.insert(
+        dev_id,
+        TableState::Indeterminate {
+            cause: IndeterminateCause::Ambiguous,
+        },
+    );
+    let snapshot =
+        TopologySnapshot::assemble(SnapshotKind::Captured, false, vec![dev], vec![], facts)
+            .expect("assembles");
+
+    let identity = |table: TableState| DeviceIdentity {
+        serial: Some(b"D0".to_vec()),
+        wwn: None,
+        os_instance_id: None,
+        connection_path: None,
+        total_bytes: 1 << 30,
+        logical_sector_size: Some(512),
+        physical_sector_size: Some(512),
+        table,
+        witness: None,
+    };
+
+    let step = PlanStep::mutating(
+        &snapshot,
+        dev_id,
+        StepRanges::default(),
+        vec![],
+        risk(Severity::Reversible),
+    )
+    .expect("constructs");
+
+    // The honest plan: identity agreeing with the stamp round-trips.
+    let mut agreeing = std::collections::BTreeMap::new();
+    agreeing.insert(
+        dev_id,
+        identity(TableState::Indeterminate {
+            cause: IndeterminateCause::Ambiguous,
+        }),
+    );
+    let plan = OperationPlan::assemble(
+        b"plan-3".to_vec(),
+        1_700_000_000,
+        &snapshot,
+        ValidityWindow {
+            not_after: 1_700_086_400,
+        },
+        agreeing,
+        vec![step],
+    )
+    .expect("assembles");
+    let bytes = canonical::encode(&plan.body_value().expect("body")).expect("encodable");
+    let rebuilt = OperationPlan::from_canonical_body(&bytes, &snapshot).expect("round-trips");
+    assert_eq!(rebuilt.identities().len(), 1);
+
+    // The forged plan: the identity claims Present where the stamp says
+    // Indeterminate — a client-authored value, refused.
+    let Value::Map(mut map) = plan.body_value().expect("body") else {
+        panic!("body is a map");
+    };
+    let Some(Value::Map(identities)) = map.get_mut("identities") else {
+        panic!("identities present");
+    };
+    let key = identities.keys().next().expect("one identity").clone();
+    let forged_identity = identity(TableState::Present {
+        checksum: canonical::hash(&Value::Unsigned(0)).expect("hashable"),
+    });
+    identities.insert(key, forged_identity.body_value());
+    let forged = canonical::encode(&Value::Map(map)).expect("encodable");
+    assert_eq!(
+        OperationPlan::from_canonical_body(&forged, &snapshot),
+        Err(PlanSchemaError::AuthoredFieldMismatch)
+    );
 }

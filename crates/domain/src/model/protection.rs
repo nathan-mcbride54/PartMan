@@ -21,6 +21,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
+use super::identity::TableState;
 use super::naming::{AggregateTechnology, NamingFields, NodeEntry, NodeId};
 use super::topology::{EdgeKind, Topology};
 
@@ -81,6 +82,11 @@ pub struct Facts {
     /// Each aggregate's self-reported member count (ADR-C5: never a count
     /// of members observed).
     pub member_counts: BTreeMap<NodeId, u64>,
+    /// Each physical device's ADR-C3 table state — one of MODEL-005's two
+    /// authored fields, stamped when the helper produces the snapshot at
+    /// validation (ADR-0014); body content, so a plan identity claiming a
+    /// different state diverges at the boundary.
+    pub table_states: BTreeMap<NodeId, TableState>,
 }
 
 /// The three-valued protection verdict (ADR-0018 2.1).

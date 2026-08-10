@@ -137,6 +137,7 @@ fn root_on_zfs() -> RootOnZfs {
         extents,
         transports,
         member_counts: BTreeMap::new(),
+        table_states: BTreeMap::new(),
     };
     RootOnZfs {
         topology,
@@ -340,6 +341,7 @@ fn the_luks_descent_reaches_the_pool_below() {
         extents,
         transports,
         member_counts: BTreeMap::new(),
+        table_states: BTreeMap::new(),
     };
     let delete = StepRanges {
         written_table_extents: vec![],

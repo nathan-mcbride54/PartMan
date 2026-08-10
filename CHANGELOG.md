@@ -7,6 +7,28 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-010 increment 3j: the authoring set, structural.** MODEL-005's
+  two authored fields land in the shapes their ADRs decided. ADR-C3's
+  table state becomes a snapshot **fact** — body content per device,
+  stamped when the helper produces the snapshot at validation
+  (ADR-0014's stamp point realized as fact carriage), kind-checked to
+  physical devices, round-tripping under the boundary's
+  decode-recompute equality. Section 6's bound identities enter the
+  plan body keyed by target address with strength still derived, and
+  the plan boundary enforces the rule ADR-0014 wrote: **a plan
+  identity whose table state disagrees with the snapshot's stamp
+  refuses as `AuthoredFieldMismatch`** — the client-authored value
+  that never validates, held by test with a forged Present against a
+  stamped Indeterminate. The second authored field — the derived
+  protection verdict — is committed through its body-carried inputs
+  (topology, facts) rather than stored beside them: a pure function
+  of authenticated bytes cannot disagree with its inputs, which is
+  the same anti-assertion mechanism ADR-C4 chose for confidence and
+  3d chose for strength, and it satisfies ADR-0016's substance (the
+  verdict a user authorizes is in the bytes they authorize; a client
+  cannot author it because there is nothing to author). One test:
+  the agreeing identity round-trips, the forged one refuses.
+
 - **WP-010 increment 3i: the plan body and its boundary — the
   hand-forged artifact, refused.** `model::plan` lands PLAN-004's risk
   model (the five ordinal severities, the five orthogonal flags
