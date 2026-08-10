@@ -84,6 +84,17 @@ impl Hash {
         &self.0
     }
 
+    /// Rebuild a digest value from recorded bytes.
+    ///
+    /// Crate-internal deliberately: this reconstructs a digest a schema
+    /// decoder read from an artifact, and asserts nothing about where the
+    /// bytes came from — every consumer recomputes and compares rather
+    /// than trusting a rebuilt digest.
+    #[must_use]
+    pub(crate) const fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+
     /// The digest as lowercase hexadecimal.
     #[must_use]
     pub fn to_hex(&self) -> String {

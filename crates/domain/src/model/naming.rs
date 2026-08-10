@@ -394,6 +394,278 @@ pub fn derive_id(fields: &NamingFields) -> Result<NodeId, NamingError> {
         .map_err(NamingError::Encoding)
 }
 
+/// Rebuild an address from its recorded 32 bytes, or `None` when the
+/// length is wrong. The rebuilt address asserts nothing: every consumer
+/// recomputes and compares (the decode-recompute rule).
+pub(crate) fn id_from_bytes(bytes: &[u8]) -> Option<NodeId> {
+    let digest: [u8; 32] = bytes.try_into().ok()?;
+    Some(NodeId(Hash::from_bytes(digest)))
+}
+
+/// The kind-tagged field map for a node — the snapshot body's per-node
+/// content, and the same fields the address preimage carries (without the
+/// preimage's schema keys).
+pub(crate) fn fields_value(fields: &NamingFields) -> Value {
+    let mut map = BTreeMap::new();
+    map.insert(
+        "kind".to_owned(),
+        Value::Text(fields.kind_name().to_owned()),
+    );
+    insert_fields(&mut map, fields);
+    Value::Map(map)
+}
+
+/// Reverse of [`fields_value`] over an already-decoded map: rebuild the
+/// naming fields a body entry declares, refusing unknown kinds, missing or
+/// mistyped fields, and unknown keys. Owned by the schema-validation pass,
+/// which is the sole decode boundary; the generic codec never sees this.
+pub(crate) fn fields_from_map(
+    map: &BTreeMap<String, Value>,
+) -> Result<NamingFields, FieldParseError> {
+    let kind = require_text(map, "kind")?;
+    let fields = match kind {
+        "physical-device" => NamingFields::PhysicalDevice {
+            serial: optional_bytes(map, "serial"),
+            wwn: optional_bytes(map, "wwn"),
+            total_bytes: require_unsigned(map, "total_bytes")?,
+        },
+        "partition-table" => NamingFields::PartitionTable {
+            parent: require_id(map, "parent")?,
+            role: role_from(require_value(map, "role")?)?,
+        },
+        "partition" => NamingFields::Partition {
+            parent_table: require_id(map, "parent_table")?,
+            start_offset: require_unsigned(map, "start_offset")?,
+        },
+        "backing-signature" => NamingFields::BackingSignature {
+            host: require_id(map, "host")?,
+            family: family_from(require_value(map, "family")?)?,
+            primary_offset: require_unsigned(map, "primary_offset")?,
+        },
+        "file-system" => NamingFields::FileSystem {
+            host: require_id(map, "host")?,
+            kind: fs_kind_from(require_value(map, "fs_kind")?)?,
+            superblock_offset: require_unsigned(map, "superblock_offset")?,
+        },
+        "encryption-layer" => NamingFields::EncryptionLayer {
+            backing_signature: require_id(map, "backing_signature")?,
+        },
+        "aggregate" => NamingFields::Aggregate {
+            technology: technology_from(require_value(map, "technology")?)?,
+            designator: optional_bytes(map, "designator"),
+        },
+        "volume" => NamingFields::Volume {
+            producer: require_id(map, "producer")?,
+            name: require_bytes(map, "name")?,
+            role: optional_bytes(map, "volume_role"),
+        },
+        "backing-extent" => NamingFields::BackingExtent {
+            host: require_id(map, "host")?,
+            locator: if map.contains_key("path") {
+                ExtentLocator::Path {
+                    bytes: require_bytes(map, "path")?,
+                }
+            } else {
+                ExtentLocator::Range {
+                    start: require_unsigned(map, "range_start")?,
+                    length: require_unsigned(map, "range_length")?,
+                }
+            },
+        },
+        "multipath-node" => NamingFields::MultipathNode {
+            lun_designator: require_bytes(map, "lun_designator")?,
+        },
+        "conflicting-table-entry" => NamingFields::ConflictingTableEntry {
+            table: require_id(map, "table")?,
+            view_role: role_from(require_value(map, "view_role")?)?,
+            entry_start: require_unsigned(map, "entry_start")?,
+        },
+        other => {
+            return Err(FieldParseError::UnknownKind {
+                kind: other.to_owned(),
+            });
+        }
+    };
+    let Value::Map(mut expected) = fields_value(&fields) else {
+        return Err(FieldParseError::Internal);
+    };
+    for key in map.keys() {
+        if expected.remove(key).is_none() {
+            return Err(FieldParseError::UnknownField { key: key.clone() });
+        }
+    }
+    Ok(fields)
+}
+
+/// A body entry that does not parse back into naming fields.
+///
+/// Public because [`super::snapshot::SnapshotSchemaError`] carries it; only
+/// the schema-validation pass constructs it.
+#[derive(Debug, PartialEq, Eq)]
+pub enum FieldParseError {
+    /// The `kind` tag names no kind this build knows.
+    UnknownKind {
+        /// The unrecognized tag.
+        kind: String,
+    },
+    /// A required field is missing or carries the wrong value shape.
+    BadField {
+        /// The field's key.
+        key: &'static str,
+    },
+    /// The entry carries a key its kind does not declare.
+    UnknownField {
+        /// The undeclared key.
+        key: String,
+    },
+    /// An internal invariant failed; unreachable for well-formed input.
+    Internal,
+}
+
+impl fmt::Display for FieldParseError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnknownKind { kind } => write!(formatter, "unknown node kind `{kind}`"),
+            Self::BadField { key } => write!(formatter, "missing or mistyped field `{key}`"),
+            Self::UnknownField { key } => write!(formatter, "undeclared field `{key}`"),
+            Self::Internal => formatter.write_str("internal parse invariant failed"),
+        }
+    }
+}
+
+fn require_value<'map>(
+    map: &'map BTreeMap<String, Value>,
+    key: &'static str,
+) -> Result<&'map Value, FieldParseError> {
+    map.get(key).ok_or(FieldParseError::BadField { key })
+}
+
+fn require_text<'map>(
+    map: &'map BTreeMap<String, Value>,
+    key: &'static str,
+) -> Result<&'map str, FieldParseError> {
+    match require_value(map, key)? {
+        Value::Text(text) => Ok(text),
+        _ => Err(FieldParseError::BadField { key }),
+    }
+}
+
+fn require_unsigned(
+    map: &BTreeMap<String, Value>,
+    key: &'static str,
+) -> Result<u64, FieldParseError> {
+    match require_value(map, key)? {
+        Value::Unsigned(value) => Ok(*value),
+        _ => Err(FieldParseError::BadField { key }),
+    }
+}
+
+fn require_bytes(
+    map: &BTreeMap<String, Value>,
+    key: &'static str,
+) -> Result<Vec<u8>, FieldParseError> {
+    match require_value(map, key)? {
+        Value::Bytes(bytes) => Ok(bytes.clone()),
+        _ => Err(FieldParseError::BadField { key }),
+    }
+}
+
+fn require_id(map: &BTreeMap<String, Value>, key: &'static str) -> Result<NodeId, FieldParseError> {
+    match require_value(map, key)? {
+        Value::Bytes(bytes) => {
+            let digest: [u8; 32] = bytes
+                .as_slice()
+                .try_into()
+                .map_err(|_| FieldParseError::BadField { key })?;
+            Ok(NodeId(Hash::from_bytes(digest)))
+        }
+        _ => Err(FieldParseError::BadField { key }),
+    }
+}
+
+fn optional_bytes(map: &BTreeMap<String, Value>, key: &str) -> Option<Vec<u8>> {
+    match map.get(key) {
+        Some(Value::Bytes(bytes)) => Some(bytes.clone()),
+        _ => None,
+    }
+}
+
+fn role_from(value: &Value) -> Result<TableRole, FieldParseError> {
+    Ok(match value {
+        Value::Text(text) => match text.as_str() {
+            "gpt" => TableRole::Gpt,
+            "mbr" => TableRole::Mbr,
+            "apm" => TableRole::Apm,
+            "hybrid-mbr" => TableRole::HybridMbr,
+            _ => return Err(FieldParseError::BadField { key: "role" }),
+        },
+        Value::Bytes(raw) => TableRole::Unrecognized { raw: raw.clone() },
+        _ => return Err(FieldParseError::BadField { key: "role" }),
+    })
+}
+
+fn family_from(value: &Value) -> Result<SignatureFamily, FieldParseError> {
+    Ok(match value {
+        Value::Text(text) => match text.as_str() {
+            "zfs" => SignatureFamily::Zfs,
+            "mdraid-0.90" => SignatureFamily::Mdraid09,
+            "mdraid-1.x" => SignatureFamily::Mdraid1x,
+            "luks1" => SignatureFamily::Luks1,
+            "luks2" => SignatureFamily::Luks2,
+            "lvm2" => SignatureFamily::Lvm2,
+            "storage-spaces" => SignatureFamily::StorageSpaces,
+            "ldm" => SignatureFamily::Ldm,
+            "bitlocker" => SignatureFamily::BitLocker,
+            "apfs-container" => SignatureFamily::ApfsContainer,
+            _ => return Err(FieldParseError::BadField { key: "family" }),
+        },
+        Value::Bytes(raw) => SignatureFamily::Unrecognized { raw: raw.clone() },
+        _ => return Err(FieldParseError::BadField { key: "family" }),
+    })
+}
+
+fn fs_kind_from(value: &Value) -> Result<FileSystemKind, FieldParseError> {
+    Ok(match value {
+        Value::Text(text) => match text.as_str() {
+            "ext2" => FileSystemKind::Ext2,
+            "ext3" => FileSystemKind::Ext3,
+            "ext4" => FileSystemKind::Ext4,
+            "btrfs" => FileSystemKind::Btrfs,
+            "xfs" => FileSystemKind::Xfs,
+            "f2fs" => FileSystemKind::F2fs,
+            "fat12" => FileSystemKind::Fat12,
+            "fat16" => FileSystemKind::Fat16,
+            "fat32" => FileSystemKind::Fat32,
+            "exfat" => FileSystemKind::Exfat,
+            "ntfs" => FileSystemKind::Ntfs,
+            "refs" => FileSystemKind::Refs,
+            "hfsplus" => FileSystemKind::HfsPlus,
+            "apfs" => FileSystemKind::Apfs,
+            "udf" => FileSystemKind::Udf,
+            "swap" => FileSystemKind::Swap,
+            _ => return Err(FieldParseError::BadField { key: "fs_kind" }),
+        },
+        Value::Bytes(raw) => FileSystemKind::Unrecognized { raw: raw.clone() },
+        _ => return Err(FieldParseError::BadField { key: "fs_kind" }),
+    })
+}
+
+fn technology_from(value: &Value) -> Result<AggregateTechnology, FieldParseError> {
+    Ok(match value {
+        Value::Text(text) => match text.as_str() {
+            "lvm2" => AggregateTechnology::Lvm2,
+            "mdraid" => AggregateTechnology::Mdraid,
+            "storage-spaces" => AggregateTechnology::StorageSpaces,
+            "zfs" => AggregateTechnology::Zfs,
+            "apfs" => AggregateTechnology::Apfs,
+            "ldm" => AggregateTechnology::Ldm,
+            _ => return Err(FieldParseError::BadField { key: "technology" }),
+        },
+        Value::Bytes(raw) => AggregateTechnology::Unrecognized { raw: raw.clone() },
+        _ => return Err(FieldParseError::BadField { key: "technology" }),
+    })
+}
+
 /// Absorb a set of observed nodes into addressed entries (ADR-0019).
 ///
 /// Nodes deriving distinct addresses become [`NodeEntry::Single`]; nodes

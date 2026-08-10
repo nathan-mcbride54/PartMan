@@ -7,6 +7,33 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-010 increment 3c: the snapshot body, envelope, and typed
+  boundary (MODEL-003, MODEL-004, MODEL-005, MODEL-006, ADR-C2,
+  ADR-C4, CONC-004).** `model::snapshot` gives the topology snapshot
+  its hashed body — two schema identifiers so captured and simulated
+  topologies are domain-separated and identical content never hashes
+  equal across the two worlds; the CONC-004 transitional marking in
+  the body so a transitional snapshot can never masquerade as stable;
+  nodes and edges as MODEL-006 sorted sets — and its unhashed
+  envelope, whose capture timestamp and MODEL-004 provenance move no
+  body hash, which is what keeps PLAN-006 satisfiable.
+  `from_canonical_body` is the typed decode/validate boundary the
+  codec-remediation section mandated: strict `pce/1` decode, a
+  schema-validation pass with its own error type (unknown fields,
+  schemas, versions, malformed entries, forged collision counts all
+  typed refusals), MODEL-006 order validation that refuses rather
+  than repairs, and the decode-recompute equality — the parsed
+  content is rebuilt through the same absorption and edge validation
+  the encoder ran, and the rebuilt body must reproduce the input
+  bytes exactly, so a forged forbidden edge refuses at decode.
+  `model::provenance` lands ADR-C4's observation set with confidence
+  derived and never stored (no constructor exists to store one), and
+  observed absence as a value that conflicts with a presence rather
+  than collapsing into unavailability. Eleven tests, including the
+  ADR-C4 verification rows and both boundary-forgery refusals.
+  Identity records, verdicts, and plan types remain later slices;
+  nothing here authorizes anything.
+
 - **WP-010 increment 3b: edges and topology construction (ADR-0019,
   ADR-0018's semantics-class handover).** `model::topology` adds the
   five MODEL-002 edge kinds, each carrying its semantics class —
