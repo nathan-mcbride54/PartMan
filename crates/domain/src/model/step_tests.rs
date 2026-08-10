@@ -4,7 +4,14 @@
 use super::naming::{AggregateTechnology, NamingFields, SignatureFamily, derive_id};
 use super::protection::{Facts, HostRange, StepRanges, TransportClass, Verdict};
 use super::snapshot::{SnapshotKind, TopologySnapshot};
-use super::step::{Acknowledgment, PlanStep, StepRefusal};
+use super::step::{Acknowledgment, PlanStep, Severity, StepFlags, StepRefusal, StepRisk};
+
+fn destructive() -> StepRisk {
+    StepRisk {
+        severity: Severity::Destructive,
+        flags: StepFlags::default(),
+    }
+}
 use super::topology::{Edge, EdgeKind};
 
 fn device(serial: &[u8]) -> NamingFields {
@@ -99,7 +106,7 @@ fn signature_snapshot(
 #[test]
 fn a_refused_reach_is_unconstructible_even_acknowledged() {
     let (snapshot, dev_id, signature_id) = signature_snapshot(true);
-    let bare = PlanStep::mutating(&snapshot, dev_id, wipe(dev_id), vec![]);
+    let bare = PlanStep::mutating(&snapshot, dev_id, wipe(dev_id), vec![], destructive());
     assert!(matches!(bare, Err(StepRefusal::Reached { .. })));
 
     // A release acknowledgment naming the consumed signature is itself
@@ -112,6 +119,7 @@ fn a_refused_reach_is_unconstructible_even_acknowledged() {
         vec![Acknowledgment::Release {
             signature: signature_id,
         }],
+        destructive(),
     );
     assert!(matches!(
         acknowledged,
@@ -128,7 +136,7 @@ fn a_refused_reach_is_unconstructible_even_acknowledged() {
 #[test]
 fn the_release_acknowledgment_converts_exactly_the_orphan() {
     let (snapshot, dev_id, signature_id) = signature_snapshot(false);
-    let bare = PlanStep::mutating(&snapshot, dev_id, wipe(dev_id), vec![]);
+    let bare = PlanStep::mutating(&snapshot, dev_id, wipe(dev_id), vec![], destructive());
     match bare {
         Err(StepRefusal::Reached { node, verdict }) => {
             assert_eq!(node, signature_id);
@@ -144,6 +152,7 @@ fn the_release_acknowledgment_converts_exactly_the_orphan() {
         vec![Acknowledgment::Release {
             signature: signature_id,
         }],
+        destructive(),
     )
     .expect("acknowledged release constructs");
     assert!(step.affected().contains(&signature_id));
@@ -165,6 +174,7 @@ fn an_acknowledgment_for_another_node_covers_nothing() {
         vec![Acknowledgment::Release {
             signature: stranger,
         }],
+        destructive(),
     );
     assert!(
         matches!(result, Err(StepRefusal::UnlawfulAcknowledgment { .. })),
@@ -187,6 +197,7 @@ fn unmodelled_acknowledgment_kinds_refuse() {
         vec![Acknowledgment::OpaqueDestruction {
             layer: signature_id,
         }],
+        destructive(),
     );
     assert!(matches!(
         result,
@@ -209,7 +220,8 @@ fn a_permitted_step_constructs_with_its_affected_set() {
         device_facts(dev_id),
     )
     .expect("assembles");
-    let step = PlanStep::mutating(&snapshot, dev_id, wipe(dev_id), vec![]).expect("constructs");
+    let step = PlanStep::mutating(&snapshot, dev_id, wipe(dev_id), vec![], destructive())
+        .expect("constructs");
     assert_eq!(step.target(), dev_id);
     assert!(step.affected().contains(&dev_id));
 }

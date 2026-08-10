@@ -7,6 +7,30 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-010 increment 3i: the plan body and its boundary — the
+  hand-forged artifact, refused.** `model::plan` lands PLAN-004's risk
+  model (the five ordinal severities, the five orthogonal flags
+  mirroring the requirement's own enumeration, plan severity as the
+  step maximum) and the Section 6 body skeleton for every item whose
+  vocabulary is decided today: schema identity, plan id, creation
+  timestamp, the source snapshot's body hash as bound at validation
+  (8.0.0's rule), PLAN-007's validity window as body content
+  (enforced, never re-derived — ADR-C2's row), and the step graph as
+  a semantic dependency array. `from_canonical_body` takes the plan
+  bytes and the snapshot they claim to bind, refuses the
+  wrong-snapshot presentation (the ACC-007 stale-plan shape at the
+  type layer), and re-runs every step through the sole constructor —
+  so the hand-forged test's forged bytes, a clean plan retargeted at
+  a pool-carrying device by editing the value tree, refuse through
+  the same closure that would have refused the honest construction.
+  That is ADR-0012's second verification row discharged at the
+  boundary this crate owns; the helper's fresh re-discovery supplies
+  the snapshot at validation (HLP-002). Remaining Section 6 items
+  land as their owning vocabularies (WP-050/WP-060) arrive. Five
+  tests: the exact round-trip, the wrong-snapshot refusal, the forged
+  step's refusal by recomputation, severity maximization, and strict
+  unknown-field refusals.
+
 - **WP-010 increment 3h: the mutating step's sole constructor, and
   ADR-0012's proof (spec 4.4.0's commitment, discharged).**
   `model::step` lands `PlanStep` with private fields and one
