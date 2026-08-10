@@ -265,6 +265,34 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **WP-035: the chassis's in-band gate references stop citing resolved
+  register items as open (#215).** The product-byte half of the #197
+  re-attribution, discharged on the principle the `GATED` list's own
+  ADR-0011 precedent states: citing the retired question would be the
+  drift the register's sole-authority rule forbids. The standing gated
+  list's `partition-table-state` entry moves to `helper-authored`
+  (ADR-0014) beside `never-inferred` (ADR-0011) — the client never
+  computes table state, a standing rule now rather than an open
+  question — while `identity-strength` keeps `not-established`
+  (SI-28), the one citation still open. The `inventory` and `topology`
+  refusals move from `not-established` over "SI-27, SI-28, SI-35" and
+  "SI-27, SI-28, SI-34, SI-35 … remain open" to `not-implemented`
+  naming what actually holds each surface out: ADR-0019's landed
+  naming types unconsumed by this chassis, ADR-0014's helper-sole-
+  author rule, ADR-0016's verdict placement, and SI-28's open
+  attribution question. Every pinned literal moved with its surface
+  (human fragments, the ordered JSON gate contract, the typed-refusal
+  cases), the module doc comments carry the same re-attribution, and
+  README's in-band-list sentence and WP-035 status-row sentences move
+  with the bytes they describe. **MODEL-003 assessment, as #215
+  requested:** every changed value rides `partman.cli.envelope/0`,
+  documented in `apps/cli/src/lib.rs` as provisional and free to
+  change until CLI-001's stable schema regime exists — the change is
+  value-level within that regime, there is no per-payload version to
+  bump, and this entry is the documentation the provisional regime
+  requires. The refusal posture, exit codes, envelope schema string,
+  and state vocabulary (both states already existed) are unchanged.
+
 - **Register: the Part 1 framing block that still described SI-34's
   placement as open is marked as dated history (#198).** The bounded
   integrity pass the 2026-08-10 grant authorizes, executed exactly to

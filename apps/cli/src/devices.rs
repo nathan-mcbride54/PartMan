@@ -27,10 +27,12 @@
 //!
 //! - **No `ID_FS_*` signature fields.** The increment 6 matrix measured that
 //!   projection giving a confident single wrong-ish answer — naming a live
-//!   ext4 `linux_raid_member` on the stale-signature fixture. That is SI-34's
-//!   material, not an inventory's.
+//!   ext4 `linux_raid_member` on the stale-signature fixture. That is the
+//!   verdict layer's material — SI-34's measured case, resolved by
+//!   ADR-0016 into the helper-authored hashed body — not an inventory's.
 //! - **No `ID_PART_ENTRY_*`, no `start`, no partition children.** Partition
-//!   enumeration is INV-004 and partition-table state is SI-35's, gated.
+//!   enumeration is INV-004, and partition-table state is helper-authored
+//!   under ADR-0014 — never this client's to compute.
 //! - **No `/dev` node is opened at any point**, which is what keeps
 //!   `docs/quality/test-tiers.md`'s standing claim true: reading
 //!   `/sys/class/block/sda/size` is a sysfs attribute file, not the device.
@@ -77,8 +79,10 @@ pub struct RawField {
 pub struct Device {
     /// The session-local selector — `device:0`, `device:1`. **Unstable across
     /// runs by construction**: it is a position in this enumeration and
-    /// nothing else. A stable device handle is gated (SI-27), and this is the
-    /// session-local index the boundary permits in its place.
+    /// nothing else. A stable device handle stays absent — ADR-0019's
+    /// derived addresses are WP-010's landed types, unconsumed by this
+    /// chassis — and this is the session-local index the boundary permits
+    /// in its place.
     pub selector: String,
     /// The kernel's own name for the node, as the directory entry spelled it.
     /// Reported as a raw string like any other, never as an identity.
