@@ -12,12 +12,15 @@
 
 pub mod identity;
 pub mod naming;
+pub mod protection;
 pub mod provenance;
 pub mod snapshot;
 pub mod topology;
 
 #[cfg(test)]
 mod identity_tests;
+#[cfg(test)]
+mod protection_tests;
 #[cfg(test)]
 mod snapshot_tests;
 #[cfg(test)]
