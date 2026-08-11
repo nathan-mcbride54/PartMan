@@ -1773,6 +1773,18 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   version 0, and this is the kind of deliberate change that provisionality
   exists for.
 
+### Fixed
+
+- **WP-040: the resume token's standalone decode now shares RPC-004's
+  size bound.** Increment 1's discipline — the 1 MiB bound binding the
+  wire before any parsing touches the bytes — held at the envelope's
+  and the handshake's decode entries but not at `ResumeToken::decode`,
+  which parsed first. Inside an envelope body the token was bounded
+  transitively; standalone it was not, and the token travels standalone
+  by design. The same pre-parse refusal now guards the token path,
+  naming both numbers, with `the_resume_token_shares_the_size_bound`
+  as its evidence row.
+
 ### Added
 
 - The SI-35 **loop-device measurement** was taken read-only on 2026-08-02,
