@@ -5,6 +5,31 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ## Unreleased
 
+### Fixed
+
+- **WP-020: admission counts verified handles per fixture instead of
+  comparing name sets (#249).** `Admission::admit` compared the authorized
+  target names to the declared fixture names as `BTreeSet`s, and a set
+  cannot distinguish one verified handle per declared fixture from several
+  handles for one fixture — both collapse to the same set, so both were
+  admitted. Unreachable for the one registered suite only because two
+  downstream checks happened to close it, which is the inherited-check
+  shape this package refuses, and the single-target arity check it leaned
+  on does not generalize to the multi-fixture suites increment 2's
+  remaining scope introduces. The admission now counts handles per target
+  name and refuses more than one with a refusal naming the name and the
+  count; the `unwrap_or_default()` that silently coerced a nameless target
+  path to the empty string on the same path is now an explicit refusal.
+  The duplicate-handle shape is constructed for real in the new evidence —
+  a `..`-spelled second path to one fixture survives the interlock's
+  supplied-path dedup on Unix and verifies into two handles — and the
+  writing of that test corrected the issue's own premise: `Path` equality
+  normalizes `.` components away, so the `./` spelling the issue cited is
+  deduplicated after all, while `..` components compare literally. On
+  Windows the shape cannot reach admission — the first verified handle's
+  share mode refuses the second write-capable open — and a companion test
+  pins that platform split as a measured fact rather than an assumption.
+
 ### Added
 
 - **WP-020 increment 2h is Delivered: the first destructive suite passed its

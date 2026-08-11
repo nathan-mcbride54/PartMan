@@ -198,8 +198,10 @@ pub struct Admission {
 
 impl Admission {
     /// Check `suite`'s contract against the compiled catalogue and consume
-    /// `authorization` if — and only if — its verified target set is exactly
-    /// the suite's declared fixture set.
+    /// `authorization` if — and only if — it carries exactly one verified
+    /// handle for each declared fixture and nothing else. Counted, not
+    /// compared as a set: several handles for one fixture are a refusal, not
+    /// an admission.
     ///
     /// # Errors
     ///
@@ -233,21 +235,45 @@ impl Admission {
             verify_contract(suite.name, contract, entry.length)?;
         }
 
-        // The authorized set must be exactly the declared set. Verified
-        // target basenames are catalogue basenames by construction — the
-        // interlock refused anything else — so naming them here echoes
-        // compiled constants, never operator input.
-        let authorized: std::collections::BTreeSet<String> = authorization
-            .targets()
-            .iter()
-            .map(|target| {
-                target
-                    .path()
-                    .file_name()
-                    .map(|name| name.to_string_lossy().into_owned())
-                    .unwrap_or_default()
-            })
-            .collect();
+        // The authorized targets must be exactly one verified handle per
+        // declared fixture. A set comparison was not enough (issue #249): a
+        // set of names cannot distinguish one handle per fixture from several
+        // handles for one fixture, and the interlock's dedup is on the
+        // *supplied* path, so two spellings of one file can both verify. The
+        // suite contract is a statement about objects, and this admission is
+        // what binds it to the handles a run writes through — so the handles
+        // are counted here rather than inherited from what the interlock
+        // probably produced. Verified target basenames are catalogue
+        // basenames by construction — the interlock refused anything else —
+        // so naming them here echoes compiled constants, never operator
+        // input. (A lossy rendering that collided two distinct names would
+        // read as a duplicate and refuse, which is the closed direction.)
+        let mut authorized_counts: std::collections::BTreeMap<String, usize> =
+            std::collections::BTreeMap::new();
+        for target in authorization.targets() {
+            let Some(name) = target.path().file_name() else {
+                // Unreachable through `authorize` today — every verified
+                // path is `root.join(catalogue_basename)` — but the silent
+                // alternative was coercing such a target to the empty string
+                // and comparing that, which is a default on the safety path.
+                return Err(Refusal::TargetNameUnstatable {
+                    suite: suite.name,
+                    target: target.path().to_path_buf(),
+                });
+            };
+            *authorized_counts
+                .entry(name.to_string_lossy().into_owned())
+                .or_default() += 1;
+        }
+        if let Some((name, count)) = authorized_counts.iter().find(|(_, count)| **count > 1) {
+            return Err(Refusal::DuplicateAuthorizedTarget {
+                suite: suite.name,
+                target: name.clone(),
+                count: *count,
+            });
+        }
+        let authorized: std::collections::BTreeSet<String> =
+            authorized_counts.into_keys().collect();
         let declared_names: std::collections::BTreeSet<String> =
             declared.iter().map(|name| (*name).to_owned()).collect();
         if authorized != declared_names {
@@ -415,6 +441,26 @@ pub enum Refusal {
         /// The fixture whose contract overlaps itself.
         fixture: &'static str,
     },
+    /// A verified target's path has no final component, so the fixture it
+    /// holds a handle to cannot be named. Unreachable through `authorize`
+    /// today; refused rather than coerced to a default.
+    TargetNameUnstatable {
+        /// The suite's selector name.
+        suite: &'static str,
+        /// The verified path that has no file name.
+        target: std::path::PathBuf,
+    },
+    /// The authorization carries more than one verified handle for one
+    /// target name. The contract permits one object per fixture; a second
+    /// handle to the same object is not a second fixture.
+    DuplicateAuthorizedTarget {
+        /// The suite's selector name.
+        suite: &'static str,
+        /// The duplicated target name.
+        target: String,
+        /// How many verified handles carry it.
+        count: usize,
+    },
     /// The authorized target set is not exactly the declared fixture set.
     TargetsNotTheDeclaredSet {
         /// The suite's selector name.
@@ -483,6 +529,21 @@ impl fmt::Display for Refusal {
                 formatter,
                 "suite `{suite}`'s contract for `{fixture}` declares overlapping ranges; two \
                  reasons claiming one byte is a contract nobody can review"
+            ),
+            Self::TargetNameUnstatable { suite, target } => write!(
+                formatter,
+                "suite `{suite}`'s authorization carries a verified target whose path has no \
+                 file name: {}",
+                target.display()
+            ),
+            Self::DuplicateAuthorizedTarget {
+                suite,
+                target,
+                count,
+            } => write!(
+                formatter,
+                "suite `{suite}`'s authorization carries {count} verified handles named \
+                 `{target}`; the contract permits exactly one object per declared fixture"
             ),
             Self::TargetsNotTheDeclaredSet {
                 suite,
