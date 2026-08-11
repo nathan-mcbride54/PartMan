@@ -7,6 +7,29 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-040 increment 1: the RPC message layer.** `crates/rpc` joins
+  the workspace, depending on `partman-domain` deliberately — the wire
+  body encoding is `pce/1`, so both sides of the RPC boundary already
+  encode and hash identically under MODEL-005's cross-language proof.
+  The versioned envelope lands with RPC-004's 1 MiB bound **binding
+  the wire before any parsing touches the bytes** (checked at decode
+  entry, at body wrap, and at encode), the body re-proved canonical at
+  wrap and decode so an envelope cannot launder bytes the codec would
+  refuse, and the three-class channel vocabulary closed now so the
+  shape does not move when increment 2's sequence numbering arrives.
+  RPC-002's handshake is refuse-never-degrade as a **total function**:
+  equal protocol versions are compatible, unequal refuse with both
+  versions and a remediation naming the older side and the build to
+  update to — exact equality deliberately, because a compatibility
+  window is a reviewed decision and the honest rule until one exists
+  is the one that cannot admit an untested pairing. RPC-003's
+  strictness is one validator for both ends — unknown fields refuse by
+  name, mistyped fields by field — so the helper-side strictness the
+  requirement demands is structurally also the client's.
+  `schemas/rpc/envelope.md` and `handshake.md` record the formats in
+  the `schemas/domain` shape. Four tests; traceability converted to
+  generated.
+
 - **WP-060 increment 4: the simulated final topology — PLAN-002's
   second half, and the package's last unlocked increment.** Every
   planning entry point now returns `Planned { plan, simulated }`: the

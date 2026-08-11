@@ -1,0 +1,367 @@
+//! The WP-040 RPC protocol layer's message layer (increment 1).
+//!
+//! Three rules carry RPC-002 through RPC-005 here, each held by
+//! construction or by the strict validator rather than by convention:
+//!
+//! - **One validator for both ends** (RPC-003). The helper side is
+//!   required to be strict; this library is the client side too, so the
+//!   same decode path rejects unknown fields, mistyped values, and
+//!   out-of-range sizes in both directions — laxness has nowhere to
+//!   live.
+//! - **Refuse, never degrade** (RPC-002). Version compatibility is a
+//!   total function: compatible, or a typed refusal carrying a
+//!   remediation message. There is no downgrade arm to reach.
+//! - **Typed operations only** (RPC-005). A message body is the
+//!   `pce/1` encoding of a `schemas/`-defined type, carried as bytes
+//!   inside the envelope and bounded before anything parses
+//!   (RPC-004). No field carries a path to execute, a command string,
+//!   or dynamic code, and the vocabulary contains no type that could.
+//!
+//! The formats are documented in `schemas/rpc/envelope.md` and
+//! `schemas/rpc/handshake.md`, in the `schemas/domain` shape: the
+//! documents record delivered formats and decide nothing.
+
+use std::collections::BTreeMap;
+
+use partman_domain::canonical::{self, Value};
+
+#[cfg(test)]
+mod tests;
+
+/// The envelope's schema identity (MODEL-003).
+pub const ENVELOPE_SCHEMA: &str = "partman.rpc.envelope";
+/// The current envelope schema version.
+pub const ENVELOPE_SCHEMA_VERSION: u64 = 1;
+/// The handshake's schema identity (MODEL-003).
+pub const HANDSHAKE_SCHEMA: &str = "partman.rpc.handshake";
+/// The current handshake schema version.
+pub const HANDSHAKE_SCHEMA_VERSION: u64 = 1;
+/// The protocol version the handshake negotiates. Bumped by reviewed
+/// schema changes; RPC-002's compatibility rule compares exactly this.
+pub const PROTOCOL_VERSION: u64 = 1;
+/// RPC-004's size bound: no encoded message exceeds this, checked at
+/// the decode entry before any parsing touches the bytes.
+pub const MAX_MESSAGE_BYTES: usize = 1 << 20;
+
+/// The three message classes (RPC-004's stream separation, typed).
+/// Sequence numbering and resume tokens for the event stream arrive in
+/// increment 2; the class vocabulary is closed now so the envelope's
+/// shape does not move under them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Channel {
+    /// A request awaiting exactly one response.
+    Request,
+    /// The response to a request.
+    Response,
+    /// A loss-tolerant event on the separate stream.
+    Event,
+}
+
+impl Channel {
+    const fn tag(self) -> &'static str {
+        match self {
+            Self::Request => "request",
+            Self::Response => "response",
+            Self::Event => "event",
+        }
+    }
+
+    fn from_tag(tag: &str) -> Option<Self> {
+        match tag {
+            "request" => Some(Self::Request),
+            "response" => Some(Self::Response),
+            "event" => Some(Self::Event),
+            _ => None,
+        }
+    }
+}
+
+/// One protocol message: a channel and a `pce/1`-encoded body of a
+/// `schemas/`-defined type. Fields are private; construction states the
+/// body is already canonical bytes, and decode re-proves it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Envelope {
+    channel: Channel,
+    body: Vec<u8>,
+}
+
+/// Why the strict validator refused — both directions, one vocabulary.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DecodeRefusal {
+    /// The encoded message exceeds RPC-004's bound. Checked before any
+    /// parsing touches the bytes.
+    OversizedMessage {
+        /// The encoded length presented.
+        presented: usize,
+        /// The bound it exceeds.
+        bound: usize,
+    },
+    /// The bytes are not canonical `pce/1`.
+    NotCanonical,
+    /// The message is not the expected map shape.
+    NotAMessage,
+    /// The schema identity or version is not the expected one.
+    WrongSchema,
+    /// A field the schema does not declare (RPC-003's strict arm).
+    UnknownField {
+        /// The undeclared key.
+        key: String,
+    },
+    /// A declared field is absent or mistyped.
+    BadField {
+        /// The field.
+        key: &'static str,
+    },
+    /// The body bytes inside the envelope are not canonical `pce/1`.
+    BodyNotCanonical,
+}
+
+impl Envelope {
+    /// Wrap an already-canonically-encoded body. The body is re-proved
+    /// canonical here, so an envelope cannot launder bytes the codec
+    /// would refuse.
+    ///
+    /// # Errors
+    ///
+    /// [`DecodeRefusal::BodyNotCanonical`] if the body bytes do not
+    /// decode as canonical `pce/1`;
+    /// [`DecodeRefusal::OversizedMessage`] if the body alone already
+    /// exceeds the message bound.
+    pub fn new(channel: Channel, body: Vec<u8>) -> Result<Self, DecodeRefusal> {
+        if body.len() > MAX_MESSAGE_BYTES {
+            return Err(DecodeRefusal::OversizedMessage {
+                presented: body.len(),
+                bound: MAX_MESSAGE_BYTES,
+            });
+        }
+        if canonical::decode(&body).is_err() {
+            return Err(DecodeRefusal::BodyNotCanonical);
+        }
+        Ok(Self { channel, body })
+    }
+
+    /// The message class.
+    #[must_use]
+    pub const fn channel(&self) -> Channel {
+        self.channel
+    }
+
+    /// The body's canonical bytes.
+    #[must_use]
+    pub fn body(&self) -> &[u8] {
+        &self.body
+    }
+
+    /// Encode the envelope to its canonical wire bytes.
+    ///
+    /// # Errors
+    ///
+    /// [`DecodeRefusal::OversizedMessage`] if the whole encoded message
+    /// would exceed the bound — the bound binds the wire, not just the
+    /// body.
+    pub fn encode(&self) -> Result<Vec<u8>, DecodeRefusal> {
+        let mut map = BTreeMap::new();
+        map.insert("schema".to_owned(), Value::Text(ENVELOPE_SCHEMA.to_owned()));
+        map.insert(
+            "schema_version".to_owned(),
+            Value::Unsigned(ENVELOPE_SCHEMA_VERSION),
+        );
+        map.insert(
+            "channel".to_owned(),
+            Value::Text(self.channel.tag().to_owned()),
+        );
+        map.insert("body".to_owned(), Value::Bytes(self.body.clone()));
+        let bytes = canonical::encode(&Value::Map(map)).map_err(|_| DecodeRefusal::NotCanonical)?;
+        if bytes.len() > MAX_MESSAGE_BYTES {
+            return Err(DecodeRefusal::OversizedMessage {
+                presented: bytes.len(),
+                bound: MAX_MESSAGE_BYTES,
+            });
+        }
+        Ok(bytes)
+    }
+
+    /// The strict decode path, both directions (RPC-003): size bound
+    /// first, canonical `pce/1` second, exact schema third, no unknown
+    /// fields, every declared field well-typed, and the body re-proved
+    /// canonical.
+    ///
+    /// # Errors
+    ///
+    /// [`DecodeRefusal`], the first rule violated.
+    pub fn decode(bytes: &[u8]) -> Result<Self, DecodeRefusal> {
+        if bytes.len() > MAX_MESSAGE_BYTES {
+            return Err(DecodeRefusal::OversizedMessage {
+                presented: bytes.len(),
+                bound: MAX_MESSAGE_BYTES,
+            });
+        }
+        let value = canonical::decode(bytes).map_err(|_| DecodeRefusal::NotCanonical)?;
+        let Value::Map(map) = value else {
+            return Err(DecodeRefusal::NotAMessage);
+        };
+        for key in map.keys() {
+            if !matches!(
+                key.as_str(),
+                "schema" | "schema_version" | "channel" | "body"
+            ) {
+                return Err(DecodeRefusal::UnknownField { key: key.clone() });
+            }
+        }
+        match map.get("schema") {
+            Some(Value::Text(text)) if text == ENVELOPE_SCHEMA => {}
+            _ => return Err(DecodeRefusal::WrongSchema),
+        }
+        match map.get("schema_version") {
+            Some(Value::Unsigned(version)) if *version == ENVELOPE_SCHEMA_VERSION => {}
+            _ => return Err(DecodeRefusal::WrongSchema),
+        }
+        let channel = match map.get("channel") {
+            Some(Value::Text(tag)) => {
+                Channel::from_tag(tag).ok_or(DecodeRefusal::BadField { key: "channel" })?
+            }
+            _ => return Err(DecodeRefusal::BadField { key: "channel" }),
+        };
+        let body = match map.get("body") {
+            Some(Value::Bytes(bytes)) => bytes.clone(),
+            _ => return Err(DecodeRefusal::BadField { key: "body" }),
+        };
+        Self::new(channel, body)
+    }
+}
+
+/// One side's handshake declaration (RPC-002): schema and build
+/// versions, exchanged first in both directions.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Handshake {
+    /// The protocol version this side speaks.
+    pub protocol_version: u64,
+    /// The build identifier, for the refusal message's remediation —
+    /// never for compatibility logic.
+    pub build: String,
+}
+
+/// RPC-002's refusal: incompatible versions refuse with a remediation
+/// message, never degrade silently.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VersionRefusal {
+    /// The local protocol version.
+    pub local: u64,
+    /// The remote protocol version.
+    pub remote: u64,
+    /// The remediation, stated for a human: which side is older and
+    /// what to update.
+    pub remediation: String,
+}
+
+impl Handshake {
+    /// This build's handshake.
+    #[must_use]
+    pub fn local(build: &str) -> Self {
+        Self {
+            protocol_version: PROTOCOL_VERSION,
+            build: build.to_owned(),
+        }
+    }
+
+    /// Encode the handshake to canonical bytes.
+    ///
+    /// # Errors
+    ///
+    /// [`DecodeRefusal::NotCanonical`] if encoding refuses — unreachable
+    /// for the flat map this builds, reported rather than panicked.
+    pub fn encode(&self) -> Result<Vec<u8>, DecodeRefusal> {
+        let mut map = BTreeMap::new();
+        map.insert(
+            "schema".to_owned(),
+            Value::Text(HANDSHAKE_SCHEMA.to_owned()),
+        );
+        map.insert(
+            "schema_version".to_owned(),
+            Value::Unsigned(HANDSHAKE_SCHEMA_VERSION),
+        );
+        map.insert(
+            "protocol_version".to_owned(),
+            Value::Unsigned(self.protocol_version),
+        );
+        map.insert("build".to_owned(), Value::Text(self.build.clone()));
+        canonical::encode(&Value::Map(map)).map_err(|_| DecodeRefusal::NotCanonical)
+    }
+
+    /// The strict decode path for a peer's handshake — the same rules
+    /// as the envelope's.
+    ///
+    /// # Errors
+    ///
+    /// [`DecodeRefusal`], the first rule violated.
+    pub fn decode(bytes: &[u8]) -> Result<Self, DecodeRefusal> {
+        if bytes.len() > MAX_MESSAGE_BYTES {
+            return Err(DecodeRefusal::OversizedMessage {
+                presented: bytes.len(),
+                bound: MAX_MESSAGE_BYTES,
+            });
+        }
+        let value = canonical::decode(bytes).map_err(|_| DecodeRefusal::NotCanonical)?;
+        let Value::Map(map) = value else {
+            return Err(DecodeRefusal::NotAMessage);
+        };
+        for key in map.keys() {
+            if !matches!(
+                key.as_str(),
+                "schema" | "schema_version" | "protocol_version" | "build"
+            ) {
+                return Err(DecodeRefusal::UnknownField { key: key.clone() });
+            }
+        }
+        match map.get("schema") {
+            Some(Value::Text(text)) if text == HANDSHAKE_SCHEMA => {}
+            _ => return Err(DecodeRefusal::WrongSchema),
+        }
+        match map.get("schema_version") {
+            Some(Value::Unsigned(version)) if *version == HANDSHAKE_SCHEMA_VERSION => {}
+            _ => return Err(DecodeRefusal::WrongSchema),
+        }
+        let protocol_version = match map.get("protocol_version") {
+            Some(Value::Unsigned(version)) => *version,
+            _ => {
+                return Err(DecodeRefusal::BadField {
+                    key: "protocol_version",
+                });
+            }
+        };
+        let build = match map.get("build") {
+            Some(Value::Text(text)) => text.clone(),
+            _ => return Err(DecodeRefusal::BadField { key: "build" }),
+        };
+        Ok(Self {
+            protocol_version,
+            build,
+        })
+    }
+
+    /// RPC-002's compatibility rule, total: compatible, or a typed
+    /// refusal carrying a remediation message. There is no downgrade
+    /// arm to reach.
+    ///
+    /// # Errors
+    ///
+    /// [`VersionRefusal`] naming both versions and the side to update.
+    pub fn compatible_with(&self, remote: &Self) -> Result<(), VersionRefusal> {
+        if self.protocol_version == remote.protocol_version {
+            return Ok(());
+        }
+        let (older, newer) = if self.protocol_version < remote.protocol_version {
+            ("this side", remote.build.as_str())
+        } else {
+            ("the peer", self.build.as_str())
+        };
+        Err(VersionRefusal {
+            local: self.protocol_version,
+            remote: remote.protocol_version,
+            remediation: format!(
+                "{older} speaks an older protocol; update it to match build {newer} — \
+                 versions must be equal, and nothing degrades silently"
+            ),
+        })
+    }
+}

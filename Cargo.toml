@@ -6,6 +6,7 @@ members = [
     "crates/ffi-linux-loop",
     "crates/fixtures",
     "crates/planner",
+    "crates/rpc",
     "crates/table-parser",
     "crates/tokens",
     "tools/slint-feasibility",
