@@ -1101,7 +1101,7 @@ fn cross_language() -> Result<(), TaskError> {
 /// tree is decided at install time would report a verdict about nothing.
 fn audit_npm_packages(root: &Path) -> Result<(), TaskError> {
     let mut manifests = Vec::new();
-    manifest_files_under(root, &mut manifests)?;
+    repository_manifest_files_under(root, &mut manifests)?;
     let packages: Vec<PathBuf> = manifests
         .into_iter()
         .filter(|path| path.file_name().and_then(OsStr::to_str) == Some("package.json"))
@@ -2968,7 +2968,7 @@ fn verify_manifest_licenses(root: &Path) -> Result<(), TaskError> {
     }
 
     let mut manifests = Vec::new();
-    manifest_files_under(root, &mut manifests)?;
+    repository_manifest_files_under(root, &mut manifests)?;
     manifests.sort();
     for manifest in &manifests {
         let name = manifest
@@ -3103,10 +3103,126 @@ fn cargo_package_licenses(root: &Path, manifest: &str) -> Result<CargoLicences, 
     Ok((licenses, paths))
 }
 
+/// Gitlink paths tracked by the repository rooted at `root`.
+///
+/// A linked worktree or an ad-hoc nested clone is disposable state outside the
+/// current source tree, but a mode-160000 gitlink is committed source. Silently
+/// skipping both because each materializes a `.git` marker would let a tracked
+/// submodule evade the licence and npm advisory gates. The repository has no
+/// submodule supply-chain policy today, so callers reject every gitlink rather
+/// than pretend its contents were audited.
+fn tracked_gitlinks(root: &Path) -> Result<Vec<String>, TaskError> {
+    let output = Command::new("git")
+        .args(["ls-files", "--stage", "-z"])
+        .current_dir(root)
+        .output()
+        .map_err(|source| TaskError::Launch {
+            program: "git".to_owned(),
+            source,
+        })?;
+    if !output.status.success() {
+        return Err(TaskError::Policy(format!(
+            "`git ls-files --stage` failed, so manifest-boundary ownership cannot be \
+             verified: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+
+    let mut gitlinks = Vec::new();
+    for record in output.stdout.split(|byte| *byte == 0) {
+        if record.is_empty() {
+            continue;
+        }
+        let Some(separator) = record.iter().position(|byte| *byte == b'\t') else {
+            return Err(TaskError::Policy(
+                "`git ls-files --stage -z` returned a record without a path separator; \
+                 refusing to infer manifest-boundary ownership"
+                    .to_owned(),
+            ));
+        };
+        if record[..separator].starts_with(b"160000 ") {
+            gitlinks.push(String::from_utf8_lossy(&record[separator + 1..]).into_owned());
+        }
+    }
+    Ok(gitlinks)
+}
+
+fn git_relative_path(root: &Path, path: &Path) -> Result<String, TaskError> {
+    let relative = path.strip_prefix(root).map_err(|_| {
+        TaskError::Policy(format!(
+            "manifest boundary `{}` is outside repository root `{}`; refusing to infer ownership",
+            path.display(),
+            root.display()
+        ))
+    })?;
+    let mut git_path = String::new();
+    for component in relative.components() {
+        let std::path::Component::Normal(name) = component else {
+            return Err(TaskError::Policy(format!(
+                "manifest boundary `{}` has a non-normal path component; refusing to infer ownership",
+                path.display()
+            )));
+        };
+        let name = name.to_str().ok_or_else(|| {
+            TaskError::Policy(format!(
+                "manifest boundary `{}` is not Unicode; refusing to infer ownership",
+                path.display()
+            ))
+        })?;
+        if !git_path.is_empty() {
+            git_path.push('/');
+        }
+        git_path.push_str(name);
+    }
+    if git_path.is_empty() {
+        return Err(TaskError::Policy(
+            "the repository root cannot be treated as a nested Git boundary".to_owned(),
+        ));
+    }
+    Ok(git_path)
+}
+
+fn first_tracked_path_under(root: &Path, git_boundary: &str) -> Result<Option<String>, TaskError> {
+    // `icase` is deliberately conservative. On case-insensitive worktrees the
+    // directory spelling returned by the filesystem can differ from the index;
+    // a case-only difference must not turn tracked source into an exemption.
+    let pathspec = format!(":(top,icase,literal){git_boundary}");
+    let output = git(
+        root,
+        &["ls-files", "--stage", "-z", "--", pathspec.as_str()],
+    )?;
+    let Some(record) = output.split('\0').find(|record| !record.is_empty()) else {
+        return Ok(None);
+    };
+    let Some((_, tracked_path)) = record.split_once('\t') else {
+        return Err(TaskError::Policy(
+            "`git ls-files --stage -z` returned a record without a path separator; \
+             refusing to infer manifest-boundary ownership"
+                .to_owned(),
+        ));
+    };
+    Ok(Some(tracked_path.to_owned()))
+}
+
+fn repository_manifest_files_under(root: &Path, found: &mut Vec<PathBuf>) -> Result<(), TaskError> {
+    let gitlinks = tracked_gitlinks(root)?;
+    if !gitlinks.is_empty() {
+        return Err(TaskError::Policy(format!(
+            "tracked Git submodules cannot be exempted from SEC-005/SEC-010 manifest coverage. Remove the gitlink or define a reviewed submodule dependency policy before this gate can pass:\n  {}",
+            gitlinks.join("\n  ")
+        )));
+    }
+    manifest_files_under(root, root, found)
+}
+
 /// Collect every `Cargo.toml` and `package.json` under `directory`, skipping
 /// build output, vendored trees, and other working trees nested inside this
 /// one.
-fn manifest_files_under(directory: &Path, found: &mut Vec<PathBuf>) -> Result<(), TaskError> {
+fn manifest_files_under(
+    repository_root: &Path,
+    directory: &Path,
+    found: &mut Vec<PathBuf>,
+) -> Result<(), TaskError> {
     let entries = fs::read_dir(directory).map_err(|source| TaskError::Io {
         path: directory.to_owned(),
         source,
@@ -3148,16 +3264,30 @@ fn manifest_files_under(directory: &Path, found: &mut Vec<PathBuf>) -> Result<()
             // what a directory holds; the `.git` entry is the boundary git
             // itself stops at. Git refuses `.git` as a committed path
             // component, so a clean checkout can acquire this marker only
-            // from a separately materialized Git checkout; that checkout's
-            // manifests are not part of this working tree's source set. The
+            // from a separately materialized Git checkout. The outer index is
+            // still authoritative: if it tracks anything below the marker,
+            // the boundary is ambiguous and refused rather than skipped. Only
+            // an index-empty boundary proves that the inner checkout's
+            // manifests are outside this working tree's source set. The
             // alternative, asking
             // `git worktree list` for registered checkouts, answers a
             // narrower question: an unregistered nested clone sits behind the
             // same `.git` marker but appears in no worktree registry.
             if path.join(".git").exists() {
+                let git_boundary = git_relative_path(repository_root, &path)?;
+                if let Some(tracked_path) =
+                    first_tracked_path_under(repository_root, &git_boundary)?
+                {
+                    return Err(TaskError::Policy(format!(
+                        "nested Git boundary `{git_boundary}` contains outer-repository tracked path \
+                         `{tracked_path}` and cannot be exempted from SEC-005/SEC-010 manifest \
+                         coverage. Remove the nested `.git` marker or move the checkout outside \
+                         tracked source"
+                    )));
+                }
                 continue;
             }
-            manifest_files_under(&path, found)?;
+            manifest_files_under(repository_root, &path, found)?;
         } else if name == "Cargo.toml" || name == "package.json" {
             found.push(path);
         }
@@ -4621,6 +4751,19 @@ mod tests {
 
     fn args(values: &[&str]) -> Vec<OsString> {
         values.iter().map(OsString::from).collect()
+    }
+
+    fn init_test_git_repository(root: &Path) {
+        let _ = fs::remove_dir_all(root);
+        fs::create_dir_all(root).expect("create fixture repository");
+        for arguments in [
+            vec!["init", "--initial-branch=main"],
+            vec!["config", "user.email", "test@example.invalid"],
+            vec!["config", "user.name", "Test"],
+            vec!["config", "commit.gpgsign", "false"],
+        ] {
+            super::git(root, &arguments).expect("initialize fixture repository");
+        }
     }
 
     #[test]
@@ -6659,7 +6802,7 @@ Mention Section 1.99 in prose.
         // brings its own `package.json` -- each of which would have been audited
         // by nobody while the gate reported success.
         let mut manifests = Vec::new();
-        super::manifest_files_under(&repository_root(), &mut manifests)
+        super::repository_manifest_files_under(&repository_root(), &mut manifests)
             .expect("walk the repository");
         let packages: Vec<&PathBuf> = manifests
             .iter()
@@ -6821,6 +6964,7 @@ Mention Section 1.99 in prose.
             "partman-xtask-nested-licence-{}",
             std::process::id()
         ));
+        init_test_git_repository(&root);
         let write = |relative: &str, contents: &str| {
             let path = root.join(relative);
             fs::create_dir_all(path.parent().expect("parent")).expect("create parent");
@@ -7640,6 +7784,7 @@ Mention Section 1.99 in prose.
         // must fail, and the passing tree proves the check is not vacuous.
         let root =
             std::env::temp_dir().join(format!("partman-xtask-licenses-{}", std::process::id()));
+        init_test_git_repository(&root);
         let write = |relative: &str, contents: &str| {
             let path = root.join(relative);
             fs::create_dir_all(path.parent().expect("parent")).expect("create parent");
@@ -7693,7 +7838,7 @@ Mention Section 1.99 in prose.
         // first version of this test did.
         let root =
             std::env::temp_dir().join(format!("partman-xtask-orphan-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
+        init_test_git_repository(&root);
         let write = |relative: &str, contents: &str| {
             let path = root.join(relative);
             fs::create_dir_all(path.parent().expect("parent")).expect("create parent");
@@ -7733,7 +7878,7 @@ Mention Section 1.99 in prose.
     }
 
     // Requirements: SEC-005, SEC-010
-    //   licence and npm-advisory discovery stop at nested Git checkout boundaries without hiding an ordinary same-named directory
+    //   licence and npm-advisory discovery stop at untracked nested Git checkout boundaries without hiding an ordinary same-named directory
     // Work-Package: WP-000
     // Evidence: another_working_tree_inside_this_one_is_a_boundary_not_a_manifest_source
     #[test]
@@ -7747,7 +7892,7 @@ Mention Section 1.99 in prose.
         // a future first-party package could be called anything.
         let root =
             std::env::temp_dir().join(format!("partman-xtask-inner-tree-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
+        init_test_git_repository(&root);
         let write = |relative: &str, contents: &str| {
             let path = root.join(relative);
             fs::create_dir_all(path.parent().expect("parent")).expect("create parent");
@@ -7780,7 +7925,8 @@ Mention Section 1.99 in prose.
         );
 
         let mut manifests = Vec::new();
-        super::manifest_files_under(&root, &mut manifests).expect("walk the synthetic tree");
+        super::repository_manifest_files_under(&root, &mut manifests)
+            .expect("walk the synthetic tree");
         let relative: Vec<String> = manifests
             .iter()
             .map(|path| {
@@ -7812,6 +7958,83 @@ Mention Section 1.99 in prose.
                 .iter()
                 .any(|path| path.starts_with("vendor-checkout/")),
             "a nested clone's manifests belong to that tree: {relative:?}"
+        );
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    // Requirements: SEC-005, SEC-010
+    //   a nested Git marker cannot hide manifests already tracked by the outer repository
+    // Work-Package: WP-000
+    // Evidence: a_nested_git_marker_cannot_hide_outer_repository_tracked_manifests
+    #[test]
+    fn a_nested_git_marker_cannot_hide_outer_repository_tracked_manifests() {
+        let root = std::env::temp_dir().join(format!(
+            "partman-xtask-tracked-boundary-{}",
+            std::process::id()
+        ));
+        init_test_git_repository(&root);
+        let tracked = root.join("tracked");
+        fs::create_dir_all(&tracked).expect("create tracked directory");
+        fs::write(
+            tracked.join("package.json"),
+            "{\n  \"license\": \"MIT OR Apache-2.0\"\n}\n",
+        )
+        .expect("write tracked manifest");
+        super::git(&root, &["add", "tracked/package.json"]).expect("stage tracked manifest");
+        super::git(&root, &["commit", "-m", "tracked manifest"]).expect("commit tracked manifest");
+        super::git(&root, &["init", "--initial-branch=main", "tracked"])
+            .expect("materialize a nested Git marker over tracked source");
+
+        let mut manifests = Vec::new();
+        let error = super::repository_manifest_files_under(&root, &mut manifests)
+            .expect_err("a nested Git marker must not exempt outer-repository tracked source");
+        let message = error.to_string();
+        assert!(
+            message.contains("nested Git boundary `tracked`"),
+            "the refusal must name the ambiguous boundary: {message}"
+        );
+        assert!(
+            message.contains("tracked/package.json"),
+            "the refusal must name the hidden tracked manifest: {message}"
+        );
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    // Requirements: SEC-005, SEC-010
+    //   tracked Git submodules are refused until a reviewed supply-chain contract can audit them
+    // Work-Package: WP-000
+    // Evidence: a_tracked_submodule_is_a_refusal_not_an_audit_exemption
+    #[test]
+    fn a_tracked_submodule_is_a_refusal_not_an_audit_exemption() {
+        let root = std::env::temp_dir().join(format!(
+            "partman-xtask-tracked-gitlink-{}",
+            std::process::id()
+        ));
+        init_test_git_repository(&root);
+        fs::write(root.join("tracked.txt"), "base\n").expect("write tracked fixture");
+        super::git(&root, &["add", "tracked.txt"]).expect("stage tracked fixture");
+        super::git(&root, &["commit", "-m", "base"]).expect("commit tracked fixture");
+        let commit = super::git(&root, &["rev-parse", "HEAD"]).expect("resolve fixture commit");
+        let cacheinfo = format!("160000,{},tracked-module", commit.trim());
+        super::git(
+            &root,
+            &["update-index", "--add", "--cacheinfo", cacheinfo.as_str()],
+        )
+        .expect("stage an uninitialized tracked submodule");
+
+        let mut manifests = Vec::new();
+        let error = super::repository_manifest_files_under(&root, &mut manifests)
+            .expect_err("a tracked gitlink must never become an audit exemption");
+        let message = error.to_string();
+        assert!(
+            message.contains("tracked Git submodules"),
+            "the refusal must explain the unsupported dependency boundary: {message}"
+        );
+        assert!(
+            message.contains("tracked-module"),
+            "the refusal must name the tracked gitlink: {message}"
         );
 
         fs::remove_dir_all(&root).ok();

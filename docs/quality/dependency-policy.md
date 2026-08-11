@@ -162,11 +162,16 @@ the line still read `"license": "MIT OR Apache-2.0"` while the document's root
 `license` was `undefined`. A line cannot tell you where in a document it sits.
 
 Both this licence inventory and the npm-package discovery below interpret
-"repository" as the current Git working tree. A directory that carries its own
-`.git` entry is a nested linked worktree, clone, or submodule boundary and is not
-traversed. The rule is structural rather than name-based: an ordinary directory
-named `.claude`, `worktrees`, or anything else remains covered when it has no
-Git boundary marker.
+"repository" as the current Git working tree. An untracked directory that
+carries its own `.git` entry is a nested linked worktree or clone boundary and
+is not traversed. Before skipping it, the gates verify that the outer index has
+no tracked path below the marker; an inner `git init` over tracked source is an
+ambiguous boundary and is refused. A mode-`160000` gitlink is different too: it
+is committed source, so the gates refuse tracked submodules until a reviewed
+policy defines how their manifests, lockfiles, licences, advisories, and update
+pins are audited. The skip is structural rather than name-based: an ordinary
+directory named `.claude`, `worktrees`, or anything else remains covered when
+it has no Git boundary marker.
 
 ## Known gap: a duplicate major version will not fail CI
 
