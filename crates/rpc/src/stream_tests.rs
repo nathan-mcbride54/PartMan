@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use partman_domain::canonical::{self, Value};
 
 use super::stream::{Arrival, EventSequencer, RESUME_TOKEN_SCHEMA, ResumeToken, classify};
-use super::{Channel, DecodeRefusal, Envelope};
+use super::{Channel, DecodeRefusal, Envelope, MAX_MESSAGE_BYTES};
 
 fn small_body() -> Vec<u8> {
     canonical::encode(&Value::Text("event".into())).expect("encodable")
@@ -112,4 +112,23 @@ fn the_resume_token_round_trips_strictly() {
         ResumeToken::decode(&bytes),
         Err(DecodeRefusal::UnknownField { .. })
     ));
+}
+
+// Requirements: RPC-004
+//   The size bound binds the standalone token path exactly as it binds
+//   the envelope and the handshake: an oversized input refuses with
+//   both numbers named before any parsing touches the bytes — the
+//   token travels standalone, so it cannot borrow the envelope's gate.
+// Evidence: the_resume_token_shares_the_size_bound
+#[test]
+fn the_resume_token_shares_the_size_bound() {
+    let oversized = vec![0_u8; MAX_MESSAGE_BYTES + 1];
+    let refused = ResumeToken::decode(&oversized).expect_err("must refuse before parsing");
+    assert_eq!(
+        refused,
+        DecodeRefusal::OversizedMessage {
+            presented: MAX_MESSAGE_BYTES + 1,
+            bound: MAX_MESSAGE_BYTES,
+        }
+    );
 }

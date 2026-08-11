@@ -19,7 +19,7 @@ use std::collections::BTreeMap;
 
 use partman_domain::canonical::{self, Value};
 
-use super::DecodeRefusal;
+use super::{DecodeRefusal, MAX_MESSAGE_BYTES};
 
 /// The resume token's schema identity (MODEL-003).
 pub const RESUME_TOKEN_SCHEMA: &str = "partman.rpc.resume-token";
@@ -129,12 +129,20 @@ impl ResumeToken {
         canonical::encode(&Value::Map(map)).map_err(|_| DecodeRefusal::NotCanonical)
     }
 
-    /// The strict decode path — the same rules as every message here.
+    /// The strict decode path — the same rules as every message here,
+    /// the size bound first: the token also travels standalone, so it
+    /// cannot borrow the envelope's gate.
     ///
     /// # Errors
     ///
     /// [`DecodeRefusal`], the first rule violated.
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeRefusal> {
+        if bytes.len() > MAX_MESSAGE_BYTES {
+            return Err(DecodeRefusal::OversizedMessage {
+                presented: bytes.len(),
+                bound: MAX_MESSAGE_BYTES,
+            });
+        }
         let value = canonical::decode(bytes).map_err(|_| DecodeRefusal::NotCanonical)?;
         let Value::Map(map) = value else {
             return Err(DecodeRefusal::NotAMessage);
