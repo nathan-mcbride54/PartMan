@@ -3104,7 +3104,8 @@ fn cargo_package_licenses(root: &Path, manifest: &str) -> Result<CargoLicences, 
 }
 
 /// Collect every `Cargo.toml` and `package.json` under `directory`, skipping
-/// build output and vendored trees.
+/// build output, vendored trees, and other working trees nested inside this
+/// one.
 fn manifest_files_under(directory: &Path, found: &mut Vec<PathBuf>) -> Result<(), TaskError> {
     let entries = fs::read_dir(directory).map_err(|source| TaskError::Io {
         path: directory.to_owned(),
@@ -3131,6 +3132,29 @@ fn manifest_files_under(directory: &Path, found: &mut Vec<PathBuf>) -> Result<()
                 name,
                 ".git" | "target" | "node_modules" | "corpus" | "artifacts" | "coverage"
             ) {
+                continue;
+            }
+            // A directory carrying its own `.git` entry is another working
+            // tree, not part of this one: a linked worktree's gitdir-pointer
+            // file (Claude Code parks agent checkouts under
+            // `.claude/worktrees/`, each a complete copy of this repository)
+            // or a nested clone's directory. Walking into one reported every
+            // manifest of the inner checkout as a manifest no workspace
+            // includes, and local CI could not pass while an agent worktree
+            // existed.
+            //
+            // This is a structural skip, not the name-based kind the
+            // `generated` note above rules out. A name says nothing about
+            // what a directory holds; the `.git` entry is the boundary git
+            // itself stops at, and it cannot conceal a first-party package,
+            // because git refuses `.git` as a path component — no tree this
+            // repository can commit contains one, so everything behind the
+            // marker is invisible to this repository's index and can never be
+            // a manifest this policy governs. The alternative, asking
+            // `git worktree list` for registered checkouts, answers a
+            // narrower question: an unregistered nested clone sits behind the
+            // same `.git` marker but appears in no worktree registry.
+            if path.join(".git").exists() {
                 continue;
             }
             manifest_files_under(&path, found)?;
@@ -7703,6 +7727,87 @@ Mention Section 1.99 in prose.
         assert!(
             error.to_string().contains("orphan"),
             "the refusal must name the orphan manifest: {error}"
+        );
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn another_working_tree_inside_this_one_is_a_boundary_not_a_manifest_source() {
+        // Claude Code parks agent worktrees under `.claude/worktrees/`, each a
+        // complete checkout of this repository, and the walk reported all
+        // thirteen of the inner checkout's manifests as workspace orphans —
+        // local CI could not pass while an agent worked. The skip must key on
+        // the `.git` boundary marker, never on a directory's name: a name-based
+        // skip is exactly what the walker's `generated` note rules out, because
+        // a future first-party package could be called anything.
+        let root =
+            std::env::temp_dir().join(format!("partman-xtask-inner-tree-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let write = |relative: &str, contents: &str| {
+            let path = root.join(relative);
+            fs::create_dir_all(path.parent().expect("parent")).expect("create parent");
+            fs::write(path, contents).expect("write file");
+        };
+
+        // A first-party manifest, found as ever.
+        write("crates/real/Cargo.toml", "[package]\nname = \"real\"\n");
+        // A linked worktree: its `.git` is a gitdir-pointer file.
+        write(
+            ".claude/worktrees/agent/.git",
+            "gitdir: /somewhere/.git/worktrees/agent\n",
+        );
+        write(
+            ".claude/worktrees/agent/crates/real/Cargo.toml",
+            "[package]\nname = \"real\"\n",
+        );
+        // A nested clone: its `.git` is a directory.
+        write("vendor-checkout/.git/HEAD", "ref: refs/heads/main\n");
+        write(
+            "vendor-checkout/package.json",
+            "{\n  \"name\": \"inner\"\n}\n",
+        );
+        // A directory that merely *shares the name* `.claude` carries no
+        // boundary marker, so a manifest inside it must still be found — the
+        // proof the skip is structural rather than name-based.
+        write(
+            ".claude/tools/Cargo.toml",
+            "[package]\nname = \"claude-tools\"\n",
+        );
+
+        let mut manifests = Vec::new();
+        super::manifest_files_under(&root, &mut manifests).expect("walk the synthetic tree");
+        let relative: Vec<String> = manifests
+            .iter()
+            .map(|path| {
+                path.strip_prefix(&root)
+                    .expect("walked paths sit under the root")
+                    .display()
+                    .to_string()
+                    .replace('\\', "/")
+            })
+            .collect();
+
+        assert!(
+            relative.contains(&"crates/real/Cargo.toml".to_owned()),
+            "the first-party manifest must be found: {relative:?}"
+        );
+        assert!(
+            relative.contains(&".claude/tools/Cargo.toml".to_owned()),
+            "a directory named `.claude` without a `.git` boundary is not skipped — the \
+             skip is structural, not name-based: {relative:?}"
+        );
+        assert!(
+            !relative
+                .iter()
+                .any(|path| path.starts_with(".claude/worktrees/agent/")),
+            "a linked worktree's manifests belong to that tree: {relative:?}"
+        );
+        assert!(
+            !relative
+                .iter()
+                .any(|path| path.starts_with("vendor-checkout/")),
+            "a nested clone's manifests belong to that tree: {relative:?}"
         );
 
         fs::remove_dir_all(&root).ok();
