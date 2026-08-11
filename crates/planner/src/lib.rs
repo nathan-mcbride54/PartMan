@@ -39,8 +39,11 @@ use partman_domain::model::snapshot::TopologySnapshot;
 use partman_domain::model::step::{PlanStep, Severity, StepFlags, StepRefusal, StepRisk};
 
 use crate::graph::{Dependency, GraphRefusal, execution_order};
+use crate::solve::{SolveRefusal, grow_extension, place_create, shrink_reduction};
+use partman_domain::model::protection::StepRanges;
 
 pub mod graph;
+pub mod solve;
 
 #[cfg(test)]
 mod tests;
@@ -110,6 +113,41 @@ pub enum PlanRefusal {
     GraphRefused {
         /// The graph's verbatim refusal.
         refusal: GraphRefusal,
+    },
+    /// The extent solver refused — no fit, missing extents, a
+    /// non-resize, or SI-15's held misaligned-growth case, each
+    /// explained by its variant with the numbers it judged.
+    SolveRefused {
+        /// The solver's verbatim refusal.
+        refusal: SolveRefusal,
+    },
+}
+
+/// A sized request: the solver-backed operations, each carrying the
+/// geometry the caller decided and the solver validates.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SizedRequest {
+    /// Create a structure of `size` bytes in the host's free space,
+    /// placed by the solver at PART-009's default alignment.
+    Create {
+        /// The host receiving the new structure.
+        host: NodeId,
+        /// The requested size in bytes.
+        size: u64,
+    },
+    /// Grow the target to `new_length` at its tail.
+    Grow {
+        /// The target being grown.
+        target: NodeId,
+        /// The requested final length.
+        new_length: u64,
+    },
+    /// Shrink the target to `new_length`; the start never moves.
+    Shrink {
+        /// The target being shrunk.
+        target: NodeId,
+        /// The requested final length.
+        new_length: u64,
     },
 }
 
@@ -194,6 +232,85 @@ pub fn plan(
         canonical_risk(request.operation),
     )
     .map_err(|refusal| PlanRefusal::StepRefused { refusal })?;
+
+    OperationPlan::assemble(
+        identity.plan_id.clone(),
+        identity.created_at,
+        snapshot,
+        identity.validity,
+        std::collections::BTreeMap::new(),
+        vec![step],
+    )
+    .map_err(|error| PlanRefusal::PlanRefused { error })
+}
+
+/// PLAN-001's computation for one sized request: the solver validates
+/// the geometry, the capability engine conditions the pair, and the
+/// step carries the solved ranges — a create consumes its placed range,
+/// a grow consumes its tail extension, a shrink destroys its freed
+/// tail, because bytes beyond the new end are gone and the risk model
+/// says so.
+///
+/// # Errors
+///
+/// [`PlanRefusal`], each variant carrying its ground verbatim.
+pub fn plan_sized(
+    request: SizedRequest,
+    snapshot: &TopologySnapshot,
+    limits: &TechnologyLimits,
+    runtime: &RuntimeFacts,
+    identity: &PlanIdentity,
+) -> Result<OperationPlan, PlanRefusal> {
+    let (operation, target, ranges) = match request {
+        SizedRequest::Create { host, size } => {
+            let placed = place_create(snapshot, host, size)
+                .map_err(|refusal| PlanRefusal::SolveRefused { refusal })?;
+            (
+                Operation::Create,
+                host,
+                StepRanges {
+                    written_table_extents: vec![],
+                    consumed: vec![placed],
+                    destroyed: vec![],
+                },
+            )
+        }
+        SizedRequest::Grow { target, new_length } => {
+            let extension = grow_extension(snapshot, target, new_length)
+                .map_err(|refusal| PlanRefusal::SolveRefused { refusal })?;
+            (
+                Operation::Grow,
+                target,
+                StepRanges {
+                    written_table_extents: vec![],
+                    consumed: vec![extension],
+                    destroyed: vec![],
+                },
+            )
+        }
+        SizedRequest::Shrink { target, new_length } => {
+            let freed = shrink_reduction(snapshot, target, new_length)
+                .map_err(|refusal| PlanRefusal::SolveRefused { refusal })?;
+            (
+                Operation::Shrink,
+                target,
+                StepRanges {
+                    written_table_extents: vec![],
+                    consumed: vec![],
+                    destroyed: vec![freed],
+                },
+            )
+        }
+    };
+
+    let answer = capability(operation, target, snapshot, limits, runtime)
+        .map_err(|UnknownTarget { target }| PlanRefusal::UnknownTarget { target })?;
+    if matches!(answer.status(), Status::Unsupported | Status::Blocked) {
+        return Err(PlanRefusal::CapabilityRefused { answer });
+    }
+
+    let step = PlanStep::mutating(snapshot, target, ranges, vec![], canonical_risk(operation))
+        .map_err(|refusal| PlanRefusal::StepRefused { refusal })?;
 
     OperationPlan::assemble(
         identity.plan_id.clone(),

@@ -422,3 +422,214 @@ fn malformed_edges_refuse_by_name() {
         }
     );
 }
+
+use super::solve::{DEFAULT_ALIGNMENT, SolveRefusal, free_extents, grow_extension, place_create};
+use super::{SizedRequest, plan_sized};
+
+/// A host with one child partition-like extent at [1 MiB, 65 MiB) and a
+/// misaligned second child at [100 MiB + 512, 100 MiB + 512 + 32 MiB).
+fn solver_fixture() -> (TopologySnapshot, NodeId, NodeId, NodeId) {
+    let host = device(b"SLV-HOST");
+    let host_id = derive_id(&host).expect("derivable");
+    let table = NamingFields::PartitionTable {
+        parent: host_id,
+        role: partman_domain::model::naming::TableRole::Gpt,
+    };
+    let table_id = derive_id(&table).expect("derivable");
+    let aligned = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: DEFAULT_ALIGNMENT,
+    };
+    let aligned_id = derive_id(&aligned).expect("derivable");
+    let misaligned = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: 100 * DEFAULT_ALIGNMENT + 512,
+    };
+    let misaligned_id = derive_id(&misaligned).expect("derivable");
+
+    let mut facts = Facts::default();
+    device_facts(&mut facts, host_id);
+    facts.extents.insert(
+        aligned_id,
+        HostRange {
+            host: host_id,
+            start: DEFAULT_ALIGNMENT,
+            length: 64 * DEFAULT_ALIGNMENT,
+        },
+    );
+    facts.extents.insert(
+        misaligned_id,
+        HostRange {
+            host: host_id,
+            start: 100 * DEFAULT_ALIGNMENT + 512,
+            length: 32 * DEFAULT_ALIGNMENT,
+        },
+    );
+
+    let snapshot = TopologySnapshot::assemble(
+        SnapshotKind::Captured,
+        false,
+        vec![host, table, aligned, misaligned],
+        vec![
+            Edge {
+                kind: EdgeKind::Containment,
+                source: host_id,
+                target: table_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: table_id,
+                target: aligned_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: table_id,
+                target: misaligned_id,
+            },
+        ],
+        facts,
+    )
+    .expect("assembles");
+    (snapshot, host_id, aligned_id, misaligned_id)
+}
+
+// Requirements: PLAN-001
+//   Free space is the host's extent minus its children's, ascending:
+//   the gap before the first child, the gap between children, and the
+//   tail after the last.
+// Evidence: free_extents_are_the_hosts_minus_its_children
+#[test]
+fn free_extents_are_the_hosts_minus_its_children() {
+    let (snapshot, host, _, _) = solver_fixture();
+    let free = free_extents(&snapshot, host).expect("computes");
+    let starts: Vec<(u64, u64)> = free
+        .iter()
+        .map(|range| (range.start, range.length))
+        .collect();
+    assert_eq!(
+        starts,
+        vec![
+            (0, DEFAULT_ALIGNMENT),
+            (65 * DEFAULT_ALIGNMENT, 35 * DEFAULT_ALIGNMENT + 512),
+            (
+                132 * DEFAULT_ALIGNMENT + 512,
+                (1 << 30) - (132 * DEFAULT_ALIGNMENT + 512)
+            ),
+        ]
+    );
+}
+
+// Requirements: PLAN-001
+//   Placement is first-fit at the lowest 1 MiB-aligned start that
+//   holds the full size, and the no-fit refusal names the largest
+//   aligned fit so the caller can explain what would have succeeded.
+// Evidence: placement_is_aligned_first_fit_and_no_fit_is_explained
+#[test]
+fn placement_is_aligned_first_fit_and_no_fit_is_explained() {
+    let (snapshot, host, _, _) = solver_fixture();
+    let placed = place_create(&snapshot, host, 10 * DEFAULT_ALIGNMENT).expect("fits");
+    assert_eq!(placed.start, 65 * DEFAULT_ALIGNMENT);
+    assert_eq!(placed.length, 10 * DEFAULT_ALIGNMENT);
+
+    let refused = place_create(&snapshot, host, 1 << 40).expect_err("cannot fit");
+    let SolveRefusal::NoFitForSize {
+        requested,
+        largest_aligned_fit,
+    } = refused
+    else {
+        panic!("the refusal names the sizes: {refused:?}");
+    };
+    assert_eq!(requested, 1 << 40);
+    assert!(largest_aligned_fit > 0, "the largest fit is reported");
+}
+
+// Requirements: PLAN-001
+//   SI-15's held case refuses by name: growing a partition whose start
+//   is not 1 MiB-aligned matches neither of PART-009's deviation
+//   causes, and the refusal names the register gate rather than
+//   guessing an answer the register holds.
+// Evidence: misaligned_growth_refuses_naming_the_register_gate
+#[test]
+fn misaligned_growth_refuses_naming_the_register_gate() {
+    let (snapshot, _, aligned, misaligned) = solver_fixture();
+    let refused =
+        grow_extension(&snapshot, misaligned, 40 * DEFAULT_ALIGNMENT).expect_err("SI-15 holds");
+    let SolveRefusal::MisalignedLegacyGrowth {
+        target,
+        start,
+        gate,
+    } = refused
+    else {
+        panic!("the refusal names the gate: {refused:?}");
+    };
+    assert_eq!(target, misaligned);
+    assert_eq!(start, 100 * DEFAULT_ALIGNMENT + 512);
+    assert_eq!(gate, "SI-15");
+
+    let extension =
+        grow_extension(&snapshot, aligned, 70 * DEFAULT_ALIGNMENT).expect("aligned growth solves");
+    assert_eq!(extension.start, 65 * DEFAULT_ALIGNMENT);
+    assert_eq!(extension.length, 6 * DEFAULT_ALIGNMENT);
+}
+
+// Requirements: PLAN-001, PLAN-006
+//   The sized path plans end to end: a solved create carries its placed
+//   range in the body, deterministically, and revalidates through the
+//   typed boundary against its snapshot.
+// Evidence: a_solved_create_plans_deterministically
+#[test]
+fn a_solved_create_plans_deterministically() {
+    let (snapshot, host, _, _) = solver_fixture();
+    let request = SizedRequest::Create {
+        host,
+        size: 10 * DEFAULT_ALIGNMENT,
+    };
+    let first = plan_sized(
+        request,
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect("plans");
+    let second = plan_sized(
+        request,
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect("plans again");
+    assert_eq!(body_bytes(&first), body_bytes(&second));
+    let rebuilt =
+        OperationPlan::from_canonical_body(&body_bytes(&first), &snapshot).expect("revalidates");
+    assert_eq!(
+        rebuilt.body_hash().expect("hash"),
+        first.body_hash().expect("hash")
+    );
+}
+
+// Requirements: PLAN-001
+//   A non-resize refuses with both lengths named, in both directions.
+// Evidence: a_non_resize_refuses_with_both_lengths
+#[test]
+fn a_non_resize_refuses_with_both_lengths() {
+    let (snapshot, _, aligned, _) = solver_fixture();
+    let refused = plan_sized(
+        SizedRequest::Shrink {
+            target: aligned,
+            new_length: 64 * DEFAULT_ALIGNMENT,
+        },
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect_err("equal length is not a shrink");
+    assert!(matches!(
+        refused,
+        PlanRefusal::SolveRefused {
+            refusal: SolveRefusal::NotAResize { .. }
+        }
+    ));
+}
