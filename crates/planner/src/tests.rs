@@ -224,3 +224,201 @@ fn an_unknown_target_refuses_typed() {
     .expect_err("must refuse");
     assert_eq!(refused, PlanRefusal::UnknownTarget { target: stranger });
 }
+
+use super::graph::{Dependency, GraphRefusal};
+use super::{PlanRequestSet, plan_set};
+
+fn wipe_and_create(target: NodeId) -> PlanRequestSet {
+    PlanRequestSet {
+        requests: vec![
+            PlanRequest {
+                operation: Operation::Wipe,
+                target,
+            },
+            PlanRequest {
+                operation: Operation::Create,
+                target,
+            },
+        ],
+        dependencies: vec![Dependency {
+            before: 0,
+            after: 1,
+        }],
+    }
+}
+
+// Requirements: PLAN-003, PLAN-001
+//   The ordered-overlap chain constructs: a wipe followed by a create in
+//   the freed space is legitimate exactly because the dependency orders
+//   it, the emitted steps carry that order, plan severity is the step
+//   maximum, and the whole set is deterministic to the byte.
+// Evidence: an_ordered_chain_constructs_deterministically
+#[test]
+fn an_ordered_chain_constructs_deterministically() {
+    let (snapshot, clean, _) = fixture();
+    let set = wipe_and_create(clean);
+    let first = plan_set(
+        &set,
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect("the ordered chain plans");
+    let second = plan_set(
+        &set,
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect("plans again");
+    assert_eq!(body_bytes(&first), body_bytes(&second));
+    assert_eq!(first.steps().len(), 2);
+    assert_eq!(first.severity(), Severity::Destructive);
+}
+
+// Requirements: PLAN-003
+//   The same two steps with the dependency removed refuse as an
+//   unordered overlap naming both steps and the host: no order makes
+//   concurrent effects on the same bytes deterministic, and the absent
+//   dependency is exactly what would have explained them.
+// Evidence: an_unordered_overlap_refuses_with_both_steps_named
+#[test]
+fn an_unordered_overlap_refuses_with_both_steps_named() {
+    let (snapshot, clean, _) = fixture();
+    let mut set = wipe_and_create(clean);
+    set.dependencies.clear();
+    let refused = plan_set(
+        &set,
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect_err("unordered overlap must refuse");
+    assert_eq!(
+        refused,
+        PlanRefusal::GraphRefused {
+            refusal: GraphRefusal::UnorderedOverlap {
+                first: 0,
+                second: 1,
+                host: clean,
+            }
+        }
+    );
+}
+
+// Requirements: PLAN-003
+//   A dependency cycle refuses with its unorderable members named, and
+//   a duplicate request refuses before ranges are even compared.
+// Evidence: cycles_and_duplicates_refuse_with_explanations
+#[test]
+fn cycles_and_duplicates_refuse_with_explanations() {
+    let (snapshot, clean, _) = fixture();
+    let mut cyclic = wipe_and_create(clean);
+    cyclic.dependencies = vec![
+        Dependency {
+            before: 0,
+            after: 1,
+        },
+        Dependency {
+            before: 1,
+            after: 0,
+        },
+    ];
+    let refused = plan_set(
+        &cyclic,
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect_err("a cycle must refuse");
+    assert_eq!(
+        refused,
+        PlanRefusal::GraphRefused {
+            refusal: GraphRefusal::Cycle {
+                members: vec![0, 1]
+            }
+        }
+    );
+
+    let duplicated = PlanRequestSet {
+        requests: vec![
+            PlanRequest {
+                operation: Operation::Wipe,
+                target: clean,
+            },
+            PlanRequest {
+                operation: Operation::Wipe,
+                target: clean,
+            },
+        ],
+        dependencies: vec![],
+    };
+    let refused = plan_set(
+        &duplicated,
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect_err("a duplicate must refuse");
+    assert_eq!(
+        refused,
+        PlanRefusal::GraphRefused {
+            refusal: GraphRefusal::DuplicateRequest {
+                first: 0,
+                second: 1
+            }
+        }
+    );
+}
+
+// Requirements: PLAN-003
+//   Malformed dependency edges refuse before anything else is judged:
+//   an out-of-range index and a self-dependency each name themselves.
+// Evidence: malformed_edges_refuse_by_name
+#[test]
+fn malformed_edges_refuse_by_name() {
+    let (snapshot, clean, _) = fixture();
+    let mut set = wipe_and_create(clean);
+    set.dependencies = vec![Dependency {
+        before: 0,
+        after: 9,
+    }];
+    let refused = plan_set(
+        &set,
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect_err("out of range must refuse");
+    assert!(matches!(
+        refused,
+        PlanRefusal::GraphRefused {
+            refusal: GraphRefusal::DependencyOutOfRange { .. }
+        }
+    ));
+
+    set.dependencies = vec![Dependency {
+        before: 1,
+        after: 1,
+    }];
+    let refused = plan_set(
+        &set,
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect_err("self-dependency must refuse");
+    assert_eq!(
+        refused,
+        PlanRefusal::GraphRefused {
+            refusal: GraphRefusal::SelfDependency { index: 1 }
+        }
+    );
+}

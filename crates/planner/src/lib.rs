@@ -38,6 +38,10 @@ use partman_domain::model::plan::{OperationPlan, PlanError, ValidityWindow};
 use partman_domain::model::snapshot::TopologySnapshot;
 use partman_domain::model::step::{PlanStep, Severity, StepFlags, StepRefusal, StepRisk};
 
+use crate::graph::{Dependency, GraphRefusal, execution_order};
+
+pub mod graph;
+
 #[cfg(test)]
 mod tests;
 
@@ -100,6 +104,26 @@ pub enum PlanRefusal {
         /// The source-class operation requested.
         operation: Operation,
     },
+    /// The graph layer refused the request set — a cycle, a duplicate,
+    /// or an unordered overlap, each explained by its variant
+    /// (PLAN-003).
+    GraphRefused {
+        /// The graph's verbatim refusal.
+        refusal: GraphRefusal,
+    },
+}
+
+/// A multi-request planning input: requests plus the dependency edges
+/// that order them (PLAN-003's graph, explicit). An empty dependency
+/// list is a set of independent steps — legal exactly when no two
+/// declare effects on the same bytes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlanRequestSet {
+    /// The requests, in caller order. Indices in `dependencies` refer
+    /// to positions here.
+    pub requests: Vec<PlanRequest>,
+    /// The dependency edges: `before` must precede `after`.
+    pub dependencies: Vec<Dependency>,
 }
 
 /// The risk this increment declares for a canonical single-operation
@@ -178,6 +202,83 @@ pub fn plan(
         identity.validity,
         std::collections::BTreeMap::new(),
         vec![step],
+    )
+    .map_err(|error| PlanRefusal::PlanRefused { error })
+}
+
+/// The position of an operation in CAP-002's list — the discriminant
+/// the duplicate-request check keys on.
+fn operation_index(operation: Operation) -> u8 {
+    let position = Operation::all()
+        .iter()
+        .position(|candidate| *candidate == operation)
+        .expect("every operation is in CAP-002's list");
+    u8::try_from(position).expect("fourteen operations fit in a byte")
+}
+
+/// PLAN-003's computation: plan a request set over a captured snapshot.
+/// Every request passes the same conditioning as [`plan`]; the graph
+/// layer then refuses cycles, duplicates, and dependency-unordered
+/// overlaps with typed explanations, and the plan's steps carry the
+/// deterministic execution order (Kahn's, smallest ready index first).
+///
+/// # Errors
+///
+/// [`PlanRefusal`], each variant carrying its ground verbatim. Requests
+/// are conditioned in caller order, so the first refusing request
+/// decides the error deterministically.
+pub fn plan_set(
+    set: &PlanRequestSet,
+    snapshot: &TopologySnapshot,
+    limits: &TechnologyLimits,
+    runtime: &RuntimeFacts,
+    identity: &PlanIdentity,
+) -> Result<OperationPlan, PlanRefusal> {
+    let mut keys = Vec::with_capacity(set.requests.len());
+    let mut ranges = Vec::with_capacity(set.requests.len());
+    for request in &set.requests {
+        if request.operation.class() == OperationClass::Source {
+            return Err(PlanRefusal::NotAPlanningOperation {
+                operation: request.operation,
+            });
+        }
+        let answer = capability(request.operation, request.target, snapshot, limits, runtime)
+            .map_err(|UnknownTarget { target }| PlanRefusal::UnknownTarget { target })?;
+        if matches!(answer.status(), Status::Unsupported | Status::Blocked) {
+            return Err(PlanRefusal::CapabilityRefused { answer });
+        }
+        keys.push((operation_index(request.operation), request.target));
+        ranges.push(canonical_ranges(
+            request.operation,
+            request.target,
+            snapshot.facts(),
+        ));
+    }
+
+    let order = execution_order(&keys, &ranges, &set.dependencies)
+        .map_err(|refusal| PlanRefusal::GraphRefused { refusal })?;
+
+    let mut steps = Vec::with_capacity(set.requests.len());
+    for index in order.order {
+        let request = set.requests[index];
+        let step = PlanStep::mutating(
+            snapshot,
+            request.target,
+            canonical_ranges(request.operation, request.target, snapshot.facts()),
+            vec![],
+            canonical_risk(request.operation),
+        )
+        .map_err(|refusal| PlanRefusal::StepRefused { refusal })?;
+        steps.push(step);
+    }
+
+    OperationPlan::assemble(
+        identity.plan_id.clone(),
+        identity.created_at,
+        snapshot,
+        identity.validity,
+        std::collections::BTreeMap::new(),
+        steps,
     )
     .map_err(|error| PlanRefusal::PlanRefused { error })
 }

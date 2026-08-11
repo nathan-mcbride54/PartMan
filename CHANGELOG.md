@@ -7,6 +7,25 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-060 increment 2: the step graph.** PLAN-003 lands as explicit
+  machinery: request sets carry dependency edges, and `plan_set`
+  refuses cycles (with every unorderable member named), duplicate
+  requests (before ranges are even compared — a plan that says one
+  thing twice is a request error), malformed edges (out-of-range and
+  self-dependency each by name), and **dependency-unordered overlaps**
+  — the conflict rule this increment commits: two steps whose declared
+  effect ranges touch the same bytes of the same host are legitimate
+  exactly when a dependency path orders them (a wipe followed by a
+  create in the freed space is a chain, and the dependency is its
+  explanation), and with no path in either direction no execution
+  order makes them deterministic, so the pair refuses naming both
+  steps and the host. Every conflict is a typed value that explains
+  itself, never a boolean. Ordering is Kahn's with the smallest ready
+  index first — deterministic under PLAN-001, held by the byte-equal
+  test extended to the two-step chain — and every step of the ordered
+  set still constructs individually through `PlanStep::mutating`
+  against the capture. Four new tests.
+
 - **WP-060 increment 1: the planner's request vocabulary and pure
   chassis.** `crates/planner` joins the workspace, depending on
   `partman-domain` and `partman-capability` deliberately. `plan()` is
