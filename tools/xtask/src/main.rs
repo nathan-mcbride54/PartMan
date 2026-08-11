@@ -12,7 +12,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
-use partman_fixtures::{catalogue, interlock, prober};
+use partman_fixtures::{catalogue, interlock, prober, registry};
 
 // The WP-035 SI-35 instrument. Linux-only by construction: its capture half
 // consumes the Linux loop session and its projection half reads /proc.
@@ -121,6 +121,14 @@ enum Task {
         tier: u8,
         profile: Option<String>,
         acceptance: Option<Acceptance>,
+        /// The registered destructive suite an operator named, if any.
+        ///
+        /// A borrow of compiled registry data rather than a string: a name
+        /// that is not in the registry never becomes one of these, so a typo
+        /// cannot select a default suite any more than it can for
+        /// [`Acceptance`]. Mutually exclusive with `acceptance` by parse
+        /// shape — one selector flag is accepted, never both.
+        suite: Option<&'static registry::Suite>,
     },
     Tokens,
     Traceability {
@@ -249,7 +257,8 @@ fn execute(task: &Task) -> Result<(), TaskError> {
             tier,
             ref profile,
             acceptance,
-        } => run_selected_tier(tier, profile.as_deref(), acceptance),
+            suite,
+        } => run_selected_tier(tier, profile.as_deref(), acceptance, suite),
         Task::Fixtures => generate_fixtures(),
         Task::Probe => probe_fixtures(),
         Task::SlintReport { write } => verify_slint_report(write),
@@ -418,48 +427,54 @@ fn parse_test(args: &[OsString]) -> Result<Task, TaskError> {
             tier_value,
             profile_flag,
             profile_value,
-            acceptance_flag,
-            acceptance_value,
+            selector_flag,
+            selector_value,
         ] if profile_flag == OsStr::new("--profile")
-            && acceptance_flag == OsStr::new("--acceptance") =>
+            && (selector_flag == OsStr::new("--acceptance")
+                || selector_flag == OsStr::new("--suite")) =>
         {
             let profile = profile_value
                 .to_str()
                 .ok_or_else(|| TaskError::Usage("--profile takes an ASCII word".to_owned()))?;
-            let acceptance_name = acceptance_value.to_str().ok_or_else(|| {
-                TaskError::Usage("--acceptance takes a registered ASCII name".to_owned())
+            let selector_name = selector_value.to_str().ok_or_else(|| {
+                TaskError::Usage("--acceptance and --suite take a registered ASCII name".to_owned())
             })?;
 
-            let acceptance = match acceptance_name {
-                name if name == LINUX_LOOP_READ_ONLY_ACCEPTANCE => Acceptance::LinuxLoopReadOnly,
-                name if name == SI35_LOOP_CAPTURE_ACCEPTANCE => Acceptance::Si35LoopCapture,
-                _ => {
-                    return Err(TaskError::Usage(
-                        "the registered selectors are exactly `cargo xtask test --tier 2 \
-                         --profile destructive --acceptance linux-loop-read-only` and \
-                         `cargo xtask test --tier 2 --profile destructive --acceptance \
-                         si35-loop-capture`"
-                            .to_owned(),
-                    ));
-                }
-            };
+            // The tier and profile are checked before the name is resolved,
+            // so a correct suite name under a wrong tier is a usage refusal
+            // rather than a selection.
             if tier_flag != OsStr::new("--tier")
                 || tier_value != OsStr::new("2")
                 || profile != interlock::DESTRUCTIVE_PROFILE
             {
-                return Err(TaskError::Usage(
-                    "the registered selectors are exactly `cargo xtask test --tier 2 \
-                     --profile destructive --acceptance linux-loop-read-only` and \
-                     `cargo xtask test --tier 2 --profile destructive --acceptance \
-                     si35-loop-capture`"
-                        .to_owned(),
-                ));
+                return Err(TaskError::Usage(registered_selectors_message()));
             }
+
+            if selector_flag == OsStr::new("--suite") {
+                // Resolved against the compiled registry, never a default.
+                let suite = registry::registered()
+                    .iter()
+                    .find(|suite| suite.name == selector_name)
+                    .ok_or_else(|| TaskError::Usage(registered_selectors_message()))?;
+                return Ok(Task::Test {
+                    tier: 2,
+                    profile: Some(profile.to_owned()),
+                    acceptance: None,
+                    suite: Some(suite),
+                });
+            }
+
+            let acceptance = match selector_name {
+                name if name == LINUX_LOOP_READ_ONLY_ACCEPTANCE => Acceptance::LinuxLoopReadOnly,
+                name if name == SI35_LOOP_CAPTURE_ACCEPTANCE => Acceptance::Si35LoopCapture,
+                _ => return Err(TaskError::Usage(registered_selectors_message())),
+            };
 
             return Ok(Task::Test {
                 tier: 2,
                 profile: Some(profile.to_owned()),
                 acceptance: Some(acceptance),
+                suite: None,
             });
         }
         _ => {
@@ -476,7 +491,28 @@ fn parse_test(args: &[OsString]) -> Result<Task, TaskError> {
         tier,
         profile,
         acceptance,
+        suite: None,
     })
+}
+
+/// The one message every mis-typed higher-tier selector earns.
+///
+/// Built from the compiled registry rather than written out, so a registered
+/// suite is named here by construction and a withdrawn one stops being named
+/// without anyone remembering to edit prose.
+fn registered_selectors_message() -> String {
+    let suites: Vec<&str> = registry::registered()
+        .iter()
+        .map(|suite| suite.name)
+        .collect();
+    format!(
+        "the registered selectors are exactly `cargo xtask test --tier 2 --profile destructive \
+         --acceptance linux-loop-read-only`, `cargo xtask test --tier 2 --profile destructive \
+         --acceptance si35-loop-capture`, and `--suite <name>` for one of the {} compiled \
+         destructive suite(s): [{}]",
+        suites.len(),
+        suites.join(", ")
+    )
 }
 
 fn parse_tier_args(args: [&OsString; 2]) -> Result<u8, TaskError> {
@@ -756,7 +792,31 @@ fn run_selected_tier(
     tier: u8,
     profile: Option<&str>,
     acceptance: Option<Acceptance>,
+    suite: Option<&'static registry::Suite>,
 ) -> Result<(), TaskError> {
+    // A named destructive suite is checked first and is mutually exclusive
+    // with an acceptance by parse shape. The tier and profile are re-checked
+    // here rather than trusted from the parser: this function is reachable
+    // from tests directly, and a gate that only holds on one call path is
+    // the shape of guard this package refuses.
+    if let Some(suite) = suite {
+        if acceptance.is_some() {
+            return Err(TaskError::Safety(
+                "a request may name a registered acceptance or a registered destructive suite, \
+                 never both. Nothing was run"
+                    .to_owned(),
+            ));
+        }
+        if tier != 2 || profile != Some(interlock::DESTRUCTIVE_PROFILE) {
+            return Err(TaskError::Safety(format!(
+                "the `{}` destructive suite requires exactly Tier 2 and the explicit \
+                 destructive profile. Nothing was run",
+                suite.name
+            )));
+        }
+        return run_registered_destructive_suite(suite, profile);
+    }
+
     match acceptance {
         None => run_tier(tier, profile),
         Some(Acceptance::LinuxLoopReadOnly)
@@ -1033,10 +1093,10 @@ fn destructive_tier(tier: u8, profile: Option<&str>) -> Result<(), TaskError> {
 ///
 /// Since WP-020 increment 2g the load-bearing fact is typed rather than
 /// prose: the compiled destructive-suite registry is consulted and its count
-/// is reported. Today that count is zero and a test in `crates/fixtures` pins
-/// it; when increment 2h registers the first suite the count changes, this
-/// message stays true — a generic request still selects nothing — and every
-/// test asserting this refusal must be re-read at that edit.
+/// is reported. Increment 2h registered the first suite, so that count is no
+/// longer zero — and this message stays true for the reason it was written
+/// to survive: a *generic* request selects nothing whatever the registry
+/// holds. Every test asserting this refusal was re-read at that edit.
 ///
 /// Split from [`destructive_tier`] so a test can pin the message without a
 /// passing authorization, which would need generated fixtures and the token
@@ -1048,8 +1108,160 @@ fn no_generic_suite_refusal(tier: u8, authorized_targets: usize) -> TaskError {
          holds {} suite(s), a suite runs only through its exact selector, and the named \
          read-only acceptances enable no destructive suite. Reporting success over an \
          unselected run would be a lie",
-        partman_fixtures::registry::registered().len()
+        registry::registered().len()
     ))
+}
+
+/// Run one registered destructive suite (WP-020 increment 2h).
+///
+/// This runner does not elevate, load modules, generate fixtures before the
+/// run, choose targets, or invoke an external program. The targets are the
+/// suite's own declared fixture basenames under the fixture root — compiled
+/// data, not operator input — and the crate consumes the [`registry::Admission`]
+/// directly, so no path it could reopen after authorization ever reaches it.
+///
+/// After the report publishes, the suite's fourth teardown obligation is
+/// discharged here: the fixture tree is regenerated and required to equal the
+/// compiled catalogue exactly, so a mutated fixture never outlives the run.
+/// That check is a refusal, not a cleanup courtesy — an unrestored tree means
+/// the next run's interlock would refuse anyway, and saying so now names the
+/// real reason.
+fn run_registered_destructive_suite(
+    suite: &'static registry::Suite,
+    profile: Option<&str>,
+) -> Result<(), TaskError> {
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (suite, profile);
+        Err(TaskError::Safety(
+            "a registered destructive suite requires a native Linux VM. Nothing was run".to_owned(),
+        ))
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        require_native_elevated_linux()?;
+        println!("{LINUX_LOOP_ENVIRONMENT_SCOPE}");
+
+        let root = fixture_root();
+        let request = interlock::Request {
+            profile: profile.map(ToOwned::to_owned),
+            token: env::var(interlock::TOKEN_VARIABLE).ok(),
+            targets: suite
+                .fixtures
+                .iter()
+                .map(|contract| root.join(contract.fixture))
+                .collect(),
+        };
+        let authorization = interlock::authorize(&root, &request).map_err(|refusal| {
+            TaskError::Safety(format!(
+                "the `{}` suite refused: {refusal}. Nothing was run",
+                suite.name
+            ))
+        })?;
+        let admission = registry::Admission::admit(suite, authorization).map_err(|refusal| {
+            TaskError::Safety(format!(
+                "the `{}` suite refused: {refusal}. Nothing was run",
+                suite.name
+            ))
+        })?;
+
+        // Restoration runs on **every** outcome, not only success. Each
+        // refusal reachable after the contracted write — a wrong-length
+        // write, the post-write re-verify, either post-condition — leaves the
+        // fixture mutated, and returning early on those paths would have left
+        // it that way while the refusal text discussed cleanup uncertainty as
+        // though nothing had been written. An adversarial review named that;
+        // the fix is to make restoration unconditional rather than to reword
+        // the message.
+        let outcome = partman_ffi_linux_loop::run_destructive_suite(admission);
+        let restoration = restore_fixture_tree(&root);
+
+        match (outcome, restoration) {
+            (Ok(report), Ok(())) => {
+                print_destructive_report(suite, &report);
+                println!("  backing_regenerated_to_catalogue=true");
+                Ok(())
+            }
+            (Ok(_), Err(reason)) => Err(TaskError::Safety(format!(
+                "the `{}` suite's own checks passed, but the fixture tree was not restored \
+                 afterwards: {reason}. No result is reported. Discard or revert this VM",
+                suite.name
+            ))),
+            (Err(refusal), Ok(())) => Err(TaskError::Safety(format!(
+                "the `{}` suite refused: {refusal}. The fixture tree was regenerated and \
+                 re-read from disk against the compiled catalogue afterwards, so no mutated \
+                 fixture survives this run; if the refusal names uncertain cleanup, discard \
+                 or revert this VM rather than re-running",
+                suite.name
+            ))),
+            (Err(refusal), Err(reason)) => Err(TaskError::Safety(format!(
+                "the `{}` suite refused: {refusal}, and the fixture tree was not restored \
+                 afterwards: {reason}. A mutated fixture may survive. Discard or revert this VM",
+                suite.name
+            ))),
+        }
+    }
+}
+
+/// Regenerate the fixture tree and prove, by reading it back, that it is the
+/// compiled catalogue.
+///
+/// The regeneration alone establishes nothing: [`catalogue::generate`] returns
+/// a manifest computed from the images it built in memory, and
+/// `catalogue::expected()` is that same pure function of the same compiled
+/// data, so comparing them compares a function with itself and is true
+/// whatever is on disk. That comparison was this runner's only evidence for
+/// the suite's fourth teardown obligation until an adversarial review named
+/// it as a guard that cannot fail. [`catalogue::verify_on_disk`] re-reads
+/// every image and re-hashes it, which is the check the obligation names.
+#[cfg(target_os = "linux")]
+fn restore_fixture_tree(root: &Path) -> Result<(), String> {
+    catalogue::generate(root).map_err(|error| format!("regeneration failed: {error}"))?;
+    catalogue::verify_on_disk(root).map_err(|mismatch| mismatch.to_string())
+}
+
+/// Print the destructive suite's normalized proof facts.
+///
+/// The same allowlist discipline the read-only acceptance's output follows:
+/// named booleans and counts the operator can check against the suite's
+/// recorded obligations, and no kernel identity, device number, inode, path,
+/// or token.
+#[cfg(target_os = "linux")]
+fn print_destructive_report(
+    suite: &'static registry::Suite,
+    report: &partman_ffi_linux_loop::DestructiveReport,
+) {
+    println!("destructive suite `{}` passed:", suite.name);
+    println!(
+        "  contracted_bytes_written={}",
+        report.contracted_bytes_written()
+    );
+    println!(
+        "  attachment_was_read_write={}",
+        report.attachment_was_read_write()
+    );
+    println!(
+        "  forbidden_rebind_refused_by_kernel={}",
+        report.forbidden_rebind_refused_by_kernel()
+    );
+    println!(
+        "  required_configuration_verified={}",
+        report.required_configuration_verified()
+    );
+    println!("  detachments_confirmed={}", report.detachments_confirmed());
+    println!(
+        "  partition_teardown_confirmed={}",
+        report.partition_teardown_confirmed()
+    );
+    println!(
+        "  changed_exactly_as_contracted={}",
+        report.changed_exactly_as_contracted()
+    );
+    println!(
+        "  unchanged_outside_contract={}",
+        report.unchanged_outside_contract()
+    );
 }
 
 fn verify_toolchain() -> Result<(), TaskError> {
@@ -4690,6 +4902,13 @@ PartMan repository tasks
                                  capture half over the preregistered schedule in
                                  the same class of disposable VM. Emits raw
                                  JSON-line records; registers no destructive suite.
+  cargo xtask test --tier 2 --profile destructive --suite <registered name>
+                                 Run one compiled destructive suite in the same
+                                 class of disposable VM. It writes exactly the
+                                 suite's contracted byte range through a
+                                 read-write loop attachment, then regenerates the
+                                 fixture tree to the catalogue. A generic request
+                                 selects no suite and still refuses.
   cargo xtask si35-project --raw <file>
                                  Run the SI-35 instrument's unprivileged
                                  projection half over a raw capture. Refuses
@@ -4794,6 +5013,7 @@ mod tests {
                 tier: 1,
                 profile: None,
                 acceptance: None,
+                suite: None,
             }
         );
     }
@@ -4834,6 +5054,7 @@ mod tests {
                 tier: 2,
                 profile: Some("destructive".to_owned()),
                 acceptance: Some(super::Acceptance::LinuxLoopReadOnly),
+                suite: None,
             }
         );
     }
@@ -5007,9 +5228,13 @@ mod tests {
             (2, Some("other")),
             (3, Some("destructive")),
         ] {
-            let error =
-                super::run_selected_tier(tier, profile, Some(super::Acceptance::LinuxLoopReadOnly))
-                    .expect_err("an incompatible acceptance selection must refuse");
+            let error = super::run_selected_tier(
+                tier,
+                profile,
+                Some(super::Acceptance::LinuxLoopReadOnly),
+                None,
+            )
+            .expect_err("an incompatible acceptance selection must refuse");
             assert!(matches!(error, TaskError::Safety(_)), "tier {tier}");
         }
     }
@@ -5025,6 +5250,7 @@ mod tests {
             2,
             Some("destructive"),
             Some(super::Acceptance::LinuxLoopReadOnly),
+            None,
         )
         .expect_err("a non-Linux host must refuse the Linux acceptance");
         let message = error.to_string();
@@ -5910,6 +6136,7 @@ Mention Section 1.99 in prose.
                 tier: 3,
                 profile: None,
                 acceptance: None,
+                suite: None,
             }
         );
         assert_eq!(parse(&[]).expect("bare invocation"), Task::Help);
@@ -6059,6 +6286,7 @@ Mention Section 1.99 in prose.
                 tier: 2,
                 profile: Some("destructive".to_owned()),
                 acceptance: None,
+                suite: None,
             }
         );
     }
@@ -6082,10 +6310,12 @@ Mention Section 1.99 in prose.
     // Evidence: a_destructive_tier_refuses_even_with_the_profile_word
     #[test]
     fn a_destructive_tier_refuses_even_with_the_profile_word() {
-        // The profile alone is one factor of three, and — re-read at WP-020
-        // increment 2g — what backs "nothing runs" is now the compiled
-        // registry's emptiness rather than prose. Either way this must be a
-        // refusal, never a pass.
+        // The profile alone is one factor of three. Re-read at WP-020
+        // increment 2g, when the backing fact became the compiled registry
+        // rather than prose, and again at 2h, when that registry stopped
+        // being empty: a *generic* request selects no suite, so this is
+        // still a refusal for a reason that survives the registry filling
+        // up. Either way it must never be a pass.
         for tier in [2, 3] {
             let error = run_tier(tier, Some("destructive"))
                 .expect_err("a destructive tier must never report success today");
@@ -6103,14 +6333,151 @@ Mention Section 1.99 in prose.
             panic!("the generic refusal must be a safety refusal");
         };
         assert!(message.contains("selects no suite"), "{message}");
-        // Pinned at zero on purpose: increment 2h's first registered suite
-        // fails this assertion, which is the reviewed edit-detector the 2g
-        // boundary requires on the xtask side.
-        assert!(message.contains("holds 0 suite(s)"), "{message}");
+        // Was pinned at zero by increment 2g as its reviewed edit-detector.
+        // Increment 2h registered the first suite and this assertion fired,
+        // which is the moment the 2g boundary reserved for re-reading every
+        // generic-refusal test. Re-read at that edit, each still true and
+        // each for a stated reason:
+        //
+        // - `unavailable_destructive_tiers_fail_closed`: a tier request with
+        //   no profile never reaches the registry; it fails on the interlock's
+        //   first factor. Unchanged in meaning.
+        // - `a_destructive_tier_refuses_even_with_the_profile_word`: now
+        //   backed by "a generic request selects no suite" rather than by
+        //   "no suite exists". Its comment says so.
+        // - this test: the count is the fact, and it is compiled rather than
+        //   asserted. A second suite moves it again, deliberately.
+        //
+        // The number is still pinned rather than computed, so registering
+        // another suite is a visible edit and not a silent one.
+        assert_eq!(super::registry::registered().len(), 1);
+        assert!(message.contains("holds 1 suite(s)"), "{message}");
         assert!(
             message.contains("authorized 13 disposable target(s)"),
             "{message}"
         );
+    }
+
+    // Requirements: SAFE-007, SAFE-005
+    //   The --suite selector resolves only a name the compiled registry holds, at exactly Tier 2 with the destructive profile; every other shape is a usage refusal that selects nothing
+    // Work-Package: WP-020
+    // Evidence: a_suite_selector_resolves_only_a_compiled_registry_name
+    #[test]
+    fn a_suite_selector_resolves_only_a_compiled_registry_name() {
+        let registered: &'static super::registry::Suite = &super::registry::registered()[0];
+        assert_eq!(
+            parse(&args(&[
+                "test",
+                "--tier",
+                "2",
+                "--profile",
+                "destructive",
+                "--suite",
+                "gpt-basic-512-signature-erase",
+            ]))
+            .expect("the registered suite must parse"),
+            Task::Test {
+                tier: 2,
+                profile: Some("destructive".to_owned()),
+                acceptance: None,
+                suite: Some(registered),
+            }
+        );
+
+        for invocation in [
+            // A name the registry does not hold selects nothing.
+            vec![
+                "test",
+                "--tier",
+                "2",
+                "--profile",
+                "destructive",
+                "--suite",
+                "gpt-basic-512-signature-erasure",
+            ],
+            // A registered acceptance name is not a suite name.
+            vec![
+                "test",
+                "--tier",
+                "2",
+                "--profile",
+                "destructive",
+                "--suite",
+                "linux-loop-read-only",
+            ],
+            // The right name at the wrong tier.
+            vec![
+                "test",
+                "--tier",
+                "3",
+                "--profile",
+                "destructive",
+                "--suite",
+                "gpt-basic-512-signature-erase",
+            ],
+            // The right name without the destructive profile.
+            vec![
+                "test",
+                "--tier",
+                "2",
+                "--profile",
+                "safe",
+                "--suite",
+                "gpt-basic-512-signature-erase",
+            ],
+        ] {
+            let error = parse(&args(&invocation))
+                .expect_err(&format!("{invocation:?} must not select a suite"));
+            assert!(matches!(error, TaskError::Usage(_)), "{invocation:?}");
+        }
+    }
+
+    // Requirements: SAFE-007, SAFE-005
+    //   Suite dispatch re-checks tier and profile rather than trusting the parser, and refuses a request naming both a suite and an acceptance
+    // Work-Package: WP-020
+    // Evidence: suite_dispatch_rechecks_tier_profile_and_exclusivity
+    #[test]
+    fn suite_dispatch_rechecks_tier_profile_and_exclusivity() {
+        let suite = &super::registry::registered()[0];
+
+        for (tier, profile) in [
+            (1, None),
+            (2, None),
+            (2, Some("other")),
+            (3, Some("destructive")),
+        ] {
+            let error = super::run_selected_tier(tier, profile, None, Some(suite))
+                .expect_err("an incompatible suite selection must refuse");
+            assert!(matches!(error, TaskError::Safety(_)), "tier {tier}");
+        }
+
+        // Unreachable through the parser, which accepts one selector flag.
+        // Checked anyway: dispatch is reachable directly, and a gate that
+        // only holds on one call path is not a gate.
+        let error = super::run_selected_tier(
+            2,
+            Some("destructive"),
+            Some(super::Acceptance::LinuxLoopReadOnly),
+            Some(suite),
+        )
+        .expect_err("naming both a suite and an acceptance must refuse");
+        assert!(error.to_string().contains("never both"), "{error}");
+    }
+
+    // Requirements: SAFE-002, SAFE-005, SAFE-007
+    //   A registered destructive suite refuses before authorization on every non-Linux platform
+    // Work-Package: WP-020
+    // Evidence: a_registered_suite_refuses_before_authorization_off_linux
+    #[test]
+    #[cfg(not(target_os = "linux"))]
+    fn a_registered_suite_refuses_before_authorization_off_linux() {
+        let suite = &super::registry::registered()[0];
+        let error = super::run_selected_tier(2, Some("destructive"), None, Some(suite))
+            .expect_err("a non-Linux host must refuse a destructive suite");
+        let message = error.to_string();
+        assert!(matches!(error, TaskError::Safety(_)));
+        assert!(message.contains("native Linux VM"), "{message}");
+        assert!(message.contains("Nothing was run"), "{message}");
     }
 
     #[test]

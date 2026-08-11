@@ -23,15 +23,21 @@
 //! cannot run without every SAFE-007 factor *and* a well-formed compiled
 //! contract, and "did anyone check?" stays answered by the type system.
 //!
-//! **The shipped registry is empty, and that emptiness is pinned by test.**
-//! Registering the first real suite is increment 2h's delivery, behind its
-//! own recorded boundary and an operator-accepted VM sitting. It is also the
-//! edit that changes the meaning of every generic-refusal test — from "the
-//! concept does not exist" to "the registry holds no suite" to "the registry
-//! holds a suite this request did not select" — so each such test must be
-//! re-read at that edit, not merely re-run. No executor exists in this
-//! increment: nothing consumes an [`Admission`], and every generic
-//! destructive request continues to refuse.
+//! **The shipped registry holds exactly one suite, and its whole shape is
+//! pinned by test.** It was empty through increment 2g; increment 2h
+//! registered `gpt-basic-512-signature-erase`, which was the single edit 2g
+//! reserved. That edit changed the meaning of every generic-refusal test —
+//! from "the concept does not exist" to "the registry holds no suite" to "the
+//! registry holds a suite this request did not select" — so each was re-read
+//! at it, with the re-readings recorded in the tests that changed. A second
+//! entry needs its own recorded boundary and re-opens them again.
+//!
+//! An [`Admission`] is consumed by exactly one executor,
+//! `partman_ffi_linux_loop::run_destructive_suite`, which additionally
+//! requires the suite to be one [`registered`] returns — this module
+//! deliberately does not, so its own refusal semantics stay testable with a
+//! suite that is not registered. A *generic* destructive request still
+//! selects no suite and still refuses.
 
 use core::fmt;
 
@@ -49,6 +55,12 @@ pub struct IntendedChange {
     pub offset: u64,
     /// Number of bytes, starting at `offset`, the run may change.
     pub length: u64,
+    /// The exact bytes the range becomes. Added by increment 2h so "changed
+    /// exactly as contracted" is byte-checkable rather than narrative: the
+    /// executor writes these bytes and nothing else, and the post-run check
+    /// requires the range to equal them. Admission refuses a replacement
+    /// whose length differs from `length`.
+    pub replacement: &'static [u8],
     /// Why exactly these bytes: the reviewed sentence a reader gets.
     pub reason: &'static str,
 }
@@ -111,13 +123,47 @@ pub struct Suite {
     pub teardown: &'static [TeardownObligation],
 }
 
+/// The selector name of the one registered destructive suite.
+pub const GPT_BASIC_512_SIGNATURE_ERASE: &str = "gpt-basic-512-signature-erase";
+
+/// The replacement bytes the signature-erase contract writes: eight zeros,
+/// erasing exactly the bytes that make the primary header claim to be one.
+const SIGNATURE_ERASE_REPLACEMENT: [u8; 8] = [0; 8];
+
+static SIGNATURE_ERASE_RANGES: [IntendedChange; 1] = [IntendedChange {
+    offset: 512,
+    length: 8,
+    replacement: &SIGNATURE_ERASE_REPLACEMENT,
+    reason: "the primary GPT header's signature field at LBA 1 for 512-byte sectors, \
+             replaced with eight zero bytes — the smallest honest mutation, erasing \
+             exactly the bytes that make the header claim to be one",
+}];
+
+static SIGNATURE_ERASE_FIXTURES: [FixtureContract; 1] = [FixtureContract {
+    fixture: "gpt-basic-512.img",
+    may_change: &SIGNATURE_ERASE_RANGES,
+}];
+
 /// Every destructive suite compiled into this build.
 ///
-/// **Deliberately empty.** The first entry is increment 2h's delivery behind
-/// its own recorded boundary, and `the_shipped_registry_is_empty` pins this
-/// length so that entry is a visible reviewed edit which re-opens every
-/// generic-refusal test for re-reading.
-const REGISTERED: [Suite; 0] = [];
+/// **Exactly one, registered by increment 2h behind its own recorded
+/// boundary.** This is the single edit increment 2g's boundary reserved: the
+/// 2g emptiness pin became `the_shipped_registry_holds_exactly_the_2h_suite`,
+/// the xtask refusal-count pin moved from zero to one in the same change, and
+/// every generic-refusal test was re-read at this edit, with the re-readings
+/// recorded on the registering pull request. A second entry is a new reviewed
+/// edit under a new recorded boundary, and it re-opens those tests again.
+const REGISTERED: [Suite; 1] = [Suite {
+    name: GPT_BASIC_512_SIGNATURE_ERASE,
+    target_class: TargetClass::GeneratedFixtureFile,
+    fixtures: &SIGNATURE_ERASE_FIXTURES,
+    teardown: &[
+        TeardownObligation::ChangedExactlyAsContracted,
+        TeardownObligation::UnchangedOutsideContract,
+        TeardownObligation::DetachConfirmed,
+        TeardownObligation::BackingRegeneratedToCatalogue,
+    ],
+}];
 
 /// The compiled registry, in declaration order.
 #[must_use]
@@ -139,9 +185,11 @@ pub fn registered() -> &'static [Suite] {
 /// }
 /// ```
 ///
-/// Nothing in this increment consumes an admission. The type exists so the
-/// future executor's signature can require it, the same way the loop harness
-/// requires an `Authorization` today.
+/// Holding one does **not** mean the suite may run: the executor separately
+/// requires the suite to be one [`registered`] returns, because `Suite` is a
+/// public type with public fields and this constructor accepts any
+/// `&'static Suite` so that the refusal semantics above stay testable with a
+/// suite that was never registered.
 #[derive(Debug)]
 pub struct Admission {
     suite: &'static Suite,
@@ -258,6 +306,13 @@ fn verify_contract(
                 offset: range.offset,
             });
         }
+        if !u64::try_from(range.replacement.len()).is_ok_and(|len| len == range.length) {
+            return Err(Refusal::ReplacementLengthMismatch {
+                suite,
+                fixture: contract.fixture,
+                offset: range.offset,
+            });
+        }
         let end = range.offset.checked_add(range.length);
         if end.is_none_or(|end| end > generated_length) {
             return Err(Refusal::RangeOutOfBounds {
@@ -321,6 +376,16 @@ pub enum Refusal {
         /// The fixture whose contract is vacuous.
         fixture: &'static str,
     },
+    /// A declared range's replacement bytes do not match its length, so
+    /// "changed exactly as contracted" would be unstatable.
+    ReplacementLengthMismatch {
+        /// The suite's selector name.
+        suite: &'static str,
+        /// The fixture whose contract carries the range.
+        fixture: &'static str,
+        /// The range's offset.
+        offset: u64,
+    },
     /// A declared range has zero length.
     EmptyRange {
         /// The suite's selector name.
@@ -383,6 +448,16 @@ impl fmt::Display for Refusal {
                 formatter,
                 "suite `{suite}`'s contract for `{fixture}` permits no change; a suite that \
                  changes nothing must not carry the destructive profile"
+            ),
+            Self::ReplacementLengthMismatch {
+                suite,
+                fixture,
+                offset,
+            } => write!(
+                formatter,
+                "suite `{suite}`'s contract for `{fixture}` declares a range at offset \
+                 {offset} whose replacement byte count differs from its length; the change \
+                 it contracts cannot be stated"
             ),
             Self::EmptyRange {
                 suite,

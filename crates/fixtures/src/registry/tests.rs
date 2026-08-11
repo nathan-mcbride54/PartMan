@@ -1,11 +1,13 @@
-//! The registry's whole job in this increment is being empty and refusing,
-//! so these tests pin the emptiness and exercise every refusal by name.
+//! The registry's job is admitting one exact shape and refusing everything
+//! else, so these tests pin the shipped registry and exercise every refusal
+//! by name.
 //!
-//! The fake suite below is compiled only into tests. The shipped registry is
-//! the empty `REGISTERED` constant, and `the_shipped_registry_is_empty` is
-//! the reviewed edit-detector: the first real suite is increment 2h's
-//! delivery, and landing it must flip that test visibly and re-open every
-//! generic-refusal test for re-reading.
+//! The fake suite below is compiled only into tests and is deliberately not
+//! registered — which is also what lets it stand in for the "not registered"
+//! case the executor refuses. `the_shipped_registry_holds_exactly_the_2h_suite`
+//! is the reviewed edit-detector: it began life as `the_shipped_registry_is_empty`
+//! under increment 2g and fired when 2h registered the first suite, which is
+//! the moment every generic-refusal test was re-read.
 
 use std::fs;
 use std::path::PathBuf;
@@ -60,9 +62,13 @@ impl Drop for Sandbox {
 /// 4 MiB, the generated length of every 512-byte-sector fixture used here.
 const FIXTURE_LENGTH: u64 = 4 * 1024 * 1024;
 
+static FAKE_REPLACEMENT: [u8; 8] = [0xAA; 8];
+static TWO_BYTES: [u8; 2] = [0xAA; 2];
+
 static FAKE_RANGES: [IntendedChange; 1] = [IntendedChange {
     offset: 512,
     length: 8,
+    replacement: &FAKE_REPLACEMENT,
     reason: "the primary GPT header signature bytes, the smallest honest mutation",
 }];
 
@@ -107,7 +113,19 @@ static NO_CHANGE: [FixtureContract; 1] = [FixtureContract {
 static ZERO: [IntendedChange; 1] = [IntendedChange {
     offset: 512,
     length: 0,
+    replacement: &[],
     reason: "a range that permits nothing",
+}];
+
+static MISMATCHED: [IntendedChange; 1] = [IntendedChange {
+    offset: 512,
+    length: 8,
+    replacement: &TWO_BYTES,
+    reason: "a range whose replacement cannot fill it",
+}];
+static MISMATCHED_CONTRACT: [FixtureContract; 1] = [FixtureContract {
+    fixture: "gpt-basic-512.img",
+    may_change: &MISMATCHED,
 }];
 static ZERO_CONTRACT: [FixtureContract; 1] = [FixtureContract {
     fixture: "gpt-basic-512.img",
@@ -117,6 +135,7 @@ static ZERO_CONTRACT: [FixtureContract; 1] = [FixtureContract {
 static PAST_END: [IntendedChange; 1] = [IntendedChange {
     offset: FIXTURE_LENGTH - 4,
     length: 8,
+    replacement: &FAKE_REPLACEMENT,
     reason: "a range extending past the end",
 }];
 static PAST_CONTRACT: [FixtureContract; 1] = [FixtureContract {
@@ -127,6 +146,7 @@ static PAST_CONTRACT: [FixtureContract; 1] = [FixtureContract {
 static OVERFLOW: [IntendedChange; 1] = [IntendedChange {
     offset: u64::MAX,
     length: 2,
+    replacement: &TWO_BYTES,
     reason: "an offset whose end overflows",
 }];
 static OVERFLOW_CONTRACT: [FixtureContract; 1] = [FixtureContract {
@@ -138,11 +158,13 @@ static OVERLAPPING: [IntendedChange; 2] = [
     IntendedChange {
         offset: 512,
         length: 8,
+        replacement: &FAKE_REPLACEMENT,
         reason: "first claim on byte 519",
     },
     IntendedChange {
         offset: 519,
         length: 8,
+        replacement: &FAKE_REPLACEMENT,
         reason: "second claim on byte 519",
     },
 ];
@@ -155,11 +177,13 @@ static TOUCHING: [IntendedChange; 2] = [
     IntendedChange {
         offset: 512,
         length: 8,
+        replacement: &FAKE_REPLACEMENT,
         reason: "bytes 512..520",
     },
     IntendedChange {
         offset: 520,
         length: 8,
+        replacement: &FAKE_REPLACEMENT,
         reason: "bytes 520..528, sharing nothing",
     },
 ];
@@ -185,16 +209,68 @@ static GONE: [FixtureContract; 1] = [FixtureContract {
 }];
 
 // Requirements: SAFE-007, SAFE-005
-//   The shipped destructive-suite registry is empty, so no destructive suite exists to run; the first entry is a reviewed edit that re-opens every generic-refusal test.
-// Evidence: the_shipped_registry_is_empty
+//   The shipped registry holds exactly the increment 2h signature-erase suite, whole shape pinned; a second entry is a new reviewed edit that re-opens every generic-refusal test.
+// Evidence: the_shipped_registry_holds_exactly_the_2h_suite
 #[test]
-fn the_shipped_registry_is_empty() {
-    assert!(
-        registered().is_empty(),
-        "the shipped registry gained a suite. That is increment 2h's delivery and it is \
-         allowed to happen exactly once per recorded boundary — but every generic-refusal \
-         test in this crate and in xtask changes meaning at this edit, and each must be \
-         re-read, not merely re-run, before this assertion is updated"
+fn the_shipped_registry_holds_exactly_the_2h_suite() {
+    // This test was `the_shipped_registry_is_empty` until increment 2h made
+    // the one edit 2g reserved. Every generic-refusal test in this crate and
+    // in xtask was re-read at that edit, per the recorded boundary; the next
+    // entry re-opens them all again, so this pins the whole shape rather
+    // than a count.
+    let suites = registered();
+    assert_eq!(suites.len(), 1, "a second suite needs its own boundary");
+    let suite = &suites[0];
+    assert_eq!(suite.name, "gpt-basic-512-signature-erase");
+    assert_eq!(suite.target_class, TargetClass::GeneratedFixtureFile);
+    assert_eq!(suite.fixtures.len(), 1);
+    let contract = &suite.fixtures[0];
+    assert_eq!(contract.fixture, "gpt-basic-512.img");
+    assert_eq!(contract.may_change.len(), 1);
+    let range = &contract.may_change[0];
+    assert_eq!(range.offset, 512);
+    assert_eq!(range.length, 8);
+    assert_eq!(range.replacement, [0_u8; 8]);
+    assert_eq!(
+        suite.teardown,
+        [
+            TeardownObligation::ChangedExactlyAsContracted,
+            TeardownObligation::UnchangedOutsideContract,
+            TeardownObligation::DetachConfirmed,
+            TeardownObligation::BackingRegeneratedToCatalogue,
+        ]
+    );
+}
+
+// Requirements: SAFE-007
+//   The registered suite's own contract is admitted over its declared set, so its well-formedness is executed rather than assumed.
+// Evidence: the_registered_suite_is_admitted_over_its_declared_set
+#[test]
+fn the_registered_suite_is_admitted_over_its_declared_set() {
+    let sandbox = Sandbox::new("registered");
+    let authorization = sandbox.authorization(&["gpt-basic-512.img"]);
+    let admission = Admission::admit(&registered()[0], authorization)
+        .expect("the shipped suite must admit over exactly its declared fixture");
+    assert_eq!(admission.suite().name, "gpt-basic-512-signature-erase");
+}
+
+// Requirements: SAFE-007, SAFE-005
+//   A replacement whose byte count differs from its range's length is refused: the contracted change would be unstatable.
+// Evidence: a_replacement_length_mismatch_is_refused
+#[test]
+fn a_replacement_length_mismatch_is_refused() {
+    let sandbox = Sandbox::new("mismatch");
+    let suite = Box::leak(Box::new(suite_with(&MISMATCHED_CONTRACT)));
+    let authorization = sandbox.authorization(&["gpt-basic-512.img"]);
+    let refusal =
+        Admission::admit(suite, authorization).expect_err("a mismatched replacement must refuse");
+    assert_eq!(
+        refusal,
+        Refusal::ReplacementLengthMismatch {
+            suite: "test-only-fake-suite",
+            fixture: "gpt-basic-512.img",
+            offset: 512
+        }
     );
 }
 

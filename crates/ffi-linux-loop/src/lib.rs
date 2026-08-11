@@ -1,8 +1,10 @@
-//! Descriptor-bound Linux loop-device acceptance (WP-020 increments 2e and 2f).
+//! Descriptor-bound Linux loop-device acceptance (WP-020 increments 2e, 2f,
+//! and 2h).
 //!
-//! Two callable entry points, each consuming the non-cloneable SAFE-007
-//! [`Authorization`] produced by `partman-fixtures` and neither accepting a
-//! caller-selected file, descriptor, loop number, path, or device name:
+//! Three callable entry points. The first two consume the non-cloneable
+//! SAFE-007 [`Authorization`] produced by `partman-fixtures`; the third
+//! consumes the registry [`Admission`] that itself consumed one. None accepts
+//! a caller-selected file, descriptor, loop number, path, or device name:
 //!
 //! - [`run_authorized`] is increment 2e's two-leg acceptance. Its probe is
 //!   in-process and it launches nothing.
@@ -16,9 +18,19 @@
 //!   session and released only after confirmed detach and partition teardown,
 //!   when the name no longer designates the verified backing. No public type
 //!   carries a name, path, or device number as a field.
+//! - [`run_destructive_suite`] is increment 2h's one registered destructive
+//!   suite. It is the only entry point that writes, and what it may write is
+//!   not its own choice: the admitted contract's byte range and replacement
+//!   bytes are the write, and a length disagreement refuses. Its attachment
+//!   is deliberately **read-write**, which is what makes `LOOP_CHANGE_FD`
+//!   *inapplicable* rather than merely detected — the pre-write discipline
+//!   2e's record requires a destructive path to establish for itself instead
+//!   of inheriting. Its own adversarial leg attempts that rebind mid-suite
+//!   and requires the kernel to refuse; an acceptance voids the run.
 //!
-//! No product adapter lives here. The module exists only to prove the narrow,
-//! logical-content-read-only Tier-2 loop-control chains authorized by WP-020.
+//! No product adapter lives here. The module exists only to prove the narrow
+//! Tier-2 loop-control chains authorized by WP-020 — logical-content-read-only
+//! for 2e and 2f, and for 2h a single contracted range of harness-owned bytes.
 //! Each initial held-file digest must match the fixture bytes compiled into this
 //! crate before a loop mapping is configured. The digest and status
 //! checks are samples, not locks, and cannot defeat an ABA change entirely
@@ -40,6 +52,7 @@ use std::ffi::OsStr;
 use std::fs::File;
 
 use partman_fixtures::interlock::Authorization;
+use partman_fixtures::registry::Admission;
 
 #[cfg(any(target_os = "linux", test))]
 mod protocol;
@@ -122,6 +135,82 @@ impl RunReport {
     /// Whether both authorized fixture hashes matched their pre-run values.
     #[must_use]
     pub const fn fixture_hashes_unchanged(&self) -> bool {
+        true
+    }
+}
+
+/// Normalized proof facts from a completed destructive-suite run.
+///
+/// Every boolean getter is true for a constructed report, exactly as
+/// [`RunReport`]'s are: the report exists only on the path where each fact was
+/// established, so the getters name the obligations rather than carry
+/// unverified state. No device number, inode, or path is exposed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DestructiveReport {
+    contracted_bytes_written: usize,
+    detachments_confirmed: u8,
+}
+
+impl DestructiveReport {
+    /// Bytes written through the held loop-device descriptor. Equal to the
+    /// admitted contract's replacement length; a disagreement refused.
+    #[must_use]
+    pub const fn contracted_bytes_written(&self) -> usize {
+        self.contracted_bytes_written
+    }
+
+    /// Whether the attachment was configured read-write, so the kernel's own
+    /// loop driver makes `LOOP_CHANGE_FD` inapplicable.
+    #[must_use]
+    pub const fn attachment_was_read_write(&self) -> bool {
+        true
+    }
+
+    /// Whether the mid-suite `LOOP_CHANGE_FD` attempt was refused by the
+    /// kernel, before any byte was written.
+    #[must_use]
+    pub const fn forbidden_rebind_refused_by_kernel(&self) -> bool {
+        true
+    }
+
+    /// Whether the full status binding matched the held backing descriptor
+    /// both after attach and after the synced write.
+    #[must_use]
+    pub const fn required_configuration_verified(&self) -> bool {
+        true
+    }
+
+    /// Number of configured attachments explicitly detached and confirmed
+    /// absent before any post-condition was read.
+    #[must_use]
+    pub const fn detachments_confirmed(&self) -> u8 {
+        self.detachments_confirmed
+    }
+
+    /// Whether the released loop node had no materialized partition child in
+    /// its exact retained-rdev sysfs directory.
+    #[must_use]
+    pub const fn partition_teardown_confirmed(&self) -> bool {
+        true
+    }
+
+    /// Whether the declared range *changed* to exactly the contracted
+    /// replacement bytes.
+    ///
+    /// A difference across the run, not equality after it: the range is read
+    /// through the held backing descriptor before the write and required to
+    /// differ from the replacement, and read again after confirmed detach and
+    /// required to equal it. Equality alone would also hold for a range that
+    /// already carried those bytes and was never written.
+    #[must_use]
+    pub const fn changed_exactly_as_contracted(&self) -> bool {
+        true
+    }
+
+    /// Whether the digest over every backing byte outside the declared range
+    /// was unchanged across the run.
+    #[must_use]
+    pub const fn unchanged_outside_contract(&self) -> bool {
         true
     }
 }
@@ -556,6 +645,31 @@ pub enum Refusal {
     SessionNodeWritable,
     /// An internal protocol transition attempted to publish evidence early.
     ProtocolOrder,
+    /// The admitted suite is not one the compiled registry holds.
+    SuiteNotRegistered,
+    /// The admitted suite's shape is not the one this executor runs: exactly
+    /// one fixture contract, exactly one declared range, a non-empty
+    /// replacement, and exactly one verified target.
+    WrongSuiteShape,
+    /// The held backing object's bytes are not the compiled fixture the
+    /// contract names, so nothing may be attached or written.
+    InitialBackingHashMismatch,
+    /// The declared range already holds the contracted replacement bytes, so
+    /// a run could not establish that it *changed* them.
+    RangeAlreadyContracted,
+    /// The kernel accepted `LOOP_CHANGE_FD` on what this protocol required to
+    /// be a read-write attachment. The attachment is not what the run
+    /// believed, and nothing is published.
+    RebindUnexpectedlyApplicable,
+    /// The contracted write returned a different byte count than the
+    /// contract's replacement.
+    ContractedWriteWrongLength,
+    /// After confirmed detach, the declared range did not equal the
+    /// contract's replacement bytes exactly.
+    DeclaredRangeMismatch,
+    /// After confirmed detach, bytes outside the declared range changed: the
+    /// digest bracket did not hold.
+    OutsideBracketChanged,
 }
 
 impl Refusal {
@@ -678,11 +792,83 @@ impl Refusal {
             _ => return None,
         })
     }
+
+    /// Increment 2h's destructive refusals, split out for the same reason
+    /// [`Self::fmt_session`] is: one `Display` arm per variant would put the
+    /// whole vocabulary in a single function that no reviewer can hold, and
+    /// the workspace lint says so.
+    /// The detach and teardown refusals, shared by every protocol here.
+    ///
+    /// Split out for the same reason as the two renderers beside it: one
+    /// `Display` arm per variant would put a vocabulary this size in a single
+    /// function no reviewer can hold, and the workspace lint says so.
+    fn fmt_cleanup(&self, formatter: &mut fmt::Formatter<'_>) -> Option<fmt::Result> {
+        Some(match self {
+            Self::DetachFailed { errno } => {
+                write_errno(formatter, "explicit loop detach failed", *errno)
+            }
+            Self::DetachConfirmationFailed { errno } => {
+                write_errno(formatter, "loop detach status confirmation failed", *errno)
+            }
+            Self::DetachNotConfirmed => {
+                formatter.write_str("loop detach could not be confirmed by status read-back")
+            }
+            Self::PartitionTeardownNotConfirmed { errno } => write_errno(
+                formatter,
+                "loop partition teardown could not be confirmed after descriptor release",
+                *errno,
+            ),
+            _ => return None,
+        })
+    }
+
+    fn fmt_destructive(&self, formatter: &mut fmt::Formatter<'_>) -> Option<fmt::Result> {
+        Some(match self {
+            Self::SuiteNotRegistered => formatter.write_str(
+                "the admitted suite is not one the compiled registry holds; a destructive \
+                 suite runs only from the registry",
+            ),
+            Self::InitialBackingHashMismatch => formatter.write_str(
+                "the held backing object is not the compiled fixture the contract names; \
+                 nothing was attached or written",
+            ),
+            Self::RangeAlreadyContracted => formatter.write_str(
+                "the declared range already holds the contracted replacement bytes, so this \
+                 run could not establish that it changed them",
+            ),
+            Self::WrongSuiteShape => formatter.write_str(
+                "the admitted suite is not the shape this executor runs: exactly one fixture \
+                 contract, one declared range with a non-empty replacement, and one verified \
+                 target",
+            ),
+            Self::RebindUnexpectedlyApplicable => formatter.write_str(
+                "the kernel accepted LOOP_CHANGE_FD on what must be a read-write attachment; \
+                 the run is void and nothing was published",
+            ),
+            Self::ContractedWriteWrongLength => formatter.write_str(
+                "the contracted write did not write exactly the contract's replacement length",
+            ),
+            Self::DeclaredRangeMismatch => formatter.write_str(
+                "after confirmed detach the declared range did not equal the contracted \
+                 replacement bytes",
+            ),
+            Self::OutsideBracketChanged => formatter.write_str(
+                "after confirmed detach the digest bracket outside the declared range changed",
+            ),
+            _ => return None,
+        })
+    }
 }
 
 impl fmt::Display for Refusal {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some(result) = self.fmt_session(formatter) {
+            return result;
+        }
+        if let Some(result) = self.fmt_destructive(formatter) {
+            return result;
+        }
+        if let Some(result) = self.fmt_cleanup(formatter) {
             return result;
         }
         match self {
@@ -738,26 +924,19 @@ impl fmt::Display for Refusal {
             ),
             Self::AdversarialRebindNotDetected => formatter
                 .write_str("final verification did not detect the adversarial backing rebind"),
-            Self::DetachFailed { errno } => {
-                write_errno(formatter, "explicit loop detach failed", *errno)
-            }
-            Self::DetachConfirmationFailed { errno } => {
-                write_errno(formatter, "loop detach status confirmation failed", *errno)
-            }
-            Self::DetachNotConfirmed => {
-                formatter.write_str("loop detach could not be confirmed by status read-back")
-            }
-            Self::PartitionTeardownNotConfirmed { errno } => write_errno(
-                formatter,
-                "loop partition teardown could not be confirmed after descriptor release",
-                *errno,
-            ),
             Self::FixtureHashChanged { fixture } => {
                 write!(
                     formatter,
                     "the {fixture} fixture hash changed during the read-only run"
                 )
             }
+            Self::ProtocolOrder => {
+                formatter.write_str("evidence publication was attempted before final verification")
+            }
+            // Rendered above by `fmt_session` and `fmt_destructive`. These
+            // arms are unreachable in practice but must stay total without
+            // panicking, and they are listed rather than wildcarded so a new
+            // variant still has to be placed deliberately.
             Self::WrongSessionTarget
             | Self::LoopDeviceHashMismatch
             | Self::SessionNodeMounted
@@ -769,14 +948,19 @@ impl fmt::Display for Refusal {
             | Self::ProbeUnexpectedExit { .. }
             | Self::NodePathIdentityMismatch
             | Self::PartitionEnumerationFailed { .. }
-            | Self::PartitionCountExceeded => {
-                // Rendered above by fmt_session; this arm is unreachable in
-                // practice but must stay total without panicking.
-                Ok(())
-            }
-            Self::ProtocolOrder => {
-                formatter.write_str("evidence publication was attempted before final verification")
-            }
+            | Self::PartitionCountExceeded
+            | Self::DetachFailed { .. }
+            | Self::DetachConfirmationFailed { .. }
+            | Self::DetachNotConfirmed
+            | Self::PartitionTeardownNotConfirmed { .. }
+            | Self::SuiteNotRegistered
+            | Self::WrongSuiteShape
+            | Self::InitialBackingHashMismatch
+            | Self::RangeAlreadyContracted
+            | Self::RebindUnexpectedlyApplicable
+            | Self::ContractedWriteWrongLength
+            | Self::DeclaredRangeMismatch
+            | Self::OutsideBracketChanged => Ok(()),
         }
     }
 }
@@ -885,6 +1069,138 @@ pub fn run_probed_session(authorization: Authorization) -> Result<SessionReport,
     }
 }
 
+/// The one admitted contract, reduced to exactly what the executor writes.
+///
+/// Constructed only by [`consume_admission`], so the offset, length, and
+/// replacement bytes reaching the kernel are the registry's compiled data —
+/// never an argument, and never re-derived from the fixture on disk.
+pub(crate) struct AdmittedContract {
+    /// The contract's catalogue basename, used to resolve the compiled
+    /// digest the held object must match before anything is attached.
+    pub(crate) fixture: &'static str,
+    pub(crate) offset: u64,
+    pub(crate) length: u64,
+    pub(crate) replacement: &'static [u8],
+    pub(crate) backing: File,
+}
+
+/// Run the one registered destructive suite over its admitted targets.
+///
+/// The attachment is read-write, which is what makes `LOOP_CHANGE_FD`
+/// inapplicable rather than merely detectable; the suite attempts that rebind
+/// mid-run, before any write, and requires the kernel to refuse it. The write
+/// is exactly the admitted contract's replacement bytes at its declared
+/// offset, through the held loop-device descriptor. Post-conditions are read
+/// only after confirmed detach and partition teardown, through the still-held
+/// backing descriptor: the declared range must equal the contracted bytes and
+/// the digest over everything outside it must be unchanged.
+///
+/// Regenerating the mutated backing file to the compiled catalogue is the
+/// caller's teardown obligation, recorded on the suite and discharged by the
+/// task runner after this returns.
+///
+/// # Errors
+///
+/// Returns [`Refusal`] on an unsupported platform, a suite shape this
+/// executor does not run, a kernel-accepted rebind, an identity mismatch, a
+/// short or over-long write, a cleanup failure, or either post-condition
+/// failing. Nothing is published on any of those paths.
+///
+/// The call-site boundary is structural: an admission is the only accepted
+/// argument, and an `Authorization` — which has not passed the registry's
+/// contract checks — is not one.
+///
+/// ```compile_fail
+/// use partman_fixtures::interlock::Authorization;
+/// use partman_ffi_linux_loop::run_destructive_suite;
+///
+/// fn bypass_registry(authorization: Authorization) {
+///     let _ = run_destructive_suite(authorization);
+/// }
+/// ```
+pub fn run_destructive_suite(admission: Admission) -> Result<DestructiveReport, Refusal> {
+    let contract = consume_admission(admission)?;
+
+    #[cfg(target_os = "linux")]
+    {
+        linux::run_destructive(contract)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        // Destructured rather than dropped whole, matching `run_authorized`:
+        // every field is named on this path too, so the fields stay live for
+        // the compiler on platforms where no controller reads them.
+        let AdmittedContract {
+            fixture,
+            offset,
+            length,
+            replacement,
+            backing,
+        } = contract;
+        drop((fixture, offset, length, replacement, backing));
+        Err(Refusal::UnsupportedPlatform)
+    }
+}
+
+/// Reduce an admission to its single contract and single held object.
+///
+/// The registry already refused a target set that is not exactly the declared
+/// fixture set. This executor nonetheless states its own preconditions — one
+/// fixture, one range, a replacement matching that range, and a held object
+/// whose name is the declared one — because "the caller checked" is the shape
+/// of reasoning this package declines. A suite that outgrows this shape gets
+/// a new executor, not a widened one.
+fn consume_admission(admission: Admission) -> Result<AdmittedContract, Refusal> {
+    let suite = admission.suite();
+
+    // The suite must be one the compiled registry holds. `Admission::admit`
+    // deliberately does not require this — it exists to check a contract
+    // against the catalogue, and the registry's own tests exercise it with a
+    // test-only suite — but `Suite` is a public struct with public fields, so
+    // without this the executor would write on behalf of any `&'static Suite`
+    // a caller could name and the registry would gate nothing. An adversarial
+    // review found exactly that. Compared by address rather than by value: a
+    // suite equal to a registered one but not *in* the registry is still not
+    // registered.
+    if !partman_fixtures::registry::registered()
+        .iter()
+        .any(|candidate| core::ptr::eq(candidate, suite))
+    {
+        return Err(Refusal::SuiteNotRegistered);
+    }
+
+    let [contract] = suite.fixtures else {
+        return Err(Refusal::WrongSuiteShape);
+    };
+    let [range] = contract.may_change else {
+        return Err(Refusal::WrongSuiteShape);
+    };
+    if range.replacement.is_empty()
+        || u64::try_from(range.replacement.len()).is_ok_and(|len| len != range.length)
+    {
+        return Err(Refusal::WrongSuiteShape);
+    }
+    let declared = contract.fixture;
+
+    let mut targets = admission.into_targets();
+    if targets.len() != 1 {
+        return Err(Refusal::WrongSuiteShape);
+    }
+    let target = targets.remove(0);
+    if target.path().file_name() != Some(OsStr::new(declared)) {
+        return Err(Refusal::WrongSuiteShape);
+    }
+
+    Ok(AdmittedContract {
+        fixture: declared,
+        offset: range.offset,
+        length: range.length,
+        replacement: range.replacement,
+        backing: target.into_file(),
+    })
+}
+
 fn consume_single_target(authorization: Authorization) -> Result<(FixtureRole, File), Refusal> {
     let mut targets = authorization.into_targets();
     if targets.len() != 1 {
@@ -930,8 +1246,30 @@ mod tests {
     use super::*;
     use partman_fixtures::catalogue::generate;
     use partman_fixtures::interlock::{DESTRUCTIVE_PROFILE, Request, authorize};
+    use partman_fixtures::registry::{
+        FixtureContract, IntendedChange, Suite, TargetClass, registered,
+    };
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU64, Ordering};
+
+    static UNREGISTERED_REPLACEMENT: [u8; 8] = [0; 8];
+    static UNREGISTERED_RANGES: [IntendedChange; 1] = [IntendedChange {
+        offset: 512,
+        length: 8,
+        replacement: &UNREGISTERED_REPLACEMENT,
+        reason: "a well-formed contract that the registry nonetheless does not hold",
+    }];
+    static UNREGISTERED_FIXTURES: [FixtureContract; 1] = [FixtureContract {
+        fixture: "gpt-basic-512.img",
+        may_change: &UNREGISTERED_RANGES,
+    }];
+    /// A suite that is well-formed in every way except the one that matters.
+    static UNREGISTERED_SUITE: Suite = Suite {
+        name: "test-only-unregistered-suite",
+        target_class: TargetClass::GeneratedFixtureFile,
+        fixtures: &UNREGISTERED_FIXTURES,
+        teardown: &[],
+    };
 
     struct Sandbox(PathBuf);
 
@@ -1124,13 +1462,46 @@ mod tests {
         assert_eq!(exception_files, [PathBuf::from("sys.rs")]);
     }
 
-    // Requirements: SAFE-007, SAFE-009
-    //   The crate exposes exactly the two authorized entry points plus three named
-    //   borrowing getters, all in lib.rs, each consuming Authorization directly or
-    //   reading an already-published report.
-    // Evidence: public_callable_surface_is_exactly_the_two_authorized_entry_points
+    // Requirements: SAFE-007, SAFE-005
+    //   The destructive executor runs only a suite the compiled registry holds; a well-formed but unregistered suite is refused even though the interlock authorized its target
+    // Work-Package: WP-020
+    // Evidence: the_executor_refuses_a_suite_the_registry_does_not_hold
     #[test]
-    fn public_callable_surface_is_exactly_the_two_authorized_entry_points() {
+    fn the_executor_refuses_a_suite_the_registry_does_not_hold() {
+        // `Suite` is a public type with public fields and `Admission::admit`
+        // accepts any `&'static Suite`, so without the executor's membership
+        // check the registry would gate nothing. This constructs exactly the
+        // suite that check exists to refuse: same fixture, same contract, same
+        // shape as the registered one — and not in the registry.
+        let unregistered: *const Suite = &raw const UNREGISTERED_SUITE;
+        assert!(
+            !registered()
+                .iter()
+                .any(|suite| core::ptr::eq(suite, unregistered)),
+            "the fixture of this test is that the suite is NOT registered"
+        );
+
+        let sandbox = Sandbox::new();
+        let authorization = sandbox.authorization(&["gpt-basic-512.img"]);
+        let admission =
+            partman_fixtures::registry::Admission::admit(&UNREGISTERED_SUITE, authorization)
+                .expect("the contract itself is well formed, so admission succeeds");
+
+        assert_eq!(
+            run_destructive_suite(admission)
+                .expect_err("an unregistered suite must never reach a write"),
+            Refusal::SuiteNotRegistered
+        );
+    }
+
+    // Requirements: SAFE-007, SAFE-009
+    //   The crate exposes exactly the three authorized entry points plus four named
+    //   borrowing getters, all in lib.rs, each consuming Authorization or the
+    //   registry Admission directly, or reading an already-published report.
+    // Work-Package: WP-020
+    // Evidence: public_callable_surface_is_exactly_the_authorized_entry_points
+    #[test]
+    fn public_callable_surface_is_exactly_the_authorized_entry_points() {
         let mut public_functions = Vec::new();
         let public_async = ["pub ", "async fn "].concat();
         let public_unsafe = ["pub ", "unsafe", " fn "].concat();
@@ -1186,6 +1557,15 @@ mod tests {
                 (
                     PathBuf::from("lib.rs"),
                     "pub fn run_probed_session(authorization: Authorization) -> Result<SessionReport, Refusal> {"
+                        .to_owned(),
+                ),
+                // Widened by increment 2h, as its recorded boundary requires:
+                // exactly one new entry point, and it takes the registry
+                // `Admission` — not an `Authorization`, and not a file — so
+                // the compiled contract is unavoidable on the write path.
+                (
+                    PathBuf::from("lib.rs"),
+                    "pub fn run_destructive_suite(admission: Admission) -> Result<DestructiveReport, Refusal> {"
                         .to_owned(),
                 ),
             ]
