@@ -1,7 +1,7 @@
 # The RPC handshake
 
 - Spec version: 11.1.0
-- Requirement IDs: RPC-002, MODEL-003
+- Requirement IDs: RPC-002, MODEL-003, SEC-006
 - Owner: WP-040 (`docs/work-packages/WP-040.md`)
 - Underlying byte profile: `pce/1` (unchanged)
 
@@ -15,12 +15,13 @@ of:
 | Key | Type | Content |
 | --- | --- | --- |
 | `schema` | Text | `partman.rpc.handshake`. |
-| `schema_version` | Unsigned | `1` (MODEL-003). |
+| `schema_version` | Unsigned | `2` (MODEL-003; version 2 constrained `build` from free text to the build-version grammar — a reviewed bump taken while no consumer existed, the envelope-v2 posture). |
 | `protocol_version` | Unsigned | The protocol version this side speaks (`PROTOCOL_VERSION`, currently `1`). Bumped only by reviewed schema changes. |
-| `build` | Text | The build identifier — used in the refusal's remediation message to name what to update, never in compatibility logic. |
+| `build` | Text | The build version — used in the refusal's remediation message to name what to update, never in compatibility logic. Held to the build-version grammar (`schemas/rpc/redaction.md` §3) at encode and decode: the redaction boundary's structural arm for what was the protocol's one free-entry text position. |
 
 Decoding is strict, exactly as the envelope's: unknown fields, wrong
-schema, and mistyped fields refuse by name.
+schema, and mistyped fields refuse by name; a build outside its
+grammar refuses without echoing the value.
 
 ## 2. Refuse, never degrade (RPC-002)
 

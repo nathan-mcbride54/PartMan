@@ -109,7 +109,7 @@ fn the_size_bound_binds_the_wire() {
 // Evidence: the_handshake_refuses_and_never_degrades
 #[test]
 fn the_handshake_refuses_and_never_degrades() {
-    let local = Handshake::local("build-a");
+    let local = Handshake::local("0.1.0-a");
     let bytes = local.encode().expect("encodes");
     let decoded = Handshake::decode(&bytes).expect("decodes");
     assert_eq!(decoded, local);
@@ -117,13 +117,13 @@ fn the_handshake_refuses_and_never_degrades() {
 
     let peer = Handshake {
         protocol_version: PROTOCOL_VERSION,
-        build: "build-b".into(),
+        build: "0.1.0-b".into(),
     };
     local.compatible_with(&peer).expect("equal versions agree");
 
     let older = Handshake {
         protocol_version: PROTOCOL_VERSION + 1,
-        build: "build-future".into(),
+        build: "0.2.0".into(),
     };
     let refusal = local
         .compatible_with(&older)
@@ -138,9 +138,12 @@ fn the_handshake_refuses_and_never_degrades() {
 
     let mut smuggled = BTreeMap::new();
     smuggled.insert("schema".to_owned(), Value::Text(HANDSHAKE_SCHEMA.into()));
-    smuggled.insert("schema_version".to_owned(), Value::Unsigned(1));
+    smuggled.insert(
+        "schema_version".to_owned(),
+        Value::Unsigned(super::HANDSHAKE_SCHEMA_VERSION),
+    );
     smuggled.insert("protocol_version".to_owned(), Value::Unsigned(1));
-    smuggled.insert("build".to_owned(), Value::Text("b".into()));
+    smuggled.insert("build".to_owned(), Value::Text("0.1.0".into()));
     smuggled.insert("downgrade_ok".to_owned(), Value::Bool(true));
     let bytes = canonical::encode(&Value::Map(smuggled)).expect("encodable");
     assert!(matches!(

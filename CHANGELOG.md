@@ -7,6 +7,37 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-040 increment 3: the redaction boundary.** SEC-006's deny-floor
+  lands at the protocol edge as a schema-level rule for which field
+  positions may carry identifier-class bytes at all, held the WP-035
+  way: an allowlist that needs no knowledge of the denied classes,
+  because every position outside it is structurally incapable — a
+  pinned constant refuses any other value, an unsigned number cannot
+  hold bytes, a closed tag refuses anything outside itself, and the
+  strict validator is the mechanism rather than a filter (there is no
+  position to invent; an identifier planted even as a field's own key
+  refuses by name). The allowlist is exactly two authored positions,
+  each with its governing authority named: the envelope `body` (the
+  `schemas/`-defined type the bytes encode governs them) and the
+  resume token's `execution` handle (opacity is WP-070's minting
+  obligation, said so rather than pretended verified). The handshake's
+  `build` — the protocol's one free-entry text position — moves to
+  RPC-002's own word for it, a *version*: `digits.digits.digits` with
+  an optional `+`/`-` suffix over `[A-Za-z0-9._+-]`, ASCII, bounded at
+  64 bytes, enforced in both directions so this side cannot emit what
+  the peer would refuse, with a refusal that names the rule and never
+  echoes the value; `partman.rpc.handshake` moves to schema version 2
+  for it, the envelope-v2 reviewed-bump posture exactly. What a
+  grammar cannot do is stated rather than hidden: the boundary's reach
+  is raw identifier-class values — the gate test plants a serial, two
+  path shapes, a spaced label, a username, an armored key, and a file
+  name in every non-allowlisted position of every format and each
+  refuses — while deliberate shaping inside the admitted alphabet is
+  the peer's schema violation, named in `schemas/rpc/redaction.md`.
+  Three new tests; the boundary table's per-format field sets pinned
+  to the wire's actual key sets as literals so widening the allowlist
+  is a visible reviewed edit.
+
 - **WP-040 increment 2: streams and reattach vocabulary.** The
   envelope moves to schema version 2 — a reviewed bump taken while no
   consumer exists, which is exactly what version numbers are for —
