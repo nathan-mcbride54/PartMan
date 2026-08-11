@@ -1653,6 +1653,39 @@ mod tests {
     }
 
     // Requirements: SAFE-007, SAFE-005
+    //   The shipped two-range suite reduces through the real executor path — registry membership included — to one fixture carrying both declared ranges in declared order, so its shape is executed at Tier 1 rather than first met by a privileged kernel
+    // Work-Package: WP-020
+    // Evidence: the_shipped_two_range_suite_reduces_through_the_executor_path
+    #[test]
+    fn the_shipped_two_range_suite_reduces_through_the_executor_path() {
+        let suite = &registered()[1];
+        assert_eq!(suite.name, "gpt-basic-512-both-signatures-erase");
+
+        let sandbox = Sandbox::new();
+        let authorization = sandbox.authorization(&["gpt-basic-512.img"]);
+        let admission = partman_fixtures::registry::Admission::admit(suite, authorization)
+            .expect("the shipped suite admits over its declared fixture");
+        let contract = consume_admission(admission)
+            .expect("a registered suite passes the membership check and reduces");
+
+        assert_eq!(contract.fixtures.len(), 1);
+        let fixture = &contract.fixtures[0];
+        assert_eq!(fixture.fixture, "gpt-basic-512.img");
+        assert_eq!(fixture.ranges.len(), 2, "both declared ranges carried");
+        assert_eq!(
+            (fixture.ranges[0].offset, fixture.ranges[0].length),
+            (512, 8)
+        );
+        assert_eq!(
+            (fixture.ranges[1].offset, fixture.ranges[1].length),
+            (4 * 1024 * 1024 - 512, 8),
+            "the backup GPT header's signature at the last LBA"
+        );
+        assert_eq!(fixture.ranges[0].replacement, [0_u8; 8]);
+        assert_eq!(fixture.ranges[1].replacement, [0_u8; 8]);
+    }
+
+    // Requirements: SAFE-007, SAFE-005
     //   The general reduction binds each declared fixture to the verified object of exactly that name, in declared order, carrying every declared range — proven by reading the held objects' bytes, not by matching names to names
     // Work-Package: WP-020
     // Evidence: the_general_reduction_binds_each_contract_to_its_own_held_object

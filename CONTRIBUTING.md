@@ -28,21 +28,28 @@ explains why that boundary is what keeps the permissive license honest.
 cargo xtask ci
 ```
 
-This is unprivileged Tier 1 only. One higher-tier acceptance is registered:
+This is unprivileged Tier 1 only. Two higher-tier acceptances are registered —
+`linux-loop-read-only` below and `si35-loop-capture`, WP-035's read-only
+measurement instrument — plus a compiled destructive-suite registry reachable
+only through `--suite <registered-name>`:
 
 ```text
 cargo xtask test --tier 2 --profile destructive --acceptance linux-loop-read-only
 ```
 
-Run it only with explicit privilege in a disposable non-WSL Linux VM, after
-generating the fixtures and supplying the exact `PARTMAN_DISPOSABLE_TOKEN` the
-generator records. It applies SAFE-001, SAFE-002, and every SAFE-007 factor to a
-non-destructive, logical-content-read-only loop-device check. It launches no
-external storage tool, issues no logical write, discard, or zero operation, and
-must prove the fixture hashes unchanged. Linux may `fsync` inside the mapping
-ioctls and write back already-dirty data or metadata, so the disposable-VM
-requirement still matters. Every generic destructive Tier-2 request and every
-Tier-3 request remains unavailable and refuses.
+Run any of them only with explicit privilege in a disposable non-WSL Linux VM,
+after generating the fixtures and supplying the exact
+`PARTMAN_DISPOSABLE_TOKEN` the generator records. The read-only acceptance
+applies SAFE-001, SAFE-002, and every SAFE-007 factor to a non-destructive,
+logical-content-read-only loop-device check: it launches no external storage
+tool, issues no logical write, discard, or zero operation, and must prove the
+fixture hashes unchanged. Linux may `fsync` inside the mapping ioctls and
+write back already-dirty data or metadata, so the disposable-VM requirement
+still matters. A registered destructive suite writes exactly its declared
+byte ranges of one generated fixture and nothing else, with the fixture tree
+regenerated and re-verified afterwards. Every generic destructive Tier-2
+request and every Tier-3 request remains unavailable and refuses: a generic
+request selects no suite.
 
 If you changed anything under `crates/domain/src/canonical/`,
 `packages/canonical/`, or `schemas/`, also run the MODEL-005 parity proof. It

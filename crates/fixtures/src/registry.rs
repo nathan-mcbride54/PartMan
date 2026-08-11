@@ -23,14 +23,17 @@
 //! cannot run without every SAFE-007 factor *and* a well-formed compiled
 //! contract, and "did anyone check?" stays answered by the type system.
 //!
-//! **The shipped registry holds exactly one suite, and its whole shape is
-//! pinned by test.** It was empty through increment 2g; increment 2h
+//! **The shipped registry holds exactly two suites, and their whole shapes
+//! are pinned by test.** It was empty through increment 2g; increment 2h
 //! registered `gpt-basic-512-signature-erase`, which was the single edit 2g
 //! reserved. That edit changed the meaning of every generic-refusal test —
 //! from "the concept does not exist" to "the registry holds no suite" to "the
 //! registry holds a suite this request did not select" — so each was re-read
-//! at it, with the re-readings recorded in the tests that changed. A second
-//! entry needs its own recorded boundary and re-opens them again.
+//! at it, with the re-readings recorded in the tests that changed. Increment
+//! 2j registered `gpt-basic-512-both-signatures-erase`, the first two-range
+//! contract, under its own recorded boundary with the same re-reading
+//! discipline. A further entry needs its own recorded boundary and re-opens
+//! them again.
 //!
 //! An [`Admission`] is consumed by exactly one executor,
 //! `partman_ffi_linux_loop::run_destructive_suite`, which additionally
@@ -123,11 +126,16 @@ pub struct Suite {
     pub teardown: &'static [TeardownObligation],
 }
 
-/// The selector name of the one registered destructive suite.
+/// The selector name of the first registered destructive suite.
 pub const GPT_BASIC_512_SIGNATURE_ERASE: &str = "gpt-basic-512-signature-erase";
 
-/// The replacement bytes the signature-erase contract writes: eight zeros,
-/// erasing exactly the bytes that make the primary header claim to be one.
+/// The selector name of the second registered destructive suite: increment
+/// 2j's two-range shape, the first contract to exercise the 2i general
+/// executor beyond one range.
+pub const GPT_BASIC_512_BOTH_SIGNATURES_ERASE: &str = "gpt-basic-512-both-signatures-erase";
+
+/// The replacement bytes the signature-erase contracts write: eight zeros,
+/// erasing exactly the bytes that make a header claim to be one.
 const SIGNATURE_ERASE_REPLACEMENT: [u8; 8] = [0; 8];
 
 static SIGNATURE_ERASE_RANGES: [IntendedChange; 1] = [IntendedChange {
@@ -144,26 +152,74 @@ static SIGNATURE_ERASE_FIXTURES: [FixtureContract; 1] = [FixtureContract {
     may_change: &SIGNATURE_ERASE_RANGES,
 }];
 
+static BOTH_SIGNATURES_RANGES: [IntendedChange; 2] = [
+    IntendedChange {
+        offset: 512,
+        length: 8,
+        replacement: &SIGNATURE_ERASE_REPLACEMENT,
+        reason: "the primary GPT header's signature field at LBA 1 for 512-byte sectors, \
+                 replaced with eight zero bytes, exactly as the single-range suite writes it",
+    },
+    IntendedChange {
+        // The fixture is 4 MiB (4,194,304 bytes) of 512-byte sectors, and
+        // the backup GPT header occupies the last LBA, so its signature
+        // field starts 512 bytes before the end. Measured on the generated
+        // image before this contract was written: `EFI PART` at exactly
+        // this offset. Admission re-checks the bound against the compiled
+        // generated length, so a resized fixture refuses this contract
+        // rather than letting the offset drift.
+        offset: 4_193_792,
+        length: 8,
+        replacement: &SIGNATURE_ERASE_REPLACEMENT,
+        reason: "the backup GPT header's signature field at the last LBA (4 MiB minus one \
+                 512-byte sector), replaced with eight zero bytes — the second of the two \
+                 claims this image makes to carrying a GPT, erased in the same run so the \
+                 general executor's multi-range chain is exercised by a real contract",
+    },
+];
+
+static BOTH_SIGNATURES_FIXTURES: [FixtureContract; 1] = [FixtureContract {
+    fixture: "gpt-basic-512.img",
+    may_change: &BOTH_SIGNATURES_RANGES,
+}];
+
 /// Every destructive suite compiled into this build.
 ///
-/// **Exactly one, registered by increment 2h behind its own recorded
-/// boundary.** This is the single edit increment 2g's boundary reserved: the
-/// 2g emptiness pin became `the_shipped_registry_holds_exactly_the_2h_suite`,
-/// the xtask refusal-count pin moved from zero to one in the same change, and
-/// every generic-refusal test was re-read at this edit, with the re-readings
-/// recorded on the registering pull request. A second entry is a new reviewed
-/// edit under a new recorded boundary, and it re-opens those tests again.
-const REGISTERED: [Suite; 1] = [Suite {
-    name: GPT_BASIC_512_SIGNATURE_ERASE,
-    target_class: TargetClass::GeneratedFixtureFile,
-    fixtures: &SIGNATURE_ERASE_FIXTURES,
-    teardown: &[
-        TeardownObligation::ChangedExactlyAsContracted,
-        TeardownObligation::UnchangedOutsideContract,
-        TeardownObligation::DetachConfirmed,
-        TeardownObligation::BackingRegeneratedToCatalogue,
-    ],
-}];
+/// **Exactly two.** The first was registered by increment 2h behind its own
+/// recorded boundary — the single edit 2g reserved, which flipped the 2g
+/// emptiness pin and moved the xtask refusal-count pin from zero to one.
+/// The second was registered by increment 2j behind its own recorded
+/// boundary: the first contract to exercise increment 2i's general executor
+/// beyond one range, flipping the shape pin to
+/// `the_shipped_registry_holds_exactly_the_2h_and_2j_suites` and the
+/// refusal-count pin from one to two. Every generic-refusal test was re-read
+/// at each of those edits, with the re-readings recorded on the registering
+/// pull requests. A further entry is a new reviewed edit under a new
+/// recorded boundary, and it re-opens those tests again.
+const REGISTERED: [Suite; 2] = [
+    Suite {
+        name: GPT_BASIC_512_SIGNATURE_ERASE,
+        target_class: TargetClass::GeneratedFixtureFile,
+        fixtures: &SIGNATURE_ERASE_FIXTURES,
+        teardown: &[
+            TeardownObligation::ChangedExactlyAsContracted,
+            TeardownObligation::UnchangedOutsideContract,
+            TeardownObligation::DetachConfirmed,
+            TeardownObligation::BackingRegeneratedToCatalogue,
+        ],
+    },
+    Suite {
+        name: GPT_BASIC_512_BOTH_SIGNATURES_ERASE,
+        target_class: TargetClass::GeneratedFixtureFile,
+        fixtures: &BOTH_SIGNATURES_FIXTURES,
+        teardown: &[
+            TeardownObligation::ChangedExactlyAsContracted,
+            TeardownObligation::UnchangedOutsideContract,
+            TeardownObligation::DetachConfirmed,
+            TeardownObligation::BackingRegeneratedToCatalogue,
+        ],
+    },
+];
 
 /// The compiled registry, in declaration order.
 #[must_use]

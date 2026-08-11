@@ -53,19 +53,23 @@ and product requirements are normative.
 - Both implementations read `schemas/canonical-encoding-vectors.json`. Never
   give either language its own copy of the vectors: an implementation checked
   against a table it also owns proves only self-consistency.
-- The only runnable higher-tier acceptance is
-  `cargo xtask test --tier 2 --profile destructive --acceptance
-  linux-loop-read-only`. It is a non-destructive, logical-content-read-only
-  Linux-VM acceptance guarded by SAFE-001, SAFE-002, and every SAFE-007 factor.
-  Every generic destructive Tier-2 request and every Tier-3 request still
-  refuses. The acceptance uses `O_RDWR`-capable backing, loop-control, and
-  loop-device descriptors for loop mapping control, configures
-  `LO_FLAGS_READ_ONLY`, issues no logical write, discard, or zero operation,
-  and succeeds only when both authorized fixtures' before/after hashes are
-  unchanged. The kernel may `fsync` and write back already-dirty data or
-  metadata inside configure/rebind, so this is not a zero-physical-write claim;
-  see
-  `docs/quality/test-tiers.md` for the complete boundary.
+- The runnable higher-tier selectors are exactly: two registered Tier-2
+  acceptances, `cargo xtask test --tier 2 --profile destructive --acceptance
+  linux-loop-read-only` (non-destructive, logical-content-read-only, the
+  boundary below) and `--acceptance si35-loop-capture` (WP-035's read-only
+  measurement instrument); and `--suite <name>` for a name the compiled
+  destructive-suite registry holds — each suite writes exactly its declared
+  byte ranges of one generated fixture through a read-write loop attachment,
+  in a disposable Linux VM, under every SAFE-007 factor. Every generic
+  destructive Tier-2 request and every Tier-3 request still refuses: a
+  generic request selects no suite. The read-only acceptance uses
+  `O_RDWR`-capable backing, loop-control, and loop-device descriptors for
+  loop mapping control, configures `LO_FLAGS_READ_ONLY`, issues no logical
+  write, discard, or zero operation, and succeeds only when both authorized
+  fixtures' before/after hashes are unchanged. The kernel may `fsync` and
+  write back already-dirty data or metadata inside configure/rebind, so this
+  is not a zero-physical-write claim; see `docs/quality/test-tiers.md` for
+  the complete boundary.
 - Use `cargo xtask tokens` to audit `schemas/design-tokens.json` against
   UI-001, UI-007 and UI-008. It runs inside `cargo xtask ci`. That file is the
   single source of truth for the visual language: when a front end exists it

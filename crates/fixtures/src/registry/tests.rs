@@ -209,17 +209,20 @@ static GONE: [FixtureContract; 1] = [FixtureContract {
 }];
 
 // Requirements: SAFE-007, SAFE-005
-//   The shipped registry holds exactly the increment 2h signature-erase suite, whole shape pinned; a second entry is a new reviewed edit that re-opens every generic-refusal test.
-// Evidence: the_shipped_registry_holds_exactly_the_2h_suite
+//   The shipped registry holds exactly the increment 2h single-range suite and the increment 2j two-range suite, whole shapes pinned; a further entry is a new reviewed edit that re-opens every generic-refusal test.
+// Evidence: the_shipped_registry_holds_exactly_the_2h_and_2j_suites
 #[test]
-fn the_shipped_registry_holds_exactly_the_2h_suite() {
+fn the_shipped_registry_holds_exactly_the_2h_and_2j_suites() {
     // This test was `the_shipped_registry_is_empty` until increment 2h made
-    // the one edit 2g reserved. Every generic-refusal test in this crate and
-    // in xtask was re-read at that edit, per the recorded boundary; the next
-    // entry re-opens them all again, so this pins the whole shape rather
-    // than a count.
+    // the one edit 2g reserved, and pinned exactly the 2h suite until
+    // increment 2j registered the two-range shape under its own boundary.
+    // It fired at both edits — which is the moment every generic-refusal
+    // test in this crate and in xtask is re-read, per the recorded
+    // boundaries; the next entry re-opens them all again — so this pins the
+    // whole shapes rather than a count.
     let suites = registered();
-    assert_eq!(suites.len(), 1, "a second suite needs its own boundary");
+    assert_eq!(suites.len(), 2, "a further suite needs its own boundary");
+
     let suite = &suites[0];
     assert_eq!(suite.name, "gpt-basic-512-signature-erase");
     assert_eq!(suite.target_class, TargetClass::GeneratedFixtureFile);
@@ -240,18 +243,53 @@ fn the_shipped_registry_holds_exactly_the_2h_suite() {
             TeardownObligation::BackingRegeneratedToCatalogue,
         ]
     );
+
+    let suite = &suites[1];
+    assert_eq!(suite.name, "gpt-basic-512-both-signatures-erase");
+    assert_eq!(suite.target_class, TargetClass::GeneratedFixtureFile);
+    assert_eq!(suite.fixtures.len(), 1);
+    let contract = &suite.fixtures[0];
+    assert_eq!(contract.fixture, "gpt-basic-512.img");
+    assert_eq!(contract.may_change.len(), 2);
+    let primary = &contract.may_change[0];
+    assert_eq!(primary.offset, 512);
+    assert_eq!(primary.length, 8);
+    assert_eq!(primary.replacement, [0_u8; 8]);
+    let backup = &contract.may_change[1];
+    // 4 MiB minus one 512-byte sector: the backup GPT header's LBA. The
+    // admission gate separately re-checks this against the compiled
+    // generated length, so a resized fixture refuses the contract.
+    assert_eq!(backup.offset, 4 * 1024 * 1024 - 512);
+    assert_eq!(backup.length, 8);
+    assert_eq!(backup.replacement, [0_u8; 8]);
+    assert_eq!(
+        suite.teardown,
+        [
+            TeardownObligation::ChangedExactlyAsContracted,
+            TeardownObligation::UnchangedOutsideContract,
+            TeardownObligation::DetachConfirmed,
+            TeardownObligation::BackingRegeneratedToCatalogue,
+        ]
+    );
 }
 
 // Requirements: SAFE-007
-//   The registered suite's own contract is admitted over its declared set, so its well-formedness is executed rather than assumed.
-// Evidence: the_registered_suite_is_admitted_over_its_declared_set
+//   Every registered suite's own contract is admitted over its declared set, so its well-formedness is executed rather than assumed.
+// Evidence: the_registered_suites_are_admitted_over_their_declared_sets
 #[test]
-fn the_registered_suite_is_admitted_over_its_declared_set() {
-    let sandbox = Sandbox::new("registered");
-    let authorization = sandbox.authorization(&["gpt-basic-512.img"]);
-    let admission = Admission::admit(&registered()[0], authorization)
-        .expect("the shipped suite must admit over exactly its declared fixture");
-    assert_eq!(admission.suite().name, "gpt-basic-512-signature-erase");
+fn the_registered_suites_are_admitted_over_their_declared_sets() {
+    for suite in registered() {
+        let sandbox = Sandbox::new("registered");
+        let names: Vec<&str> = suite
+            .fixtures
+            .iter()
+            .map(|contract| contract.fixture)
+            .collect();
+        let authorization = sandbox.authorization(&names);
+        let admission = Admission::admit(suite, authorization)
+            .expect("a shipped suite must admit over exactly its declared fixtures");
+        assert_eq!(admission.suite().name, suite.name);
+    }
 }
 
 // Requirements: SAFE-007, SAFE-005
