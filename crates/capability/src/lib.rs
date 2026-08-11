@@ -38,6 +38,10 @@
 use partman_domain::model::capability::ProtectionGate;
 use partman_domain::model::protection::{IndeterminateGround, RefusalGround};
 
+pub mod engine;
+
+#[cfg(test)]
+mod engine_tests;
 #[cfg(test)]
 mod tests;
 

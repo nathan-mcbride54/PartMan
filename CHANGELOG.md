@@ -7,6 +7,35 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-050 increment 2: the engine core.** `capability()` computes
+  CAP-001's conditioning as one entry point — the CAP-003 answer for
+  one operation on one exact target over a decoded snapshot,
+  caller-supplied immutable limits, and CAP-004-shaped runtime facts —
+  composing the decided arms in the assignment's refusal-precedence
+  order: the domain's `protection_gate` first (the same closure the
+  plan constructor runs), then FS-007's technology limits statused per
+  ADR-0020 (`unsupported`, the limit as explicit reason, `NoneExists`
+  as an exact remediation), then Section 9's floor and ACC-009's tool
+  preconditions as `blocked` with remediations naming the tool, with
+  `preview` as the answer no arm refuses — implemented for planning,
+  apply refused pending CAP-006 evidence. An address the snapshot does
+  not carry is a typed `UnknownTarget` error, not an answer about
+  nobody. **The CAP-005 agreement is enumerated, not asserted**: over
+  all fourteen operations and six fixture targets (a permitted device,
+  a ZFS signature consumed by its pool — refused by inheritance — an
+  orphan LUKS2 signature, a transport-less device, an XFS file system,
+  and the pool), the engine's protection answer and
+  `PlanStep::mutating` agree pair by pair, grounds matching; source
+  classes take no protection answer anywhere. The enumeration also
+  records a domain semantic the first fixture draft got wrong twice:
+  an extent-less target's canonical destructive entry is empty and the
+  gate clears at capability time (the plan step's declared ranges
+  refuse later), and a consumerless non-goal signature is the orphan
+  indeterminacy, not the refusal — the refusal needs the consumer
+  chain. CAP-001's mount-state, boot-role, and OS-identity conditioning
+  inputs are deliberately not carried as dead fields: each arrives with
+  the text that decides its rule (the vacuous-state discipline).
+
 - **WP-010 files SI-40, the FS-007 / CAP-003 conflict**, under Section
   0.2's requirement to file rather than silently pick a side, on the
   grant landed the same day. FS-007 says immutable technical limits
