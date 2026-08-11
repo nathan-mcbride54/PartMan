@@ -7,6 +7,37 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-060 increment 4: the simulated final topology — PLAN-002's
+  second half, and the package's last unlocked increment.** Every
+  planning entry point now returns `Planned { plan, simulated }`: the
+  plan and its predicted final topology together, because **simulation
+  is mandatory, not decorative** — PLAN-002 says every valid plan
+  produces both, so an effect this model cannot represent produces no
+  valid plan at all, and Move/Copy/Repair/Encrypt/Decrypt refuse as
+  `NotRepresentable` until their vocabularies arrive rather than
+  emitting a prediction that lies. What honestly simulates today: a
+  wipe removes everything the facts place on the wiped bytes
+  (transitively, with everything named relative to it) while the wiped
+  container itself survives empty, and drops the target's table-state
+  stamp — post-wipe state is unestablished until a real capture, and
+  absence is the honest prediction; a sized create mints a partition
+  under the host's single table view (none or two — a hybrid —
+  refuses, because creating "somewhere" is not a prediction) at the
+  solver's placed extent; sized resizes update the extent length with
+  the start never moving; Label/Uuid are identity, exact rather than
+  lazy, because this model carries no labels. The simulated snapshot
+  is assembled through the real constructors as
+  `SnapshotKind::Simulated`, round-trips its own typed boundary, and —
+  the 3c property re-asserted at the planner's boundary, held by
+  test — **a plan can never revalidate against it**: a prediction is
+  not a capture, structurally. The increment-2 chain test moved to a
+  wipe-then-wipe chain (signature before device) because the unsized
+  create it used is now honestly unplannable — the PLAN-002
+  consequence caught by its own enforcement. Four new tests plus the
+  moved chain. WP-060's four increments are delivered; the gated
+  remainder (cancellation carriage, reversal, backup steps, the SI-17
+  combination) waits on the register gates the assignment names.
+
 - **WP-060 increment 3: the extent solver, alignment-conservative.**
   Free space is computed from the snapshot's authenticated extents and
   nothing else — a host's free ranges are its own extent minus the

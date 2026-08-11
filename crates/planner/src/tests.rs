@@ -128,7 +128,8 @@ fn equal_inputs_produce_byte_equal_plans() {
         &RuntimeFacts::clean(),
         &identity(),
     )
-    .expect("plans");
+    .expect("plans")
+    .plan;
     let second = plan(
         request,
         &snapshot,
@@ -136,7 +137,8 @@ fn equal_inputs_produce_byte_equal_plans() {
         &RuntimeFacts::clean(),
         &identity(),
     )
-    .expect("plans");
+    .expect("plans")
+    .plan;
     assert_eq!(
         body_bytes(&first),
         body_bytes(&second),
@@ -247,16 +249,82 @@ fn wipe_and_create(target: NodeId) -> PlanRequestSet {
     }
 }
 
-// Requirements: PLAN-003, PLAN-001
-//   The ordered-overlap chain constructs: a wipe followed by a create in
-//   the freed space is legitimate exactly because the dependency orders
-//   it, the emitted steps carry that order, plan severity is the step
-//   maximum, and the whole set is deterministic to the byte.
+/// A device carrying a LUKS2 signature consumed by its encryption
+/// layer: two wipeable targets whose destroyed ranges overlap on the
+/// device — the simulatable ordered-overlap chain.
+fn chain_fixture() -> (TopologySnapshot, NodeId, NodeId) {
+    let dev = device(b"PLN-CHAIN");
+    let dev_id = derive_id(&dev).expect("derivable");
+    let luks = NamingFields::BackingSignature {
+        host: dev_id,
+        family: SignatureFamily::Luks2,
+        primary_offset: 0,
+    };
+    let luks_id = derive_id(&luks).expect("derivable");
+    let layer = NamingFields::EncryptionLayer {
+        backing_signature: luks_id,
+    };
+    let layer_id = derive_id(&layer).expect("derivable");
+
+    let mut facts = Facts::default();
+    device_facts(&mut facts, dev_id);
+    facts.extents.insert(
+        luks_id,
+        HostRange {
+            host: dev_id,
+            start: 0,
+            length: 1 << 16,
+        },
+    );
+    let snapshot = TopologySnapshot::assemble(
+        SnapshotKind::Captured,
+        false,
+        vec![dev, luks, layer],
+        vec![
+            Edge {
+                kind: EdgeKind::Containment,
+                source: dev_id,
+                target: luks_id,
+            },
+            Edge {
+                kind: EdgeKind::Backing,
+                source: luks_id,
+                target: layer_id,
+            },
+        ],
+        facts,
+    )
+    .expect("assembles");
+    (snapshot, dev_id, luks_id)
+}
+
+// Requirements: PLAN-003, PLAN-001, PLAN-002
+//   The ordered-overlap chain constructs: wiping the signature before
+//   wiping its device is legitimate exactly because the dependency
+//   orders the overlapping ranges, the emitted steps carry that order,
+//   plan severity is the step maximum, the whole set is deterministic
+//   to the byte, and the simulated final topology arrives beside the
+//   plan with the wiped chain gone.
 // Evidence: an_ordered_chain_constructs_deterministically
 #[test]
 fn an_ordered_chain_constructs_deterministically() {
-    let (snapshot, clean, _) = fixture();
-    let set = wipe_and_create(clean);
+    let (snapshot, dev, luks) = chain_fixture();
+    let set = PlanRequestSet {
+        requests: vec![
+            PlanRequest {
+                operation: Operation::Wipe,
+                target: luks,
+            },
+            PlanRequest {
+                operation: Operation::Wipe,
+                target: dev,
+            },
+        ],
+        dependencies: vec![Dependency {
+            before: 0,
+            after: 1,
+        }],
+    };
     let first = plan_set(
         &set,
         &snapshot,
@@ -264,7 +332,8 @@ fn an_ordered_chain_constructs_deterministically() {
         &RuntimeFacts::clean(),
         &identity(),
     )
-    .expect("the ordered chain plans");
+    .expect("the ordered chain plans")
+    .plan;
     let second = plan_set(
         &set,
         &snapshot,
@@ -272,7 +341,8 @@ fn an_ordered_chain_constructs_deterministically() {
         &RuntimeFacts::clean(),
         &identity(),
     )
-    .expect("plans again");
+    .expect("plans again")
+    .plan;
     assert_eq!(body_bytes(&first), body_bytes(&second));
     assert_eq!(first.steps().len(), 2);
     assert_eq!(first.severity(), Severity::Destructive);
@@ -591,7 +661,8 @@ fn a_solved_create_plans_deterministically() {
         &RuntimeFacts::clean(),
         &identity(),
     )
-    .expect("plans");
+    .expect("plans")
+    .plan;
     let second = plan_sized(
         request,
         &snapshot,
@@ -599,7 +670,8 @@ fn a_solved_create_plans_deterministically() {
         &RuntimeFacts::clean(),
         &identity(),
     )
-    .expect("plans again");
+    .expect("plans again")
+    .plan;
     assert_eq!(body_bytes(&first), body_bytes(&second));
     let rebuilt =
         OperationPlan::from_canonical_body(&body_bytes(&first), &snapshot).expect("revalidates");
@@ -632,4 +704,153 @@ fn a_non_resize_refuses_with_both_lengths() {
             refusal: SolveRefusal::NotAResize { .. }
         }
     ));
+}
+
+use super::Planned;
+use super::simulate::SimulateRefusal;
+
+// Requirements: PLAN-002, PLAN-006
+//   Both topologies arrive together: the sized create's simulation
+//   carries the minted partition at its placed extent under the host's
+//   table view, the simulated body round-trips its own typed boundary,
+//   and — the 3c property re-asserted at the planner's boundary — the
+//   plan can never revalidate against the simulated snapshot: a
+//   prediction is not a capture, structurally.
+// Evidence: the_simulated_topology_arrives_and_is_never_a_base
+#[test]
+fn the_simulated_topology_arrives_and_is_never_a_base() {
+    let (snapshot, host, _, _) = solver_fixture();
+    let Planned { plan, simulated } = plan_sized(
+        SizedRequest::Create {
+            host,
+            size: 10 * DEFAULT_ALIGNMENT,
+        },
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect("plans");
+
+    assert_eq!(
+        simulated.kind(),
+        SnapshotKind::Simulated,
+        "the prediction carries the schema string that is never a base"
+    );
+    let minted = simulated
+        .facts()
+        .extents
+        .iter()
+        .find(|(_, extent)| extent.host == host && extent.start == 65 * DEFAULT_ALIGNMENT);
+    assert!(
+        minted.is_some(),
+        "the minted partition's extent is in the simulated facts"
+    );
+    assert_eq!(
+        simulated.topology().entries().len(),
+        snapshot.topology().entries().len() + 1,
+        "one node was minted"
+    );
+
+    let simulated_bytes = partman_domain::canonical::encode(&simulated.body_value().expect("body"))
+        .expect("encodable");
+    let rebuilt = TopologySnapshot::from_canonical_body(&simulated_bytes)
+        .expect("the simulated body round-trips its own boundary");
+    assert_eq!(rebuilt.kind(), SnapshotKind::Simulated);
+
+    OperationPlan::from_canonical_body(&body_bytes(&plan), &simulated).expect_err(
+        "a plan can never revalidate against a simulated snapshot: a prediction is not a capture",
+    );
+}
+
+// Requirements: PLAN-002
+//   The wipe simulation removes everything the facts place on the wiped
+//   bytes, transitively with everything named relative to it, and drops
+//   the target's table-state stamp — the post-wipe state is not
+//   established until a real capture, and absence is the honest
+//   prediction.
+// Evidence: a_wipe_simulation_removes_the_chain_and_the_stamp
+#[test]
+fn a_wipe_simulation_removes_the_chain_and_the_stamp() {
+    let (snapshot, dev, _) = chain_fixture();
+    let Planned { plan: _, simulated } = plan(
+        PlanRequest {
+            operation: Operation::Wipe,
+            target: dev,
+        },
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect("plans");
+
+    assert_eq!(
+        simulated.topology().entries().len(),
+        1,
+        "the signature and its layer are gone; the wiped device remains"
+    );
+    assert!(
+        !simulated.facts().table_states.contains_key(&dev),
+        "the stamp is dropped: post-wipe state is unestablished until a capture"
+    );
+}
+
+// Requirements: PLAN-002
+//   An effect this model cannot represent produces no valid plan at
+//   all: simulation is mandatory, so the encrypt request refuses as
+//   not representable rather than emitting a prediction that lies.
+// Evidence: an_unrepresentable_effect_refuses_the_whole_plan
+#[test]
+fn an_unrepresentable_effect_refuses_the_whole_plan() {
+    let (snapshot, clean, _) = fixture();
+    let refused = plan(
+        PlanRequest {
+            operation: Operation::Encrypt,
+            target: clean,
+        },
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect_err("no simulation, no valid plan");
+    assert!(matches!(
+        refused,
+        PlanRefusal::SimulateRefused {
+            refusal: SimulateRefusal::NotRepresentable { .. }
+        }
+    ));
+}
+
+// Requirements: PLAN-002
+//   A sized grow's simulation reflects the new length in the simulated
+//   facts, and nothing else moves.
+// Evidence: a_grow_simulation_updates_the_extent
+#[test]
+fn a_grow_simulation_updates_the_extent() {
+    let (snapshot, _, aligned, _) = solver_fixture();
+    let Planned { plan: _, simulated } = plan_sized(
+        SizedRequest::Grow {
+            target: aligned,
+            new_length: 70 * DEFAULT_ALIGNMENT,
+        },
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect("plans");
+    let extent = simulated
+        .facts()
+        .extents
+        .get(&aligned)
+        .expect("still there");
+    assert_eq!(extent.length, 70 * DEFAULT_ALIGNMENT);
+    assert_eq!(extent.start, DEFAULT_ALIGNMENT, "the start never moves");
+    assert_eq!(
+        simulated.topology().entries().len(),
+        snapshot.topology().entries().len(),
+        "no node minted, none removed"
+    );
 }
