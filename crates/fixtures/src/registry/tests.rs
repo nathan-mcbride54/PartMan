@@ -306,6 +306,88 @@ fn an_undeclared_authorized_target_is_refused() {
 }
 
 // Requirements: SAFE-007, SAFE-005
+//   Several verified handles for one declared fixture are refused at admission: the contract binds one object per fixture, and a name-set comparison cannot count.
+// Evidence: duplicate_verified_handles_for_one_fixture_are_refused
+#[cfg(unix)]
+#[test]
+fn duplicate_verified_handles_for_one_fixture_are_refused() {
+    let sandbox = Sandbox::new("duphandles");
+    // Two spellings of one file survive the interlock's supplied-path dedup
+    // and verify into two handles to one object. The spelling matters:
+    // `Path` equality normalizes `.` components away, so `root/./x` is
+    // deduplicated after all — measured while writing this test — while `..`
+    // components are compared literally and survive. The premise is asserted
+    // rather than assumed: if the interlock ever deduplicates canonically,
+    // this arrangement stops producing the shape under test and the test
+    // must fail here rather than pass vacuously.
+    let request = Request {
+        profile: Some(DESTRUCTIVE_PROFILE.to_owned()),
+        token: Some(sandbox.manifest.token().to_owned()),
+        targets: vec![
+            sandbox.root.join("gpt-basic-512.img"),
+            sandbox
+                .root
+                .join("..")
+                .join(sandbox.root.file_name().expect("sandbox root has a name"))
+                .join("gpt-basic-512.img"),
+        ],
+    };
+    let authorization = authorize(&sandbox.root, &request).expect("both spellings verify on unix");
+    assert_eq!(
+        authorization.targets().len(),
+        2,
+        "the premise: two verified handles reached admission"
+    );
+    let refusal = Admission::admit(&FAKE_SUITE, authorization)
+        .expect_err("two handles for one declared fixture must refuse");
+    assert_eq!(
+        refusal,
+        Refusal::DuplicateAuthorizedTarget {
+            suite: "test-only-fake-suite",
+            target: "gpt-basic-512.img".to_owned(),
+            count: 2
+        }
+    );
+}
+
+// Requirements: SAFE-007, SAFE-005
+//   On Windows two spellings of one fixture cannot both verify: the target share mode refuses the second open upstream, so no duplicate-handle authorization can reach admission there.
+// Evidence: a_second_handle_to_one_fixture_refuses_upstream_on_windows
+#[cfg(windows)]
+#[test]
+fn a_second_handle_to_one_fixture_refuses_upstream_on_windows() {
+    // The unix half of this pair proves admission itself counts handles.
+    // That shape is unreachable on Windows — the first verified handle's
+    // share mode refuses the second write-capable open — which this pins, so
+    // the platform split in the sibling test stays a recorded fact rather
+    // than an assumption.
+    let sandbox = Sandbox::new("duphandles");
+    // The `..` spelling, not `./`: `Path` equality normalizes `.` away, so
+    // that spelling is deduplicated upstream and never reaches the open.
+    let request = Request {
+        profile: Some(DESTRUCTIVE_PROFILE.to_owned()),
+        token: Some(sandbox.manifest.token().to_owned()),
+        targets: vec![
+            sandbox.root.join("gpt-basic-512.img"),
+            sandbox
+                .root
+                .join("..")
+                .join(sandbox.root.file_name().expect("sandbox root has a name"))
+                .join("gpt-basic-512.img"),
+        ],
+    };
+    let refusal = authorize(&sandbox.root, &request)
+        .expect_err("the second open of one object must refuse on windows");
+    assert!(
+        matches!(
+            refusal,
+            crate::interlock::Refusal::TargetUnresolvable { .. }
+        ),
+        "wrong refusal: {refusal}"
+    );
+}
+
+// Requirements: SAFE-007, SAFE-005
 //   An authorization missing a declared fixture is refused: the contract's digest bracket cannot be established over objects that are not there.
 // Evidence: a_missing_declared_fixture_is_refused
 #[test]
