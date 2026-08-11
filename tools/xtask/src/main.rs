@@ -1023,13 +1023,33 @@ fn destructive_tier(tier: u8, profile: Option<&str>) -> Result<(), TaskError> {
         TaskError::Safety(format!("Tier {tier} refused: {refusal}. Nothing was run"))
     })?;
 
-    Err(TaskError::Safety(format!(
-        "the SAFE-007 interlock authorized {} disposable target(s), but no generic Tier-{tier} \
-         suite is registered. The named linux-loop-read-only acceptance is reachable only \
-         through its exact selector; it enables no destructive suite, and reporting success \
-         here would be a lie",
-        authorization.targets().len()
-    )))
+    Err(no_generic_suite_refusal(
+        tier,
+        authorization.targets().len(),
+    ))
+}
+
+/// The refusal a generic destructive request earns after the interlock passes.
+///
+/// Since WP-020 increment 2g the load-bearing fact is typed rather than
+/// prose: the compiled destructive-suite registry is consulted and its count
+/// is reported. Today that count is zero and a test in `crates/fixtures` pins
+/// it; when increment 2h registers the first suite the count changes, this
+/// message stays true — a generic request still selects nothing — and every
+/// test asserting this refusal must be re-read at that edit.
+///
+/// Split from [`destructive_tier`] so a test can pin the message without a
+/// passing authorization, which would need generated fixtures and the token
+/// in the test environment.
+fn no_generic_suite_refusal(tier: u8, authorized_targets: usize) -> TaskError {
+    TaskError::Safety(format!(
+        "the SAFE-007 interlock authorized {authorized_targets} disposable target(s), but a \
+         generic Tier-{tier} request selects no suite: the compiled destructive-suite registry \
+         holds {} suite(s), a suite runs only through its exact selector, and the named \
+         read-only acceptances enable no destructive suite. Reporting success over an \
+         unselected run would be a lie",
+        partman_fixtures::registry::registered().len()
+    ))
 }
 
 fn verify_toolchain() -> Result<(), TaskError> {
@@ -6062,13 +6082,35 @@ Mention Section 1.99 in prose.
     // Evidence: a_destructive_tier_refuses_even_with_the_profile_word
     #[test]
     fn a_destructive_tier_refuses_even_with_the_profile_word() {
-        // The profile alone is one factor of three, and no suite exists to run
-        // in any case. Either way this must be a refusal, never a pass.
+        // The profile alone is one factor of three, and — re-read at WP-020
+        // increment 2g — what backs "nothing runs" is now the compiled
+        // registry's emptiness rather than prose. Either way this must be a
+        // refusal, never a pass.
         for tier in [2, 3] {
             let error = run_tier(tier, Some("destructive"))
                 .expect_err("a destructive tier must never report success today");
             assert!(matches!(error, TaskError::Safety(_)), "tier {tier}");
         }
+    }
+
+    // Requirements: SAFE-007, SAFE-005
+    //   The post-interlock generic refusal cites the compiled registry's count, so registering the first suite visibly changes this message and re-opens every generic-refusal test
+    // Work-Package: WP-020
+    // Evidence: a_generic_destructive_request_selects_no_suite_from_the_compiled_registry
+    #[test]
+    fn a_generic_destructive_request_selects_no_suite_from_the_compiled_registry() {
+        let TaskError::Safety(message) = super::no_generic_suite_refusal(2, 13) else {
+            panic!("the generic refusal must be a safety refusal");
+        };
+        assert!(message.contains("selects no suite"), "{message}");
+        // Pinned at zero on purpose: increment 2h's first registered suite
+        // fails this assertion, which is the reviewed edit-detector the 2g
+        // boundary requires on the xtask side.
+        assert!(message.contains("holds 0 suite(s)"), "{message}");
+        assert!(
+            message.contains("authorized 13 disposable target(s)"),
+            "{message}"
+        );
     }
 
     #[test]

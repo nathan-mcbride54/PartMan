@@ -7,6 +7,30 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-020 increment 2g: the destructive-suite registry becomes a compiled
+  type.** "No destructive suite is registered" was load-bearing prose backed
+  by refusal tests; it is now `partman_fixtures::registry` — a compiled,
+  catalogue-pattern registry where a suite is a value naming its fixture set
+  by catalogue basename, its verified target class (a closed one-variant
+  vocabulary), its per-fixture intended-change contract (exact byte ranges
+  with each range's reason, everything outside them pinned by digest
+  bracket), and its teardown proof obligations (a closed vocabulary, pinned
+  by exhaustive match). The shipped registry is empty and a test pins the
+  emptiness as increment 2h's reviewed edit-detector; the xtask generic
+  destructive refusal now cites the registry's count, pinned at zero by its
+  own test on the other side. Admission consumes the SAFE-007
+  `Authorization` — one admission is one gated run, non-clonable, its
+  targets extractable only by consuming it — and refuses a target set that
+  is not exactly the declared fixture set, a fixture the catalogue does not
+  generate, a duplicate or vacuous contract, and zero-length, out-of-bounds,
+  or overlapping ranges. Every refusal gate was mutation-verified: each gate
+  was disabled in turn and its named test failed, and a suite smuggled into
+  the shipped registry trips both edit-detectors. No executor exists,
+  nothing consumes an admission, and every generic destructive Tier-2 and
+  Tier-3 request refuses exactly as before. Recorded in the increment 2g
+  authorization boundary in `docs/work-packages/WP-020.md`, alongside the
+  defined-but-not-started 2h row.
+
 - **WP-020 increment 2e: the acceptance re-taken on current main, discharging
   issue #175.** The reproducibility record's own stopping condition had
   tripped — `git diff --name-only c75b340 HEAD` reported fifteen non-Markdown

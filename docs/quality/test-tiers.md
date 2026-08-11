@@ -60,7 +60,8 @@ issues no logical write, discard, or zero operation. Linux's `LOOP_CONFIGURE`
 and `LOOP_CHANGE_FD` paths may internally `fsync` and therefore write back
 already-dirty backing-file data or metadata; this is not a zero-physical-write
 claim. Product inspection retains WP-035's read-only
-open boundary, and no destructive suite exists.
+open boundary, and the compiled destructive-suite registry is empty — a typed
+fact pinned by test since WP-020 increment 2g, no longer prose.
 
 **A read-only product storage adapter now exists, and this sentence no longer
 says otherwise.** WP-035 increment 8 reads whole-device rows from
@@ -196,11 +197,16 @@ device cannot pass, because its bytes will never equal a generated fixture, and 
 target that is not a regular file is refused before its contents are read at all.
 
 Running a generic destructive Tier 2 with all three proofs present *still*
-fails, reporting that the interlock authorized its targets but no destructive
-suite is registered. Tier 3 refuses before any suite runs. That is deliberate:
-a green destructive tier is exactly the signal someone would trust when
-deciding whether the interlock works, so it must never be produced by a run of
-nothing (Section 12, Section 16).
+fails, reporting that the interlock authorized its targets but a generic
+request selects no suite — the refusal cites the compiled destructive-suite
+registry's count, which is zero and pinned by test (WP-020 increment 2g).
+Tier 3 refuses before any suite runs. That is deliberate: a green destructive
+tier is exactly the signal someone would trust when deciding whether the
+interlock works, so it must never be produced by a run of nothing (Section 12,
+Section 16). A destructive suite, when one is ever registered, is a compiled
+value naming its fixture set, verified target class, per-fixture
+intended-change byte ranges, and teardown proof obligations — and admission to
+its targets consumes the same `Authorization` the acceptance does.
 
 The named acceptance consumes the non-cloneable `Authorization`, keeps both
 verified backing descriptors live, and requires each held object's initial hash
