@@ -7,6 +7,29 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-060 increment 3: the extent solver, alignment-conservative.**
+  Free space is computed from the snapshot's authenticated extents and
+  nothing else — a host's free ranges are its own extent minus the
+  extents the facts place on it; where the facts carry no table
+  region, the solver does not invent one. Placement is PART-009's
+  default and only it: first-fit at the lowest 1 MiB-aligned start
+  that holds the full size, with the no-fit refusal naming the largest
+  aligned fit so the caller can explain what would have succeeded. The
+  two permitted deviation causes — published geometry, explicit user
+  override — have no input vocabulary yet, so deviation is
+  **inexpressible rather than half-supported**; each arrives with the
+  vocabulary that carries it and the body change PART-009's recording
+  requires, under WP-010's grant. **SI-15's held case refuses by
+  name**: growing a partition whose start is not 1 MiB-aligned matches
+  neither deviation cause, so `MisalignedLegacyGrowth` carries the
+  target, its actual start, and the gate string `SI-15` — refusing is
+  the answer, guessing is what the register exists to prevent.
+  `plan_sized` carries solved geometry into the body: a create
+  consumes its placed range, a grow consumes its tail extension, a
+  shrink destroys its freed tail (bytes beyond the new end are gone,
+  and the ranges say so); every sized plan is deterministic to the
+  byte and revalidates through the typed boundary. Five new tests.
+
 - **WP-060 increment 2: the step graph.** PLAN-003 lands as explicit
   machinery: request sets carry dependency edges, and `plan_set`
   refuses cycles (with every unorderable member named), duplicate
