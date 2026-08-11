@@ -17,16 +17,27 @@
 //!   (RPC-004). No field carries a path to execute, a command string,
 //!   or dynamic code, and the vocabulary contains no type that could.
 //!
-//! The formats are documented in `schemas/rpc/envelope.md` and
-//! `schemas/rpc/handshake.md`, in the `schemas/domain` shape: the
+//! The redaction boundary (SEC-006 at this edge) is the [`redaction`]
+//! module's table: a schema-level classification of every field
+//! position this package owns, whose allowlist — the positions that
+//! may carry identifier-class bytes at all — is exactly the envelope
+//! body and the resume token's execution handle, with the strict
+//! validator as the mechanism holding every other position.
+//!
+//! The formats are documented in `schemas/rpc/envelope.md`,
+//! `schemas/rpc/handshake.md`, `schemas/rpc/streams.md`, and
+//! `schemas/rpc/redaction.md`, in the `schemas/domain` shape: the
 //! documents record delivered formats and decide nothing.
 
 use std::collections::BTreeMap;
 
 use partman_domain::canonical::{self, Value};
 
+pub mod redaction;
 pub mod stream;
 
+#[cfg(test)]
+mod redaction_tests;
 #[cfg(test)]
 mod stream_tests;
 #[cfg(test)]
@@ -41,14 +52,67 @@ pub const ENVELOPE_SCHEMA: &str = "partman.rpc.envelope";
 pub const ENVELOPE_SCHEMA_VERSION: u64 = 2;
 /// The handshake's schema identity (MODEL-003).
 pub const HANDSHAKE_SCHEMA: &str = "partman.rpc.handshake";
-/// The current handshake schema version.
-pub const HANDSHAKE_SCHEMA_VERSION: u64 = 1;
+/// The current handshake schema version. Version 2 constrained the
+/// `build` field from free text to the build-version grammar
+/// ([`is_build_version`]) — the redaction boundary's structural arm —
+/// a reviewed bump taken while no consumer exists, the same posture as
+/// the envelope's move to v2.
+pub const HANDSHAKE_SCHEMA_VERSION: u64 = 2;
 /// The protocol version the handshake negotiates. Bumped by reviewed
 /// schema changes; RPC-002's compatibility rule compares exactly this.
 pub const PROTOCOL_VERSION: u64 = 1;
 /// RPC-004's size bound: no encoded message exceeds this, checked at
 /// the decode entry before any parsing touches the bytes.
 pub const MAX_MESSAGE_BYTES: usize = 1 << 20;
+/// The build-version bound: a version token, not a payload.
+pub const BUILD_VERSION_MAX_BYTES: usize = 64;
+
+const fn is_token_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'+' | b'-')
+}
+
+/// Whether `build` is a build version the handshake admits — the
+/// redaction boundary's structural arm for the protocol's one
+/// free-entry text position (SEC-006, `schemas/rpc/redaction.md`).
+///
+/// RPC-002 calls the field a build *version*, and the grammar holds it
+/// to that word: `digits '.' digits '.' digits`, optionally followed
+/// by one `+` or `-` and a nonempty suffix over `[A-Za-z0-9._+-]`,
+/// ASCII throughout, nonempty, at most [`BUILD_VERSION_MAX_BYTES`]
+/// bytes. The identifier classes that carry structure — paths, file
+/// names, spaced labels, armored keys — cannot fit; what a grammar
+/// cannot refuse (a token deliberately shaped like a version) is a
+/// peer's schema violation, named in the schema doc rather than
+/// silently accepted as preventable here.
+#[must_use]
+pub fn is_build_version(build: &str) -> bool {
+    if build.is_empty() || build.len() > BUILD_VERSION_MAX_BYTES {
+        return false;
+    }
+    let bytes = build.as_bytes();
+    if !bytes.iter().all(|&byte| is_token_byte(byte)) {
+        return false;
+    }
+    let mut rest = bytes;
+    for expect_dot in [true, true, false] {
+        let digits = rest.iter().take_while(|byte| byte.is_ascii_digit()).count();
+        if digits == 0 {
+            return false;
+        }
+        rest = &rest[digits..];
+        if expect_dot {
+            match rest.first() {
+                Some(b'.') => rest = &rest[1..],
+                _ => return false,
+            }
+        }
+    }
+    match rest.first() {
+        None => true,
+        Some(b'+' | b'-') => rest.len() > 1,
+        Some(_) => false,
+    }
+}
 
 /// The three message classes (RPC-004's stream separation, typed).
 /// Sequence numbering and resume tokens for the event stream arrive in
@@ -133,6 +197,12 @@ pub enum DecodeRefusal {
         /// Whether a sequence was present.
         present: bool,
     },
+    /// The build field is not a build version ([`is_build_version`]) —
+    /// the redaction boundary's refusal, both directions. It names the
+    /// rule and deliberately never echoes the presented value: a
+    /// refusal that quoted the bytes would itself carry what the
+    /// boundary exists to keep out (SEC-006).
+    NotABuildVersion,
 }
 
 impl Envelope {
@@ -300,13 +370,19 @@ impl Envelope {
 pub struct Handshake {
     /// The protocol version this side speaks.
     pub protocol_version: u64,
-    /// The build identifier, for the refusal message's remediation —
-    /// never for compatibility logic.
+    /// The build version, for the refusal message's remediation —
+    /// never for compatibility logic. Held to [`is_build_version`] at
+    /// encode and decode: the wire is the redaction boundary, and a
+    /// build that violates the grammar crosses in neither direction.
     pub build: String,
 }
 
 /// RPC-002's refusal: incompatible versions refuse with a remediation
-/// message, never degrade silently.
+/// message, never degrade silently. The remediation names a build to
+/// update to; a peer's build reaches it only through the strict decode
+/// that held it to the build-version grammar, so the message renders
+/// no free peer text (SEC-006 at the one place this crate composes
+/// human-facing prose from wire data).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VersionRefusal {
     /// The local protocol version.
@@ -328,13 +404,20 @@ impl Handshake {
         }
     }
 
-    /// Encode the handshake to canonical bytes.
+    /// Encode the handshake to canonical bytes. The build-version rule
+    /// binds this direction too — one validator for both ends, so this
+    /// side cannot emit what the peer's decode would refuse.
     ///
     /// # Errors
     ///
-    /// [`DecodeRefusal::NotCanonical`] if encoding refuses — unreachable
-    /// for the flat map this builds, reported rather than panicked.
+    /// [`DecodeRefusal::NotABuildVersion`] if the build violates its
+    /// grammar; [`DecodeRefusal::NotCanonical`] if encoding refuses —
+    /// unreachable for the flat map this builds, reported rather than
+    /// panicked.
     pub fn encode(&self) -> Result<Vec<u8>, DecodeRefusal> {
+        if !is_build_version(&self.build) {
+            return Err(DecodeRefusal::NotABuildVersion);
+        }
         let mut map = BTreeMap::new();
         map.insert(
             "schema".to_owned(),
@@ -397,6 +480,9 @@ impl Handshake {
             Some(Value::Text(text)) => text.clone(),
             _ => return Err(DecodeRefusal::BadField { key: "build" }),
         };
+        if !is_build_version(&build) {
+            return Err(DecodeRefusal::NotABuildVersion);
+        }
         Ok(Self {
             protocol_version,
             build,

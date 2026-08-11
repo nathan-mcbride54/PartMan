@@ -42,3 +42,9 @@ No envelope field carries a path to execute, a command string, or
 dynamic code, and the type vocabulary contains nothing that could. The
 protocol carries typed operations defined under `schemas/`, encoded as
 canonical bytes — CLI-004 at the transport layer, held structurally.
+
+The same structural posture carries SEC-006's deny-floor: `body` is
+the envelope's only position that may carry identifier-class bytes at
+all, and every other field is a pinned constant, an unsigned number,
+or a closed tag. The full boundary rule — the allowlist, its governing
+authorities, and the gate test's reach — is `schemas/rpc/redaction.md`.
