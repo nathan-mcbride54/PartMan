@@ -55,4 +55,5 @@ pub mod interlock;
 pub mod layout;
 pub mod manifest;
 pub mod prober;
+pub mod registry;
 pub mod signature;
