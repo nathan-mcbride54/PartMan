@@ -5,6 +5,32 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ## Unreleased
 
+### Added
+
+- **WP-020: both Tier-2 acceptances re-taken on the issue-fix tree; the 2e
+  stopping condition is re-pinned at `68298f2`.** The #248/#249/#250 merges
+  (PRs #251–#253) landed three non-Markdown paths after `4fbb2f9` — two of
+  them the very probe and write lines the 2h suite executes — so both proofs
+  went stale by their own terms and were re-measured rather than argued
+  forward. One sitting on 2026-08-11, one fresh disposable Proxmox-hosted
+  non-WSL VM (VMID 9426, kernel 5.15.0-186-generic — this guest did not
+  reboot into -187 as the previous one had), commit `68298f2`, the same
+  runbook and sequencing: nine negative controls refused, the 2e read-only
+  acceptance passed first on a pristine tree, then the destructive suite
+  passed with the identical value set — the kernel's `LOOP_CHANGE_FD`
+  refusal now classified from an observed status re-read (#248) and the
+  contracted write issued through the helper whose destination Tier 1 now
+  measures (#250). The declared range read `EFI PART` before and after with
+  eight zeros established in between, both fixtures ended byte-identical to
+  the compiled catalogue, and the loop table ended empty. Teardown verified:
+  no VM config, volume, or snapshot remains. Transcript `ee330401…c28bc`,
+  digests agreeing across guest, host, and workstation. The sitting also
+  corrected a stale count the previous round left behind: the 2e
+  reproducibility sentence still said "five times across two guests" after
+  the custody table had grown to seven runs — the
+  sitting-lands-in-more-places-than-one shape, now fixed alongside the new
+  row rather than left for the next reader.
+
 ### Fixed
 
 - **WP-020: the contracted write's destination is measured at Tier 1

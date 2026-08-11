@@ -100,9 +100,11 @@ external tool is invoked, and on INV-006's no-repair/no-auto-mount discipline.
 Issue #94 is closed: the full acceptance, including its adversarial rebind leg,
 succeeded in a disposable Proxmox-hosted non-WSL Linux VM on 2026-08-03 — on the
 implementation commit `2dbf601`, and again on the merged commit `c75b340` that
-lands on main — and was re-taken on 2026-08-11 on current main `582e6d1` in a
-fresh disposable VM after the record's stopping condition tripped (issue #175),
-with identical harness values and fixture digests. The run record with its
+lands on main — and was re-taken three times on 2026-08-11, each in a fresh
+disposable VM after the record's stopping condition tripped: on `582e6d1`
+(issue #175), on `4fbb2f9` when increments 2g/2h landed, and on `68298f2` when
+the #248/#249/#250 review-finding fixes landed, with identical harness values
+and fixture digests every time. The run record with its
 exclusions and stated limits is in `docs/work-packages/WP-020.md`. Closing it
 registered no destructive suite.
 Later packages may add pure planner, validator, and regular-file fixture tests.
@@ -232,11 +234,14 @@ on refusal as well as on success, since every refusal after the write leaves
 the fixture mutated. That check establishes the files' content, not
 durability.
 
-Its operator-run acceptance passed on 2026-08-11, in the same VM sitting as a
-re-take of the read-only acceptance above, and is recorded in
-`docs/work-packages/WP-020.md`. The kernel refused the mid-run
-`LOOP_CHANGE_FD` as the design requires, the contracted range changed and
-nothing else did, and nine negative controls refused. A registered
+Its operator-run acceptance passed on 2026-08-11 — twice, the re-take coming
+the same day on `68298f2` after the #248/#250 fixes changed its own probe and
+write lines — each time in the same VM sitting as a re-take of the read-only
+acceptance above, and is recorded in `docs/work-packages/WP-020.md`. The
+kernel refused the mid-run `LOOP_CHANGE_FD` as the design requires (measured
+on two kernel revisions, and classified from an observed status re-read since
+the re-take), the contracted range changed and nothing else did, and nine
+negative controls refused in each sitting. A registered
 single-range destructive suite is still not a destructive harness: increment
 2's own scope remains unbuilt, and every generic destructive Tier-2 request
 and every Tier-3 request still refuses.
