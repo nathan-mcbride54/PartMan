@@ -825,6 +825,15 @@ fn no_output_in_any_mode_carries_an_environment_value() {
         // "macOS" never reach the sweep: both are under the six-character
         // floor.)
         "Windows",
+        // A root login — the posture WP-020's privileged acceptance requires,
+        // a direct login with no sudo — sets USER and LOGNAME to a value that
+        // is a substring of the udev caveat `devices.rs` carries in-band on
+        // every udev-database value ("computed by root's udevd"): static
+        // compile-time text, verified by inspection, with the env-read source
+        // guard proving no environment read exists. Exempted per this test's
+        // own remedy, found when the issue #175 acceptance retake refused at
+        // its Tier-1 gate — the first sweep host whose login name collides.
+        "root",
     ];
 
     // SEC-006's deny-floor categories, probed with this host's real values.
