@@ -20,12 +20,12 @@ use sha2::{Digest as _, Sha256};
 use crate::protocol::{
     CapturedProbe, ConfigureError, ConfigureRequest, Controller, DESTRUCTIVE_FLAGS,
     DestructiveController, FLAG_READ_ONLY, REQUIRED_BLOCK_SIZE, REQUIRED_FLAGS, RebindProbe,
-    SessionController, execute, execute_destructive, execute_session,
+    SessionController, execute, execute_destructive_suite, execute_session,
 };
 use crate::{
-    AdmittedContract, AuthorizedFiles, BASIC_NAME, CONFLICTING_NAME, DestructiveReport,
-    FixtureRole, ProbeSubject, ProbeTool, Refusal, RunReport, SessionDiskFacts,
-    SessionPartitionFacts, SessionReport, sys,
+    AdmittedContract, AdmittedFixture, AdmittedRange, AuthorizedFiles, BASIC_NAME,
+    CONFLICTING_NAME, DestructiveReport, FixtureRole, ProbeSubject, ProbeTool, Refusal, RunReport,
+    SessionDiskFacts, SessionPartitionFacts, SessionReport, sys,
 };
 
 const LOOP_CONTROL: &str = "/dev/loop-control";
@@ -62,13 +62,21 @@ pub(super) fn run_session(fixture: FixtureRole, backing: File) -> Result<Session
 }
 
 pub(super) fn run_destructive(contract: AdmittedContract) -> Result<DestructiveReport, Refusal> {
-    // The expected bytes are read out before the contract moves into the
-    // controller, so the protocol's post-condition compares against the
-    // registry's compiled data rather than against anything the controller
+    // The expected bytes are read out before each fixture's contract moves
+    // into its controller, so the protocol's post-conditions compare against
+    // the registry's compiled data rather than against anything a controller
     // could have recomputed on the way through.
-    let replacement = contract.replacement;
-    let mut controller = LinuxDestructiveController::new(contract)?;
-    execute_destructive(&mut controller, replacement)
+    let mut fixtures = Vec::with_capacity(contract.fixtures.len());
+    for fixture in contract.fixtures {
+        let replacements: Vec<&[u8]> = fixture
+            .ranges
+            .iter()
+            .map(|range| range.replacement)
+            .collect();
+        let controller = LinuxDestructiveController::new(fixture)?;
+        fixtures.push((controller, replacements));
+    }
+    execute_destructive_suite(&mut fixtures)
 }
 
 /// Open `/dev/loop-control` and require the exact kernel misc-device identity.
@@ -244,21 +252,33 @@ fn detach_attachment(attachment: Attachment) -> Result<(), Refusal> {
     })
 }
 
-/// Increment 2h's controller: one held backing object, one compiled contract.
+/// The destructive controller: one held backing object, one fixture's
+/// compiled contract. Introduced by increment 2h for the one-range shape;
+/// carried per fixture by 2i's general executor.
 ///
-/// It holds no fixture roles and no second object. The offset, length, and
+/// It holds no fixture roles and no second object. The offsets, lengths, and
 /// replacement bytes are the admitted contract's, carried here so that no
-/// method takes them as an argument — a protocol bug can misorder the calls,
-/// which the pure protocol's tests cover, but it cannot redirect the write.
+/// method takes them as bytes — a protocol bug can misorder or skip the
+/// indexed calls, which the pure protocol's tests cover, but it cannot
+/// redirect a write to a range the contract does not declare.
 struct LinuxDestructiveController {
-    contract: AdmittedContract,
+    contract: AdmittedFixture,
     control: File,
 }
 
 impl LinuxDestructiveController {
-    fn new(contract: AdmittedContract) -> Result<Self, Refusal> {
+    fn new(contract: AdmittedFixture) -> Result<Self, Refusal> {
         let control = open_verified_loop_control()?;
         Ok(Self { contract, control })
+    }
+
+    /// The indexed declared range, refusing an index the contract does not
+    /// declare rather than panicking on it.
+    fn range(&self, index: usize) -> Result<&AdmittedRange, Refusal> {
+        self.contract
+            .ranges
+            .get(index)
+            .ok_or(Refusal::WrongSuiteShape)
     }
 }
 
@@ -274,11 +294,17 @@ impl DestructiveController for LinuxDestructiveController {
     }
 
     fn bracket_digest(&mut self) -> Result<[u8; 32], Refusal> {
-        digest_outside_range(
-            &self.contract.backing,
-            self.contract.offset,
-            self.contract.length,
-        )
+        // Sorted here because the bracket walks the file forward; the
+        // executor already refused overlap, and the sort cannot reorder
+        // which bytes are outside the union.
+        let mut ranges: Vec<(u64, u64)> = self
+            .contract
+            .ranges
+            .iter()
+            .map(|range| (range.offset, range.length))
+            .collect();
+        ranges.sort_unstable();
+        digest_outside_ranges(&self.contract.backing, &ranges)
     }
 
     fn configure(&mut self, request: ConfigureRequest) -> Result<Self::Attachment, ConfigureError> {
@@ -308,11 +334,15 @@ impl DestructiveController for LinuxDestructiveController {
         )
     }
 
-    fn write_contracted(&mut self, attachment: &Self::Attachment) -> Result<usize, Refusal> {
-        // Through the held loop-device descriptor, at the contract's offset.
-        // The mapping is offset 0 with no size limit, so this addresses the
-        // same byte of the backing object the contract names.
-        write_contracted_range(&attachment.device, &self.contract)
+    fn write_contracted(
+        &mut self,
+        attachment: &Self::Attachment,
+        index: usize,
+    ) -> Result<usize, Refusal> {
+        // Through the held loop-device descriptor, at the indexed range's
+        // offset. The mapping is offset 0 with no size limit, so this
+        // addresses the same byte of the backing object the contract names.
+        write_contracted_range(&attachment.device, self.range(index)?)
     }
 
     fn sync(&mut self, attachment: &Self::Attachment) -> Result<(), Refusal> {
@@ -324,12 +354,9 @@ impl DestructiveController for LinuxDestructiveController {
         detach_attachment(attachment)
     }
 
-    fn read_declared_range(&mut self) -> Result<Vec<u8>, Refusal> {
-        read_exact_range(
-            &self.contract.backing,
-            self.contract.offset,
-            self.contract.length,
-        )
+    fn read_declared_range(&mut self, index: usize) -> Result<Vec<u8>, Refusal> {
+        let range = self.range(index)?;
+        read_exact_range(&self.contract.backing, range.offset, range.length)
     }
 }
 
@@ -347,8 +374,8 @@ impl DestructiveController for LinuxDestructiveController {
 /// supplies the bytes, and that nothing outside them is touched. The loop
 /// mapping itself (offset 0, no size limit, so device offsets are backing
 /// offsets) remains the acceptance's measurement.
-fn write_contracted_range(device: &File, contract: &AdmittedContract) -> Result<usize, Refusal> {
-    pwrite(device, contract.replacement, contract.offset)
+fn write_contracted_range(device: &File, range: &AdmittedRange) -> Result<usize, Refusal> {
+    pwrite(device, range.replacement, range.offset)
         .map_err(|error| kernel("contracted-write", error))
 }
 
@@ -391,13 +418,30 @@ fn classify_rebind_probe(
     }
 }
 
-/// Hash every byte of the held object **except** the declared range.
+/// Hash every byte of the held object **except** the declared ranges.
 ///
 /// This is the digest bracket: it is what makes "nothing outside the contract
-/// changed" a measured fact rather than an assumption about what a write of
+/// changed" a measured fact rather than an assumption about what writes of
 /// N bytes can reach. Read through the held descriptor, never a path.
-fn digest_outside_range(file: &File, offset: u64, length: u64) -> Result<[u8; 32], Refusal> {
-    let end = offset.checked_add(length).ok_or(Refusal::WrongSuiteShape)?;
+///
+/// `ranges` must be sorted by offset and non-overlapping. Both are refused
+/// here rather than trusted, even though the executor already refused them:
+/// the bracket's meaning — "exactly the bytes outside the union" — depends on
+/// them, and a bracket that silently mis-partitioned the file would report
+/// success over bytes it never hashed.
+fn digest_outside_ranges(file: &File, ranges: &[(u64, u64)]) -> Result<[u8; 32], Refusal> {
+    let mut bounds = Vec::with_capacity(ranges.len());
+    let mut previous_end = 0_u64;
+    for (index, (offset, length)) in ranges.iter().enumerate() {
+        let end = offset
+            .checked_add(*length)
+            .ok_or(Refusal::WrongSuiteShape)?;
+        if index > 0 && *offset < previous_end {
+            return Err(Refusal::WrongSuiteShape);
+        }
+        previous_end = end;
+        bounds.push((*offset, end));
+    }
     let mut hasher = Sha256::new();
     let mut bytes = [0_u8; 8 * 1024];
     let mut position = 0_u64;
@@ -413,18 +457,30 @@ fn digest_outside_range(file: &File, offset: u64, length: u64) -> Result<[u8; 32
                 operation: "bracket-hash",
                 errno: None,
             })?;
-        // The part of this chunk before the range, then the part after it.
-        // When the range does not intersect the chunk one of these is the
-        // whole chunk and the other is empty.
-        for (from, to) in [
-            (position, chunk_end.min(offset)),
-            (position.max(end), chunk_end),
-        ] {
-            if from < to {
-                let start = usize::try_from(from - position).expect("chunk offset fits usize");
-                let stop = usize::try_from(to - position).expect("chunk offset fits usize");
-                hasher.update(&bytes[start..stop]);
+        // Walk the chunk left to right: for each declared range, hash the
+        // gap between the cursor and the range's start, then jump the cursor
+        // past the range; whatever remains after the last range is hashed
+        // too. A range wholly before or after the chunk moves nothing.
+        let mut cursor = position;
+        for (start, end) in &bounds {
+            if *end <= cursor {
+                continue;
             }
+            if *start >= chunk_end {
+                break;
+            }
+            let stop = (*start).max(cursor).min(chunk_end);
+            if cursor < stop {
+                let from = usize::try_from(cursor - position).expect("chunk offset fits usize");
+                let to = usize::try_from(stop - position).expect("chunk offset fits usize");
+                hasher.update(&bytes[from..to]);
+            }
+            cursor = cursor.max((*end).min(chunk_end));
+        }
+        if cursor < chunk_end {
+            let from = usize::try_from(cursor - position).expect("chunk offset fits usize");
+            let to = usize::try_from(chunk_end - position).expect("chunk offset fits usize");
+            hasher.update(&bytes[from..to]);
         }
         position = chunk_end;
     }
@@ -1821,7 +1877,7 @@ mod tests {
             outside.extend_from_slice(&original[..start]);
             outside.extend_from_slice(&original[end..]);
             assert_eq!(
-                digest_outside_range(&file, offset, length).expect("bracket must compute"),
+                digest_outside_ranges(&file, &[(offset, length)]).expect("bracket must compute"),
                 sha256(&outside),
                 "{tag}: the bracket must equal the hash of exactly the outside bytes"
             );
@@ -1831,7 +1887,8 @@ mod tests {
             inside_changed[start] ^= 0xFF;
             let (inside_path, inside_file) = scratch_file(tag, &inside_changed);
             assert_eq!(
-                digest_outside_range(&inside_file, offset, length).expect("bracket must compute"),
+                digest_outside_ranges(&inside_file, &[(offset, length)])
+                    .expect("bracket must compute"),
                 sha256(&outside),
                 "{tag}: a change inside the declared range must not move the bracket"
             );
@@ -1843,7 +1900,8 @@ mod tests {
             outside_changed[victim] ^= 0xFF;
             let (outside_path, outside_file) = scratch_file(tag, &outside_changed);
             assert_ne!(
-                digest_outside_range(&outside_file, offset, length).expect("bracket must compute"),
+                digest_outside_ranges(&outside_file, &[(offset, length)])
+                    .expect("bracket must compute"),
                 sha256(&outside),
                 "{tag}: a change outside the declared range must move the bracket"
             );
@@ -1906,12 +1964,12 @@ mod tests {
         // The whole file is outside a range that starts past its end, so the
         // bracket is simply the file's hash.
         assert_eq!(
-            digest_outside_range(&file, 4096, 8).expect("bracket must compute"),
+            digest_outside_ranges(&file, &[(4096, 8)]).expect("bracket must compute"),
             sha256(&[0xAB; 16])
         );
         // And an offset whose end overflows refuses instead of wrapping.
         assert_eq!(
-            digest_outside_range(&file, u64::MAX, 8),
+            digest_outside_ranges(&file, &[(u64::MAX, 8)]),
             Err(Refusal::WrongSuiteShape)
         );
 
@@ -1933,20 +1991,17 @@ mod tests {
         // mapping from device offsets to backing offsets is the acceptance's
         // measurement, not this test's.
         let (device_path, device) = scratch_file("write-device", &original);
-        let (backing_path, backing) = scratch_file("write-backing", &original);
         // The range must not already hold the replacement, or a write that
         // did nothing would satisfy the read-back below.
         assert_ne!(original[512..520], REPLACEMENT);
 
-        let contract = AdmittedContract {
-            fixture: "scratch-fixture",
+        let range = AdmittedRange {
             offset: 512,
             length: 8,
             replacement: &REPLACEMENT,
-            backing,
         };
         let written =
-            write_contracted_range(&device, &contract).expect("the contracted write must land");
+            write_contracted_range(&device, &range).expect("the contracted write must land");
         assert_eq!(written, REPLACEMENT.len());
 
         // The whole object, read back independently: the replacement at
@@ -1959,10 +2014,100 @@ mod tests {
             "the write must land at the contracted offset and nowhere else"
         );
 
-        drop((contract, device));
-        for path in [device_path, backing_path] {
-            std::fs::remove_file(path).expect("remove scratch file");
+        drop(device);
+        std::fs::remove_file(device_path).expect("remove scratch file");
+    }
+
+    // Requirements: SAFE-005, SAFE-007
+    //   The multi-range digest bracket hashes exactly the bytes outside the union of sorted non-overlapping ranges, and refuses unsorted or overlapping input rather than mis-partitioning the file
+    // Work-Package: WP-020
+    // Evidence: the_multi_range_bracket_covers_exactly_the_bytes_outside_the_union
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_multi_range_bracket_covers_exactly_the_bytes_outside_the_union() {
+        // Larger than the 8 KiB read chunk, so ranges can straddle one.
+        let original: Vec<u8> = (0..20_000_u32).map(|index| (index % 251) as u8).collect();
+        let chunk = 8 * 1024_u64;
+
+        for (tag, ranges) in [
+            ("two-disjoint", vec![(512_u64, 8_u64), (1024, 16)]),
+            ("touching", vec![(512, 8), (520, 8)]),
+            ("straddling-a-chunk", vec![(chunk - 4, 8), (chunk + 100, 8)]),
+            ("one-inside-each-chunk", vec![(100, 8), (chunk + 200, 8)]),
+            ("first-at-zero-last-at-eof", vec![(0, 8), (20_000 - 8, 8)]),
+            ("three", vec![(0, 4), (512, 8), (9000, 1000)]),
+        ] {
+            let (path, file) = scratch_file(tag, &original);
+
+            // The independent answer: the bytes outside every range,
+            // concatenated in file order.
+            let mut outside = Vec::new();
+            let mut cursor = 0_usize;
+            for (offset, length) in &ranges {
+                let start = usize::try_from(*offset).expect("fits");
+                let end = usize::try_from(offset + length).expect("fits");
+                outside.extend_from_slice(&original[cursor..start]);
+                cursor = end;
+            }
+            outside.extend_from_slice(&original[cursor..]);
+
+            assert_eq!(
+                digest_outside_ranges(&file, &ranges).expect("bracket must compute"),
+                sha256(&outside),
+                "{tag}: the bracket must equal the hash of exactly the bytes outside the union"
+            );
+
+            // A byte inside ANY range must not move the bracket; a byte
+            // outside every range must.
+            let inside_victim = usize::try_from(ranges[1].0).expect("fits");
+            let mut inside_changed = original.clone();
+            inside_changed[inside_victim] ^= 0xFF;
+            let (inside_path, inside_file) = scratch_file(tag, &inside_changed);
+            assert_eq!(
+                digest_outside_ranges(&inside_file, &ranges).expect("bracket must compute"),
+                sha256(&outside),
+                "{tag}: a change inside a declared range must not move the bracket"
+            );
+
+            let outside_victim = usize::try_from(ranges[0].0 + ranges[0].1).expect("fits");
+            let outside_victim = if ranges.len() > 1
+                && u64::try_from(outside_victim).expect("fits") == ranges[1].0
+            {
+                // Touching ranges: the byte after range 0 is range 1's first.
+                usize::try_from(ranges[1].0 + ranges[1].1).expect("fits")
+            } else {
+                outside_victim
+            };
+            let mut outside_changed = original.clone();
+            outside_changed[outside_victim] ^= 0xFF;
+            let (outside_path, outside_file) = scratch_file(tag, &outside_changed);
+            assert_ne!(
+                digest_outside_ranges(&outside_file, &ranges).expect("bracket must compute"),
+                sha256(&outside),
+                "{tag}: a change outside every declared range must move the bracket"
+            );
+
+            drop((file, inside_file, outside_file));
+            for path in [path, inside_path, outside_path] {
+                std::fs::remove_file(path).expect("remove scratch file");
+            }
         }
+
+        // Unsorted or overlapping input refuses rather than hashing a
+        // mis-partitioned complement.
+        let (path, file) = scratch_file("refuse", &original);
+        assert_eq!(
+            digest_outside_ranges(&file, &[(1024, 8), (512, 8)]),
+            Err(Refusal::WrongSuiteShape),
+            "unsorted ranges must refuse"
+        );
+        assert_eq!(
+            digest_outside_ranges(&file, &[(512, 16), (520, 8)]),
+            Err(Refusal::WrongSuiteShape),
+            "overlapping ranges must refuse"
+        );
+        drop(file);
+        std::fs::remove_file(path).expect("remove scratch file");
     }
 
     // Requirements: SAFE-005, SAFE-007

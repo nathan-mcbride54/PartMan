@@ -7,6 +7,43 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-020 increment 2i: the destructive executor becomes general.** The 2g
+  registry always compiled the general contract shape — N fixtures, N
+  non-overlapping ranges each — but the 2h executor deliberately refused
+  everything except one fixture with one range, and its own comment said a
+  suite outgrowing that shape gets a new executor rather than a widened one.
+  This is that reviewed replacement, and it registers nothing: the registry
+  still holds exactly the 2h suite, no selector changes, every
+  generic-refusal test keeps its meaning, and nothing new can run. The
+  admission reduction now binds each declared fixture to the verified held
+  object of exactly its catalogue basename — tested under an authorization
+  deliberately ordered opposite to the declaration, with the binding proven
+  by reading the held objects' bytes so a positional zip fails by bytes
+  rather than by names — and re-states the general preconditions as its own.
+  The pure protocol generalizes per fixture to N ranges (every range
+  pre-read and required to differ from its replacement, so a suite cannot
+  ride one provable change past a range that would prove nothing; one
+  bracket over the complement of the union; one write per range between the
+  rebind probe and the sync; per-range post-equality after confirmed
+  detach), and a suite executor adds the multi-fixture discipline: a
+  pre-flight hashes every fixture's held bytes before any fixture is
+  attached, so a suite whose second fixture is wrong refuses before its
+  first is touched, then complete self-contained chains run in declared
+  order. On the one-fixture, one-range shape the general protocol produces
+  exactly the call sequence the 2h boundary recorded, and that containment
+  is itself a pinned test. The multi-range bracket refuses unsorted or
+  overlapping input rather than mis-partitioning the file, with its
+  complement arithmetic pinned against independently computed digests
+  including chunk-straddling ranges. Every new gate was mutation-verified:
+  the removed pre-flight, a skipped second write, a skipped second
+  pre-read, the bracket cursor arithmetic, and the positional target zip
+  each fail a named test. The report gains `fixtures_executed` and
+  `ranges_written` under the same allowlist discipline; the public surface
+  gains no entry point. This merge re-opens both acceptances — the 2e
+  stopping condition trips on it by construction — and the increment's row
+  moves to Delivered only after the sitting re-takes them through the
+  general executor.
+
 - **WP-020: both Tier-2 acceptances re-taken on the issue-fix tree; the 2e
   stopping condition is re-pinned at `68298f2`.** The #248/#249/#250 merges
   (PRs #251–#253) landed three non-Markdown paths after `4fbb2f9` — two of

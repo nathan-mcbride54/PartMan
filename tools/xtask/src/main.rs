@@ -1233,6 +1233,8 @@ fn print_destructive_report(
     report: &partman_ffi_linux_loop::DestructiveReport,
 ) {
     println!("destructive suite `{}` passed:", suite.name);
+    println!("  fixtures_executed={}", report.fixtures_executed());
+    println!("  ranges_written={}", report.ranges_written());
     println!(
         "  contracted_bytes_written={}",
         report.contracted_bytes_written()

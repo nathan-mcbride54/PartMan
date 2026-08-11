@@ -149,14 +149,33 @@ impl RunReport {
 pub struct DestructiveReport {
     contracted_bytes_written: usize,
     detachments_confirmed: u8,
+    fixtures_executed: u8,
+    ranges_written: usize,
 }
 
 impl DestructiveReport {
-    /// Bytes written through the held loop-device descriptor. Equal to the
-    /// admitted contract's replacement length; a disagreement refused.
+    /// Bytes written through the held loop-device descriptors, summed across
+    /// every declared range of every fixture. Equal to the admitted
+    /// contract's total replacement length; a disagreement refused.
     #[must_use]
     pub const fn contracted_bytes_written(&self) -> usize {
         self.contracted_bytes_written
+    }
+
+    /// Declared fixtures whose complete chains ran. Equal to the suite's
+    /// declared fixture count; a run that could not complete every chain
+    /// refused instead of reporting.
+    #[must_use]
+    pub const fn fixtures_executed(&self) -> u8 {
+        self.fixtures_executed
+    }
+
+    /// Declared ranges written, summed across fixtures. Equal to the
+    /// contract's declared range count; each write's length was checked
+    /// against its own range.
+    #[must_use]
+    pub const fn ranges_written(&self) -> usize {
+        self.ranges_written
     }
 
     /// Whether the attachment was configured read-write, so the kernel's own
@@ -194,12 +213,12 @@ impl DestructiveReport {
         true
     }
 
-    /// Whether the declared range *changed* to exactly the contracted
+    /// Whether every declared range *changed* to exactly its contracted
     /// replacement bytes.
     ///
-    /// A difference across the run, not equality after it: the range is read
-    /// through the held backing descriptor before the write and required to
-    /// differ from the replacement, and read again after confirmed detach and
+    /// A difference across the run, not equality after it: each range is read
+    /// through the held backing descriptor before the writes and required to
+    /// differ from its replacement, and read again after confirmed detach and
     /// required to equal it. Equality alone would also hold for a range that
     /// already carried those bytes and was never written.
     #[must_use]
@@ -207,8 +226,8 @@ impl DestructiveReport {
         true
     }
 
-    /// Whether the digest over every backing byte outside the declared range
-    /// was unchanged across the run.
+    /// Whether the digest over every backing byte outside the declared
+    /// ranges was unchanged across the run, for every fixture.
     #[must_use]
     pub const fn unchanged_outside_contract(&self) -> bool {
         true
@@ -647,9 +666,11 @@ pub enum Refusal {
     ProtocolOrder,
     /// The admitted suite is not one the compiled registry holds.
     SuiteNotRegistered,
-    /// The admitted suite's shape is not the one this executor runs: exactly
-    /// one fixture contract, exactly one declared range, a non-empty
-    /// replacement, and exactly one verified target.
+    /// The admitted suite's shape is not one this executor runs: at least
+    /// one fixture contract, each with at least one declared range whose
+    /// replacement is non-empty and matches its length, ranges
+    /// non-overlapping, and exactly one verified target per declared
+    /// fixture.
     WrongSuiteShape,
     /// The held backing object's bytes are not the compiled fixture the
     /// contract names, so nothing may be attached or written.
@@ -837,9 +858,10 @@ impl Refusal {
                  run could not establish that it changed them",
             ),
             Self::WrongSuiteShape => formatter.write_str(
-                "the admitted suite is not the shape this executor runs: exactly one fixture \
-                 contract, one declared range with a non-empty replacement, and one verified \
-                 target",
+                "the admitted suite is not a shape this executor runs: at least one fixture \
+                 contract, each with at least one non-overlapping declared range whose \
+                 replacement is non-empty and matches its length, and exactly one verified \
+                 target per declared fixture",
             ),
             Self::RebindUnexpectedlyApplicable => formatter.write_str(
                 "the kernel accepted LOOP_CHANGE_FD on what must be a read-write attachment; \
@@ -1069,31 +1091,55 @@ pub fn run_probed_session(authorization: Authorization) -> Result<SessionReport,
     }
 }
 
-/// The one admitted contract, reduced to exactly what the executor writes.
+/// One declared byte range of an admitted fixture contract.
 ///
-/// Constructed only by [`consume_admission`], so the offset, length, and
-/// replacement bytes reaching the kernel are the registry's compiled data —
-/// never an argument, and never re-derived from the fixture on disk.
-pub(crate) struct AdmittedContract {
-    /// The contract's catalogue basename, used to resolve the compiled
-    /// digest the held object must match before anything is attached.
-    pub(crate) fixture: &'static str,
+/// The offsets, lengths, and replacement bytes here are the registry's
+/// compiled data — never an argument, and never re-derived from the fixture
+/// on disk.
+pub(crate) struct AdmittedRange {
     pub(crate) offset: u64,
     pub(crate) length: u64,
     pub(crate) replacement: &'static [u8],
+}
+
+/// One admitted fixture: its held verified object and its declared ranges,
+/// in the contract's declared order.
+pub(crate) struct AdmittedFixture {
+    /// The contract's catalogue basename, used to resolve the compiled
+    /// digest the held object must match before anything is attached.
+    pub(crate) fixture: &'static str,
+    pub(crate) ranges: Vec<AdmittedRange>,
     pub(crate) backing: File,
 }
 
-/// Run the one registered destructive suite over its admitted targets.
+/// The admitted contract, reduced to exactly what the executor writes:
+/// one entry per declared fixture, each holding the verified object the
+/// interlock opened for it.
 ///
-/// The attachment is read-write, which is what makes `LOOP_CHANGE_FD`
-/// inapplicable rather than merely detectable; the suite attempts that rebind
-/// mid-run, before any write, and requires the kernel to refuse it. The write
-/// is exactly the admitted contract's replacement bytes at its declared
-/// offset, through the held loop-device descriptor. Post-conditions are read
-/// only after confirmed detach and partition teardown, through the still-held
-/// backing descriptor: the declared range must equal the contracted bytes and
-/// the digest over everything outside it must be unchanged.
+/// Constructed only by [`consume_admission`].
+pub(crate) struct AdmittedContract {
+    pub(crate) fixtures: Vec<AdmittedFixture>,
+}
+
+/// Run one registered destructive suite over its admitted targets.
+///
+/// Increment 2i generalized this executor from the 2h shape (exactly one
+/// fixture, exactly one range) to the registry's full contract shape: any
+/// number of declared fixtures, each with any number of non-overlapping
+/// declared ranges. Before **any** fixture is attached, every fixture's held
+/// bytes must match the compiled catalogue — a suite whose second fixture is
+/// wrong refuses before its first is touched — and each fixture then runs a
+/// complete attach-to-post-condition chain in declared order.
+///
+/// Per fixture, the attachment is read-write, which is what makes
+/// `LOOP_CHANGE_FD` inapplicable rather than merely detectable; the chain
+/// attempts that rebind mid-run, before any write, and requires the kernel to
+/// refuse it. The writes are exactly the admitted contract's replacement
+/// bytes at their declared offsets, through the held loop-device descriptor,
+/// in declared order. Post-conditions are read only after confirmed detach
+/// and partition teardown, through the still-held backing descriptor: every
+/// declared range must equal its contracted bytes and the digest over
+/// everything outside the declared ranges must be unchanged.
 ///
 /// Regenerating the mutated backing file to the compiled catalogue is the
 /// caller's teardown obligation, recorded on the suite and discharged by the
@@ -1131,26 +1177,40 @@ pub fn run_destructive_suite(admission: Admission) -> Result<DestructiveReport, 
         // Destructured rather than dropped whole, matching `run_authorized`:
         // every field is named on this path too, so the fields stay live for
         // the compiler on platforms where no controller reads them.
-        let AdmittedContract {
+        let AdmittedContract { fixtures } = contract;
+        for AdmittedFixture {
             fixture,
-            offset,
-            length,
-            replacement,
+            ranges,
             backing,
-        } = contract;
-        drop((fixture, offset, length, replacement, backing));
+        } in fixtures
+        {
+            for AdmittedRange {
+                offset,
+                length,
+                replacement,
+            } in ranges
+            {
+                let _ = (offset, length, replacement);
+            }
+            drop((fixture, backing));
+        }
         Err(Refusal::UnsupportedPlatform)
     }
 }
 
-/// Reduce an admission to its single contract and single held object.
+/// Reduce an admission to its contracts and held objects, one per fixture.
 ///
-/// The registry already refused a target set that is not exactly the declared
-/// fixture set. This executor nonetheless states its own preconditions — one
-/// fixture, one range, a replacement matching that range, and a held object
-/// whose name is the declared one — because "the caller checked" is the shape
-/// of reasoning this package declines. A suite that outgrows this shape gets
-/// a new executor, not a widened one.
+/// The registry already refused a malformed contract and a target set that is
+/// not exactly one verified handle per declared fixture. This executor
+/// nonetheless states its own preconditions — at least one fixture, each with
+/// at least one declared range, every replacement non-empty and matching its
+/// range's length, ranges non-overlapping, and exactly one held object per
+/// declared fixture matched by basename — because "the caller checked" is
+/// the shape of reasoning this package declines. Until increment 2i this
+/// executor ran exactly the 2h shape (one fixture, one range) and its comment
+/// said a suite that outgrows the shape gets a new executor; 2i is that
+/// reviewed replacement, and the preconditions above are the general shape's,
+/// stronger at every point where the arity check used to stand in for them.
 fn consume_admission(admission: Admission) -> Result<AdmittedContract, Refusal> {
     let suite = admission.suite();
 
@@ -1170,35 +1230,92 @@ fn consume_admission(admission: Admission) -> Result<AdmittedContract, Refusal> 
         return Err(Refusal::SuiteNotRegistered);
     }
 
-    let [contract] = suite.fixtures else {
-        return Err(Refusal::WrongSuiteShape);
-    };
-    let [range] = contract.may_change else {
-        return Err(Refusal::WrongSuiteShape);
-    };
-    if range.replacement.is_empty()
-        || u64::try_from(range.replacement.len()).is_ok_and(|len| len != range.length)
-    {
-        return Err(Refusal::WrongSuiteShape);
-    }
-    let declared = contract.fixture;
+    reduce_admission(admission)
+}
 
-    let mut targets = admission.into_targets();
-    if targets.len() != 1 {
-        return Err(Refusal::WrongSuiteShape);
-    }
-    let target = targets.remove(0);
-    if target.path().file_name() != Some(OsStr::new(declared)) {
+/// The shape reduction half of [`consume_admission`], after the registry
+/// membership check.
+///
+/// Split out so the general shape is measurable at Tier 1: the registry holds
+/// exactly the 2h suite, so a multi-fixture or multi-range shape can never
+/// reach this code through `consume_admission` until a suite of that shape is
+/// registered — and a reduction whose first exercise is a registered suite's
+/// VM acceptance is exactly the untested-until-privileged shape issue #250
+/// was filed about.
+fn reduce_admission(admission: Admission) -> Result<AdmittedContract, Refusal> {
+    let suite = admission.suite();
+
+    if suite.fixtures.is_empty() {
         return Err(Refusal::WrongSuiteShape);
     }
 
-    Ok(AdmittedContract {
-        fixture: declared,
-        offset: range.offset,
-        length: range.length,
-        replacement: range.replacement,
-        backing: target.into_file(),
-    })
+    let mut targets = admission.into_targets();
+    if targets.len() != suite.fixtures.len() {
+        return Err(Refusal::WrongSuiteShape);
+    }
+
+    let mut fixtures = Vec::with_capacity(suite.fixtures.len());
+    for contract in suite.fixtures {
+        // Exactly one held object per declared fixture, matched by basename
+        // and *removed* as it is matched: a second handle carrying the same
+        // name cannot satisfy a different declared fixture, and anything left
+        // over afterwards refuses below.
+        let position = targets
+            .iter()
+            .position(|target| target.path().file_name() == Some(OsStr::new(contract.fixture)))
+            .ok_or(Refusal::WrongSuiteShape)?;
+        let target = targets.remove(position);
+
+        if contract.may_change.is_empty() {
+            return Err(Refusal::WrongSuiteShape);
+        }
+        let mut ranges = Vec::with_capacity(contract.may_change.len());
+        for range in contract.may_change {
+            if range.replacement.is_empty()
+                || u64::try_from(range.replacement.len()).is_ok_and(|len| len != range.length)
+            {
+                return Err(Refusal::WrongSuiteShape);
+            }
+            ranges.push(AdmittedRange {
+                offset: range.offset,
+                length: range.length,
+                replacement: range.replacement,
+            });
+        }
+        // Overlapping — or end-overflowing — declared ranges make "everything
+        // outside the contract" ambiguous, so the bracket's meaning depends
+        // on refusing them here even though the registry already did.
+        let mut pairs: Vec<(u64, u64)> = ranges
+            .iter()
+            .map(|range| (range.offset, range.length))
+            .collect();
+        pairs.sort_unstable();
+        for pair in pairs.windows(2) {
+            if pair[0]
+                .0
+                .checked_add(pair[0].1)
+                .is_none_or(|end| end > pair[1].0)
+            {
+                return Err(Refusal::WrongSuiteShape);
+            }
+        }
+        if let Some(last) = pairs.last()
+            && last.0.checked_add(last.1).is_none()
+        {
+            return Err(Refusal::WrongSuiteShape);
+        }
+
+        fixtures.push(AdmittedFixture {
+            fixture: contract.fixture,
+            ranges,
+            backing: target.into_file(),
+        });
+    }
+    if !targets.is_empty() {
+        return Err(Refusal::WrongSuiteShape);
+    }
+
+    Ok(AdmittedContract { fixtures })
 }
 
 fn consume_single_target(authorization: Authorization) -> Result<(FixtureRole, File), Refusal> {
@@ -1268,6 +1385,47 @@ mod tests {
         name: "test-only-unregistered-suite",
         target_class: TargetClass::GeneratedFixtureFile,
         fixtures: &UNREGISTERED_FIXTURES,
+        teardown: &[],
+    };
+
+    /// A general-shape suite for the reduction test: two fixtures, one of
+    /// them carrying two declared ranges. Never registered; the reduction is
+    /// tested directly, past the membership check `consume_admission` runs.
+    static GENERAL_SECOND_REPLACEMENT: [u8; 4] = [0xAA; 4];
+    static GENERAL_BASIC_RANGES: [IntendedChange; 2] = [
+        IntendedChange {
+            offset: 512,
+            length: 8,
+            replacement: &UNREGISTERED_REPLACEMENT,
+            reason: "the primary GPT header signature",
+        },
+        IntendedChange {
+            offset: 1024,
+            length: 4,
+            replacement: &GENERAL_SECOND_REPLACEMENT,
+            reason: "a second declared range, so the reduction carries more than one",
+        },
+    ];
+    static GENERAL_BLANK_RANGES: [IntendedChange; 1] = [IntendedChange {
+        offset: 2048,
+        length: 8,
+        replacement: &UNREGISTERED_REPLACEMENT,
+        reason: "one range of the second declared fixture",
+    }];
+    static GENERAL_FIXTURES: [FixtureContract; 2] = [
+        FixtureContract {
+            fixture: "gpt-basic-512.img",
+            may_change: &GENERAL_BASIC_RANGES,
+        },
+        FixtureContract {
+            fixture: "blank-512.img",
+            may_change: &GENERAL_BLANK_RANGES,
+        },
+    ];
+    static GENERAL_SUITE: Suite = Suite {
+        name: "test-only-general-suite",
+        target_class: TargetClass::GeneratedFixtureFile,
+        fixtures: &GENERAL_FIXTURES,
         teardown: &[],
     };
 
@@ -1491,6 +1649,72 @@ mod tests {
             run_destructive_suite(admission)
                 .expect_err("an unregistered suite must never reach a write"),
             Refusal::SuiteNotRegistered
+        );
+    }
+
+    // Requirements: SAFE-007, SAFE-005
+    //   The general reduction binds each declared fixture to the verified object of exactly that name, in declared order, carrying every declared range — proven by reading the held objects' bytes, not by matching names to names
+    // Work-Package: WP-020
+    // Evidence: the_general_reduction_binds_each_contract_to_its_own_held_object
+    #[test]
+    fn the_general_reduction_binds_each_contract_to_its_own_held_object() {
+        use std::io::{Read as _, Seek as _, SeekFrom};
+
+        let sandbox = Sandbox::new();
+        // Authorized in the OPPOSITE order to the suite's declaration, so a
+        // reduction that zipped targets to contracts positionally would hand
+        // each contract the wrong object — which the byte reads below would
+        // catch, because the two fixtures differ at offset 512.
+        let authorization = sandbox.authorization(&["blank-512.img", "gpt-basic-512.img"]);
+        let admission = partman_fixtures::registry::Admission::admit(&GENERAL_SUITE, authorization)
+            .expect("the general contract is well formed, so admission succeeds");
+
+        let contract = reduce_admission(admission).expect("the general shape reduces");
+        assert_eq!(contract.fixtures.len(), 2, "one entry per declared fixture");
+
+        let mut fixtures = contract.fixtures;
+        let blank = fixtures.pop().expect("second declared fixture");
+        let basic = fixtures.pop().expect("first declared fixture");
+
+        assert_eq!(basic.fixture, "gpt-basic-512.img");
+        assert_eq!(basic.ranges.len(), 2, "both declared ranges carried");
+        assert_eq!(
+            (basic.ranges[0].offset, basic.ranges[0].length),
+            (512, 8),
+            "ranges carried in declared order with the compiled offsets"
+        );
+        assert_eq!((basic.ranges[1].offset, basic.ranges[1].length), (1024, 4));
+        assert_eq!(blank.fixture, "blank-512.img");
+        assert_eq!(blank.ranges.len(), 1);
+
+        // The binding proof: read through each held object. The GPT fixture
+        // carries its signature at offset 512; the blank fixture carries
+        // zeros there. A name-to-name match with the wrong object attached
+        // would pass every assertion above and fail here.
+        let mut signature = [0_u8; 8];
+        let mut basic_backing = basic.backing;
+        basic_backing
+            .seek(SeekFrom::Start(512))
+            .expect("seek the held object");
+        basic_backing
+            .read_exact(&mut signature)
+            .expect("read the held object");
+        assert_eq!(
+            &signature, b"EFI PART",
+            "the first contract holds the GPT fixture"
+        );
+
+        let mut blank_bytes = [0_u8; 8];
+        let mut blank_backing = blank.backing;
+        blank_backing
+            .seek(SeekFrom::Start(512))
+            .expect("seek the held object");
+        blank_backing
+            .read_exact(&mut blank_bytes)
+            .expect("read the held object");
+        assert_eq!(
+            blank_bytes, [0; 8],
+            "the second contract holds the blank fixture"
         );
     }
 
