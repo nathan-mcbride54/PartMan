@@ -164,12 +164,19 @@ fact that backs the refusal is a compiled destructive-suite registry, and a
 generic request selects no suite from it. A pass over no suite remains
 forbidden.
 
-Increment 2h registered the first destructive suite, reachable only through
-its exact selector:
+Increment 2h registered the first destructive suite, and increment 2j the
+second — the first to exercise increment 2i's general executor beyond one
+range — each reachable only through its exact selector:
 
 ```text
 cargo xtask test --tier 2 --profile destructive --suite gpt-basic-512-signature-erase
+cargo xtask test --tier 2 --profile destructive --suite gpt-basic-512-both-signatures-erase
 ```
+
+The second erases both of the image's GPT header signatures in one two-range
+run: the primary at offset 512 and the backup at the last 512-byte LBA, each
+eight bytes replaced with zeros, everything outside the two ranges pinned by
+one digest bracket over the complement of their union.
 
 It writes exactly one contracted range — eight bytes at offset 512, the
 primary GPT header's signature field, replaced with zeros — through a

@@ -7,6 +7,37 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-020 increment 2j: the second destructive suite, and the first
+  two-range one, implemented and Tier-1-proven; its VM acceptance is not yet
+  taken.** `gpt-basic-512-both-signatures-erase` is registered: one fixture,
+  two declared eight-byte ranges replaced with zeros — the primary GPT
+  header's signature at offset 512, byte-for-byte the range the 2h suite
+  writes, and the backup header's signature at offset 4,193,792, the last
+  512-byte LBA of the 4 MiB image, measured on the generated image before
+  the contract was written. A drifted backup offset fails closed twice
+  before any write: admission re-checks the bound against the compiled
+  generated length, and the run's differs-before-the-write requirement
+  refuses a range that is not carrying a signature. Both edit-detectors
+  flipped as the 2g and 2i boundaries provide — the registry shape pin
+  became `the_shipped_registry_holds_exactly_the_2h_and_2j_suites` and the
+  xtask refusal-count pin moved from one to two, each firing on the edit —
+  and every generic-refusal test was re-read, with the re-readings recorded
+  in the count pin's comment and on the registering pull request. No
+  executor change: 2i's general executor runs the suite as compiled data,
+  and the shipped two-range shape is reduced through the real path
+  (membership check included) by a new Tier-1 test, so the shape is
+  executed before any privileged kernel meets it. The shared status
+  documents' availability sentences (`AGENTS.md`, `CONTRIBUTING.md`) are
+  repaired in the same change: both still claimed a single runnable
+  higher-tier acceptance, stale since the SI-35 selector and the 2h suite
+  registered — the exact drift the increment 2e grant was widened to
+  prevent. Mutation-checked: a drifted backup offset fails both shape pins.
+  The delivery condition is the suite's operator-run VM acceptance:
+  one sitting, 2e re-taken first on a pristine tree, the 2h suite re-taken,
+  then the two-range suite's first acceptance with `EFI PART` at both
+  offsets before, eight zeros in between, and `fixtures_executed=1`,
+  `ranges_written=2` reported.
+
 - **WP-020 increment 2i is Delivered: both acceptances re-taken through the
   general executor, and the 2e stopping condition is re-pinned at
   `0625b07`.** The 2i merge replaced the executor both Tier-2 acceptances

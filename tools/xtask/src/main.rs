@@ -6335,25 +6335,29 @@ Mention Section 1.99 in prose.
             panic!("the generic refusal must be a safety refusal");
         };
         assert!(message.contains("selects no suite"), "{message}");
-        // Was pinned at zero by increment 2g as its reviewed edit-detector.
-        // Increment 2h registered the first suite and this assertion fired,
-        // which is the moment the 2g boundary reserved for re-reading every
-        // generic-refusal test. Re-read at that edit, each still true and
-        // each for a stated reason:
+        // Was pinned at zero by increment 2g as its reviewed edit-detector,
+        // moved to one when increment 2h registered the first suite, and to
+        // two when increment 2j registered the two-range suite — this
+        // assertion fired at each edit, which is the moment the 2g boundary
+        // reserved for re-reading every generic-refusal test. Re-read at the
+        // 2j edit, each still true and each for a stated reason:
         //
         // - `unavailable_destructive_tiers_fail_closed`: a tier request with
         //   no profile never reaches the registry; it fails on the interlock's
-        //   first factor. Unchanged in meaning.
-        // - `a_destructive_tier_refuses_even_with_the_profile_word`: now
-        //   backed by "a generic request selects no suite" rather than by
-        //   "no suite exists". Its comment says so.
+        //   first factor. Unchanged in meaning by a second suite.
+        // - `a_destructive_tier_refuses_even_with_the_profile_word`: backed
+        //   by "a generic request selects no suite", which two registered
+        //   suites make no less true — a generic request still names neither.
+        // - `a_suite_selector_resolves_only_a_compiled_registry_name`: its
+        //   near-miss list still refuses; the new name parses only in the
+        //   exact registered shape, asserted there.
         // - this test: the count is the fact, and it is compiled rather than
-        //   asserted. A second suite moves it again, deliberately.
+        //   asserted. A third suite moves it again, deliberately.
         //
         // The number is still pinned rather than computed, so registering
         // another suite is a visible edit and not a silent one.
-        assert_eq!(super::registry::registered().len(), 1);
-        assert!(message.contains("holds 1 suite(s)"), "{message}");
+        assert_eq!(super::registry::registered().len(), 2);
+        assert!(message.contains("holds 2 suite(s)"), "{message}");
         assert!(
             message.contains("authorized 13 disposable target(s)"),
             "{message}"
@@ -6383,6 +6387,25 @@ Mention Section 1.99 in prose.
                 profile: Some("destructive".to_owned()),
                 acceptance: None,
                 suite: Some(registered),
+            }
+        );
+        let second: &'static super::registry::Suite = &super::registry::registered()[1];
+        assert_eq!(
+            parse(&args(&[
+                "test",
+                "--tier",
+                "2",
+                "--profile",
+                "destructive",
+                "--suite",
+                "gpt-basic-512-both-signatures-erase",
+            ]))
+            .expect("the 2j suite must parse"),
+            Task::Test {
+                tier: 2,
+                profile: Some("destructive".to_owned()),
+                acceptance: None,
+                suite: Some(second),
             }
         );
 
