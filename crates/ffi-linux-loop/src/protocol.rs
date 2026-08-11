@@ -236,12 +236,16 @@ pub(super) enum RebindProbe {
     KernelAccepted,
 }
 
-/// Increment 2h's destructive boundary, mirrored from [`Controller`].
+/// The destructive boundary, mirrored from [`Controller`]. Introduced by
+/// increment 2h for the one-fixture, one-range shape; generalized by 2i to
+/// the registry's full contract shape, with the range methods indexed.
 ///
-/// The write method carries no arguments: the controller holds the admitted
-/// contract — offset, length, replacement bytes — and writes exactly that,
-/// so a protocol bug cannot direct the write somewhere else. The bracket and
-/// range reads go through the held backing descriptor, never a path.
+/// The write method takes a range index, never bytes or an offset: the
+/// controller holds the admitted contract — offsets, lengths, replacement
+/// bytes — and writes exactly the indexed range, so a protocol bug can
+/// misorder or skip writes, which the pure tests pin, but it cannot direct a
+/// write somewhere the contract does not name. The bracket and range reads
+/// go through the held backing descriptor, never a path.
 pub(super) trait DestructiveController {
     type Attachment;
 
@@ -255,8 +259,8 @@ pub(super) trait DestructiveController {
     /// is what this package declines.
     fn initial_backing_matches_catalogue(&mut self) -> Result<bool, Refusal>;
 
-    /// Hash every backing byte outside the declared range, through the held
-    /// backing descriptor.
+    /// Hash every backing byte outside every declared range, through the
+    /// held backing descriptor.
     fn bracket_digest(&mut self) -> Result<[u8; 32], Refusal>;
 
     fn configure(&mut self, request: ConfigureRequest) -> Result<Self::Attachment, ConfigureError>;
@@ -271,32 +275,49 @@ pub(super) trait DestructiveController {
         attachment: &Self::Attachment,
     ) -> Result<RebindProbe, Refusal>;
 
-    /// Write the admitted contract — exactly its bytes at exactly its offset —
-    /// through the held loop-device descriptor, returning the count written.
-    fn write_contracted(&mut self, attachment: &Self::Attachment) -> Result<usize, Refusal>;
+    /// Write the indexed declared range — exactly its contracted bytes at
+    /// exactly its contracted offset — through the held loop-device
+    /// descriptor, returning the count written. An index the contract does
+    /// not declare refuses.
+    fn write_contracted(
+        &mut self,
+        attachment: &Self::Attachment,
+        index: usize,
+    ) -> Result<usize, Refusal>;
 
     /// `fdatasync` the held loop-device descriptor.
     fn sync(&mut self, attachment: &Self::Attachment) -> Result<(), Refusal>;
 
     fn detach(&mut self, attachment: Self::Attachment) -> Result<(), Refusal>;
 
-    /// Read the declared range back through the held backing descriptor.
-    fn read_declared_range(&mut self) -> Result<Vec<u8>, Refusal>;
+    /// Read the indexed declared range back through the held backing
+    /// descriptor. An index the contract does not declare refuses.
+    fn read_declared_range(&mut self, index: usize) -> Result<Vec<u8>, Refusal>;
 }
 
-/// Execute the one registered destructive suite's protocol.
+/// Execute one admitted fixture's destructive chain.
 ///
-/// The order is the discipline: bracket before attach, verify before the
-/// rebind probe, the probe before the write, sync and re-verify before
+/// The order is the discipline: every declared range pre-read before the
+/// bracket, bracket before attach, verify before the rebind probe, the probe
+/// before any write, every write before the sync, sync and re-verify before
 /// detach, and every post-condition read only after confirmed detach. Any
 /// refusal on the attached path still reaches [`DestructiveController::detach`],
 /// whose own failure wins — a mutated fixture with uncertain cleanup must
 /// refuse, not report.
+///
+/// `expected_replacements` is the registry's compiled per-range data, one
+/// entry per declared range in declared order, passed in by the caller so the
+/// post-conditions compare against the contract rather than against anything
+/// the controller could have recomputed on the way through.
 pub(super) fn execute_destructive<C: DestructiveController>(
     controller: &mut C,
-    expected_replacement: &[u8],
+    expected_replacements: &[&[u8]],
 ) -> Result<DestructiveReport, Refusal> {
-    if expected_replacement.is_empty() {
+    if expected_replacements.is_empty()
+        || expected_replacements
+            .iter()
+            .any(|replacement| replacement.is_empty())
+    {
         return Err(Refusal::WrongSuiteShape);
     }
 
@@ -304,13 +325,17 @@ pub(super) fn execute_destructive<C: DestructiveController>(
         return Err(Refusal::InitialBackingHashMismatch);
     }
 
-    // Read the declared range *before* the write. Without this the run could
-    // only ever establish that the range equals the replacement afterwards —
-    // which is also true of a range that already held those bytes and was
-    // never written at all. `changed_exactly_as_contracted` names a change,
-    // so the difference across the run has to be measured, not inferred.
-    if controller.read_declared_range()? == expected_replacement {
-        return Err(Refusal::RangeAlreadyContracted);
+    // Read every declared range *before* the writes. Without this the run
+    // could only ever establish that a range equals its replacement
+    // afterwards — which is also true of a range that already held those
+    // bytes and was never written at all. `changed_exactly_as_contracted`
+    // names a change, so the difference across the run has to be measured
+    // per range, not inferred: a suite may not ride one changed range past
+    // another that would prove nothing.
+    for (index, expected) in expected_replacements.iter().enumerate() {
+        if controller.read_declared_range(index)? == *expected {
+            return Err(Refusal::RangeAlreadyContracted);
+        }
     }
 
     let bracket_before = controller.bracket_digest()?;
@@ -328,9 +353,12 @@ pub(super) fn execute_destructive<C: DestructiveController>(
             RebindProbe::KernelRefused => {}
             RebindProbe::KernelAccepted => return Err(Refusal::RebindUnexpectedlyApplicable),
         }
-        written = controller.write_contracted(&attachment)?;
-        if written != expected_replacement.len() {
-            return Err(Refusal::ContractedWriteWrongLength);
+        for (index, expected) in expected_replacements.iter().enumerate() {
+            let count = controller.write_contracted(&attachment, index)?;
+            if count != expected.len() {
+                return Err(Refusal::ContractedWriteWrongLength);
+            }
+            written += count;
         }
         controller.sync(&attachment)?;
         controller.verify(&attachment)
@@ -339,8 +367,10 @@ pub(super) fn execute_destructive<C: DestructiveController>(
     detach?;
     attached_result?;
 
-    if controller.read_declared_range()? != expected_replacement {
-        return Err(Refusal::DeclaredRangeMismatch);
+    for (index, expected) in expected_replacements.iter().enumerate() {
+        if controller.read_declared_range(index)? != *expected {
+            return Err(Refusal::DeclaredRangeMismatch);
+        }
     }
     if controller.bracket_digest()? != bracket_before {
         return Err(Refusal::OutsideBracketChanged);
@@ -349,6 +379,57 @@ pub(super) fn execute_destructive<C: DestructiveController>(
     Ok(DestructiveReport {
         contracted_bytes_written: written,
         detachments_confirmed: 1,
+        fixtures_executed: 1,
+        ranges_written: expected_replacements.len(),
+    })
+}
+
+/// Execute every admitted fixture's chain, in declared order, behind a
+/// pre-flight that checks **every** fixture's held bytes before any fixture
+/// is attached.
+///
+/// The pre-flight is the multi-fixture discipline: without it, a suite whose
+/// second fixture is not the compiled image would refuse only after its
+/// first fixture had already been mutated. Each fixture then runs its
+/// complete [`execute_destructive`] chain — which re-checks its own initial
+/// digest as its first step, so every chain stays self-contained — and the
+/// suite report is the sum of the per-fixture reports.
+pub(super) fn execute_destructive_suite<C: DestructiveController>(
+    fixtures: &mut [(C, Vec<&[u8]>)],
+) -> Result<DestructiveReport, Refusal> {
+    if fixtures.is_empty() {
+        return Err(Refusal::WrongSuiteShape);
+    }
+    let fixtures_executed = u8::try_from(fixtures.len()).map_err(|_| Refusal::WrongSuiteShape)?;
+
+    for (controller, replacements) in fixtures.iter_mut() {
+        if replacements.is_empty()
+            || replacements
+                .iter()
+                .any(|replacement| replacement.is_empty())
+        {
+            return Err(Refusal::WrongSuiteShape);
+        }
+        if !controller.initial_backing_matches_catalogue()? {
+            return Err(Refusal::InitialBackingHashMismatch);
+        }
+    }
+
+    let mut contracted_bytes_written = 0_usize;
+    let mut ranges_written = 0_usize;
+    let mut detachments_confirmed = 0_u8;
+    for (controller, replacements) in fixtures.iter_mut() {
+        let report = execute_destructive(controller, replacements)?;
+        contracted_bytes_written += report.contracted_bytes_written();
+        ranges_written += report.ranges_written();
+        detachments_confirmed += report.detachments_confirmed();
+    }
+
+    Ok(DestructiveReport {
+        contracted_bytes_written,
+        detachments_confirmed,
+        fixtures_executed,
+        ranges_written,
     })
 }
 
@@ -1624,6 +1705,11 @@ mod tests {
     /// establish that it *changed*.
     const PRE_STATE: &[u8] = b"EFI PART";
 
+    /// A second declared range's contract and pre-state, for the multi-range
+    /// shapes increment 2i's general executor runs.
+    const CONTRACTED_SECOND: &[u8] = &[0xAA; 4];
+    const PRE_STATE_SECOND: &[u8] = b"beef";
+
     #[derive(Debug, PartialEq, Eq)]
     enum DestructiveEvent {
         InitialDigest,
@@ -1631,10 +1717,10 @@ mod tests {
         Configure(ConfigureRequest),
         Verify,
         RebindProbe,
-        Write,
+        Write(usize),
         Sync,
         Detach,
-        ReadRange,
+        ReadRange(usize),
     }
 
     struct FakeDestructive {
@@ -1644,7 +1730,7 @@ mod tests {
         configure: Option<Result<FakeAttachment, ConfigureError>>,
         verify: VecDeque<Result<(), Refusal>>,
         rebind: Result<RebindProbe, Refusal>,
-        write: Result<usize, Refusal>,
+        writes: VecDeque<Result<usize, Refusal>>,
         sync: Result<(), Refusal>,
         detach: Result<(), Refusal>,
         ranges: VecDeque<Result<Vec<u8>, Refusal>>,
@@ -1659,7 +1745,7 @@ mod tests {
                 configure: Some(Ok(FakeAttachment(1))),
                 verify: VecDeque::from([Ok(()), Ok(())]),
                 rebind: Ok(RebindProbe::KernelRefused),
-                write: Ok(CONTRACTED.len()),
+                writes: VecDeque::from([Ok(CONTRACTED.len())]),
                 sync: Ok(()),
                 detach: Ok(()),
                 // Before the write the range holds the signature; after it,
@@ -1668,8 +1754,25 @@ mod tests {
             }
         }
 
+        /// A scripted pass over two declared ranges: both pre-states differ
+        /// from their replacements, both writes land, both post-reads return
+        /// the contracted bytes.
+        fn success_two_ranges() -> Self {
+            let mut fake = Self::success();
+            fake.writes = VecDeque::from([Ok(CONTRACTED.len()), Ok(CONTRACTED_SECOND.len())]);
+            fake.ranges = VecDeque::from([
+                Ok(PRE_STATE.to_vec()),
+                Ok(PRE_STATE_SECOND.to_vec()),
+                Ok(CONTRACTED.to_vec()),
+                Ok(CONTRACTED_SECOND.to_vec()),
+            ]);
+            fake
+        }
+
         fn wrote(&self) -> bool {
-            self.events.contains(&DestructiveEvent::Write)
+            self.events
+                .iter()
+                .any(|event| matches!(event, DestructiveEvent::Write(_)))
         }
 
         fn detached(&self) -> bool {
@@ -1717,9 +1820,15 @@ mod tests {
             self.rebind.clone()
         }
 
-        fn write_contracted(&mut self, _attachment: &Self::Attachment) -> Result<usize, Refusal> {
-            self.events.push(DestructiveEvent::Write);
-            self.write.clone()
+        fn write_contracted(
+            &mut self,
+            _attachment: &Self::Attachment,
+            index: usize,
+        ) -> Result<usize, Refusal> {
+            self.events.push(DestructiveEvent::Write(index));
+            self.writes
+                .pop_front()
+                .expect("fake write script is complete")
         }
 
         fn sync(&mut self, _attachment: &Self::Attachment) -> Result<(), Refusal> {
@@ -1732,8 +1841,8 @@ mod tests {
             self.detach.clone()
         }
 
-        fn read_declared_range(&mut self) -> Result<Vec<u8>, Refusal> {
-            self.events.push(DestructiveEvent::ReadRange);
+        fn read_declared_range(&mut self, index: usize) -> Result<Vec<u8>, Refusal> {
+            self.events.push(DestructiveEvent::ReadRange(index));
             self.ranges
                 .pop_front()
                 .expect("fake range script is complete")
@@ -1746,28 +1855,128 @@ mod tests {
     // Evidence: the_destructive_protocol_runs_its_steps_in_the_required_order
     #[test]
     fn the_destructive_protocol_runs_its_steps_in_the_required_order() {
+        // The one-fixture, one-range shape — increment 2h's, and the shape
+        // the 2026-08-11 acceptances measured. Increment 2i generalized the
+        // executor, and this pin is what proves the general protocol still
+        // contains the accepted one: on this shape it produces exactly the
+        // sequence the 2h boundary recorded.
         let mut fake = FakeDestructive::success();
-        let report = execute_destructive(&mut fake, CONTRACTED).expect("the scripted run passes");
+        let report =
+            execute_destructive(&mut fake, &[CONTRACTED]).expect("the scripted run passes");
 
         assert_eq!(report.contracted_bytes_written(), CONTRACTED.len());
         assert_eq!(report.detachments_confirmed(), 1);
+        assert_eq!(report.fixtures_executed(), 1);
+        assert_eq!(report.ranges_written(), 1);
         assert_eq!(
             fake.events,
             vec![
                 DestructiveEvent::InitialDigest,
-                DestructiveEvent::ReadRange,
+                DestructiveEvent::ReadRange(0),
                 DestructiveEvent::Bracket,
                 DestructiveEvent::Configure(ConfigureRequest::DESTRUCTIVE_SUITE),
                 DestructiveEvent::Verify,
                 DestructiveEvent::RebindProbe,
-                DestructiveEvent::Write,
+                DestructiveEvent::Write(0),
                 DestructiveEvent::Sync,
                 DestructiveEvent::Verify,
                 DestructiveEvent::Detach,
-                DestructiveEvent::ReadRange,
+                DestructiveEvent::ReadRange(0),
                 DestructiveEvent::Bracket,
             ],
             "the order is the pre-write discipline; a reordering is a different protocol"
+        );
+    }
+
+    // Requirements: SAFE-007, SAFE-005
+    //   Over multiple declared ranges the protocol pre-reads every range before the bracket, writes every range between the rebind probe and the sync, and post-reads every range only after confirmed detach, all in declared order
+    // Work-Package: WP-020
+    // Evidence: the_multi_range_protocol_covers_every_range_in_declared_order
+    #[test]
+    fn the_multi_range_protocol_covers_every_range_in_declared_order() {
+        let mut fake = FakeDestructive::success_two_ranges();
+        let report = execute_destructive(&mut fake, &[CONTRACTED, CONTRACTED_SECOND])
+            .expect("the scripted two-range run passes");
+
+        assert_eq!(
+            report.contracted_bytes_written(),
+            CONTRACTED.len() + CONTRACTED_SECOND.len()
+        );
+        assert_eq!(report.detachments_confirmed(), 1);
+        assert_eq!(report.fixtures_executed(), 1);
+        assert_eq!(report.ranges_written(), 2);
+        assert_eq!(
+            fake.events,
+            vec![
+                DestructiveEvent::InitialDigest,
+                DestructiveEvent::ReadRange(0),
+                DestructiveEvent::ReadRange(1),
+                DestructiveEvent::Bracket,
+                DestructiveEvent::Configure(ConfigureRequest::DESTRUCTIVE_SUITE),
+                DestructiveEvent::Verify,
+                DestructiveEvent::RebindProbe,
+                DestructiveEvent::Write(0),
+                DestructiveEvent::Write(1),
+                DestructiveEvent::Sync,
+                DestructiveEvent::Verify,
+                DestructiveEvent::Detach,
+                DestructiveEvent::ReadRange(0),
+                DestructiveEvent::ReadRange(1),
+                DestructiveEvent::Bracket,
+            ],
+            "every range is covered at every phase, one bracket spans them all, and one \
+             sync follows the last write"
+        );
+    }
+
+    // Requirements: SAFE-007, SAFE-005
+    //   A second declared range that already holds its contracted bytes refuses before anything is attached, even though the first range would prove a change
+    // Work-Package: WP-020
+    // Evidence: a_second_range_already_holding_its_contracted_bytes_refuses
+    #[test]
+    fn a_second_range_already_holding_its_contracted_bytes_refuses() {
+        let mut fake = FakeDestructive::success_two_ranges();
+        // The first range differs from its replacement; the second already
+        // equals it. A suite may not ride one provable change past another
+        // range that would prove nothing.
+        fake.ranges = VecDeque::from([Ok(PRE_STATE.to_vec()), Ok(CONTRACTED_SECOND.to_vec())]);
+
+        let refusal = execute_destructive(&mut fake, &[CONTRACTED, CONTRACTED_SECOND])
+            .expect_err("an already-contracted second range must refuse");
+
+        assert_eq!(refusal, Refusal::RangeAlreadyContracted);
+        assert!(!fake.wrote(), "nothing may be written");
+        assert!(
+            !fake
+                .events
+                .iter()
+                .any(|event| matches!(event, DestructiveEvent::Configure(_))),
+            "and nothing may be attached"
+        );
+    }
+
+    // Requirements: SAFE-007, SAFE-005
+    //   A second write that does not write exactly its own range's length refuses, the attachment is still detached, and no post-condition is read
+    // Work-Package: WP-020
+    // Evidence: a_short_second_write_refuses_and_still_detaches
+    #[test]
+    fn a_short_second_write_refuses_and_still_detaches() {
+        let mut fake = FakeDestructive::success_two_ranges();
+        fake.writes = VecDeque::from([Ok(CONTRACTED.len()), Ok(CONTRACTED_SECOND.len() - 1)]);
+
+        let refusal = execute_destructive(&mut fake, &[CONTRACTED, CONTRACTED_SECOND])
+            .expect_err("a short second write must refuse");
+
+        assert_eq!(refusal, Refusal::ContractedWriteWrongLength);
+        assert!(fake.detached());
+        assert_eq!(
+            fake.events
+                .iter()
+                .filter(|event| matches!(event, DestructiveEvent::ReadRange(_)))
+                .count(),
+            2,
+            "only the two pre-write reads may have happened; no post-condition is read on \
+             a refusing run"
         );
     }
 
@@ -1780,7 +1989,7 @@ mod tests {
         let mut fake = FakeDestructive::success();
         fake.initial_matches = Ok(false);
 
-        let refusal = execute_destructive(&mut fake, CONTRACTED)
+        let refusal = execute_destructive(&mut fake, &[CONTRACTED])
             .expect_err("a backing object that is not the fixture must refuse");
 
         assert_eq!(refusal, Refusal::InitialBackingHashMismatch);
@@ -1802,7 +2011,7 @@ mod tests {
         // indistinguishable from not writing.
         fake.ranges = VecDeque::from([Ok(CONTRACTED.to_vec()), Ok(CONTRACTED.to_vec())]);
 
-        let refusal = execute_destructive(&mut fake, CONTRACTED)
+        let refusal = execute_destructive(&mut fake, &[CONTRACTED])
             .expect_err("an already-contracted range must refuse");
 
         assert_eq!(refusal, Refusal::RangeAlreadyContracted);
@@ -1827,7 +2036,7 @@ mod tests {
         let mut fake = FakeDestructive::success();
         fake.rebind = Ok(RebindProbe::KernelAccepted);
 
-        let refusal = execute_destructive(&mut fake, CONTRACTED)
+        let refusal = execute_destructive(&mut fake, &[CONTRACTED])
             .expect_err("an applicable rebind must void the run");
 
         assert_eq!(refusal, Refusal::RebindUnexpectedlyApplicable);
@@ -1845,17 +2054,17 @@ mod tests {
     #[test]
     fn a_short_contracted_write_refuses() {
         let mut fake = FakeDestructive::success();
-        fake.write = Ok(CONTRACTED.len() - 1);
+        fake.writes = VecDeque::from([Ok(CONTRACTED.len() - 1)]);
 
         let refusal =
-            execute_destructive(&mut fake, CONTRACTED).expect_err("a short write must refuse");
+            execute_destructive(&mut fake, &[CONTRACTED]).expect_err("a short write must refuse");
 
         assert_eq!(refusal, Refusal::ContractedWriteWrongLength);
         assert!(fake.detached());
         assert_eq!(
             fake.events
                 .iter()
-                .filter(|event| **event == DestructiveEvent::ReadRange)
+                .filter(|event| matches!(event, DestructiveEvent::ReadRange(_)))
                 .count(),
             1,
             "only the pre-write read may have happened; no post-condition is read on a \
@@ -1874,7 +2083,7 @@ mod tests {
         // neither the signature nor the contracted zeros.
         fake.ranges = VecDeque::from([Ok(PRE_STATE.to_vec()), Ok(vec![0xFF; CONTRACTED.len()])]);
 
-        let refusal = execute_destructive(&mut fake, CONTRACTED)
+        let refusal = execute_destructive(&mut fake, &[CONTRACTED])
             .expect_err("an uncontracted range must refuse");
 
         assert_eq!(refusal, Refusal::DeclaredRangeMismatch);
@@ -1890,7 +2099,7 @@ mod tests {
         fake.brackets = VecDeque::from([Ok([7; 32]), Ok([9; 32])]);
 
         let refusal =
-            execute_destructive(&mut fake, CONTRACTED).expect_err("a moved bracket must refuse");
+            execute_destructive(&mut fake, &[CONTRACTED]).expect_err("a moved bracket must refuse");
 
         assert_eq!(refusal, Refusal::OutsideBracketChanged);
     }
@@ -1905,7 +2114,7 @@ mod tests {
         fake.rebind = Ok(RebindProbe::KernelAccepted);
         fake.detach = Err(Refusal::DetachNotConfirmed);
 
-        let refusal = execute_destructive(&mut fake, CONTRACTED)
+        let refusal = execute_destructive(&mut fake, &[CONTRACTED])
             .expect_err("both halves failing must still refuse");
 
         assert_eq!(
@@ -1916,21 +2125,133 @@ mod tests {
     }
 
     // Requirements: SAFE-007, SAFE-005
-    //   An empty contracted replacement refuses before anything is bracketed or configured
+    //   An empty range list and an empty replacement inside a non-empty list each refuse before anything is bracketed or configured
     // Work-Package: WP-020
     // Evidence: an_empty_replacement_refuses_before_anything_is_configured
     #[test]
     fn an_empty_replacement_refuses_before_anything_is_configured() {
         let mut fake = FakeDestructive::success();
-
         let refusal =
             execute_destructive(&mut fake, &[]).expect_err("an empty contract must refuse");
-
         assert_eq!(refusal, Refusal::WrongSuiteShape);
         assert!(
             fake.events.is_empty(),
             "nothing may be bracketed or attached for a contract that changes nothing"
         );
+
+        // An empty replacement hiding inside a non-empty list is the same
+        // vacuous shape and must not ride the first range's validity.
+        let mut fake = FakeDestructive::success();
+        let refusal = execute_destructive(&mut fake, &[CONTRACTED, &[]])
+            .expect_err("an empty replacement in the list must refuse");
+        assert_eq!(refusal, Refusal::WrongSuiteShape);
+        assert!(fake.events.is_empty());
+    }
+
+    // Requirements: SAFE-007, SAFE-005
+    //   The suite executor checks every fixture's held bytes before any fixture is attached: a wrong second fixture refuses while the first has only been digested, never read, bracketed, or attached
+    // Work-Package: WP-020
+    // Evidence: the_pre_flight_refuses_before_any_fixture_is_touched
+    #[test]
+    fn the_pre_flight_refuses_before_any_fixture_is_touched() {
+        let first = FakeDestructive::success();
+        let mut second = FakeDestructive::success();
+        second.initial_matches = Ok(false);
+        let mut fixtures = [(first, vec![CONTRACTED]), (second, vec![CONTRACTED])];
+
+        let refusal = execute_destructive_suite(&mut fixtures)
+            .expect_err("a wrong second fixture must refuse the whole suite");
+
+        assert_eq!(refusal, Refusal::InitialBackingHashMismatch);
+        assert_eq!(
+            fixtures[0].0.events,
+            vec![DestructiveEvent::InitialDigest],
+            "the first fixture may have been digested in pre-flight and nothing more: \
+             no read, no bracket, no attach, no write"
+        );
+        assert_eq!(fixtures[1].0.events, vec![DestructiveEvent::InitialDigest]);
+    }
+
+    // Requirements: SAFE-007, SAFE-005
+    //   A multi-fixture suite runs one complete chain per fixture in declared order after the pre-flight, and the report sums bytes, ranges, fixtures, and confirmed detachments
+    // Work-Package: WP-020
+    // Evidence: a_multi_fixture_suite_runs_complete_chains_in_declared_order
+    #[test]
+    fn a_multi_fixture_suite_runs_complete_chains_in_declared_order() {
+        let mut fixtures = [
+            (FakeDestructive::success(), vec![CONTRACTED]),
+            (
+                FakeDestructive::success_two_ranges(),
+                vec![CONTRACTED, CONTRACTED_SECOND],
+            ),
+        ];
+
+        let report = execute_destructive_suite(&mut fixtures).expect("the scripted suite passes");
+
+        assert_eq!(
+            report.contracted_bytes_written(),
+            2 * CONTRACTED.len() + CONTRACTED_SECOND.len()
+        );
+        assert_eq!(report.detachments_confirmed(), 2);
+        assert_eq!(report.fixtures_executed(), 2);
+        assert_eq!(report.ranges_written(), 3);
+
+        // Each fixture's chain is complete and self-contained: the
+        // pre-flight digest, then the full 2h-shaped chain.
+        assert_eq!(
+            fixtures[0].0.events,
+            vec![
+                DestructiveEvent::InitialDigest,
+                DestructiveEvent::InitialDigest,
+                DestructiveEvent::ReadRange(0),
+                DestructiveEvent::Bracket,
+                DestructiveEvent::Configure(ConfigureRequest::DESTRUCTIVE_SUITE),
+                DestructiveEvent::Verify,
+                DestructiveEvent::RebindProbe,
+                DestructiveEvent::Write(0),
+                DestructiveEvent::Sync,
+                DestructiveEvent::Verify,
+                DestructiveEvent::Detach,
+                DestructiveEvent::ReadRange(0),
+                DestructiveEvent::Bracket,
+            ],
+            "the first event is the pre-flight digest; the chain re-checks it itself"
+        );
+        assert!(
+            fixtures[1].0.events.contains(&DestructiveEvent::Write(1)),
+            "the second fixture's chain wrote both its ranges"
+        );
+    }
+
+    // Requirements: SAFE-007, SAFE-005
+    //   A first-fixture chain refusal stops the suite before the second fixture's chain begins, and an empty suite refuses outright
+    // Work-Package: WP-020
+    // Evidence: a_refusing_chain_stops_the_suite_before_the_next_fixture
+    #[test]
+    fn a_refusing_chain_stops_the_suite_before_the_next_fixture() {
+        let mut first = FakeDestructive::success();
+        first.rebind = Ok(RebindProbe::KernelAccepted);
+        let second = FakeDestructive::success();
+        let mut fixtures = [(first, vec![CONTRACTED]), (second, vec![CONTRACTED])];
+
+        let refusal = execute_destructive_suite(&mut fixtures)
+            .expect_err("the first chain's refusal must stop the suite");
+
+        assert_eq!(refusal, Refusal::RebindUnexpectedlyApplicable);
+        assert!(
+            !fixtures[0].0.wrote(),
+            "the first fixture's write was never reached"
+        );
+        assert!(fixtures[0].0.detached(), "and its attachment was detached");
+        assert_eq!(
+            fixtures[1].0.events,
+            vec![DestructiveEvent::InitialDigest],
+            "the second fixture saw only the pre-flight; its chain never began"
+        );
+
+        let refusal = execute_destructive_suite::<FakeDestructive>(&mut [])
+            .expect_err("a suite over nothing must refuse");
+        assert_eq!(refusal, Refusal::WrongSuiteShape);
     }
 
     // Requirements: SAFE-007
