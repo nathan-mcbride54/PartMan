@@ -39,10 +39,12 @@ use partman_domain::model::snapshot::TopologySnapshot;
 use partman_domain::model::step::{PlanStep, Severity, StepFlags, StepRefusal, StepRisk};
 
 use crate::graph::{Dependency, GraphRefusal, execution_order};
+use crate::simulate::{Effects, SimulateRefusal, simulate};
 use crate::solve::{SolveRefusal, grow_extension, place_create, shrink_reduction};
 use partman_domain::model::protection::StepRanges;
 
 pub mod graph;
+pub mod simulate;
 pub mod solve;
 
 #[cfg(test)]
@@ -121,6 +123,66 @@ pub enum PlanRefusal {
         /// The solver's verbatim refusal.
         refusal: SolveRefusal,
     },
+    /// Simulation refused, and PLAN-002 makes that the plan's refusal:
+    /// every valid plan produces both topologies, so an effect this
+    /// model cannot represent produces no valid plan at all.
+    SimulateRefused {
+        /// The simulation's verbatim refusal.
+        refusal: SimulateRefusal,
+    },
+}
+
+/// PLAN-002's complete product: the plan and the simulated final
+/// topology it predicts, emitted together because a plan without its
+/// simulation is not valid.
+#[derive(Debug)]
+pub struct Planned {
+    /// The operation plan, bound to the capture.
+    pub plan: OperationPlan,
+    /// The simulated final topology, `SnapshotKind::Simulated` — the
+    /// schema string that can never be a planning base or satisfy a
+    /// PLAN-006 comparison.
+    pub simulated: TopologySnapshot,
+}
+
+/// The canonical-operation effects this model can honestly simulate.
+fn canonical_effects(
+    operation: Operation,
+    target: NodeId,
+    snapshot: &TopologySnapshot,
+) -> Result<Effects, SimulateRefusal> {
+    match operation {
+        Operation::Wipe => Ok(Effects {
+            destroyed: canonical_ranges(operation, target, snapshot.facts()).destroyed,
+            stamp_dropped: vec![target],
+            minted_partition: None,
+            resized: vec![],
+        }),
+        // This model carries no labels or mutable identifiers, so at
+        // this granularity the topology genuinely does not change:
+        // identity is exact, not lazy.
+        Operation::Label | Operation::Uuid => Ok(Effects::default()),
+        Operation::Create => Err(SimulateRefusal::NotRepresentable {
+            effect: "an unsized create has no placed range; use the sized request",
+        }),
+        Operation::Grow | Operation::Shrink => Err(SimulateRefusal::NotRepresentable {
+            effect: "an unsized resize has no target length; use the sized request",
+        }),
+        Operation::Move | Operation::Copy => Err(SimulateRefusal::NotRepresentable {
+            effect: "moves and copies need a destination vocabulary this model does not carry yet",
+        }),
+        Operation::Repair => Err(SimulateRefusal::NotRepresentable {
+            effect: "repair outcomes are not predictable topology",
+        }),
+        Operation::Encrypt | Operation::Decrypt => Err(SimulateRefusal::NotRepresentable {
+            effect: "encryption-layer minting needs vocabulary this increment does not invent",
+        }),
+        Operation::Detect | Operation::Read | Operation::Check => {
+            Err(SimulateRefusal::NotRepresentable {
+                effect: "source operations are refused before simulation",
+            })
+        }
+    }
 }
 
 /// A sized request: the solver-backed operations, each carrying the
@@ -209,7 +271,7 @@ pub fn plan(
     limits: &TechnologyLimits,
     runtime: &RuntimeFacts,
     identity: &PlanIdentity,
-) -> Result<OperationPlan, PlanRefusal> {
+) -> Result<Planned, PlanRefusal> {
     if request.operation.class() == OperationClass::Source {
         return Err(PlanRefusal::NotAPlanningOperation {
             operation: request.operation,
@@ -233,6 +295,11 @@ pub fn plan(
     )
     .map_err(|refusal| PlanRefusal::StepRefused { refusal })?;
 
+    let effects = canonical_effects(request.operation, request.target, snapshot)
+        .map_err(|refusal| PlanRefusal::SimulateRefused { refusal })?;
+    let simulated =
+        simulate(snapshot, &effects).map_err(|refusal| PlanRefusal::SimulateRefused { refusal })?;
+
     OperationPlan::assemble(
         identity.plan_id.clone(),
         identity.created_at,
@@ -241,6 +308,7 @@ pub fn plan(
         std::collections::BTreeMap::new(),
         vec![step],
     )
+    .map(|plan| Planned { plan, simulated })
     .map_err(|error| PlanRefusal::PlanRefused { error })
 }
 
@@ -260,8 +328,8 @@ pub fn plan_sized(
     limits: &TechnologyLimits,
     runtime: &RuntimeFacts,
     identity: &PlanIdentity,
-) -> Result<OperationPlan, PlanRefusal> {
-    let (operation, target, ranges) = match request {
+) -> Result<Planned, PlanRefusal> {
+    let (operation, target, ranges, effects) = match request {
         SizedRequest::Create { host, size } => {
             let placed = place_create(snapshot, host, size)
                 .map_err(|refusal| PlanRefusal::SolveRefused { refusal })?;
@@ -272,6 +340,10 @@ pub fn plan_sized(
                     written_table_extents: vec![],
                     consumed: vec![placed],
                     destroyed: vec![],
+                },
+                Effects {
+                    minted_partition: Some(placed),
+                    ..Effects::default()
                 },
             )
         }
@@ -286,6 +358,10 @@ pub fn plan_sized(
                     consumed: vec![extension],
                     destroyed: vec![],
                 },
+                Effects {
+                    resized: vec![(target, new_length)],
+                    ..Effects::default()
+                },
             )
         }
         SizedRequest::Shrink { target, new_length } => {
@@ -298,6 +374,10 @@ pub fn plan_sized(
                     written_table_extents: vec![],
                     consumed: vec![],
                     destroyed: vec![freed],
+                },
+                Effects {
+                    resized: vec![(target, new_length)],
+                    ..Effects::default()
                 },
             )
         }
@@ -312,6 +392,9 @@ pub fn plan_sized(
     let step = PlanStep::mutating(snapshot, target, ranges, vec![], canonical_risk(operation))
         .map_err(|refusal| PlanRefusal::StepRefused { refusal })?;
 
+    let simulated =
+        simulate(snapshot, &effects).map_err(|refusal| PlanRefusal::SimulateRefused { refusal })?;
+
     OperationPlan::assemble(
         identity.plan_id.clone(),
         identity.created_at,
@@ -320,6 +403,7 @@ pub fn plan_sized(
         std::collections::BTreeMap::new(),
         vec![step],
     )
+    .map(|plan| Planned { plan, simulated })
     .map_err(|error| PlanRefusal::PlanRefused { error })
 }
 
@@ -350,7 +434,7 @@ pub fn plan_set(
     limits: &TechnologyLimits,
     runtime: &RuntimeFacts,
     identity: &PlanIdentity,
-) -> Result<OperationPlan, PlanRefusal> {
+) -> Result<Planned, PlanRefusal> {
     let mut keys = Vec::with_capacity(set.requests.len());
     let mut ranges = Vec::with_capacity(set.requests.len());
     for request in &set.requests {
@@ -389,6 +473,17 @@ pub fn plan_set(
         steps.push(step);
     }
 
+    let mut combined = Effects::default();
+    for request in &set.requests {
+        let effects = canonical_effects(request.operation, request.target, snapshot)
+            .map_err(|refusal| PlanRefusal::SimulateRefused { refusal })?;
+        combined.destroyed.extend(effects.destroyed);
+        combined.stamp_dropped.extend(effects.stamp_dropped);
+        combined.resized.extend(effects.resized);
+    }
+    let simulated = simulate(snapshot, &combined)
+        .map_err(|refusal| PlanRefusal::SimulateRefused { refusal })?;
+
     OperationPlan::assemble(
         identity.plan_id.clone(),
         identity.created_at,
@@ -397,5 +492,6 @@ pub fn plan_set(
         std::collections::BTreeMap::new(),
         steps,
     )
+    .map(|plan| Planned { plan, simulated })
     .map_err(|error| PlanRefusal::PlanRefused { error })
 }
