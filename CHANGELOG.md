@@ -7,6 +7,34 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-040 increment 4: the authentication skeleton and the record.**
+  The closed per-transport claim vocabulary RPC-001 implies lands as
+  `crates/rpc`'s `identity` module: one identity claim per transport —
+  the SDDL a Windows named pipe must restrict access to (SYSTEM and
+  the authorizing interactive user; the claim names the restriction,
+  not a value), the peer credentials a Unix domain socket must verify,
+  the code-signing requirement a macOS XPC connection or its
+  equivalently verified socket must check — as **types naming what a
+  peer proves, verified by nobody here**. Every transport is
+  route-decision-gated (the WP-035 increment-10 triangle, three times
+  over), so each claim's verifier arrives with its transport's
+  recorded route decision, and the skeleton says which claim waits on
+  which route per claim — `waits_on` states "unrecorded" rather than
+  letting absence read as oversight, because complete and endpoint-less
+  is a truthful state, not a gap. **No authorization vocabulary
+  exists, deliberately**: SI-18 holds whether a severity-1 plan needs
+  fresh interactive authorization, so the vocabulary names identity
+  facts only — nothing about what a peer may do, when a human must
+  approve, or when an approval expires — with HLP-003's binding
+  WP-070's to implement under whatever SI-18 decides. The closure test
+  pins the vocabulary by exhaustive match, so widening it fails the
+  suite as a visible reviewed edit. `schemas/rpc/authentication.md`
+  records the vocabulary — a type vocabulary, not a wire format, and
+  the doc says so. With this, WP-040's four ungated increments are
+  delivered; what remains is one transport increment per OS, each
+  opening only after its recorded route decision, and whatever field
+  SI-18's resolution unlocks.
+
 - **WP-040 increment 3: the redaction boundary.** SEC-006's deny-floor
   lands at the protocol edge as a schema-level rule for which field
   positions may carry identifier-class bytes at all, held the WP-035
