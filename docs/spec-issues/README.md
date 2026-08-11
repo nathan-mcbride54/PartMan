@@ -90,7 +90,7 @@ increment 3 as a property test. SI-36 is withdrawn and gates nothing.
 | **Direct blocker** | Must be decided before increment 3 writes a type | *(none — SI-28 reclassified below, 2026-08-09)* |
 | **Transitive blocker** | A separately sequenced prerequisite decision that must resolve before a direct blocker can be decided | *(none)* |
 | **Input** | A subquestion or evidence case resolved within the consuming direct blocker's decision | *(none — SI-29 and SI-30 resolved within SI-11's decision; SI-37 reclassified below)* |
-| **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-15, SI-16, SI-17, SI-18, SI-19, SI-20, SI-21, SI-22, SI-23, SI-24, SI-25, SI-26, SI-37 (before the spec change that first moves a closure-blocked multipath-capable population to `Permitted`; ADR-0018), SI-28 (**Mitigated-open**, floor in force; before the round that either relaxes the floor under ADR-0017's revisit condition or lands a discriminating mechanism; reclassified off the increment-3 gate 2026-08-09) |
+| **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-15, SI-16, SI-17, SI-18, SI-19, SI-20, SI-21, SI-22, SI-23, SI-24, SI-25, SI-26, SI-37 (before the spec change that first moves a closure-blocked multipath-capable population to `Permitted`; ADR-0018), SI-28 (**Mitigated-open**, floor in force; before the round that either relaxes the floor under ADR-0017's revisit condition or lands a discriminating mechanism; reclassified off the increment-3 gate 2026-08-09), SI-40 (before WP-050 increment 2 composes technology limits; filed 2026-08-10) |
 | **Withdrawn** | Retained as history after the filing was shown not to be a conflict | SI-36 |
 
 No direct blockers remain. SI-28's Mitigated-open state — the interim
@@ -1669,6 +1669,40 @@ acceptance evidence, but `Stable` is not one of CAP-003's four values
 (`supported`, `preview`, `unsupported`, `blocked`) and appears nowhere else.
 Either it is a stale synonym for `supported`, in which case Section 16's evidence
 rule attaches there, or `Capability` needs a maturity axis orthogonal to status.
+
+## SI-40 FS-007's "blocked reasons" versus CAP-003's `blocked` definition
+
+**Requirements:** FS-007, CAP-003 · **Later (WP-050, before increment 2
+composes technology limits)**
+
+FS-007: "Surface immutable technical limits, such as XFS not shrinking, as
+explicit blocked reasons." CAP-003's definitions: "`blocked` — implemented,
+but a runtime precondition fails (missing tool, version, state)";
+"`unsupported` — the product does not implement the operation for this
+target." An immutable technology limit is not an implemented operation with
+a failing runtime precondition, so giving it CAP-003 `blocked` contradicts
+`blocked`'s own definition, while giving it `unsupported` contradicts
+FS-007's word "blocked". One case, two statuses, both texts normative — and
+the answer is product-visible on every capability surface, because CAP-005
+serves them all from the one engine.
+
+Surfaced 2026-08-10 while WP-050 increment 1 built the CAP-003 vocabulary.
+That increment left the `TechnologyLimit` reason's status coupling
+deliberately unasserted (`crates/capability/src/lib.rs`) rather than decide
+this in a constructor; WP-050 increment 2's technology-limit composition
+waits on the resolution, and its other arms — whose couplings are decided
+texts — do not.
+
+Options, none decided: (a) read FS-007's "blocked reasons" as the generic
+noun phrase for the reason vocabulary — the reading this repository's prose
+already uses ("the blocked-reason capability surface is WP-050's") — with
+the status following CAP-003's definitions: `unsupported`, carrying the
+limit as its explicit reason and a remediation stating no remedy exists;
+(b) read FS-007 as mandating the literal `blocked` status, and amend
+CAP-003's definition list so `blocked` admits immutable limits;
+(c) any distinct shape a resolution round proposes. As classification
+rather than recommendation: (a) amends no normative text; (b) retexts
+CAP-003's definitions.
 
 ---
 
