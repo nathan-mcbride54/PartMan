@@ -99,21 +99,28 @@ external tool is invoked, and on INV-006's no-repair/no-auto-mount discipline.
 Issue #94 is closed: the full acceptance, including its adversarial rebind leg,
 succeeded in a disposable Proxmox-hosted non-WSL Linux VM on 2026-08-03 — on the
 implementation commit `2dbf601`, and again on the merged commit `c75b340` that
-lands on main — and the run record with its exclusions and stated limits is in
-`docs/work-packages/WP-020.md`. Closing it registered no destructive suite.
+lands on main — and was re-taken on 2026-08-11 on current main `582e6d1` in a
+fresh disposable VM after the record's stopping condition tripped (issue #175),
+with identical harness values and fixture digests. The run record with its
+exclusions and stated limits is in `docs/work-packages/WP-020.md`. Closing it
+registered no destructive suite.
 Later packages may add pure planner, validator, and regular-file fixture tests.
 
 **Running this acceptance requires a clean environment, and that is a real
 precondition rather than a style note.** It runs `cargo xtask ci` first, and
 WP-035's `no_output_in_any_mode_carries_an_environment_value` compares every
-environment value of six characters or more against CLI output. Run it as root
-over a direct login with **no `sudo` in the chain** — `sudo` sets `SUDO_USER`
-by itself — and inject no variables of your own. Do not name the VM's user,
-host, or any whole path component something that appears in CLI output: a guest
-account named `partman` fails that gate before the acceptance is ever reached,
-because the value collides with the program's own name in `help` output. That
-is the tripwire working, not a false positive, and the fix belongs in the
-environment rather than in an exemption.
+environment value of six characters or more — and every identity-bearing value
+(username, home path, computer name) of three or more — against CLI output. Run
+it as root over a direct login with **no `sudo` in the chain** — `sudo` sets
+`SUDO_USER` by itself — and inject no variables of your own. Do not name the
+VM's user, host, or any whole path component something that appears in CLI
+output: a guest account named `partman` fails that gate before the acceptance
+is ever reached, because the value collides with the program's own name in
+`help` output. That is the tripwire working, not a false positive, and the fix
+belongs in the environment rather than in an exemption — with one recorded
+exception: a root login's own name cannot be changed, so its verified-static
+collision with the udev caveat is exempted in the sweep itself (PR #243, the
+2026-08-11 retake's discovery).
 
 Run it with:
 

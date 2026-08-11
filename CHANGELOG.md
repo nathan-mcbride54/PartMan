@@ -7,6 +7,26 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-020 increment 2e: the acceptance re-taken on current main, discharging
+  issue #175.** The reproducibility record's own stopping condition had
+  tripped — `git diff --name-only c75b340 HEAD` reported fifteen non-Markdown
+  paths, several on the acceptance's code path — so the
+  `linux-loop-read-only` acceptance was re-taken rather than argued forward:
+  a fresh disposable Proxmox-hosted non-WSL VM (same pinned base image
+  digest, kernel, and toolchain as the 2026-08-03 sitting, provisioned by the
+  same runbook), current main `582e6d1`, root over a direct login with no
+  `sudo` and no injected variables. The retake's first run refused at its
+  Tier-1 gate — WP-035's identity sweep found `$USER` (`root`) as a substring
+  of the udev caveat's static "root's udevd" prose, a verified coincidence
+  collision exempted per the test's own remedy in its own reviewed commit —
+  and the second run passed on the merged tree with the identical harness
+  value set, byte-identical fixture digests, all four negative controls
+  refusing, and an empty loop table afterwards. Both transcripts, including
+  the refusal, are digest-bound in the record with guest, host, and
+  workstation recomputations agreeing; the VM's verified teardown left no
+  config, volume, or snapshot behind. The stopping condition is re-pinned at
+  `582e6d1`.
+
 - **WP-040 increment 4: the authentication skeleton and the record.**
   The closed per-transport claim vocabulary RPC-001 implies lands as
   `crates/rpc`'s `identity` module: one identity claim per transport —
