@@ -1,0 +1,20 @@
+[package]
+name = "partman-capability"
+description = "The WP-050 capability engine: CAP-003's status/reason/remediation vocabulary and the one computation every surface consults (CAP-005)"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+# The point of this crate, stated so nobody mistakes the CLI chassis's
+# empty-closure guard for a workspace-wide rule: this engine exists to
+# compose the domain's protection gate (WP-010 increment 3g) with runtime
+# facts, and the dependency is deliberate. It adds no supply-chain edge —
+# partman-domain is a workspace member with no external runtime
+# dependencies of its own.
+partman-domain = { path = "../domain" }
+
+[lints]
+workspace = true

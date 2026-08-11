@@ -7,6 +7,42 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-050 increment 1: the CAP-003 vocabulary, structural.**
+  `crates/capability` joins the workspace — depending on
+  `partman-domain` deliberately, because composing the domain's
+  protection gate is this engine's purpose (the CLI chassis's
+  empty-closure guard is that package's rule, not the workspace's).
+  CAP-003's four statuses land with their definitions held by
+  construction: `supported` is constructible only through
+  `QualificationEvidence`, which has **no constructor in this
+  increment** — the evidence store is increment 3, no apply path exists
+  anywhere in the product, and unreachable is the correct answer,
+  proven by a `compile_fail` doctest (the ADR-0012 pattern). The
+  closed reason vocabulary (`partman.capability.reason`, MODEL-003
+  version 1) carries at birth exactly the reasons decided texts name —
+  ADR-0018's protection grounds re-enumerated through exhaustive
+  `From` impls so a domain arm added later fails compilation here and
+  the version bump becomes a reviewed decision, ADR-0011/LIN-006's
+  multipath detection-only reason, ACC-009's two tool arms, FS-007's
+  technology limit, Section 9's platform floor, CAP-003's own
+  pending-evidence ground, and the evidence-built reason that panics
+  in every assertive constructor so an unqualified answer cannot be
+  dressed as qualified (CAP-007's no-upgrade rule at the type layer).
+  `from_protection_gate` carries 3g's decided coupling — refusals to
+  `unsupported`, indeterminacies to `blocked`, `Clear` producing no
+  answer at all so the engine keeps composing. **Deliberately
+  unasserted: `TechnologyLimit`'s status coupling.** FS-007 says
+  immutable limits surface "as explicit blocked reasons"; CAP-003
+  defines `blocked` as "implemented, but a runtime precondition
+  fails" — an immutable limit is neither, and CAP-003's `unsupported`
+  ("the product does not implement the operation for this target")
+  reads as that case's home. Two requirements assigning one case
+  different statuses is Section 1.11's shape: the conflict is to be
+  filed on the register under its own grant before increment 2
+  composes technology limits, not decided silently in a constructor.
+  Six tests plus the doctest proof; traceability converted to
+  generated on the WP-010/WP-035 precedent.
+
 - **WP-010 increment 3k: the body-format record and its cross-language
   proof.** The three body schemas increment 3 delivered get their
   `schemas/domain/` documents — `topology-snapshot-body.md`,
