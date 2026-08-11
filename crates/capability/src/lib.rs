@@ -23,6 +23,28 @@
 //!   synthesized from it: the caller who knows the precondition states
 //!   the remedy, and a reason with no remedy says so explicitly.
 //!
+//! ## Consumers (CAP-005: one engine, every surface)
+//!
+//! Three consumer classes take this crate's answers, each under its own
+//! package's grant, none with authority over them:
+//!
+//! - **The CLI (WP-080)** renders answers as advisory UX — CAP-007's
+//!   rule: a client cannot upgrade a capability by asserting it, and the
+//!   helper trusts only its own recomputation (HLP-002). The chassis's
+//!   `capabilities` typed refusal names this package as the engine
+//!   deliverer; replacing that refusal with real payloads is WP-080's
+//!   work, serializing [`Reason`] under [`REASON_SCHEMA`].
+//! - **The planner (WP-060)** conditions planning on answers: `preview`
+//!   permits planning and simulation; `unsupported` and `blocked` refuse
+//!   the affected write step (ACC-009's planner half). Answers never
+//!   construct steps — `PlanStep::mutating` is the sole constructor and
+//!   re-runs the same closure, which is why the CAP-005 agreement is
+//!   enumerable rather than asserted.
+//! - **The platform adapters (WP-W100/WP-L100/WP-M100)** produce what
+//!   the engine consumes — decoded snapshots and CAP-004-shaped
+//!   [`engine::RuntimeFacts`] — and render per-platform answers.
+//!   Adapters never compute a verdict of their own.
+//!
 //! What this increment deliberately does not do: no engine computation
 //! (increment 2), no evidence store (increment 3), no status coupling for
 //! [`Reason::TechnologyLimit`] — FS-007's words ("as explicit blocked

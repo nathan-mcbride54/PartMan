@@ -7,6 +7,36 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-050 increment 4: the consumer seams, the multipath arm the
+  coverage net caught, and the package record.** The engine's public
+  API is documented for its three consumer classes (the CLI rendering
+  advisory answers under CAP-007, the planner conditioning planning on
+  them with `PlanStep::mutating` staying the sole constructor, the
+  adapters producing snapshots and runtime facts and never computing
+  verdicts). **The all-reasons coverage requirement did its job before
+  it was even written**: `MultipathDetectionOnly` existed in the
+  vocabulary with no engine arm producing it — a multipath mutation
+  would have fallen through to protection's `RemoteTransport` refusal,
+  refusing correctly but reporting the wrong reason, where LIN-006
+  requires "a multipath reason from CAP-003's reason vocabulary". The
+  arm now exists and **precedes protection deliberately**: LIN-006
+  names the reason this population reports, the closure refuses the
+  same population anyway (the device-scope transport arm reaches a
+  multipath node as not-positively-local), so the precedence moves
+  reporting and never permission — the plan constructor still refuses
+  these targets on the closure's own ground, held by test with source
+  classes passing untouched (detection-only means detection works).
+  The coverage test exercises every reachable reason and status over
+  integration-shaped fixture topologies and asserts the two
+  unreachable members (`supported`, `QualifiedByEvidence`) unreachable
+  by proof — increment 1's `compile_fail` doctest — rather than by
+  omission. **Recorded narrowing**: the fixture topologies are
+  constructed to mirror the WP-020 catalogue's shapes; byte-level
+  derivation from the images arrives with the platform adapters.
+  Increments 1–4 delivered; the package's remaining obligations are
+  consumer-driven (a real qualification row, the evidence loader for
+  its first consumer, floors as tools join the roster).
+
 - **WP-050 increment 3: the CAP-006 store, structured and truthfully
   empty.** `docs/capabilities/` exists in the form CAP-006 and
   Section 9 name: `format.md` (the normative format — advertised rows

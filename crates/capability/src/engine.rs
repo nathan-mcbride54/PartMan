@@ -4,9 +4,14 @@
 //! [`capability`] computes the CAP-003 answer for one operation on one
 //! exact target over a decoded snapshot, caller-supplied technology
 //! limits, and CAP-004-shaped runtime facts. The composition order is
-//! the assignment's: the domain's protection gate first, then immutable
-//! technology limits (FS-007, statused per ADR-0020), then Section 9's
-//! platform floor, then ACC-009's runtime tool preconditions; a pair no
+//! decided text arm by arm: ADR-0011's multipath detection-only rule
+//! first (LIN-006 — added in increment 4, whose all-reasons coverage
+//! test caught its absence; it precedes protection because LIN-006
+//! names the reason this population reports, while the closure refuses
+//! the same population anyway — reporting moves, permission never
+//! does), then the domain's protection gate, then immutable technology
+//! limits (FS-007, statused per ADR-0020), then Section 9's platform
+//! floor, then ACC-009's runtime tool preconditions; a pair no
 //! arm refuses is `preview` — implemented for planning, apply refused
 //! pending CAP-006 qualification evidence, which is CAP-003's own
 //! definition of the state this product is in while no apply path
@@ -33,9 +38,10 @@
 //! WP-035 vacuous-state discipline: name the absence, do not ship its
 //! shell).
 
-use partman_domain::model::capability::{Operation, protection_gate};
+use partman_domain::model::capability::{Operation, OperationClass, protection_gate};
 use partman_domain::model::naming::{FileSystemKind, NamingFields, NodeEntry, NodeId};
 use partman_domain::model::snapshot::TopologySnapshot;
+use partman_domain::model::topology::EdgeKind;
 
 use super::{Capability, Reason, Remediation};
 
@@ -144,11 +150,24 @@ fn entry_fields(snapshot: &TopologySnapshot, target: NodeId) -> Option<&NamingFi
         })
 }
 
+/// Whether ADR-0011's detection-only rule scopes this target: the target
+/// is itself a multipath node, or a platform-membership edge names it as
+/// a recognized member.
+fn multipath_scoped(snapshot: &TopologySnapshot, target: NodeId, fields: &NamingFields) -> bool {
+    matches!(fields, NamingFields::MultipathNode { .. })
+        || snapshot
+            .topology()
+            .edges()
+            .iter()
+            .any(|edge| edge.kind == EdgeKind::PlatformMembership && edge.target == target)
+}
+
 /// CAP-001's conditioning: the CAP-003 answer for one operation on one
-/// exact target, composed in refusal-precedence order — protection,
-/// technology limits, platform floor, tool preconditions — with
-/// `preview` as the answer no arm refuses (apply stays refused pending
-/// CAP-006 evidence, per the increment-1 construction rule).
+/// exact target, composed in refusal-precedence order — multipath
+/// detection-only (ADR-0011), protection, technology limits, platform
+/// floor, tool preconditions — with `preview` as the answer no arm
+/// refuses (apply stays refused pending CAP-006 evidence, per the
+/// increment-1 construction rule).
 ///
 /// # Errors
 ///
@@ -165,7 +184,25 @@ pub fn capability(
         return Err(UnknownTarget { target });
     };
 
-    // Arm 1: protection, by the same closure the plan constructor runs.
+    // Arm 1: ADR-0011's detection-only rule (LIN-006). A mutating
+    // operation on a multipath node, or on a recognized member — a device
+    // some platform-membership edge targets — is CAP-003 `unsupported`
+    // with the multipath reason. This arm precedes protection because
+    // LIN-006 names the reason this population reports, and the closure
+    // refuses the same population anyway — the device-scope transport
+    // arm reaches a multipath node as not-positively-local — so
+    // precedence here changes the reported reason, never a permission:
+    // the plan constructor still refuses these targets on the closure's
+    // own ground. Detection-only means source classes pass untouched,
+    // and no remedy exists: v1 policy, not a precondition.
+    if operation.class() == OperationClass::Mutating && multipath_scoped(snapshot, target, fields) {
+        return Ok(Capability::unsupported(
+            Reason::MultipathDetectionOnly,
+            Remediation::NoneExists,
+        ));
+    }
+
+    // Arm 2: protection, by the same closure the plan constructor runs.
     // Source classes are never suppressed — the gate returns Clear for
     // them by 3g's own rule, preserved here by calling it unconditionally.
     let gate = protection_gate(snapshot.topology(), snapshot.facts(), target, operation);
@@ -181,7 +218,7 @@ pub fn capability(
         return Ok(answer);
     }
 
-    // Arm 2: immutable technology limits (FS-007), statused per ADR-0020:
+    // Arm 3: immutable technology limits (FS-007), statused per ADR-0020:
     // `unsupported`, the limit as its explicit reason, and no remedy —
     // exactly, because the limit is immutable.
     if let NamingFields::FileSystem { kind, .. } = fields
@@ -193,7 +230,7 @@ pub fn capability(
         ));
     }
 
-    // Arm 3: the Section 9 floor.
+    // Arm 4: the Section 9 floor.
     if runtime.platform == PlatformFact::BelowFloor {
         return Ok(Capability::blocked(
             Reason::PlatformFloor,
@@ -203,7 +240,7 @@ pub fn capability(
         ));
     }
 
-    // Arm 4: ACC-009's tool preconditions, missing before out-of-range so
+    // Arm 5: ACC-009's tool preconditions, missing before out-of-range so
     // the remediation names the larger obstacle first.
     if let Some(missing) = runtime
         .tools
