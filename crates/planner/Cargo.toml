@@ -1,0 +1,19 @@
+[package]
+name = "partman-planner"
+description = "The WP-060 pure planner: deterministic, side-effect-free planning (PLAN-001) from a captured snapshot, capability answers, and a typed request to an OperationPlan"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+# Both deliberate: the planner sequences the domain's sole constructors
+# and conditions on the capability engine's advisory answers (CAP-005,
+# CAP-007). Neither adds an external supply-chain edge — both are
+# workspace members with no external runtime dependencies.
+partman-domain = { path = "../domain" }
+partman-capability = { path = "../capability" }
+
+[lints]
+workspace = true
