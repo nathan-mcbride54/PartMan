@@ -7,6 +7,25 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-010 files SI-40, the FS-007 / CAP-003 conflict**, under Section
+  0.2's requirement to file rather than silently pick a side, on the
+  grant landed the same day. FS-007 says immutable technical limits
+  surface "as explicit blocked reasons"; CAP-003 defines `blocked` as
+  "implemented, but a runtime precondition fails" and `unsupported` as
+  "the product does not implement the operation for this target". An
+  immutable limit is not an implemented operation with a failing
+  runtime precondition, so one case draws two statuses from two
+  normative texts, and CAP-005 makes the answer product-visible on
+  every surface at once. The filing records where it came from: WP-050
+  increment 1 building the CAP-003 vocabulary, which deliberately left
+  the `TechnologyLimit` reason's status coupling unasserted rather
+  than decide this in a constructor. Classified **Later** (Part 2;
+  before WP-050 increment 2 composes technology limits — its other
+  arms have decided couplings and do not wait). Three readings are
+  recorded as options, none recommended, with one classification fact:
+  the vocabulary-noun-phrase reading amends no normative text, while
+  the literal-`blocked` reading retexts CAP-003's definitions.
+
 - **WP-050 increment 1: the CAP-003 vocabulary, structural.**
   `crates/capability` joins the workspace — depending on
   `partman-domain` deliberately, because composing the domain's
