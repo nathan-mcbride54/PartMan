@@ -16,5 +16,11 @@ publish = false
 # dependencies of its own.
 partman-domain = { path = "../domain" }
 
+[dev-dependencies]
+# Test-only, for the CAP-006 store's Tier-1 schema gate over
+# docs/capabilities/ — the shared_vectors pattern. Already in the
+# workspace lock; a dev-dependency cannot reach the shipped engine.
+serde_json = "1.0"
+
 [lints]
 workspace = true

@@ -138,6 +138,7 @@ name = "partman-capability"
 version = "0.0.0"
 dependencies = [
  "partman-domain",
+ "serde_json",
 ]
 
 [[package]]
