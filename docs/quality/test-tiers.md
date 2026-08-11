@@ -199,14 +199,39 @@ target that is not a regular file is refused before its contents are read at all
 Running a generic destructive Tier 2 with all three proofs present *still*
 fails, reporting that the interlock authorized its targets but a generic
 request selects no suite — the refusal cites the compiled destructive-suite
-registry's count, which is zero and pinned by test (WP-020 increment 2g).
-Tier 3 refuses before any suite runs. That is deliberate: a green destructive
-tier is exactly the signal someone would trust when deciding whether the
-interlock works, so it must never be produced by a run of nothing (Section 12,
-Section 16). A destructive suite, when one is ever registered, is a compiled
-value naming its fixture set, verified target class, per-fixture
-intended-change byte ranges, and teardown proof obligations — and admission to
-its targets consumes the same `Authorization` the acceptance does.
+registry's count (WP-020 increment 2g). Tier 3 refuses before any suite runs.
+That is deliberate: a green destructive tier is exactly the signal someone
+would trust when deciding whether the interlock works, so it must never be
+produced by a run of nothing (Section 12, Section 16).
+
+A destructive suite is a compiled value naming its fixture set, verified
+target class, per-fixture intended-change byte ranges with each range's
+replacement bytes, and teardown proof obligations. Admission consumes the same
+`Authorization` the acceptances do and refuses anything but exactly the
+declared fixture set. One suite is registered (WP-020 increment 2h):
+
+```text
+cargo xtask test --tier 2 --profile destructive --suite gpt-basic-512-signature-erase
+```
+
+Its attachment is deliberately **read-write** — the one place in this
+repository where a loop mapping is not read-only. That is the pre-write
+discipline the increment 2e record demands a destructive path establish for
+itself: on a read-write attachment the kernel's loop driver refuses
+`LOOP_CHANGE_FD` outright, so the rebind is *inapplicable* rather than
+detected after the fact. The suite attempts it mid-run, before writing, and a
+kernel that accepted it would void the run. The write is exactly the
+contracted eight bytes; the range is read before the write and required to
+differ from them, so the run establishes a change rather than an equality a
+never-written range would also satisfy; a digest bracket over every other byte
+is taken before the write and re-checked after confirmed detach. The runner
+then regenerates the fixture tree **and re-reads it from disk** against the
+compiled catalogue — regeneration alone proves nothing, because the manifest
+it returns is computed from the images it built in memory — and it does this
+on refusal as well as on success, since every refusal after the write leaves
+the fixture mutated. That check establishes the files' content, not
+durability. Its operator-run VM acceptance is recorded in
+`docs/work-packages/WP-020.md` when taken.
 
 The named acceptance consumes the non-cloneable `Authorization`, keeps both
 verified backing descriptors live, and requires each held object's initial hash

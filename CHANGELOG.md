@@ -7,6 +7,60 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-020 increment 2h: the first destructive suite, implemented and
+  Tier-1-proven; its VM acceptance is not yet taken.** The one edit increment
+  2g reserved: `gpt-basic-512-signature-erase` is registered, both
+  edit-detectors fired, and every generic-refusal test was re-read at that
+  edit with each re-reading recorded in the test that changed. The suite
+  contracts a single range — eight bytes at offset 512, the primary GPT
+  header's signature field, replaced with zeros — and `IntendedChange` gained
+  the replacement bytes so "changed exactly as contracted" is byte-checkable
+  rather than narrative, with a length disagreement refused at admission.
+  `crates/ffi-linux-loop` gained exactly one entry point,
+  `run_destructive_suite`, which takes the registry `Admission` rather than an
+  `Authorization` or a file, so the compiled contract is unavoidable on the
+  write path; the pinned public-surface test widened by that one line as a
+  reviewed edit. Its attachment is **read-write**, which is the pre-write
+  discipline the 2e record requires a destructive path to establish for
+  itself: the kernel's loop driver refuses `LOOP_CHANGE_FD` on a read-write
+  attachment, so the rebind is inapplicable rather than detected, and the
+  suite attempts it before writing and voids the run if the kernel accepts.
+  The protocol brackets every byte outside the contracted range by digest
+  before attaching, writes and `fdatasync`s through the held loop descriptor,
+  re-verifies the full status binding, and reads both post-conditions only
+  after confirmed detach and partition teardown — with a detach failure
+  winning over any attached-path result, because a mutated fixture with
+  uncertain cleanup must refuse rather than report. The runner then
+  regenerates the fixture tree and requires it to equal the compiled
+  catalogue. `cargo xtask test --tier 2 --profile destructive --suite <name>`
+  resolves only a compiled registry name at exactly Tier 2 with the
+  destructive profile; a generic request still selects no suite and still
+  refuses. Every new gate was mutation-verified — each disabled in turn, its
+  named test failed — and the Linux half was type-checked, clippy-clean, and
+  tested under WSL Debian, which is where `linux.rs` actually compiles.
+
+  An adversarial review of the first draft found six defects, all fixed
+  before the change was proposed, and they are worth recording because two of
+  them were the exact failure this package exists to refuse. **The post-run
+  restoration guard could not fail:** it compared `catalogue::generate`'s
+  returned manifest to `catalogue::expected()`, which is the same pure
+  function of the same compiled data, so it never read a byte from disk while
+  reporting `backing_regenerated_to_catalogue=true`. The new
+  `catalogue::verify_on_disk` re-reads and re-hashes every image, and its own
+  test mutates a fixture and requires the refusal. **Restoration also ran
+  only on success**, so every refusal reachable after the contracted write —
+  a wrong-length write, the post-write re-verify, either post-condition —
+  left the fixture mutated while the message discussed cleanup uncertainty;
+  it is now unconditional. The other four: the executor accepted any
+  `&'static Suite` rather than a registered one, so the registry gated
+  nothing (it now checks membership by address); `digest_outside_range` and
+  `read_exact_range` had no tests at all despite being the only code that
+  makes the two post-conditions real (both now tested, including the
+  chunk-boundary and past-EOF cases); `changed_exactly_as_contracted` named a
+  change the protocol never measured (the range is now read before the write
+  and required to differ); and the module documentation still described an
+  empty registry with no executor.
+
 - **WP-020 increment 2g: the destructive-suite registry becomes a compiled
   type.** "No destructive suite is registered" was load-bearing prose backed
   by refusal tests; it is now `partman_fixtures::registry` — a compiled,

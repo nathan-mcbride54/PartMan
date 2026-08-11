@@ -419,3 +419,107 @@ fn generation_does_not_prune_a_directory_that_is_not_ours() {
         "a directory with no manifest of ours must not be pruned"
     );
 }
+
+// Requirements: SAFE-001, SAFE-007
+//   Generating into a directory reproduces the compiled catalogue exactly, so a destructive suite's "backing regenerated and re-digested to the catalogue" teardown obligation is discharged by regeneration alone
+// Work-Package: WP-020
+// Evidence: generating_reproduces_the_compiled_catalogue_exactly
+#[test]
+fn generating_reproduces_the_compiled_catalogue_exactly() {
+    // WP-020 increment 2h's runner regenerates the fixture tree after a
+    // destructive suite and refuses unless the result equals `expected()`.
+    // That check is only meaningful if the equality can hold at all: if
+    // `generate` and `expected` could ever disagree on an untouched tree, the
+    // runner would refuse every successful run and the refusal would say
+    // nothing about the suite. Nothing pinned that before this test, and the
+    // first evidence would otherwise have come from a VM sitting.
+    let sandbox = Sandbox::new("equals-expected");
+    let generated = generate(&sandbox.0).expect("generation must succeed");
+    assert_eq!(
+        generated,
+        super::expected(),
+        "a freshly generated tree must equal the compiled catalogue"
+    );
+
+    // And again over an existing tree, which is the state the destructive
+    // runner actually regenerates into: the suite has already mutated one
+    // fixture in place, so this is the path that matters.
+    let mutated = sandbox.0.join("gpt-basic-512.img");
+    let mut bytes = fs::read(&mutated).expect("the fixture must exist");
+    bytes[512..520].fill(0);
+    fs::write(&mutated, &bytes).expect("mutating the fixture must succeed");
+
+    let regenerated = generate(&sandbox.0).expect("regeneration must succeed");
+    assert_eq!(
+        regenerated,
+        super::expected(),
+        "regenerating over a mutated tree must restore the compiled catalogue"
+    );
+    assert_eq!(
+        fs::read(&mutated).expect("the fixture must exist"),
+        bytes
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(index, byte)| if (512..520).contains(&index) {
+                // The signature bytes the 2h suite erases, restored.
+                b"EFI PART"[index - 512]
+            } else {
+                byte
+            })
+            .collect::<Vec<u8>>(),
+        "regeneration must restore exactly the bytes the suite erased"
+    );
+}
+
+// Requirements: SAFE-001, SAFE-007
+//   Re-reading the generated tree from disk detects a fixture whose bytes are not the ones this build produces, so the destructive-suite restoration obligation rests on measured bytes rather than on a manifest compared with its own definition
+// Work-Package: WP-020
+// Evidence: on_disk_verification_reads_the_bytes_back_and_refuses_a_changed_one
+#[test]
+fn on_disk_verification_reads_the_bytes_back_and_refuses_a_changed_one() {
+    use super::{OnDiskMismatch, verify_on_disk};
+
+    let sandbox = Sandbox::new("on-disk");
+    generate(&sandbox.0).expect("generation must succeed");
+    verify_on_disk(&sandbox.0).expect("a freshly generated tree must verify");
+
+    // The mutation WP-020 increment 2h's suite makes. Before this check
+    // existed, the runner compared `generate`'s manifest to `expected()` —
+    // the same pure function on both sides — so a fixture left in this state
+    // still reported `backing_regenerated_to_catalogue=true`.
+    let mutated = sandbox.0.join("gpt-basic-512.img");
+    let mut bytes = fs::read(&mutated).expect("the fixture must exist");
+    bytes[512..520].fill(0);
+    fs::write(&mutated, &bytes).expect("mutating the fixture must succeed");
+
+    assert_eq!(
+        verify_on_disk(&sandbox.0),
+        Err(OnDiskMismatch::NotTheCompiledFixture {
+            fixture: "gpt-basic-512.img".to_owned()
+        }),
+        "an erased GPT signature must be detected by reading the bytes back"
+    );
+
+    // A single flipped byte anywhere else is caught too: the check is over
+    // the whole image, not a sampled region.
+    fs::write(&mutated, &bytes[..bytes.len() - 1]).expect("truncating must succeed");
+    assert!(
+        verify_on_disk(&sandbox.0).is_err(),
+        "a truncated image must refuse"
+    );
+
+    // And a missing image is a refusal rather than a silent pass.
+    fs::remove_file(&mutated).expect("removing must succeed");
+    assert!(
+        matches!(
+            verify_on_disk(&sandbox.0),
+            Err(OnDiskMismatch::Unreadable { .. })
+        ),
+        "a missing image must refuse as unreadable"
+    );
+
+    // Regenerating restores it, and the on-disk check says so.
+    generate(&sandbox.0).expect("regeneration must succeed");
+    verify_on_disk(&sandbox.0).expect("regeneration must restore the catalogue on disk");
+}

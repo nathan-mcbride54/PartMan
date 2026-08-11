@@ -4,6 +4,7 @@
 //! next to it. A fixture nobody can name a requirement for is a fixture nobody
 //! will maintain.
 
+use core::fmt;
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -351,6 +352,79 @@ fn gpt_basic(sector: SectorSize, sectors: u64) -> Image {
 /// Returns any I/O error from creating the directory or writing a file.
 pub fn generate(root: &Path) -> io::Result<Manifest> {
     generate_from(root, &catalogue())
+}
+
+/// Why the on-disk fixture tree is not the compiled catalogue.
+#[derive(Debug, PartialEq, Eq)]
+pub enum OnDiskMismatch {
+    /// A generated image could not be read back.
+    Unreadable {
+        /// The fixture's catalogue basename.
+        fixture: String,
+        /// The underlying reason.
+        reason: String,
+    },
+    /// A generated image's bytes on disk are not the bytes this build
+    /// produces.
+    NotTheCompiledFixture {
+        /// The fixture's catalogue basename.
+        fixture: String,
+    },
+}
+
+impl fmt::Display for OnDiskMismatch {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unreadable { fixture, reason } => {
+                write!(formatter, "{fixture} could not be read back: {reason}")
+            }
+            Self::NotTheCompiledFixture { fixture } => write!(
+                formatter,
+                "{fixture} on disk is not the image this build generates"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for OnDiskMismatch {}
+
+/// Re-read every catalogue image from `root` and require its bytes to be the
+/// ones this build produces.
+///
+/// **Why this exists, stated plainly.** [`generate`] returns a [`Manifest`]
+/// computed from the images it built *in memory*, and [`expected`] is that
+/// same pure function of the same compiled data. Comparing the two therefore
+/// compares a function to itself: it is true whatever is on disk, and it was
+/// briefly the only evidence behind WP-020 increment 2h's
+/// "backing regenerated and re-digested to the catalogue" teardown
+/// obligation. An adversarial review named it, correctly, as a guard that
+/// cannot fail. This function is the check that obligation actually needs:
+/// the bytes are read back from `root` and re-hashed.
+///
+/// What it establishes: the named files hold the catalogue's bytes when read.
+/// What it does **not** establish: durability. The read may be served from
+/// the page cache, so this proves the file's content, not that the content
+/// reached stable storage.
+///
+/// # Errors
+///
+/// Returns [`OnDiskMismatch`] for the first image that cannot be read or
+/// whose bytes differ from the compiled catalogue.
+pub fn verify_on_disk(root: &Path) -> Result<(), OnDiskMismatch> {
+    for fixture in catalogue() {
+        let expected_bytes = (fixture.build)().into_bytes();
+        let found =
+            fs::read(root.join(fixture.name)).map_err(|error| OnDiskMismatch::Unreadable {
+                fixture: fixture.name.to_owned(),
+                reason: error.to_string(),
+            })?;
+        if found != expected_bytes {
+            return Err(OnDiskMismatch::NotTheCompiledFixture {
+                fixture: fixture.name.to_owned(),
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Generate a caller-supplied fixture set.

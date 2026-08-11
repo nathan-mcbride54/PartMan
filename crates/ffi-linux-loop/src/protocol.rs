@@ -11,8 +11,8 @@
 //! bytes while the loop device is still bound.
 
 use crate::{
-    FixtureRole, ProbeRecord, ProbeSubject, ProbeTool, Refusal, RunReport, SessionDiskFacts,
-    SessionPartitionFacts, SessionReport,
+    DestructiveReport, FixtureRole, ProbeRecord, ProbeSubject, ProbeTool, Refusal, RunReport,
+    SessionDiskFacts, SessionPartitionFacts, SessionReport,
 };
 
 pub(super) const REQUIRED_BLOCK_SIZE: u32 = 512;
@@ -20,6 +20,7 @@ pub(super) const FLAG_READ_ONLY: u32 = 1;
 pub(super) const FLAG_AUTOCLEAR: u32 = 4;
 pub(super) const FLAG_PARTSCAN: u32 = 8;
 pub(super) const REQUIRED_FLAGS: u32 = FLAG_READ_ONLY | FLAG_AUTOCLEAR | FLAG_PARTSCAN;
+pub(super) const DESTRUCTIVE_FLAGS: u32 = FLAG_AUTOCLEAR | FLAG_PARTSCAN;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct ConfigureRequest {
@@ -35,6 +36,18 @@ impl ConfigureRequest {
         size_limit: 0,
         block_size: REQUIRED_BLOCK_SIZE,
         flags: REQUIRED_FLAGS,
+    };
+
+    /// Increment 2h's read-write attachment: autoclear and partscan
+    /// unchanged, and **no** `LO_FLAGS_READ_ONLY` — deliberately, because the
+    /// kernel's loop driver refuses `LOOP_CHANGE_FD` on a read-write
+    /// attachment, which is the first option the 2e record names for a
+    /// destructive path: the rebind is inapplicable rather than detected.
+    pub(super) const DESTRUCTIVE_SUITE: Self = Self {
+        offset: 0,
+        size_limit: 0,
+        block_size: REQUIRED_BLOCK_SIZE,
+        flags: DESTRUCTIVE_FLAGS,
     };
 }
 
@@ -210,6 +223,133 @@ fn configure_once<C: Controller>(controller: &mut C) -> Result<C::Attachment, Re
         Err(ConfigureError::Busy) => Err(Refusal::LoopIsolationConflict),
         Err(ConfigureError::Refused(error)) => Err(error),
     }
+}
+
+/// The kernel's answer to the forbidden mid-suite rebind attempt.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RebindProbe {
+    /// The driver refused `LOOP_CHANGE_FD`, as a read-write attachment
+    /// requires. This is the outcome the suite must observe.
+    KernelRefused,
+    /// The driver accepted the rebind. The attachment is not what this
+    /// protocol believes it is, and the run is void.
+    KernelAccepted,
+}
+
+/// Increment 2h's destructive boundary, mirrored from [`Controller`].
+///
+/// The write method carries no arguments: the controller holds the admitted
+/// contract — offset, length, replacement bytes — and writes exactly that,
+/// so a protocol bug cannot direct the write somewhere else. The bracket and
+/// range reads go through the held backing descriptor, never a path.
+pub(super) trait DestructiveController {
+    type Attachment;
+
+    /// Whether the held backing object's complete bytes equal the compiled
+    /// catalogue image the contract names, read through the held descriptor.
+    ///
+    /// The interlock already established this by name and digest before
+    /// authorizing, and 2e re-establishes it in-crate before attaching for
+    /// the same reason this does: the crate's own module documentation
+    /// promises every entry point checks it, and inheriting a caller's check
+    /// is what this package declines.
+    fn initial_backing_matches_catalogue(&mut self) -> Result<bool, Refusal>;
+
+    /// Hash every backing byte outside the declared range, through the held
+    /// backing descriptor.
+    fn bracket_digest(&mut self) -> Result<[u8; 32], Refusal>;
+
+    fn configure(&mut self, request: ConfigureRequest) -> Result<Self::Attachment, ConfigureError>;
+
+    /// Full status binding against the held backing descriptor and retained
+    /// node identity, with the destructive flag set expected.
+    fn verify(&mut self, attachment: &Self::Attachment) -> Result<(), Refusal>;
+
+    /// Attempt the forbidden `LOOP_CHANGE_FD` and report the kernel's answer.
+    fn probe_forbidden_rebind(
+        &mut self,
+        attachment: &Self::Attachment,
+    ) -> Result<RebindProbe, Refusal>;
+
+    /// Write the admitted contract — exactly its bytes at exactly its offset —
+    /// through the held loop-device descriptor, returning the count written.
+    fn write_contracted(&mut self, attachment: &Self::Attachment) -> Result<usize, Refusal>;
+
+    /// `fdatasync` the held loop-device descriptor.
+    fn sync(&mut self, attachment: &Self::Attachment) -> Result<(), Refusal>;
+
+    fn detach(&mut self, attachment: Self::Attachment) -> Result<(), Refusal>;
+
+    /// Read the declared range back through the held backing descriptor.
+    fn read_declared_range(&mut self) -> Result<Vec<u8>, Refusal>;
+}
+
+/// Execute the one registered destructive suite's protocol.
+///
+/// The order is the discipline: bracket before attach, verify before the
+/// rebind probe, the probe before the write, sync and re-verify before
+/// detach, and every post-condition read only after confirmed detach. Any
+/// refusal on the attached path still reaches [`DestructiveController::detach`],
+/// whose own failure wins — a mutated fixture with uncertain cleanup must
+/// refuse, not report.
+pub(super) fn execute_destructive<C: DestructiveController>(
+    controller: &mut C,
+    expected_replacement: &[u8],
+) -> Result<DestructiveReport, Refusal> {
+    if expected_replacement.is_empty() {
+        return Err(Refusal::WrongSuiteShape);
+    }
+
+    if !controller.initial_backing_matches_catalogue()? {
+        return Err(Refusal::InitialBackingHashMismatch);
+    }
+
+    // Read the declared range *before* the write. Without this the run could
+    // only ever establish that the range equals the replacement afterwards —
+    // which is also true of a range that already held those bytes and was
+    // never written at all. `changed_exactly_as_contracted` names a change,
+    // so the difference across the run has to be measured, not inferred.
+    if controller.read_declared_range()? == expected_replacement {
+        return Err(Refusal::RangeAlreadyContracted);
+    }
+
+    let bracket_before = controller.bracket_digest()?;
+
+    let attachment = match controller.configure(ConfigureRequest::DESTRUCTIVE_SUITE) {
+        Ok(attachment) => attachment,
+        Err(ConfigureError::Busy) => return Err(Refusal::LoopIsolationConflict),
+        Err(ConfigureError::Refused(error)) => return Err(error),
+    };
+
+    let mut written = 0_usize;
+    let attached_result = (|| {
+        controller.verify(&attachment)?;
+        match controller.probe_forbidden_rebind(&attachment)? {
+            RebindProbe::KernelRefused => {}
+            RebindProbe::KernelAccepted => return Err(Refusal::RebindUnexpectedlyApplicable),
+        }
+        written = controller.write_contracted(&attachment)?;
+        if written != expected_replacement.len() {
+            return Err(Refusal::ContractedWriteWrongLength);
+        }
+        controller.sync(&attachment)?;
+        controller.verify(&attachment)
+    })();
+    let detach = controller.detach(attachment);
+    detach?;
+    attached_result?;
+
+    if controller.read_declared_range()? != expected_replacement {
+        return Err(Refusal::DeclaredRangeMismatch);
+    }
+    if controller.bracket_digest()? != bracket_before {
+        return Err(Refusal::OutsideBracketChanged);
+    }
+
+    Ok(DestructiveReport {
+        contracted_bytes_written: written,
+        detachments_confirmed: 1,
+    })
 }
 
 /// Most partitions one session will enumerate before refusing. The registered
@@ -1463,6 +1603,356 @@ mod tests {
         assert!(
             released.load(std::sync::atomic::Ordering::SeqCst),
             "unwinding must drop the attachment so autoclear can detach"
+        );
+    }
+
+    // ---------------------------------------------------------------------
+    // Increment 2h: the destructive protocol.
+    //
+    // Everything below drives `execute_destructive` through a scripted fake,
+    // so the ordering discipline, the rebind-inapplicability requirement, and
+    // both post-conditions are Tier-1 facts rather than claims waiting on a
+    // VM. The VM acceptance proves the kernel behaves as assumed; these prove
+    // the protocol refuses when it does not.
+    // ---------------------------------------------------------------------
+
+    /// The contract every destructive test writes: eight zero bytes.
+    const CONTRACTED: &[u8] = &[0; 8];
+
+    /// What the declared range holds before the suite writes it. The real
+    /// fixture holds the GPT signature there, which is exactly why a run can
+    /// establish that it *changed*.
+    const PRE_STATE: &[u8] = b"EFI PART";
+
+    #[derive(Debug, PartialEq, Eq)]
+    enum DestructiveEvent {
+        InitialDigest,
+        Bracket,
+        Configure(ConfigureRequest),
+        Verify,
+        RebindProbe,
+        Write,
+        Sync,
+        Detach,
+        ReadRange,
+    }
+
+    struct FakeDestructive {
+        events: Vec<DestructiveEvent>,
+        initial_matches: Result<bool, Refusal>,
+        brackets: VecDeque<Result<[u8; 32], Refusal>>,
+        configure: Option<Result<FakeAttachment, ConfigureError>>,
+        verify: VecDeque<Result<(), Refusal>>,
+        rebind: Result<RebindProbe, Refusal>,
+        write: Result<usize, Refusal>,
+        sync: Result<(), Refusal>,
+        detach: Result<(), Refusal>,
+        ranges: VecDeque<Result<Vec<u8>, Refusal>>,
+    }
+
+    impl FakeDestructive {
+        fn success() -> Self {
+            Self {
+                events: Vec::new(),
+                initial_matches: Ok(true),
+                brackets: VecDeque::from([Ok([7; 32]), Ok([7; 32])]),
+                configure: Some(Ok(FakeAttachment(1))),
+                verify: VecDeque::from([Ok(()), Ok(())]),
+                rebind: Ok(RebindProbe::KernelRefused),
+                write: Ok(CONTRACTED.len()),
+                sync: Ok(()),
+                detach: Ok(()),
+                // Before the write the range holds the signature; after it,
+                // the contracted zeros.
+                ranges: VecDeque::from([Ok(PRE_STATE.to_vec()), Ok(CONTRACTED.to_vec())]),
+            }
+        }
+
+        fn wrote(&self) -> bool {
+            self.events.contains(&DestructiveEvent::Write)
+        }
+
+        fn detached(&self) -> bool {
+            self.events.contains(&DestructiveEvent::Detach)
+        }
+    }
+
+    impl DestructiveController for FakeDestructive {
+        type Attachment = FakeAttachment;
+
+        fn initial_backing_matches_catalogue(&mut self) -> Result<bool, Refusal> {
+            self.events.push(DestructiveEvent::InitialDigest);
+            self.initial_matches.clone()
+        }
+
+        fn bracket_digest(&mut self) -> Result<[u8; 32], Refusal> {
+            self.events.push(DestructiveEvent::Bracket);
+            self.brackets
+                .pop_front()
+                .expect("fake bracket script is complete")
+        }
+
+        fn configure(
+            &mut self,
+            request: ConfigureRequest,
+        ) -> Result<Self::Attachment, ConfigureError> {
+            self.events.push(DestructiveEvent::Configure(request));
+            self.configure
+                .take()
+                .expect("fake configure script is complete")
+        }
+
+        fn verify(&mut self, _attachment: &Self::Attachment) -> Result<(), Refusal> {
+            self.events.push(DestructiveEvent::Verify);
+            self.verify
+                .pop_front()
+                .expect("fake verify script is complete")
+        }
+
+        fn probe_forbidden_rebind(
+            &mut self,
+            _attachment: &Self::Attachment,
+        ) -> Result<RebindProbe, Refusal> {
+            self.events.push(DestructiveEvent::RebindProbe);
+            self.rebind.clone()
+        }
+
+        fn write_contracted(&mut self, _attachment: &Self::Attachment) -> Result<usize, Refusal> {
+            self.events.push(DestructiveEvent::Write);
+            self.write.clone()
+        }
+
+        fn sync(&mut self, _attachment: &Self::Attachment) -> Result<(), Refusal> {
+            self.events.push(DestructiveEvent::Sync);
+            self.sync.clone()
+        }
+
+        fn detach(&mut self, _attachment: Self::Attachment) -> Result<(), Refusal> {
+            self.events.push(DestructiveEvent::Detach);
+            self.detach.clone()
+        }
+
+        fn read_declared_range(&mut self) -> Result<Vec<u8>, Refusal> {
+            self.events.push(DestructiveEvent::ReadRange);
+            self.ranges
+                .pop_front()
+                .expect("fake range script is complete")
+        }
+    }
+
+    // Requirements: SAFE-007, SAFE-005
+    //   The destructive protocol brackets before attaching, proves the rebind inapplicable before writing, syncs and re-verifies before detaching, and reads both post-conditions only after confirmed detach
+    // Work-Package: WP-020
+    // Evidence: the_destructive_protocol_runs_its_steps_in_the_required_order
+    #[test]
+    fn the_destructive_protocol_runs_its_steps_in_the_required_order() {
+        let mut fake = FakeDestructive::success();
+        let report = execute_destructive(&mut fake, CONTRACTED).expect("the scripted run passes");
+
+        assert_eq!(report.contracted_bytes_written(), CONTRACTED.len());
+        assert_eq!(report.detachments_confirmed(), 1);
+        assert_eq!(
+            fake.events,
+            vec![
+                DestructiveEvent::InitialDigest,
+                DestructiveEvent::ReadRange,
+                DestructiveEvent::Bracket,
+                DestructiveEvent::Configure(ConfigureRequest::DESTRUCTIVE_SUITE),
+                DestructiveEvent::Verify,
+                DestructiveEvent::RebindProbe,
+                DestructiveEvent::Write,
+                DestructiveEvent::Sync,
+                DestructiveEvent::Verify,
+                DestructiveEvent::Detach,
+                DestructiveEvent::ReadRange,
+                DestructiveEvent::Bracket,
+            ],
+            "the order is the pre-write discipline; a reordering is a different protocol"
+        );
+    }
+
+    // Requirements: SAFE-007, SAFE-005
+    //   A held backing object whose bytes are not the compiled fixture refuses before anything is attached or written
+    // Work-Package: WP-020
+    // Evidence: a_backing_object_that_is_not_the_compiled_fixture_refuses_before_attaching
+    #[test]
+    fn a_backing_object_that_is_not_the_compiled_fixture_refuses_before_attaching() {
+        let mut fake = FakeDestructive::success();
+        fake.initial_matches = Ok(false);
+
+        let refusal = execute_destructive(&mut fake, CONTRACTED)
+            .expect_err("a backing object that is not the fixture must refuse");
+
+        assert_eq!(refusal, Refusal::InitialBackingHashMismatch);
+        assert_eq!(
+            fake.events,
+            vec![DestructiveEvent::InitialDigest],
+            "nothing may be read, bracketed, or attached once the object is wrong"
+        );
+    }
+
+    // Requirements: SAFE-007, SAFE-005
+    //   A declared range that already holds the contracted bytes refuses, because such a run could not establish that it changed them
+    // Work-Package: WP-020
+    // Evidence: a_range_already_holding_the_contracted_bytes_refuses
+    #[test]
+    fn a_range_already_holding_the_contracted_bytes_refuses() {
+        let mut fake = FakeDestructive::success();
+        // The pre-state already equals the replacement: writing would be
+        // indistinguishable from not writing.
+        fake.ranges = VecDeque::from([Ok(CONTRACTED.to_vec()), Ok(CONTRACTED.to_vec())]);
+
+        let refusal = execute_destructive(&mut fake, CONTRACTED)
+            .expect_err("an already-contracted range must refuse");
+
+        assert_eq!(refusal, Refusal::RangeAlreadyContracted);
+        assert!(
+            !fake.wrote(),
+            "nothing may be written for a run that could not prove a change"
+        );
+        assert!(
+            !fake.events.contains(&DestructiveEvent::Configure(
+                ConfigureRequest::DESTRUCTIVE_SUITE
+            )),
+            "and nothing may be attached"
+        );
+    }
+
+    // Requirements: SAFE-007, SAFE-005
+    //   A kernel that accepts LOOP_CHANGE_FD on the read-write attachment voids the run before any byte is written, and detach is still reached
+    // Work-Package: WP-020
+    // Evidence: a_kernel_accepted_rebind_voids_the_run_before_any_write
+    #[test]
+    fn a_kernel_accepted_rebind_voids_the_run_before_any_write() {
+        let mut fake = FakeDestructive::success();
+        fake.rebind = Ok(RebindProbe::KernelAccepted);
+
+        let refusal = execute_destructive(&mut fake, CONTRACTED)
+            .expect_err("an applicable rebind must void the run");
+
+        assert_eq!(refusal, Refusal::RebindUnexpectedlyApplicable);
+        assert!(
+            !fake.wrote(),
+            "the write must never be reached once the attachment is not what it must be"
+        );
+        assert!(fake.detached(), "the attachment must still be detached");
+    }
+
+    // Requirements: SAFE-007, SAFE-005
+    //   A contracted write that does not write exactly the contract's length refuses, and the attachment is still detached
+    // Work-Package: WP-020
+    // Evidence: a_short_contracted_write_refuses
+    #[test]
+    fn a_short_contracted_write_refuses() {
+        let mut fake = FakeDestructive::success();
+        fake.write = Ok(CONTRACTED.len() - 1);
+
+        let refusal =
+            execute_destructive(&mut fake, CONTRACTED).expect_err("a short write must refuse");
+
+        assert_eq!(refusal, Refusal::ContractedWriteWrongLength);
+        assert!(fake.detached());
+        assert_eq!(
+            fake.events
+                .iter()
+                .filter(|event| **event == DestructiveEvent::ReadRange)
+                .count(),
+            1,
+            "only the pre-write read may have happened; no post-condition is read on a \
+             refusing run"
+        );
+    }
+
+    // Requirements: SAFE-007, SAFE-005
+    //   A declared range that does not hold the contracted bytes after detach refuses
+    // Work-Package: WP-020
+    // Evidence: a_declared_range_that_is_not_the_contracted_bytes_refuses
+    #[test]
+    fn a_declared_range_that_is_not_the_contracted_bytes_refuses() {
+        let mut fake = FakeDestructive::success();
+        // Pre-state is the signature, as always; the post-write read-back is
+        // neither the signature nor the contracted zeros.
+        fake.ranges = VecDeque::from([Ok(PRE_STATE.to_vec()), Ok(vec![0xFF; CONTRACTED.len()])]);
+
+        let refusal = execute_destructive(&mut fake, CONTRACTED)
+            .expect_err("an uncontracted range must refuse");
+
+        assert_eq!(refusal, Refusal::DeclaredRangeMismatch);
+    }
+
+    // Requirements: SAFE-007, SAFE-005
+    //   A digest bracket that changed across the run refuses: bytes outside the contract must not move
+    // Work-Package: WP-020
+    // Evidence: a_changed_digest_bracket_refuses
+    #[test]
+    fn a_changed_digest_bracket_refuses() {
+        let mut fake = FakeDestructive::success();
+        fake.brackets = VecDeque::from([Ok([7; 32]), Ok([9; 32])]);
+
+        let refusal =
+            execute_destructive(&mut fake, CONTRACTED).expect_err("a moved bracket must refuse");
+
+        assert_eq!(refusal, Refusal::OutsideBracketChanged);
+    }
+
+    // Requirements: SAFE-007, SAFE-005
+    //   A detach failure wins over the attached-path result: a mutated fixture with uncertain cleanup refuses rather than reporting
+    // Work-Package: WP-020
+    // Evidence: a_detach_failure_wins_over_the_attached_result
+    #[test]
+    fn a_detach_failure_wins_over_the_attached_result() {
+        let mut fake = FakeDestructive::success();
+        fake.rebind = Ok(RebindProbe::KernelAccepted);
+        fake.detach = Err(Refusal::DetachNotConfirmed);
+
+        let refusal = execute_destructive(&mut fake, CONTRACTED)
+            .expect_err("both halves failing must still refuse");
+
+        assert_eq!(
+            refusal,
+            Refusal::DetachNotConfirmed,
+            "cleanup uncertainty is the more serious fact and must be the reported one"
+        );
+    }
+
+    // Requirements: SAFE-007, SAFE-005
+    //   An empty contracted replacement refuses before anything is bracketed or configured
+    // Work-Package: WP-020
+    // Evidence: an_empty_replacement_refuses_before_anything_is_configured
+    #[test]
+    fn an_empty_replacement_refuses_before_anything_is_configured() {
+        let mut fake = FakeDestructive::success();
+
+        let refusal =
+            execute_destructive(&mut fake, &[]).expect_err("an empty contract must refuse");
+
+        assert_eq!(refusal, Refusal::WrongSuiteShape);
+        assert!(
+            fake.events.is_empty(),
+            "nothing may be bracketed or attached for a contract that changes nothing"
+        );
+    }
+
+    // Requirements: SAFE-007
+    //   The destructive configure request is read-write, autoclear, partscan at 512 bytes: the absence of LO_FLAGS_READ_ONLY is what makes LOOP_CHANGE_FD inapplicable rather than merely detected
+    // Work-Package: WP-020
+    // Evidence: the_destructive_request_is_read_write_autoclear_partscan_at_512_bytes
+    #[test]
+    fn the_destructive_request_is_read_write_autoclear_partscan_at_512_bytes() {
+        let request = ConfigureRequest::DESTRUCTIVE_SUITE;
+        assert_eq!(request.flags, FLAG_AUTOCLEAR | FLAG_PARTSCAN);
+        assert_eq!(
+            request.flags & FLAG_READ_ONLY,
+            0,
+            "a read-only attachment would make the kernel permit LOOP_CHANGE_FD, which is \
+             exactly the property this suite relies on being absent"
+        );
+        assert_eq!(request.block_size, REQUIRED_BLOCK_SIZE);
+        assert_eq!(request.offset, 0);
+        assert_eq!(
+            request.size_limit, 0,
+            "the mapping must be 1:1 with the backing object, or the contract's offset would \
+             not name the byte the contract means"
         );
     }
 }

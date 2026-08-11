@@ -14,16 +14,18 @@ use std::time::{Duration, Instant};
 
 use partman_fixtures::catalogue;
 use rustix::fs::{FileType, Mode, OFlags, fstat, lstat, major, makedev, minor, open};
-use rustix::io::{Errno, pread};
+use rustix::io::{Errno, pread, pwrite};
 use sha2::{Digest as _, Sha256};
 
 use crate::protocol::{
-    CapturedProbe, ConfigureError, ConfigureRequest, Controller, REQUIRED_BLOCK_SIZE,
-    REQUIRED_FLAGS, SessionController, execute, execute_session,
+    CapturedProbe, ConfigureError, ConfigureRequest, Controller, DESTRUCTIVE_FLAGS,
+    DestructiveController, REQUIRED_BLOCK_SIZE, REQUIRED_FLAGS, RebindProbe, SessionController,
+    execute, execute_destructive, execute_session,
 };
 use crate::{
-    AuthorizedFiles, BASIC_NAME, CONFLICTING_NAME, FixtureRole, ProbeSubject, ProbeTool, Refusal,
-    RunReport, SessionDiskFacts, SessionPartitionFacts, SessionReport, sys,
+    AdmittedContract, AuthorizedFiles, BASIC_NAME, CONFLICTING_NAME, DestructiveReport,
+    FixtureRole, ProbeSubject, ProbeTool, Refusal, RunReport, SessionDiskFacts,
+    SessionPartitionFacts, SessionReport, sys,
 };
 
 const LOOP_CONTROL: &str = "/dev/loop-control";
@@ -57,6 +59,16 @@ pub(super) fn run(files: AuthorizedFiles) -> Result<RunReport, Refusal> {
 pub(super) fn run_session(fixture: FixtureRole, backing: File) -> Result<SessionReport, Refusal> {
     let mut controller = LinuxSessionController::new(fixture, backing)?;
     execute_session(&mut controller, fixture)
+}
+
+pub(super) fn run_destructive(contract: AdmittedContract) -> Result<DestructiveReport, Refusal> {
+    // The expected bytes are read out before the contract moves into the
+    // controller, so the protocol's post-condition compares against the
+    // registry's compiled data rather than against anything the controller
+    // could have recomputed on the way through.
+    let replacement = contract.replacement;
+    let mut controller = LinuxDestructiveController::new(contract)?;
+    execute_destructive(&mut controller, replacement)
 }
 
 /// Open `/dev/loop-control` and require the exact kernel misc-device identity.
@@ -175,13 +187,29 @@ fn configure_attachment(
 /// backing descriptor and the retained node identity. Shared verbatim by
 /// both controllers.
 fn verify_attachment(backing: &File, attachment: &Attachment) -> Result<(), Refusal> {
+    verify_attachment_with_flags(backing, attachment, REQUIRED_FLAGS)
+}
+
+/// The body of [`verify_attachment`], with the expected flag set named by the
+/// caller rather than assumed.
+///
+/// Increment 2h's attachment is read-write by design, so its flag set differs
+/// from 2e's and 2f's by exactly `LO_FLAGS_READ_ONLY`. The expectation is a
+/// parameter rather than a relaxed comparison: each protocol still requires
+/// its flags to match **exactly**, and a mapping that came back with the
+/// other protocol's flags refuses here.
+fn verify_attachment_with_flags(
+    backing: &File,
+    attachment: &Attachment,
+    expected_flags: u32,
+) -> Result<(), Refusal> {
     let status =
         sys::status(&attachment.device).map_err(|error| kernel("loop-get-status64", error))?;
     let backing = backing_identity(backing)?;
     if status.backing_device != backing.encoded_device || status.backing_inode != backing.inode {
         return Err(Refusal::BackingIdentityMismatch);
     }
-    if status.flags != REQUIRED_FLAGS {
+    if status.flags != expected_flags {
         return Err(Refusal::LoopFlagsMismatch);
     }
     if status.offset != 0 || status.size_limit != 0 {
@@ -214,6 +242,164 @@ fn detach_attachment(attachment: Attachment) -> Result<(), Refusal> {
     release_then_confirm(attachment.device, || {
         confirm_partition_teardown(represented_device)
     })
+}
+
+/// Increment 2h's controller: one held backing object, one compiled contract.
+///
+/// It holds no fixture roles and no second object. The offset, length, and
+/// replacement bytes are the admitted contract's, carried here so that no
+/// method takes them as an argument — a protocol bug can misorder the calls,
+/// which the pure protocol's tests cover, but it cannot redirect the write.
+struct LinuxDestructiveController {
+    contract: AdmittedContract,
+    control: File,
+}
+
+impl LinuxDestructiveController {
+    fn new(contract: AdmittedContract) -> Result<Self, Refusal> {
+        let control = open_verified_loop_control()?;
+        Ok(Self { contract, control })
+    }
+}
+
+impl DestructiveController for LinuxDestructiveController {
+    type Attachment = Attachment;
+
+    fn initial_backing_matches_catalogue(&mut self) -> Result<bool, Refusal> {
+        // The digest comes from this crate's compiled catalogue, resolved by
+        // the contract's fixture name — not from the manifest on disk, and
+        // not from anything the caller passed.
+        let expected = compiled_expected_digest(self.contract.fixture);
+        Ok(digest_file(&self.contract.backing)? == expected)
+    }
+
+    fn bracket_digest(&mut self) -> Result<[u8; 32], Refusal> {
+        digest_outside_range(
+            &self.contract.backing,
+            self.contract.offset,
+            self.contract.length,
+        )
+    }
+
+    fn configure(&mut self, request: ConfigureRequest) -> Result<Self::Attachment, ConfigureError> {
+        configure_attachment(&self.control, &self.contract.backing, request)
+    }
+
+    fn verify(&mut self, attachment: &Self::Attachment) -> Result<(), Refusal> {
+        verify_attachment_with_flags(&self.contract.backing, attachment, DESTRUCTIVE_FLAGS)
+    }
+
+    fn probe_forbidden_rebind(
+        &mut self,
+        attachment: &Self::Attachment,
+    ) -> Result<RebindProbe, Refusal> {
+        // The backing offered is the one already attached. That is deliberate:
+        // the kernel checks read-write-ness before it looks at the new
+        // descriptor, so this needs no second fixture, and the worst case if
+        // the driver ever accepted it is a rebind to the same object — which
+        // this protocol still treats as void rather than harmless.
+        match sys::change_fd(&attachment.device, &self.contract.backing) {
+            Ok(()) => Ok(RebindProbe::KernelAccepted),
+            // What the loop driver returns when the attachment is not
+            // read-only. This is the refusal the suite requires.
+            Err(Errno::INVAL) => Ok(RebindProbe::KernelRefused),
+            Err(error) => Err(Refusal::AdversarialRebindFailed {
+                errno: Some(error.raw_os_error()),
+            }),
+        }
+    }
+
+    fn write_contracted(&mut self, attachment: &Self::Attachment) -> Result<usize, Refusal> {
+        // Through the held loop-device descriptor, at the contract's offset.
+        // The mapping is offset 0 with no size limit, so this addresses the
+        // same byte of the backing object the contract names.
+        pwrite(
+            &attachment.device,
+            self.contract.replacement,
+            self.contract.offset,
+        )
+        .map_err(|error| kernel("contracted-write", error))
+    }
+
+    fn sync(&mut self, attachment: &Self::Attachment) -> Result<(), Refusal> {
+        rustix::fs::fdatasync(&attachment.device)
+            .map_err(|error| kernel("contracted-write-sync", error))
+    }
+
+    fn detach(&mut self, attachment: Self::Attachment) -> Result<(), Refusal> {
+        detach_attachment(attachment)
+    }
+
+    fn read_declared_range(&mut self) -> Result<Vec<u8>, Refusal> {
+        read_exact_range(
+            &self.contract.backing,
+            self.contract.offset,
+            self.contract.length,
+        )
+    }
+}
+
+/// Hash every byte of the held object **except** the declared range.
+///
+/// This is the digest bracket: it is what makes "nothing outside the contract
+/// changed" a measured fact rather than an assumption about what a write of
+/// N bytes can reach. Read through the held descriptor, never a path.
+fn digest_outside_range(file: &File, offset: u64, length: u64) -> Result<[u8; 32], Refusal> {
+    let end = offset.checked_add(length).ok_or(Refusal::WrongSuiteShape)?;
+    let mut hasher = Sha256::new();
+    let mut bytes = [0_u8; 8 * 1024];
+    let mut position = 0_u64;
+    loop {
+        let read =
+            pread(file, &mut bytes, position).map_err(|error| kernel("bracket-hash", error))?;
+        if read == 0 {
+            break;
+        }
+        let chunk_end = position
+            .checked_add(u64::try_from(read).expect("read length fits u64"))
+            .ok_or(Refusal::KernelOperation {
+                operation: "bracket-hash",
+                errno: None,
+            })?;
+        // The part of this chunk before the range, then the part after it.
+        // When the range does not intersect the chunk one of these is the
+        // whole chunk and the other is empty.
+        for (from, to) in [
+            (position, chunk_end.min(offset)),
+            (position.max(end), chunk_end),
+        ] {
+            if from < to {
+                let start = usize::try_from(from - position).expect("chunk offset fits usize");
+                let stop = usize::try_from(to - position).expect("chunk offset fits usize");
+                hasher.update(&bytes[start..stop]);
+            }
+        }
+        position = chunk_end;
+    }
+    Ok(hasher.finalize().into())
+}
+
+/// Read exactly the declared range through the held backing descriptor.
+///
+/// A short read is a refusal rather than a shorter answer: an object that
+/// cannot supply the contracted range is not the object the contract was
+/// admitted against.
+fn read_exact_range(file: &File, offset: u64, length: u64) -> Result<Vec<u8>, Refusal> {
+    let wanted = usize::try_from(length).map_err(|_| Refusal::WrongSuiteShape)?;
+    let mut buffer = vec![0_u8; wanted];
+    let mut done = 0_usize;
+    while done < wanted {
+        let at = offset
+            .checked_add(u64::try_from(done).expect("progress fits u64"))
+            .ok_or(Refusal::WrongSuiteShape)?;
+        let read = pread(file, &mut buffer[done..], at)
+            .map_err(|error| kernel("declared-range-read", error))?;
+        if read == 0 {
+            return Err(Refusal::DeclaredRangeMismatch);
+        }
+        done += read;
+    }
+    Ok(buffer)
 }
 
 impl Controller for LinuxController {
@@ -1529,5 +1715,155 @@ mod tests {
         );
         drop(file);
         std::fs::remove_file(path).expect("remove disposable digest vector");
+    }
+
+    /// A scratch regular file holding `bytes`, opened read-write.
+    fn scratch_file(tag: &str, bytes: &[u8]) -> (std::path::PathBuf, File) {
+        use std::io::Write as _;
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "partman-2h-{tag}-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let mut file = std::fs::File::create(&path).expect("create scratch file");
+        file.write_all(bytes).expect("write scratch bytes");
+        drop(file);
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .expect("reopen scratch file");
+        (path, file)
+    }
+
+    /// SHA-256 of `bytes`, for comparing against the bracket's answer.
+    fn sha256(bytes: &[u8]) -> [u8; 32] {
+        Sha256::digest(bytes).into()
+    }
+
+    // Requirements: SAFE-005, SAFE-007
+    //   The digest bracket hashes exactly the bytes outside the declared range, for a range at the start, in the middle, spanning an internal chunk boundary, and at the end, and it changes when a byte outside the range changes while ignoring every byte inside it
+    // Work-Package: WP-020
+    // Evidence: the_digest_bracket_covers_exactly_the_bytes_outside_the_declared_range
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_digest_bracket_covers_exactly_the_bytes_outside_the_declared_range() {
+        // Larger than the 8 KiB read chunk, so a range can straddle one.
+        let original: Vec<u8> = (0..20_000_u32).map(|index| (index % 251) as u8).collect();
+        let chunk = 8 * 1024_u64;
+
+        for (tag, offset, length) in [
+            ("start", 0_u64, 8_u64),
+            ("middle", 512, 8),
+            ("chunk-boundary", chunk - 4, 8),
+            ("spans-a-whole-chunk", 100, chunk + 32),
+            ("at-eof", 20_000 - 8, 8),
+        ] {
+            let (path, file) = scratch_file(tag, &original);
+
+            // The independent answer: the bytes outside the range, concatenated.
+            let mut outside = Vec::new();
+            let start = usize::try_from(offset).expect("fits");
+            let end = usize::try_from(offset + length).expect("fits");
+            outside.extend_from_slice(&original[..start]);
+            outside.extend_from_slice(&original[end..]);
+            assert_eq!(
+                digest_outside_range(&file, offset, length).expect("bracket must compute"),
+                sha256(&outside),
+                "{tag}: the bracket must equal the hash of exactly the outside bytes"
+            );
+
+            // Changing a byte INSIDE the range must not move the bracket.
+            let mut inside_changed = original.clone();
+            inside_changed[start] ^= 0xFF;
+            let (inside_path, inside_file) = scratch_file(tag, &inside_changed);
+            assert_eq!(
+                digest_outside_range(&inside_file, offset, length).expect("bracket must compute"),
+                sha256(&outside),
+                "{tag}: a change inside the declared range must not move the bracket"
+            );
+
+            // Changing a byte OUTSIDE it must move the bracket. Pick an index
+            // that is genuinely outside for every case above.
+            let victim = if start == 0 { end } else { start - 1 };
+            let mut outside_changed = original.clone();
+            outside_changed[victim] ^= 0xFF;
+            let (outside_path, outside_file) = scratch_file(tag, &outside_changed);
+            assert_ne!(
+                digest_outside_range(&outside_file, offset, length).expect("bracket must compute"),
+                sha256(&outside),
+                "{tag}: a change outside the declared range must move the bracket"
+            );
+
+            drop((file, inside_file, outside_file));
+            for path in [path, inside_path, outside_path] {
+                std::fs::remove_file(path).expect("remove scratch file");
+            }
+        }
+    }
+
+    // Requirements: SAFE-005, SAFE-007
+    //   The declared-range read returns exactly the contracted bytes through the held descriptor, and a file too short to supply the range refuses rather than returning a shorter answer
+    // Work-Package: WP-020
+    // Evidence: the_declared_range_read_returns_exactly_the_range_or_refuses
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_declared_range_read_returns_exactly_the_range_or_refuses() {
+        let original: Vec<u8> = (0..1024_u32).map(|index| (index % 97) as u8).collect();
+        let (path, file) = scratch_file("range", &original);
+
+        assert_eq!(
+            read_exact_range(&file, 512, 8).expect("the range must read"),
+            original[512..520].to_vec()
+        );
+        assert_eq!(
+            read_exact_range(&file, 0, 4).expect("a range at offset zero must read"),
+            original[..4].to_vec()
+        );
+        assert_eq!(
+            read_exact_range(&file, 1016, 8).expect("a range ending at EOF must read"),
+            original[1016..].to_vec()
+        );
+
+        // Past the end: a short read is a refusal, never a shorter answer.
+        assert_eq!(
+            read_exact_range(&file, 1020, 8),
+            Err(Refusal::DeclaredRangeMismatch),
+            "a range extending past EOF must refuse"
+        );
+        assert_eq!(
+            read_exact_range(&file, 4096, 8),
+            Err(Refusal::DeclaredRangeMismatch),
+            "a range wholly past EOF must refuse"
+        );
+
+        drop(file);
+        std::fs::remove_file(path).expect("remove scratch file");
+    }
+
+    // Requirements: SAFE-005, SAFE-007
+    //   A backing object smaller than the declared range still brackets and refuses rather than panicking on the conversion or the subtraction
+    // Work-Package: WP-020
+    // Evidence: a_backing_object_shorter_than_the_declared_range_does_not_panic
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_backing_object_shorter_than_the_declared_range_does_not_panic() {
+        let (path, file) = scratch_file("short", &[0xAB; 16]);
+
+        // The whole file is outside a range that starts past its end, so the
+        // bracket is simply the file's hash.
+        assert_eq!(
+            digest_outside_range(&file, 4096, 8).expect("bracket must compute"),
+            sha256(&[0xAB; 16])
+        );
+        // And an offset whose end overflows refuses instead of wrapping.
+        assert_eq!(
+            digest_outside_range(&file, u64::MAX, 8),
+            Err(Refusal::WrongSuiteShape)
+        );
+
+        drop(file);
+        std::fs::remove_file(path).expect("remove scratch file");
     }
 }
