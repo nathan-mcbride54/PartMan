@@ -7,6 +7,29 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-060 increment 1: the planner's request vocabulary and pure
+  chassis.** `crates/planner` joins the workspace, depending on
+  `partman-domain` and `partman-capability` deliberately. `plan()` is
+  PLAN-001's computation — deterministic and side-effect free, purity
+  structural (no clock: the caller supplies creation time and the
+  PLAN-007 window; the 24-hour default is the calling surface's policy
+  to apply before this boundary), determinism held by test as
+  byte-equal plan bodies. The conditioning rule is ACC-009's planner
+  half with CAP-007 both ways: `unsupported`/`blocked` answers refuse
+  the request with the engine's answer carried **verbatim** — reason
+  and remediation travel, never re-derived — `preview` permits
+  planning, `supported` is not a distinct planning state (it differs
+  at apply, which does not exist here), and no answer can admit a step
+  the closure refuses: every step is `PlanStep::mutating`, every plan
+  `OperationPlan::assemble`. Source-class requests refuse as not plan
+  material. Severities are conservative-up with the reasoning stated
+  in the code: severity 0 never fits a mutating step, and severity 1's
+  "fully undoable via an emitted reversal plan" cannot be claimed
+  while PLAN-008's emission waits on SI-19 — a Reversible claim
+  without the reversal would be the assertion this codebase refuses
+  everywhere else. Four tests plus the boundary revalidation;
+  traceability converted to generated.
+
 - **WP-050 increment 4: the consumer seams, the multipath arm the
   coverage net caught, and the package record.** The engine's public
   API is documented for its three consumer classes (the CLI rendering

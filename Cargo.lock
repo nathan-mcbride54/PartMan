@@ -178,6 +178,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "partman-planner"
+version = "0.0.0"
+dependencies = [
+ "partman-capability",
+ "partman-domain",
+]
+
+[[package]]
 name = "partman-slint-feasibility"
 version = "0.0.0"
 dependencies = [
