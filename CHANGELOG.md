@@ -7,6 +7,28 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-020 increment 2i is Delivered: both acceptances re-taken through the
+  general executor, and the 2e stopping condition is re-pinned at
+  `0625b07`.** The 2i merge replaced the executor both Tier-2 acceptances
+  run through, tripping the stopping condition a fourth time by
+  construction — its own boundary made the re-take the delivery condition.
+  One sitting on 2026-08-11, one fresh disposable Proxmox-hosted non-WSL VM
+  (VMID 9427, kernel 5.15.0-186-generic), commit `0625b07`, the same
+  runbook and sequencing: nine negative controls refused, the 2e read-only
+  acceptance passed first on a pristine tree, then the 2h destructive suite
+  passed through the general executor's one-fixture path with the identical
+  value set plus the general report's counters (`fixtures_executed=1`,
+  `ranges_written=1`). The declared range read `EFI PART` before and after
+  with eight zeros established in between, both fixtures ended
+  byte-identical to the compiled catalogue, the loop table ended empty, and
+  teardown was verified — no VM config, volume, or snapshot remains.
+  Transcript `bc46c821…d903`, digests agreeing across guest, host, and
+  workstation. The general shape's first real-kernel exercise arrives with
+  the suite that uses it, behind that suite's own boundary; what this
+  sitting establishes is that the accepted one-fixture chain survives the
+  generalization on a real kernel exactly as the containment pin says it
+  must at Tier 1.
+
 - **WP-020 increment 2i: the destructive executor becomes general.** The 2g
   registry always compiled the general contract shape — N fixtures, N
   non-overlapping ranges each — but the 2h executor deliberately refused
