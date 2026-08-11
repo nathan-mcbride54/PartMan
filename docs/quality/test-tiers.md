@@ -235,18 +235,27 @@ on refusal as well as on success, since every refusal after the write leaves
 the fixture mutated. That check establishes the files' content, not
 durability.
 
-Its operator-run acceptance passed on 2026-08-11 — three times: re-taken the
+Its operator-run acceptance passed on 2026-08-11 — four times: re-taken the
 same day on `68298f2` after the #248/#250 fixes changed its own probe and
-write lines, and again on `0625b07` through increment 2i's general executor —
-each time in the same VM sitting as a re-take of the read-only acceptance
-above, and is recorded in `docs/work-packages/WP-020.md`. The kernel refused
-the mid-run `LOOP_CHANGE_FD` as the design requires (measured on two kernel
-revisions, and classified from an observed status re-read since the second
-sitting), the contracted range changed and nothing else did, and nine
-negative controls refused in each sitting. A registered
-single-range destructive suite is still not a destructive harness: increment
-2's own scope remains unbuilt, and every generic destructive Tier-2 request
-and every Tier-3 request still refuses.
+write lines, on `0625b07` through increment 2i's general executor, and on
+`39b59f5` in the sitting that first took the 2j acceptance — each time in
+the same VM sitting as a re-take of the read-only acceptance above, and is
+recorded in `docs/work-packages/WP-020.md`. The kernel refused the mid-run
+`LOOP_CHANGE_FD` as the design requires (measured on two kernel revisions,
+and classified from an observed status re-read since the second sitting),
+the contracted range changed and nothing else did, and the sitting's full
+negative-control set refused every time.
+
+Increment 2j's two-range suite —
+`--suite gpt-basic-512-both-signatures-erase`, both GPT header signatures
+erased in one run — passed its acceptance on its first take in that same
+2026-08-11 sitting, the first real-kernel run of the general executor's
+multi-range chain: `fixtures_executed=1`, `ranges_written=2`,
+`contracted_bytes_written=16`, one attachment and one confirmed detach, both
+ranges restored by regeneration, eleven negative controls refused. Increment
+2 is thereby delivered as scoped; every generic destructive Tier-2 request
+and every Tier-3 request still refuses, because a generic request selects no
+suite.
 
 The named acceptance consumes the non-cloneable `Authorization`, keeps both
 verified backing descriptors live, and requires each held object's initial hash

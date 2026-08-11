@@ -7,6 +7,33 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-020 increment 2j is Delivered on its first-take acceptance, and
+  increment 2 itself is delivered as scoped; the 2e stopping condition is
+  re-pinned at `39b59f5`.** One sitting on 2026-08-11, one fresh disposable
+  Proxmox-hosted non-WSL VM (VMID 9428, kernel 5.15.0-186-generic), commit
+  `39b59f5`: eleven negative controls refused (the nine from the previous
+  sittings plus two for the new selector), the 2e read-only acceptance
+  passed first on a pristine tree (its fifth same-day re-take), the 2h
+  single-range suite passed (its fourth), and then the 2j two-range suite
+  passed on its first take — the first real-kernel run of the 2i general
+  executor's multi-range chain. `EFI PART` at offset 512 **and** at offset
+  4,193,792 before, eight zeros established at each in between, `EFI PART`
+  at both after regeneration; `fixtures_executed=1`, `ranges_written=2`,
+  `contracted_bytes_written=16`, one attachment, one confirmed detach, the
+  kernel's `LOOP_CHANGE_FD` refusal classified from the observed status
+  re-read. Both fixtures ended byte-identical to the compiled catalogue and
+  the loop table ended empty; teardown verified with nothing remaining. The
+  sitting's first invocation was void before any gate ran — the copied
+  sitting script lacked the execute bit and `script -c` refused it — and is
+  retained in the custody table rather than discarded; the re-invocation is
+  the cited run (transcript `a788471b…b0f6`, digests agreeing across guest,
+  host, and workstation). With a registered suite exercising the general
+  shape under its own boundary and operator-run acceptance, increment 2's
+  own delivery bar is met: a Tier-2 destructive suite can exist, two do,
+  and no product write path exists or is authorized by any of it. The
+  multi-fixture half of the general shape stays Tier-1-proven until a
+  contract needs it, as the 2j boundary records.
+
 - **WP-020 increment 2j: the second destructive suite, and the first
   two-range one, implemented and Tier-1-proven; its VM acceptance is not yet
   taken.** `gpt-basic-512-both-signatures-erase` is registered: one fixture,
