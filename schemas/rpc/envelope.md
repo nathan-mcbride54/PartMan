@@ -16,9 +16,10 @@ Every protocol message is the canonical `pce/1` encoding of:
 | Key | Type | Content |
 | --- | --- | --- |
 | `schema` | Text | `partman.rpc.envelope`. |
-| `schema_version` | Unsigned | `1` (MODEL-003). |
-| `channel` | Text | `request`, `response`, or `event` — RPC-004's stream separation, typed. Event-stream sequence numbering and resume tokens arrive with the streams increment; the class vocabulary is closed now so this shape does not move under them. |
+| `schema_version` | Unsigned | `2` (MODEL-003; version 2 added the event `sequence` field with per-channel presence rules). |
+| `channel` | Text | `request`, `response`, or `event` — RPC-004's stream separation, typed. |
 | `body` | Bytes | The canonical `pce/1` encoding of one `schemas/`-defined operation type (RPC-005). Re-proved canonical at wrap and at decode — an envelope cannot launder bytes the codec would refuse. |
+| `sequence` | Unsigned | Present **exactly** on the `event` channel: the monotone stream sequence (`schemas/rpc/streams.md`). A request or response carrying one, or an event missing one, refuses naming the channel and the presence found. |
 
 ## 2. The strict rules (RPC-003, both directions)
 
