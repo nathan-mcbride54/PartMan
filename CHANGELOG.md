@@ -7,6 +7,32 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-050 increment 3: the CAP-006 store, structured and truthfully
+  empty.** `docs/capabilities/` exists in the form CAP-006 and
+  Section 9 name: `format.md` (the normative format — advertised rows
+  per platform/file-system/operation with a closed two-state
+  vocabulary, qualified rows required to carry fixture, run, date, and
+  transcript digest per Section 16's evidence rule),
+  `qualifications.json` (advertised set **empty, the vacuity named**:
+  nothing is advertised while no apply path exists; advertising is a
+  reviewed act that adds a row unqualified, qualifying is a second
+  reviewed act that fills its evidence), and
+  `tool-version-floors.json` (empty for the same reason: no storage
+  tool is invoked anywhere yet, and a floor for a tool nobody calls is
+  an assertion nobody can test). The CI gate is a Tier-1 store test in
+  `crates/capability` — the `shared_vectors` pattern, dev-dependency
+  only — refusing malformed rows, unknown fields, out-of-vocabulary
+  platforms/file-systems/operations, and evidence-less qualified rows,
+  with the qualified-row count **pinned at zero** so qualification can
+  only arrive as a diff that moves the pin under review. **Delivered
+  narrower than the assignment's sentence, and recorded:** the
+  evidence token gains no constructor at all — not even crate-internal
+  — because both preconditions are vacuous (no row to qualify, no
+  consumer that could possess a store at runtime); the loading path
+  arrives with the first consumer that embeds qualification evidence
+  under its own grant, and the increment-1 `compile_fail` proof holds
+  verbatim meanwhile.
+
 - **WP-050 increment 2: the engine core.** `capability()` computes
   CAP-001's conditioning as one entry point — the CAP-003 answer for
   one operation on one exact target over a decoded snapshot,
