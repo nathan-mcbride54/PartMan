@@ -230,8 +230,16 @@ compiled catalogue — regeneration alone proves nothing, because the manifest
 it returns is computed from the images it built in memory — and it does this
 on refusal as well as on success, since every refusal after the write leaves
 the fixture mutated. That check establishes the files' content, not
-durability. Its operator-run VM acceptance is recorded in
-`docs/work-packages/WP-020.md` when taken.
+durability.
+
+Its operator-run acceptance passed on 2026-08-11, in the same VM sitting as a
+re-take of the read-only acceptance above, and is recorded in
+`docs/work-packages/WP-020.md`. The kernel refused the mid-run
+`LOOP_CHANGE_FD` as the design requires, the contracted range changed and
+nothing else did, and nine negative controls refused. A registered
+single-range destructive suite is still not a destructive harness: increment
+2's own scope remains unbuilt, and every generic destructive Tier-2 request
+and every Tier-3 request still refuses.
 
 The named acceptance consumes the non-cloneable `Authorization`, keeps both
 verified backing descriptors live, and requires each held object's initial hash

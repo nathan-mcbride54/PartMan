@@ -7,6 +7,39 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-020 increment 2h is Delivered: the first destructive suite passed its
+  operator-run acceptance, and the 2e acceptance was re-taken beside it.** One
+  sitting on 2026-08-11, one disposable Proxmox-hosted non-WSL VM, one
+  transcript, commit `4fbb2f9`. The read-only 2e acceptance ran first on a
+  pristine tree — its stopping condition had tripped a second time when
+  increments 2g and 2h landed nine non-Markdown paths after `582e6d1` — and
+  the destructive suite ran second, because it mutates a fixture and restores
+  it. **The kernel refused `LOOP_CHANGE_FD` on the read-write attachment**,
+  which had been an assumption about the loop driver when the code was written
+  and is now a measurement on kernel 5.15.0-187-generic; the suite keeps that
+  leg so a kernel behaving otherwise voids the run rather than passing it. The
+  declared range read `EFI PART` before and `EFI PART` after, the harness
+  established that it held eight zero bytes in between, the digest bracket
+  over every other byte was unchanged, and both fixtures ended byte-identical
+  to the compiled catalogue. Nine negative controls refused — the four from 2e
+  plus five for the new `--suite` selector — with the fixtures digest-checked
+  afterwards, so no refusal path wrote anything. Teardown verified: no VM
+  config, volume, or snapshot, and the host-attached USB media unchanged.
+  Transcript `ac4a496b…af8b`, digests agreeing across guest, host, and
+  workstation. The 2e stopping condition is re-pinned at `4fbb2f9`.
+
+  The sitting also found a defect in the runbook and it is fixed here rather
+  than noted: `02-guest-provision.sh` ran `apt-get purge -y snapd 2>/dev/null
+  || true`, discarding both the purge's error output and its exit status. The
+  purge failed on this guest — snapd's squashfs mounts and their loop bindings
+  were live — and the script continued, aborting only incidentally when the
+  following `rm -rf` hit a read-only filesystem. Had that `rm` succeeded on a
+  partially unmounted tree, provisioning would have reported success with
+  snapd installed and the sitting would have recorded the
+  no-other-loop-administrator exclusion as established when it was not. The
+  script now unmounts first, purges with output visible, and **proves** the
+  package is gone with `dpkg -l` before continuing.
+
 - **WP-020 increment 2h: the first destructive suite, implemented and
   Tier-1-proven; its VM acceptance is not yet taken.** The one edit increment
   2g reserved: `gpt-basic-512-signature-erase` is registered, both
