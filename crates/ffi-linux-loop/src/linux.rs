@@ -312,12 +312,7 @@ impl DestructiveController for LinuxDestructiveController {
         // Through the held loop-device descriptor, at the contract's offset.
         // The mapping is offset 0 with no size limit, so this addresses the
         // same byte of the backing object the contract names.
-        pwrite(
-            &attachment.device,
-            self.contract.replacement,
-            self.contract.offset,
-        )
-        .map_err(|error| kernel("contracted-write", error))
+        write_contracted_range(&attachment.device, &self.contract)
     }
 
     fn sync(&mut self, attachment: &Self::Attachment) -> Result<(), Refusal> {
@@ -336,6 +331,25 @@ impl DestructiveController for LinuxDestructiveController {
             self.contract.length,
         )
     }
+}
+
+/// Write the contract's replacement bytes at the contract's offset through
+/// the given device descriptor, returning the count the kernel reports.
+///
+/// Split from `write_contracted` so the destination is measurable at Tier 1
+/// (issue #250): this is the only line in the repository that writes to
+/// storage under a Tier-2 gate, and the protocol tests drive a fake whose
+/// write never involves the offset, so a transposed field or an offset
+/// arithmetic change would otherwise pass every unprivileged test and be
+/// caught only by a VM sitting's post-conditions — which are checked by the
+/// same protocol whose write is in question. Against a regular scratch file
+/// the unit test pins which contract field supplies the offset, which
+/// supplies the bytes, and that nothing outside them is touched. The loop
+/// mapping itself (offset 0, no size limit, so device offsets are backing
+/// offsets) remains the acceptance's measurement.
+fn write_contracted_range(device: &File, contract: &AdmittedContract) -> Result<usize, Refusal> {
+    pwrite(device, contract.replacement, contract.offset)
+        .map_err(|error| kernel("contracted-write", error))
 }
 
 /// Classify the kernel's answer to the forbidden mid-suite rebind attempt.
@@ -1903,6 +1917,52 @@ mod tests {
 
         drop(file);
         std::fs::remove_file(path).expect("remove scratch file");
+    }
+
+    // Requirements: SAFE-005, SAFE-007
+    //   The contracted write lands exactly the contract's replacement bytes at the contract's offset and touches nothing else, measured through a held descriptor rather than inferred from the protocol's own post-conditions
+    // Work-Package: WP-020
+    // Evidence: the_contracted_write_lands_exactly_at_the_contracted_offset
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_contracted_write_lands_exactly_at_the_contracted_offset() {
+        static REPLACEMENT: [u8; 8] = [0xC3; 8];
+        let original: Vec<u8> = (0..4096_u32).map(|index| (index % 251) as u8).collect();
+        // The stand-in for the loop device is a regular scratch file: the
+        // helper writes through whatever descriptor it is handed, and the
+        // mapping from device offsets to backing offsets is the acceptance's
+        // measurement, not this test's.
+        let (device_path, device) = scratch_file("write-device", &original);
+        let (backing_path, backing) = scratch_file("write-backing", &original);
+        // The range must not already hold the replacement, or a write that
+        // did nothing would satisfy the read-back below.
+        assert_ne!(original[512..520], REPLACEMENT);
+
+        let contract = AdmittedContract {
+            fixture: "scratch-fixture",
+            offset: 512,
+            length: 8,
+            replacement: &REPLACEMENT,
+            backing,
+        };
+        let written =
+            write_contracted_range(&device, &contract).expect("the contracted write must land");
+        assert_eq!(written, REPLACEMENT.len());
+
+        // The whole object, read back independently: the replacement at
+        // exactly the contract's offset, and every other byte untouched.
+        let mut expected = original.clone();
+        expected[512..520].copy_from_slice(&REPLACEMENT);
+        assert_eq!(
+            std::fs::read(&device_path).expect("read the written scratch object back"),
+            expected,
+            "the write must land at the contracted offset and nowhere else"
+        );
+
+        drop((contract, device));
+        for path in [device_path, backing_path] {
+            std::fs::remove_file(path).expect("remove scratch file");
+        }
     }
 
     // Requirements: SAFE-005, SAFE-007

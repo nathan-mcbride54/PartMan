@@ -7,6 +7,26 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Fixed
 
+- **WP-020: the contracted write's destination is measured at Tier 1
+  (#250).** The only line in the repository that writes to storage under a
+  Tier-2 gate had no automated coverage: the protocol tests drive a fake
+  whose `write_contracted` never involves the offset, and the real method
+  needs a loop device, so a transposed field or an offset arithmetic change
+  would have passed every unprivileged test on every platform and been
+  caught only by a VM sitting's post-conditions — which are checked by the
+  same protocol whose write is in question. The write moved into
+  `write_contracted_range`, a helper taking the admitted contract and the
+  device descriptor, and
+  `the_contracted_write_lands_exactly_at_the_contracted_offset` writes
+  through it into a regular scratch object and reads the whole object back
+  independently: the replacement bytes at exactly the contract's offset,
+  every other byte untouched, the reported count exact, and the range
+  asserted to differ beforehand so a write that did nothing cannot satisfy
+  the read-back. This is the issue's named fallback — the address
+  arithmetic measured even though the syscall destination under a real loop
+  mapping remains the acceptance's measurement — and the transposed-field
+  mutation fails it.
+
 - **WP-020: the rebind probe names only an observed kernel state (#248).**
   Increment 2h's pre-write discipline rests on the loop driver refusing
   `LOOP_CHANGE_FD` on a read-write attachment, and the probe read any
