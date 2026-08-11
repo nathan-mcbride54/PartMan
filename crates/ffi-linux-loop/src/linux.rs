@@ -19,8 +19,8 @@ use sha2::{Digest as _, Sha256};
 
 use crate::protocol::{
     CapturedProbe, ConfigureError, ConfigureRequest, Controller, DESTRUCTIVE_FLAGS,
-    DestructiveController, REQUIRED_BLOCK_SIZE, REQUIRED_FLAGS, RebindProbe, SessionController,
-    execute, execute_destructive, execute_session,
+    DestructiveController, FLAG_READ_ONLY, REQUIRED_BLOCK_SIZE, REQUIRED_FLAGS, RebindProbe,
+    SessionController, execute, execute_destructive, execute_session,
 };
 use crate::{
     AdmittedContract, AuthorizedFiles, BASIC_NAME, CONFLICTING_NAME, DestructiveReport,
@@ -298,15 +298,14 @@ impl DestructiveController for LinuxDestructiveController {
         // descriptor, so this needs no second fixture, and the worst case if
         // the driver ever accepted it is a rebind to the same object — which
         // this protocol still treats as void rather than harmless.
-        match sys::change_fd(&attachment.device, &self.contract.backing) {
-            Ok(()) => Ok(RebindProbe::KernelAccepted),
-            // What the loop driver returns when the attachment is not
-            // read-only. This is the refusal the suite requires.
-            Err(Errno::INVAL) => Ok(RebindProbe::KernelRefused),
-            Err(error) => Err(Refusal::AdversarialRebindFailed {
-                errno: Some(error.raw_os_error()),
-            }),
-        }
+        classify_rebind_probe(
+            sys::change_fd(&attachment.device, &self.contract.backing),
+            || {
+                sys::status(&attachment.device)
+                    .map(|status| status.flags)
+                    .map_err(|error| kernel("rebind-probe-restat", error))
+            },
+        )
     }
 
     fn write_contracted(&mut self, attachment: &Self::Attachment) -> Result<usize, Refusal> {
@@ -336,6 +335,45 @@ impl DestructiveController for LinuxDestructiveController {
             self.contract.offset,
             self.contract.length,
         )
+    }
+}
+
+/// Classify the kernel's answer to the forbidden mid-suite rebind attempt.
+///
+/// `LOOP_CHANGE_FD` returning `EINVAL` is not, by itself, the refusal the
+/// suite requires (issue #248): `EINVAL` is the most overloaded errno on the
+/// ioctl path, and reading it as "the attachment is read-write, so the rebind
+/// is inapplicable" would name a kernel state nothing observed. A
+/// misclassified `EINVAL` fails *open* — the run proceeds into the write —
+/// while every other refusal in this protocol fails closed.
+///
+/// So on `EINVAL` the attachment's status flags are re-read, and only an
+/// attachment observed to be read-write may name the answer
+/// [`RebindProbe::KernelRefused`]: the returned value then names a state that
+/// was observed, not a reason that was assumed. `EINVAL` on an attachment
+/// whose flags carry `LO_FLAGS_READ_ONLY` — unreachable through this protocol,
+/// whose `verify` requires the destructive flag set immediately before the
+/// probe — is an unexplained refusal and refuses the run rather than passing
+/// it. The flag check is deliberately only `LO_FLAGS_READ_ONLY`'s absence:
+/// read-write-ness is the exact property the classification rests on, and the
+/// full flag-set binding is `verify`'s job on either side of the probe.
+fn classify_rebind_probe(
+    attempt: rustix::io::Result<()>,
+    observed_flags: impl FnOnce() -> Result<u32, Refusal>,
+) -> Result<RebindProbe, Refusal> {
+    match attempt {
+        Ok(()) => Ok(RebindProbe::KernelAccepted),
+        Err(Errno::INVAL) => {
+            if observed_flags()? & FLAG_READ_ONLY != 0 {
+                return Err(Refusal::AdversarialRebindFailed {
+                    errno: Some(Errno::INVAL.raw_os_error()),
+                });
+            }
+            Ok(RebindProbe::KernelRefused)
+        }
+        Err(error) => Err(Refusal::AdversarialRebindFailed {
+            errno: Some(error.raw_os_error()),
+        }),
     }
 }
 
@@ -1865,5 +1903,70 @@ mod tests {
 
         drop(file);
         std::fs::remove_file(path).expect("remove scratch file");
+    }
+
+    // Requirements: SAFE-005, SAFE-007
+    //   EINVAL from the forbidden rebind names KernelRefused only after the attachment is re-observed read-write; an EINVAL the observation cannot explain and every other errno refuse rather than passing into the write
+    // Work-Package: WP-020
+    // Evidence: the_rebind_probe_names_only_an_observed_kernel_state
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_rebind_probe_names_only_an_observed_kernel_state() {
+        // An accepted rebind is named without consulting flags: the run is
+        // void whatever the status says.
+        assert_eq!(
+            classify_rebind_probe(Ok(()), || panic!("acceptance must not consult flags")),
+            Ok(RebindProbe::KernelAccepted)
+        );
+
+        // EINVAL plus an attachment re-observed read-write is the refusal the
+        // suite requires — and the observation must actually be taken.
+        let mut observations = 0;
+        assert_eq!(
+            classify_rebind_probe(Err(Errno::INVAL), || {
+                observations += 1;
+                Ok(DESTRUCTIVE_FLAGS)
+            }),
+            Ok(RebindProbe::KernelRefused)
+        );
+        assert_eq!(observations, 1, "the flags were observed, not assumed");
+
+        // EINVAL on an attachment observed read-only cannot be the read-write
+        // refusal, whether the rest of the flag set matches a known protocol
+        // or not: both refuse instead of passing into the write.
+        for flags in [REQUIRED_FLAGS, FLAG_READ_ONLY] {
+            assert_eq!(
+                classify_rebind_probe(Err(Errno::INVAL), || Ok(flags)),
+                Err(Refusal::AdversarialRebindFailed {
+                    errno: Some(Errno::INVAL.raw_os_error()),
+                })
+            );
+        }
+
+        // A failed observation wins over any classification: nothing may be
+        // named on a status that could not be read.
+        assert_eq!(
+            classify_rebind_probe(Err(Errno::INVAL), || {
+                Err(Refusal::KernelOperation {
+                    operation: "rebind-probe-restat",
+                    errno: Some(Errno::IO.raw_os_error()),
+                })
+            }),
+            Err(Refusal::KernelOperation {
+                operation: "rebind-probe-restat",
+                errno: Some(Errno::IO.raw_os_error()),
+            })
+        );
+
+        // Every other errno refuses without consulting flags, carrying the
+        // errno it saw.
+        assert_eq!(
+            classify_rebind_probe(Err(Errno::BADF), || panic!(
+                "a non-EINVAL error must not consult flags"
+            )),
+            Err(Refusal::AdversarialRebindFailed {
+                errno: Some(Errno::BADF.raw_os_error()),
+            })
+        );
     }
 }

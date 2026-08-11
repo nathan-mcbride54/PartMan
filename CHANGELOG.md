@@ -7,6 +7,25 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Fixed
 
+- **WP-020: the rebind probe names only an observed kernel state (#248).**
+  Increment 2h's pre-write discipline rests on the loop driver refusing
+  `LOOP_CHANGE_FD` on a read-write attachment, and the probe read any
+  `EINVAL` from that ioctl as exactly that refusal — naming the result
+  after the reason it expected rather than anything it observed, on the
+  most overloaded errno the ioctl path has. The direction made it worth
+  fixing now: a misclassified `EINVAL` is a false safety pass that
+  proceeds into the write, while every other refusal in the protocol
+  fails closed. On `EINVAL` the probe now re-reads `LOOP_GET_STATUS64`
+  and only an attachment observed without `LO_FLAGS_READ_ONLY` may name
+  the answer `KernelRefused`; an `EINVAL` the observation cannot explain
+  refuses the run, and a failed observation wins over any
+  classification. The mapping itself moved into a pure classifier the
+  fake-driven protocol tests could never reach, with
+  `the_rebind_probe_names_only_an_observed_kernel_state` pinning every
+  arm — including that acceptance and non-`EINVAL` errors classify
+  without consulting flags — and both the blind-`EINVAL` and
+  inverted-flag mutations fail it.
+
 - **WP-020: admission counts verified handles per fixture instead of
   comparing name sets (#249).** `Admission::admit` compared the authorized
   target names to the declared fixture names as `BTreeSet`s, and a set
