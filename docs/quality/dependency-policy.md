@@ -161,6 +161,13 @@ and the follow-up audit defeated it by nesting the property under `metadata`:
 the line still read `"license": "MIT OR Apache-2.0"` while the document's root
 `license` was `undefined`. A line cannot tell you where in a document it sits.
 
+Both this licence inventory and the npm-package discovery below interpret
+"repository" as the current Git working tree. A directory that carries its own
+`.git` entry is a nested linked worktree, clone, or submodule boundary and is not
+traversed. The rule is structural rather than name-based: an ordinary directory
+named `.claude`, `worktrees`, or anything else remains covered when it has no
+Git boundary marker.
+
 ## Known gap: a duplicate major version will not fail CI
 
 `[bans] multiple-versions` is `"warn"`, and `cargo xtask supply-chain` does not

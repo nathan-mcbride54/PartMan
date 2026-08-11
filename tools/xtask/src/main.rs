@@ -3146,11 +3146,11 @@ fn manifest_files_under(directory: &Path, found: &mut Vec<PathBuf>) -> Result<()
             // This is a structural skip, not the name-based kind the
             // `generated` note above rules out. A name says nothing about
             // what a directory holds; the `.git` entry is the boundary git
-            // itself stops at, and it cannot conceal a first-party package,
-            // because git refuses `.git` as a path component — no tree this
-            // repository can commit contains one, so everything behind the
-            // marker is invisible to this repository's index and can never be
-            // a manifest this policy governs. The alternative, asking
+            // itself stops at. Git refuses `.git` as a committed path
+            // component, so a clean checkout can acquire this marker only
+            // from a separately materialized Git checkout; that checkout's
+            // manifests are not part of this working tree's source set. The
+            // alternative, asking
             // `git worktree list` for registered checkouts, answers a
             // narrower question: an unregistered nested clone sits behind the
             // same `.git` marker but appears in no worktree registry.
@@ -7732,6 +7732,10 @@ Mention Section 1.99 in prose.
         fs::remove_dir_all(&root).ok();
     }
 
+    // Requirements: SEC-005, SEC-010
+    //   licence and npm-advisory discovery stop at nested Git checkout boundaries without hiding an ordinary same-named directory
+    // Work-Package: WP-000
+    // Evidence: another_working_tree_inside_this_one_is_a_boundary_not_a_manifest_source
     #[test]
     fn another_working_tree_inside_this_one_is_a_boundary_not_a_manifest_source() {
         // Claude Code parks agent worktrees under `.claude/worktrees/`, each a
