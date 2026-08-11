@@ -24,18 +24,28 @@
 //! body and the resume token's execution handle, with the strict
 //! validator as the mechanism holding every other position.
 //!
+//! The helper-authentication skeleton is the [`identity`] module's
+//! closed claim vocabulary: one identity claim per RPC-001 transport,
+//! naming what a peer proves and verified by nobody here — each
+//! verifier arrives with its transport's recorded route decision, and
+//! no authorization vocabulary exists while SI-18 holds that question.
+//!
 //! The formats are documented in `schemas/rpc/envelope.md`,
 //! `schemas/rpc/handshake.md`, `schemas/rpc/streams.md`, and
-//! `schemas/rpc/redaction.md`, in the `schemas/domain` shape: the
-//! documents record delivered formats and decide nothing.
+//! `schemas/rpc/redaction.md`, in the `schemas/domain` shape, and the
+//! claim vocabulary in `schemas/rpc/authentication.md`: the documents
+//! record delivered vocabulary and decide nothing.
 
 use std::collections::BTreeMap;
 
 use partman_domain::canonical::{self, Value};
 
+pub mod identity;
 pub mod redaction;
 pub mod stream;
 
+#[cfg(test)]
+mod identity_tests;
 #[cfg(test)]
 mod redaction_tests;
 #[cfg(test)]
