@@ -466,3 +466,171 @@ fn an_unknown_target_is_a_typed_error_not_an_answer() {
         "the error names the unresolvable address"
     );
 }
+
+// Requirements: CAP-003, CAP-005
+//   ADR-0011's detection-only rule (LIN-006), the arm increment 4's
+//   coverage requirement caught missing: a mutating operation on a
+//   multipath node or on a recognized member answers `unsupported` with
+//   the multipath reason and no remedy — v1 policy, not a precondition —
+//   while source classes pass untouched, because detection-only means
+//   detection works.
+// Evidence: multipath_mutation_is_unsupported_detection_passes
+#[test]
+fn multipath_mutation_is_unsupported_detection_passes() {
+    let first_member = device(b"ENG-MP-A");
+    let first_id = derive_id(&first_member).expect("derivable");
+    let second_member = device(b"ENG-MP-B");
+    let second_id = derive_id(&second_member).expect("derivable");
+    let mp = NamingFields::MultipathNode {
+        lun_designator: b"ENG-LUN".to_vec(),
+    };
+    let mp_id = derive_id(&mp).expect("derivable");
+    let mut facts = Facts::default();
+    device_facts(&mut facts, first_id);
+    device_facts(&mut facts, second_id);
+    let snapshot = TopologySnapshot::assemble(
+        SnapshotKind::Captured,
+        false,
+        vec![first_member, second_member, mp],
+        vec![
+            Edge {
+                kind: EdgeKind::PlatformMembership,
+                source: mp_id,
+                target: first_id,
+            },
+            Edge {
+                kind: EdgeKind::PlatformMembership,
+                source: mp_id,
+                target: second_id,
+            },
+        ],
+        facts,
+    )
+    .expect("assembles");
+
+    for target in [mp_id, first_id, second_id] {
+        let refused = capability(
+            Operation::Wipe,
+            target,
+            &snapshot,
+            &no_limits(),
+            &RuntimeFacts::clean(),
+        )
+        .expect("resolves");
+        assert_eq!(refused.status(), Status::Unsupported);
+        assert_eq!(refused.reason(), Reason::MultipathDetectionOnly);
+        assert_eq!(*refused.remediation(), Remediation::NoneExists);
+
+        let detected = capability(
+            Operation::Detect,
+            target,
+            &snapshot,
+            &no_limits(),
+            &RuntimeFacts::clean(),
+        )
+        .expect("resolves");
+        assert_eq!(
+            detected.status(),
+            Status::Preview,
+            "detection-only means detection works"
+        );
+    }
+}
+
+// Requirements: CAP-003, CAP-005, CAP-006
+//   The all-statuses/all-reasons coverage the assignment's increment 4
+//   names, over integration-shaped fixture topologies (constructed to
+//   mirror the WP-020 catalogue's shapes — byte-level derivation arrives
+//   with the platform adapters, and this narrowing is recorded in the
+//   CHANGELOG): every reachable Reason variant is produced by a real
+//   scenario, every reachable status appears, and the two unreachable
+//   members — `supported` and its evidence-built reason — are asserted
+//   unreachable, their proof being increment 1's compile_fail doctest
+//   rather than an exercised path.
+// Evidence: every_reachable_status_and_reason_is_exercised
+#[test]
+fn every_reachable_status_and_reason_is_exercised() {
+    let (snapshot, fixture) = fixture();
+    let no_limits = no_limits();
+    let clean = RuntimeFacts::clean();
+    let limits = TechnologyLimits::new(vec![(FileSystemKind::Xfs, Operation::Shrink)]);
+    let below_floor = RuntimeFacts {
+        tools: vec![],
+        platform: PlatformFact::BelowFloor,
+    };
+    let missing_tool = RuntimeFacts {
+        tools: vec![ToolFact {
+            tool: "mkfs.xfs".to_owned(),
+            state: ToolState::Missing,
+        }],
+        platform: PlatformFact::MeetsFloor,
+    };
+    let stale_tool = RuntimeFacts {
+        tools: vec![ToolFact {
+            tool: "e2fsck".to_owned(),
+            state: ToolState::OutOfRange,
+        }],
+        platform: PlatformFact::MeetsFloor,
+    };
+
+    let scenarios: [(Operation, NodeId, &TechnologyLimits, &RuntimeFacts); 7] = [
+        // ProtectionRefused, via the consumed ZFS chain.
+        (Operation::Wipe, fixture.zfs_sig, &no_limits, &clean),
+        // ProtectionIndeterminate, via the orphan signature.
+        (Operation::Wipe, fixture.orphan_sig, &no_limits, &clean),
+        // TechnologyLimit (ADR-0020's unsupported).
+        (Operation::Shrink, fixture.fs, &limits, &clean),
+        // PlatformFloor.
+        (Operation::Grow, fixture.fs, &no_limits, &below_floor),
+        // ToolMissing.
+        (Operation::Grow, fixture.fs, &no_limits, &missing_tool),
+        // ToolVersionOutOfRange.
+        (Operation::Grow, fixture.fs, &no_limits, &stale_tool),
+        // UnqualifiedPendingEvidence (preview, the unrefused answer).
+        (Operation::Grow, fixture.fs, &no_limits, &clean),
+    ];
+    let answers = scenarios.map(|(operation, target, limit, runtime)| {
+        capability(operation, target, &snapshot, limit, runtime)
+    });
+    let mut reasons: Vec<Reason> = Vec::new();
+    let mut statuses: Vec<Status> = Vec::new();
+    for answer in answers {
+        let answer = answer.expect("resolves");
+        reasons.push(answer.reason());
+        statuses.push(answer.status());
+    }
+    // MultipathDetectionOnly is exercised by its own test over the
+    // multipath fixture; count it here so the roster below is complete.
+    reasons.push(Reason::MultipathDetectionOnly);
+    statuses.push(Status::Unsupported);
+
+    for reason in Reason::all_variants() {
+        let covered = match reason {
+            Reason::ProtectionRefused { .. } => reasons
+                .iter()
+                .any(|seen| matches!(seen, Reason::ProtectionRefused { .. })),
+            Reason::ProtectionIndeterminate { .. } => reasons
+                .iter()
+                .any(|seen| matches!(seen, Reason::ProtectionIndeterminate { .. })),
+            Reason::QualifiedByEvidence => {
+                // Unreachable by proof, not by omission: the evidence
+                // token has no constructor (increment 1's compile_fail
+                // doctest, still holding), so no scenario can produce
+                // this reason and none pretends to.
+                !reasons.contains(&Reason::QualifiedByEvidence)
+            }
+            other => reasons.contains(other),
+        };
+        assert!(
+            covered,
+            "reason {reason:?} must be covered or proven unreachable"
+        );
+    }
+    for status in [Status::Preview, Status::Unsupported, Status::Blocked] {
+        assert!(statuses.contains(&status), "status {status:?} must appear");
+    }
+    assert!(
+        !statuses.contains(&Status::Supported),
+        "supported stays unreachable until CAP-006 evidence exists"
+    );
+}
