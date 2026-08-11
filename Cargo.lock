@@ -186,6 +186,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "partman-rpc"
+version = "0.0.0"
+dependencies = [
+ "partman-domain",
+]
+
+[[package]]
 name = "partman-slint-feasibility"
 version = "0.0.0"
 dependencies = [

@@ -1,0 +1,18 @@
+[package]
+name = "partman-rpc"
+description = "The WP-040 RPC protocol layer: versioned message envelopes over pce/1, the refuse-never-degrade handshake, and strict both-directions validation with one validator for both ends"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+# Deliberate: the wire body encoding is pce/1, WP-010's canonical codec,
+# so both sides of the RPC boundary already encode and hash identically
+# under the MODEL-005 cross-language proof. No external supply-chain
+# edge — a workspace member with no external runtime dependencies.
+partman-domain = { path = "../domain" }
+
+[lints]
+workspace = true
