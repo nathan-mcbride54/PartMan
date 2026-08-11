@@ -25,13 +25,20 @@ use std::collections::BTreeMap;
 
 use partman_domain::canonical::{self, Value};
 
+pub mod stream;
+
+#[cfg(test)]
+mod stream_tests;
 #[cfg(test)]
 mod tests;
 
 /// The envelope's schema identity (MODEL-003).
 pub const ENVELOPE_SCHEMA: &str = "partman.rpc.envelope";
-/// The current envelope schema version.
-pub const ENVELOPE_SCHEMA_VERSION: u64 = 1;
+/// The current envelope schema version. Version 2 added the event
+/// stream's `sequence` field with per-channel presence rules — a
+/// reviewed bump taken while no consumer existed, which is exactly
+/// what version numbers are for.
+pub const ENVELOPE_SCHEMA_VERSION: u64 = 2;
 /// The handshake's schema identity (MODEL-003).
 pub const HANDSHAKE_SCHEMA: &str = "partman.rpc.handshake";
 /// The current handshake schema version.
@@ -76,13 +83,16 @@ impl Channel {
     }
 }
 
-/// One protocol message: a channel and a `pce/1`-encoded body of a
-/// `schemas/`-defined type. Fields are private; construction states the
-/// body is already canonical bytes, and decode re-proves it.
+/// One protocol message: a channel, a `pce/1`-encoded body of a
+/// `schemas/`-defined type, and — on the event channel only — the
+/// monotone sequence number resynchronization anchors on. Fields are
+/// private; the per-channel constructors hold the presence rules, and
+/// decode re-proves them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Envelope {
     channel: Channel,
     body: Vec<u8>,
+    sequence: Option<u64>,
 }
 
 /// Why the strict validator refused — both directions, one vocabulary.
@@ -114,20 +124,19 @@ pub enum DecodeRefusal {
     },
     /// The body bytes inside the envelope are not canonical `pce/1`.
     BodyNotCanonical,
+    /// The sequence field's presence violates its channel rule: events
+    /// carry exactly one, requests and responses carry none (RPC-004's
+    /// stream separation held in the shape itself).
+    SequenceMisplaced {
+        /// The channel presented.
+        channel: Channel,
+        /// Whether a sequence was present.
+        present: bool,
+    },
 }
 
 impl Envelope {
-    /// Wrap an already-canonically-encoded body. The body is re-proved
-    /// canonical here, so an envelope cannot launder bytes the codec
-    /// would refuse.
-    ///
-    /// # Errors
-    ///
-    /// [`DecodeRefusal::BodyNotCanonical`] if the body bytes do not
-    /// decode as canonical `pce/1`;
-    /// [`DecodeRefusal::OversizedMessage`] if the body alone already
-    /// exceeds the message bound.
-    pub fn new(channel: Channel, body: Vec<u8>) -> Result<Self, DecodeRefusal> {
+    fn wrap(channel: Channel, body: Vec<u8>, sequence: Option<u64>) -> Result<Self, DecodeRefusal> {
         if body.len() > MAX_MESSAGE_BYTES {
             return Err(DecodeRefusal::OversizedMessage {
                 presented: body.len(),
@@ -137,7 +146,48 @@ impl Envelope {
         if canonical::decode(&body).is_err() {
             return Err(DecodeRefusal::BodyNotCanonical);
         }
-        Ok(Self { channel, body })
+        Ok(Self {
+            channel,
+            body,
+            sequence,
+        })
+    }
+
+    /// A request message. The body is re-proved canonical, so an
+    /// envelope cannot launder bytes the codec would refuse.
+    ///
+    /// # Errors
+    ///
+    /// [`DecodeRefusal::BodyNotCanonical`] or
+    /// [`DecodeRefusal::OversizedMessage`].
+    pub fn request(body: Vec<u8>) -> Result<Self, DecodeRefusal> {
+        Self::wrap(Channel::Request, body, None)
+    }
+
+    /// A response message. Same proofs as [`Envelope::request`].
+    ///
+    /// # Errors
+    ///
+    /// As [`Envelope::request`].
+    pub fn response(body: Vec<u8>) -> Result<Self, DecodeRefusal> {
+        Self::wrap(Channel::Response, body, None)
+    }
+
+    /// An event message carrying its monotone sequence number — the
+    /// anchor a disconnected client resynchronizes from (RPC-006's
+    /// protocol half; the journal it re-anchors against is WP-070's).
+    ///
+    /// # Errors
+    ///
+    /// As [`Envelope::request`].
+    pub fn event(sequence: u64, body: Vec<u8>) -> Result<Self, DecodeRefusal> {
+        Self::wrap(Channel::Event, body, Some(sequence))
+    }
+
+    /// The event sequence number, present exactly on the event channel.
+    #[must_use]
+    pub const fn sequence(&self) -> Option<u64> {
+        self.sequence
     }
 
     /// The message class.
@@ -171,6 +221,9 @@ impl Envelope {
             Value::Text(self.channel.tag().to_owned()),
         );
         map.insert("body".to_owned(), Value::Bytes(self.body.clone()));
+        if let Some(sequence) = self.sequence {
+            map.insert("sequence".to_owned(), Value::Unsigned(sequence));
+        }
         let bytes = canonical::encode(&Value::Map(map)).map_err(|_| DecodeRefusal::NotCanonical)?;
         if bytes.len() > MAX_MESSAGE_BYTES {
             return Err(DecodeRefusal::OversizedMessage {
@@ -203,7 +256,7 @@ impl Envelope {
         for key in map.keys() {
             if !matches!(
                 key.as_str(),
-                "schema" | "schema_version" | "channel" | "body"
+                "schema" | "schema_version" | "channel" | "body" | "sequence"
             ) {
                 return Err(DecodeRefusal::UnknownField { key: key.clone() });
             }
@@ -226,7 +279,18 @@ impl Envelope {
             Some(Value::Bytes(bytes)) => bytes.clone(),
             _ => return Err(DecodeRefusal::BadField { key: "body" }),
         };
-        Self::new(channel, body)
+        let sequence = match map.get("sequence") {
+            None => None,
+            Some(Value::Unsigned(sequence)) => Some(*sequence),
+            Some(_) => return Err(DecodeRefusal::BadField { key: "sequence" }),
+        };
+        match (channel, sequence.is_some()) {
+            (Channel::Event, true) | (Channel::Request | Channel::Response, false) => {}
+            (channel, present) => {
+                return Err(DecodeRefusal::SequenceMisplaced { channel, present });
+            }
+        }
+        Self::wrap(channel, body, sequence)
     }
 }
 

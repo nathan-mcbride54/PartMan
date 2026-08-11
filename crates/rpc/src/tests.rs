@@ -21,13 +21,13 @@ fn small_body() -> Vec<u8> {
 // Evidence: the_envelope_round_trips_strictly
 #[test]
 fn the_envelope_round_trips_strictly() {
-    let envelope = Envelope::new(Channel::Request, small_body()).expect("wraps");
+    let envelope = Envelope::request(small_body()).expect("wraps");
     let bytes = envelope.encode().expect("encodes");
     let decoded = Envelope::decode(&bytes).expect("decodes");
     assert_eq!(decoded, envelope);
     assert_eq!(decoded.channel(), Channel::Request);
 
-    let non_canonical = Envelope::new(Channel::Event, vec![0xff, 0xff]);
+    let non_canonical = Envelope::event(1, vec![0xff, 0xff]);
     assert_eq!(non_canonical, Err(DecodeRefusal::BodyNotCanonical));
 }
 
@@ -40,7 +40,10 @@ fn the_envelope_round_trips_strictly() {
 fn unknown_and_mistyped_fields_refuse_by_name() {
     let mut map = BTreeMap::new();
     map.insert("schema".to_owned(), Value::Text(ENVELOPE_SCHEMA.into()));
-    map.insert("schema_version".to_owned(), Value::Unsigned(1));
+    map.insert(
+        "schema_version".to_owned(),
+        Value::Unsigned(super::ENVELOPE_SCHEMA_VERSION),
+    );
     map.insert("channel".to_owned(), Value::Text("request".into()));
     map.insert("body".to_owned(), Value::Bytes(small_body()));
     map.insert("smuggled".to_owned(), Value::Bool(true));
@@ -54,7 +57,10 @@ fn unknown_and_mistyped_fields_refuse_by_name() {
 
     let mut wrong = BTreeMap::new();
     wrong.insert("schema".to_owned(), Value::Text("partman.other".into()));
-    wrong.insert("schema_version".to_owned(), Value::Unsigned(1));
+    wrong.insert(
+        "schema_version".to_owned(),
+        Value::Unsigned(super::ENVELOPE_SCHEMA_VERSION),
+    );
     wrong.insert("channel".to_owned(), Value::Text("request".into()));
     wrong.insert("body".to_owned(), Value::Bytes(small_body()));
     let bytes = canonical::encode(&Value::Map(wrong)).expect("encodable");
@@ -62,7 +68,10 @@ fn unknown_and_mistyped_fields_refuse_by_name() {
 
     let mut mistyped = BTreeMap::new();
     mistyped.insert("schema".to_owned(), Value::Text(ENVELOPE_SCHEMA.into()));
-    mistyped.insert("schema_version".to_owned(), Value::Unsigned(1));
+    mistyped.insert(
+        "schema_version".to_owned(),
+        Value::Unsigned(super::ENVELOPE_SCHEMA_VERSION),
+    );
     mistyped.insert("channel".to_owned(), Value::Text("broadcast".into()));
     mistyped.insert("body".to_owned(), Value::Bytes(small_body()));
     let bytes = canonical::encode(&Value::Map(mistyped)).expect("encodable");
@@ -89,7 +98,7 @@ fn the_size_bound_binds_the_wire() {
         }
     );
 
-    let refused = Envelope::new(Channel::Request, oversized).expect_err("must refuse");
+    let refused = Envelope::request(oversized).expect_err("must refuse");
     assert!(matches!(refused, DecodeRefusal::OversizedMessage { .. }));
 }
 

@@ -7,6 +7,28 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-040 increment 2: streams and reattach vocabulary.** The
+  envelope moves to schema version 2 — a reviewed bump taken while no
+  consumer exists, which is exactly what version numbers are for —
+  gaining the event stream's `sequence` field with **per-channel
+  presence rules held strictly both ways**: an event carries exactly
+  one, a request or response carries none, and a violation refuses
+  naming the channel and the presence found. Loss tolerance is
+  detection, classification, and recovery — never papering over: the
+  producer's sequence is monotone from 1 with no gaps, and the
+  consumer's total classification processes in-order arrivals,
+  discards replays (expected and harmless after reattach), and names a
+  gap's missing closed range whose recovery is resynchronization from
+  the journal — WP-070's to provide, said so in the schema doc, with
+  this layer shipping the anchor and nothing that pretends to replay.
+  The resume token (`partman.rpc.resume-token` v1) round-trips
+  strictly — execution identifier plus last processed sequence, a
+  smuggled `skip_journal` field refusing by name. Timeouts land as
+  typed configuration the consumer supplies and enforces: this pure
+  layer has no clock, exactly like the planner, so its honest
+  contribution is the vocabulary. `schemas/rpc/streams.md` records the
+  rules; `envelope.md` moves to v2. Three new tests.
+
 - **WP-040 increment 1: the RPC message layer.** `crates/rpc` joins
   the workspace, depending on `partman-domain` deliberately — the wire
   body encoding is `pce/1`, so both sides of the RPC boundary already
