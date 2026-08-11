@@ -86,11 +86,11 @@ increment 3 as a property test. SI-36 is withdrawn and gates nothing.
 
 | Class | Meaning | Issues |
 | --- | --- | --- |
-| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-11, SI-12, SI-27, SI-29, SI-30, SI-31, SI-32, SI-33, SI-34, SI-35, SI-38, SI-39 |
+| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-11, SI-12, SI-27, SI-29, SI-30, SI-31, SI-32, SI-33, SI-34, SI-35, SI-38, SI-39, SI-40 (by ADR-0020 with no spec change — the decision amends no normative text, recorded in its banner so the absent spec change reads as deliberate, not forgotten) |
 | **Direct blocker** | Must be decided before increment 3 writes a type | *(none — SI-28 reclassified below, 2026-08-09)* |
 | **Transitive blocker** | A separately sequenced prerequisite decision that must resolve before a direct blocker can be decided | *(none)* |
 | **Input** | A subquestion or evidence case resolved within the consuming direct blocker's decision | *(none — SI-29 and SI-30 resolved within SI-11's decision; SI-37 reclassified below)* |
-| **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-15, SI-16, SI-17, SI-18, SI-19, SI-20, SI-21, SI-22, SI-23, SI-24, SI-25, SI-26, SI-37 (before the spec change that first moves a closure-blocked multipath-capable population to `Permitted`; ADR-0018), SI-28 (**Mitigated-open**, floor in force; before the round that either relaxes the floor under ADR-0017's revisit condition or lands a discriminating mechanism; reclassified off the increment-3 gate 2026-08-09), SI-40 (before WP-050 increment 2 composes technology limits; filed 2026-08-10) |
+| **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-15, SI-16, SI-17, SI-18, SI-19, SI-20, SI-21, SI-22, SI-23, SI-24, SI-25, SI-26, SI-37 (before the spec change that first moves a closure-blocked multipath-capable population to `Permitted`; ADR-0018), SI-28 (**Mitigated-open**, floor in force; before the round that either relaxes the floor under ADR-0017's revisit condition or lands a discriminating mechanism; reclassified off the increment-3 gate 2026-08-09) |
 | **Withdrawn** | Retained as history after the filing was shown not to be a conflict | SI-36 |
 
 No direct blockers remain. SI-28's Mitigated-open state — the interim
@@ -1672,8 +1672,20 @@ rule attaches there, or `Capability` needs a maturity axis orthogonal to status.
 
 ## SI-40 FS-007's "blocked reasons" versus CAP-003's `blocked` definition
 
+> **Resolved 2026-08-10 by ADR-0020, no spec change — deliberately.**
+> Reading (a) of the options below, decided by the decision owner the
+> same day the filing landed: FS-007's "blocked reasons" is the generic
+> noun phrase for the capability reason vocabulary, and an immutable
+> technology limit's status follows CAP-003's definitions —
+> `unsupported`, carrying the limit as its explicit reason and a
+> remediation stating no remedy exists. No normative sentence moves;
+> the ADR records why the no-amendment resolution is not an omission:
+> `blocked` keeps meaning remediable, so a permanent impossibility
+> never invites remediation of the unremediable. WP-050 increment 2's
+> technology-limit composition is unblocked; nothing else waited.
+
 **Requirements:** FS-007, CAP-003 · **Later (WP-050, before increment 2
-composes technology limits)**
+composes technology limits)** *(filed class, retained; see banner)*
 
 FS-007: "Surface immutable technical limits, such as XFS not shrinking, as
 explicit blocked reasons." CAP-003's definitions: "`blocked` — implemented,

@@ -320,6 +320,23 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **SI-40 is resolved by ADR-0020, with no spec change — deliberately.**
+  Reading (a) of the filing's options, decided by the decision owner
+  the same day the filing landed: FS-007's "blocked reasons" is the
+  generic noun phrase for the capability reason vocabulary, and an
+  immutable technology limit's status follows CAP-003's definitions —
+  `unsupported`, carrying `Reason::TechnologyLimit` as its explicit
+  reason and `Remediation::NoneExists` as an exact statement rather
+  than a lazy one. The ADR records the deciding safety property:
+  `blocked` keeps meaning remediable, so a permanent impossibility
+  never invites remediation of the unremediable — and records why the
+  absent spec change is deliberate: the decision selects between two
+  readings of existing text and amends neither. Readings (b) (the
+  literal `blocked` status, retexting CAP-003's definitions) and (c)
+  (a widened status vocabulary, SI-26's territory) are recorded with
+  their costs. WP-050 increment 2's technology-limit composition is
+  unblocked; nothing else waited on the decision.
+
 - **WP-035: the chassis's in-band gate references stop citing resolved
   register items as open (#215).** The product-byte half of the #197
   re-attribution, discharged on the principle the `GATED` list's own
