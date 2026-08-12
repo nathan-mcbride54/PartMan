@@ -86,11 +86,11 @@ increment 3 as a property test. SI-36 is withdrawn and gates nothing.
 
 | Class | Meaning | Issues |
 | --- | --- | --- |
-| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-11, SI-12, SI-18, SI-19, SI-27, SI-29, SI-30, SI-31, SI-32, SI-33, SI-34, SI-35, SI-38, SI-39, SI-40 (by ADR-0020 with no spec change — the decision amends no normative text, recorded in its banner so the absent spec change reads as deliberate, not forgotten) |
+| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-11, SI-12, SI-15, SI-18, SI-19, SI-27, SI-29, SI-30, SI-31, SI-32, SI-33, SI-34, SI-35, SI-38, SI-39, SI-40 (by ADR-0020 with no spec change — the decision amends no normative text, recorded in its banner so the absent spec change reads as deliberate, not forgotten) |
 | **Direct blocker** | Must be decided before increment 3 writes a type | *(none — SI-28 reclassified below, 2026-08-09)* |
 | **Transitive blocker** | A separately sequenced prerequisite decision that must resolve before a direct blocker can be decided | *(none)* |
 | **Input** | A subquestion or evidence case resolved within the consuming direct blocker's decision | *(none — SI-29 and SI-30 resolved within SI-11's decision; SI-37 reclassified below)* |
-| **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-15, SI-16, SI-17, SI-20, SI-21, SI-22, SI-23, SI-24, SI-25, SI-26, SI-37 (before the spec change that first moves a closure-blocked multipath-capable population to `Permitted`; ADR-0018), SI-28 (**Mitigated-open**, floor in force; before the round that either relaxes the floor under ADR-0017's revisit condition or lands a discriminating mechanism; reclassified off the increment-3 gate 2026-08-09) |
+| **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-16, SI-17, SI-20, SI-21, SI-22, SI-23, SI-24, SI-25, SI-26, SI-37 (before the spec change that first moves a closure-blocked multipath-capable population to `Permitted`; ADR-0018), SI-28 (**Mitigated-open**, floor in force; before the round that either relaxes the floor under ADR-0017's revisit condition or lands a discriminating mechanism; reclassified off the increment-3 gate 2026-08-09) |
 | **Withdrawn** | Retained as history after the filing was shown not to be a conflict | SI-36 |
 
 No direct blockers remain. SI-28's Mitigated-open state — the interim
@@ -1539,7 +1539,34 @@ value, and no rule composes a derived property's confidence from its inputs.
 
 ## SI-15 Pre-existing misaligned partitions
 
-**Requirements:** PART-009, PART-004, PART-005, Section 11.2 · **Later (WP-060)**
+> **Resolved 2026-08-11 in spec 12.1.0 by ADR-0023.** A PART-009
+> deviation is **authored, not inherited** — an act the plan performs,
+> never a state it finds. An authored boundary (one whose byte offset
+> the plan sets) meets the 1 MiB default, is placed coincident with a
+> pre-existing structural edge (conformant, recorded as coincident — the
+> adversarial round's sharpest finding: without this rule the same issue
+> re-files about the grown end), or carries one of PART-009's two
+> existing deviation causes; there is no fourth state. A boundary
+> byte-identical before and after the plan is an inherited fact:
+> no override, no block, recorded in consequence text as a fact about
+> the device rather than a grant by the user. The filed case proceeds —
+> growing a legacy misaligned MBR partition at its tail authors only the
+> aligned new end — and realignment stays available only as an explicit
+> PART-005 move at severity 3, so a grow is never silently a move in
+> either direction. Section 11.2's preserved-alignment invariant reads
+> as the split implies, with no text change. Rejected and recorded in
+> the ADR: the strict reading (safety theater that fixes no alignment
+> while locking the legacy population out of maintenance), auto-realign
+> (severity laundering, the silent-consequence shape this register has
+> refused every time), permanent refusal (fail-closed posture spent
+> where no failure exists), and typed alignment-fact carriage (retained
+> as a revisit condition). The solver's named refusal case unlocks
+> without the deviation-override vocabulary, which stays deliberately
+> inexpressible; the code change rides WP-060's next Rust increment.
+> The filing below is retained as history.
+
+**Requirements:** PART-009, PART-004, PART-005, Section 11.2 ·
+**Resolved** (was: Later (WP-060))
 
 PART-009 permits alignment deviation only when published geometry requires it or
 the user explicitly overrides. A legacy MBR partition at a non-1 MiB offset

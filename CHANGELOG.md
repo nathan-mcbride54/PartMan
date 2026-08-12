@@ -943,6 +943,30 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **spec-change 12.1.0: SI-15 is resolved by ADR-0023 — a PART-009
+  deviation is authored, not inherited.** An authored boundary (byte
+  offset set by the plan) meets the 1 MiB default, is coincident with a
+  pre-existing structural edge (conformant, recorded — the round's
+  sharpest finding: without this the same issue re-files about the
+  grown end), or carries one of the two existing deviation causes; no
+  fourth state. A boundary byte-identical before and after is an
+  inherited fact — no override, no block, recorded in consequence text
+  as a fact about the device. The filed case proceeds: growing a legacy
+  misaligned MBR partition at its tail authors only the aligned new
+  end; realignment stays an explicit PART-005 move at severity 3, so a
+  grow is never silently a move in either direction. Rejected and
+  recorded: the strict reading (safety theater), auto-realign (severity
+  laundering), permanent refusal (fail-closed posture spent where no
+  failure exists), typed alignment-fact carriage (revisit condition).
+  Minor under §0.1: PART-009's two pre-existing sentences stand
+  verbatim and the scoping is additions, with the major
+  counter-argument recorded in the ADR. Accepted by Nate McBride
+  2026-08-11 by delegation, recorded as the ADR's acceptance basis.
+  WP-060's named solver refusal unlocks, the code change riding the
+  crate's next Rust increment with the SI-19 comment debt; the
+  deviation-override vocabulary stays deliberately inexpressible;
+  SI-16, SI-17, SI-24 stay open.
+
 - **WP-060: the assignment stops citing SI-19 as an open gate.** The
   #261 re-attribution shape applied to the package SI-19's resolution
   unblocks: citing the retired question would be the drift the
