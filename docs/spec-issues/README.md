@@ -86,11 +86,11 @@ increment 3 as a property test. SI-36 is withdrawn and gates nothing.
 
 | Class | Meaning | Issues |
 | --- | --- | --- |
-| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-11, SI-12, SI-15, SI-16, SI-17, SI-18, SI-19, SI-24, SI-27, SI-29, SI-30, SI-31, SI-32, SI-33, SI-34, SI-35, SI-38, SI-39, SI-40 (by ADR-0020 with no spec change — the decision amends no normative text, recorded in its banner so the absent spec change reads as deliberate, not forgotten) |
+| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-11, SI-12, SI-15, SI-16, SI-17, SI-18, SI-19, SI-20, SI-24, SI-27, SI-29, SI-30, SI-31, SI-32, SI-33, SI-34, SI-35, SI-38, SI-39, SI-40 (by ADR-0020 with no spec change — the decision amends no normative text, recorded in its banner so the absent spec change reads as deliberate, not forgotten) |
 | **Direct blocker** | Must be decided before increment 3 writes a type | *(none — SI-28 reclassified below, 2026-08-09)* |
 | **Transitive blocker** | A separately sequenced prerequisite decision that must resolve before a direct blocker can be decided | *(none)* |
 | **Input** | A subquestion or evidence case resolved within the consuming direct blocker's decision | *(none — SI-29 and SI-30 resolved within SI-11's decision; SI-37 reclassified below)* |
-| **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-20, SI-21, SI-22, SI-23, SI-25, SI-26, SI-37 (before the spec change that first moves a closure-blocked multipath-capable population to `Permitted`; ADR-0018), SI-28 (**Mitigated-open**, floor in force; before the round that either relaxes the floor under ADR-0017's revisit condition or lands a discriminating mechanism; reclassified off the increment-3 gate 2026-08-09) |
+| **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-21, SI-22, SI-23, SI-25, SI-26, SI-37 (before the spec change that first moves a closure-blocked multipath-capable population to `Permitted`; ADR-0018), SI-28 (**Mitigated-open**, floor in force; before the round that either relaxes the floor under ADR-0017's revisit condition or lands a discriminating mechanism; reclassified off the increment-3 gate 2026-08-09) |
 | **Withdrawn** | Retained as history after the filing was shown not to be a conflict | SI-36 |
 
 No direct blockers remain. SI-28's Mitigated-open state — the interim
@@ -1732,7 +1732,36 @@ apply, or is exempt decides whether `OperationPlan` is recursive.
 
 ## SI-20 RecoveryRequired has no exit in the transition table
 
-**Requirements:** Section 8, REC-009 · **Later (WP-070)**
+> **Resolved 2026-08-12 in spec 12.5.0 by ADR-0027.** The transition
+> table's two RecoveryRequired exits are the two arms of REC-009's own
+> disjunction, and the table is complete under the reading that splits
+> recovery actions the way the architecture splits plans. A
+> roll-forward action continues the *original* plan — same hash, same
+> journal, resuming from the last durable checkpoint through the
+> existing → Executing edge, re-verification inherited from JRN-003 —
+> and is the one recovery act that is not its own plan, stated as a
+> scoping of the prose sentence whose every other instance remains
+> true. Any distinct recovery action is its own `OperationPlan`, and
+> selecting it is the acceptance the → Failed trigger names: the
+> original terminates with its honest effect summary, the full report,
+> and a journaled linkage naming the recovery plan — one user act, two
+> records, the disposal durable before the recovery plan may apply
+> (JRN-002's shape, HLP-005-structural on shared device sets, so the
+> filed torn state is unreachable). No state, edge, or trigger is
+> added; the rows, terminal list, and "No other transitions exist"
+> stand verbatim, and no → Cancelled edge exists because unwind
+> semantics belong to the Executing era. Rejected and recorded in the
+> ADR: recovery-executing-as-the-original (breaks plan-hash binding),
+> new exits or a `Superseded` terminal (couples lifecycles or renames
+> a fact the linkage carries), rewording the Failed row (retexts a
+> machine-readable row at major for what prose does at minor). SI-21's
+> authorization-reuse question is untouched on both edges. No
+> re-attribution follows: no WP-070 assignment exists, and the ADR
+> records the verification obligations so that assignment's creation
+> cannot omit them. The filing below is retained as history.
+
+**Requirements:** Section 8, REC-009 ·
+**Resolved** (was: Later (WP-070))
 
 Section 8 states recovery actions "are themselves plans under this same
 contract", but the table moves the *original* plan directly
