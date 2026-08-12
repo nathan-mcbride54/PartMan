@@ -7,6 +7,53 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-070 increment 3: the record vocabulary under JRN-006.** The
+  `records` module of `crates/journal` and the `schemas/journal/`
+  schema set (`records.md`, plus `framing.md` documenting increment
+  2's frame profile): `partman.journal.record` version 1, encoded
+  through WP-010's `pce/1` canonical codec — the crate's two
+  dependencies (`partman-statemachine`, `partman-domain`) arriving
+  with this increment exactly as increment 2's manifest recorded.
+  Every imported record class lands with its deciding authority
+  carried in its documentation: the authorization-act record with the
+  helper-computed tier (ADR-0021/0028 — the journal is the act's only
+  home), transition records enforcing Section 8's per-row effect
+  constraints at record-write time — the check increment 1's
+  `TerminalRecord` deferred here, now taken over every published row
+  by test — with ADR-0027's disposal linkage constructible on the
+  `failure-accepted` row alone, checkpoint records, the three-variant
+  protection record (ADR-0024: verified parse-level backup, positively
+  determined absence, verified raw capture with validated regions)
+  whose artifact references are content hash plus store identity with
+  the artifact's bytes given no field to occupy (ADR-0030's "never its
+  bytes" held structurally and proven by a walk over every encoded
+  byte-string position), the compaction record and
+  `PER_APPLY_JOURNAL_BUDGET_BYTES` (ADR-0029: 256 MiB, landing with
+  the schema as the ADR requires; the failure direction was the
+  decided part and enforcement is increment 4's), and the dry-run
+  refusal class as response-data vocabulary (ADR-0026, its own type so
+  pending-qualification can never read as a validation failure). The
+  WP-010 joint sequencing each ADR names is discharged hash-only: no
+  WP-010 body schema changed. JRN-005 is held structurally: no record
+  class has a free-text position, every Text value in every encoded
+  record is proven inside the closed transcribed vocabulary, and the
+  WP-035/WP-040-shaped gate plants every SEC-006 identifier class in
+  every position, proving each refusal echoes nothing back. The strict
+  decoder refuses unknown versions (MODEL-003's explicit rejection),
+  kinds, fields, tags, mistyped positions, and wrong-length hashes,
+  and routes the constructors' own invariants so the wire cannot
+  smuggle a refused shape. Golden vectors are pinned in
+  `schemas/journal/records.md` and held in doc-code agreement by test.
+  Imported obligation 3's increment-3 half is discharged: the disposal
+  chain — act, Failed-with-linkage, recovery act — reconstructs from
+  journal bytes alone across a torn tail, idempotently. Six mutants
+  (constraint dropped, linkage widened, any-version accepted,
+  unknown-fields accepted, region overlap accepted, wire-tag drift)
+  were each killed by a named test before proposal. This is a Rust
+  merge: the WP-020 2e stopping condition pinned at `15e6469` trips,
+  and the r8 re-pin sitting is run and recorded separately under
+  WP-020's ownership, as every re-take has been.
+
 - **WP-020: the r7 sitting — all three acceptances re-taken on
   `15e6469`, the stopping condition re-pinned there.** The second trip
   from outside the package: WP-070 increment 2 (PR #291) landed

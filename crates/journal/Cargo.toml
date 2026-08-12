@@ -8,11 +8,13 @@ license.workspace = true
 publish = false
 
 [dependencies]
-# None, deliberately: the journal core is frame mechanics — bytes,
-# checksums, sequence numbers — and holds no record semantics. The
-# JRN-006 record vocabulary (increment 3) is where the dependency on
-# `partman-statemachine` arrives, with the transition records; the
-# shipped dependency closure stays empty until a record class needs it.
+# Exactly the two the assignment names, arriving with increment 3's
+# record vocabulary as increment 2's manifest recorded they would:
+# the statemachine for Section 8's vocabulary (states, transitions,
+# effects), and the domain crate for the MODEL-005 `pce/1` codec the
+# JRN-006 record schemas encode through — consumed, never re-derived.
+partman-statemachine = { path = "../statemachine" }
+partman-domain = { path = "../domain" }
 
 [lints]
 workspace = true

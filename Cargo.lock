@@ -180,6 +180,10 @@ dependencies = [
 [[package]]
 name = "partman-journal"
 version = "0.0.0"
+dependencies = [
+ "partman-domain",
+ "partman-statemachine",
+]
 
 [[package]]
 name = "partman-planner"
