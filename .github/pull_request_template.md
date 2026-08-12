@@ -1,6 +1,6 @@
 ## Work package
 
-- Spec version: 11.2.0
+- Spec version: 12.0.0
 - Work package:
 - Requirement IDs:
 - Owned paths edited:
