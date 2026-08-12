@@ -12,11 +12,12 @@
 //!
 //! What this crate deliberately is not:
 //!
-//! - **No record semantics.** A payload is bytes. The JRN-006 record
-//!   vocabulary — transition and checkpoint records, the authorization
-//!   act, disposal linkage, protection and compaction records — is
-//!   increment 3's, where the dependency on `partman-statemachine`
-//!   arrives with it.
+//! - **No record semantics at this layer.** A frame payload is bytes.
+//!   The JRN-006 record vocabulary — transition and checkpoint
+//!   records, the authorization act, disposal linkage, protection and
+//!   compaction records — is the [`records`] module (increment 3),
+//!   layered strictly above the frames: the frame layer never
+//!   interprets a payload.
 //! - **No retention, no budget, no real compaction.** [`CoveredRanges`]
 //!   is the classification's typed input; increment 4 derives it from
 //!   durable compaction records and owns the liveness-scoped exemption,
@@ -31,9 +32,12 @@
 //!   proof of prior journal durability instead of a comment; nothing
 //!   here performs the write.
 //!
-//! The frame layout is fixed here and pinned byte-for-byte by test; the
-//! versioned public schema that documents it (JRN-006, MODEL-003) lands
-//! with increment 3 under `schemas/journal/`.
+//! The frame layout is fixed here, pinned byte-for-byte by test, and
+//! documented in `schemas/journal/framing.md`; the versioned record
+//! schema above it (JRN-006, MODEL-003) is `schemas/journal/records.md`
+//! and the [`records`] module.
+
+pub mod records;
 
 /// The one-based sequence number a journal record carries. Sequence
 /// numbers are strictly monotonic over the journal's whole life and are
@@ -54,6 +58,15 @@ impl SeqNo {
 
     const fn next(self) -> SeqNo {
         SeqNo(self.0 + 1)
+    }
+
+    /// Rebuild a sequence number a schema decoder read from a record.
+    /// Crate-internal: callers outside this crate obtain sequence
+    /// numbers only from appends and replay, so a `SeqNo` in public API
+    /// always names a position a journal actually assigned or a record
+    /// actually declared.
+    pub(crate) const fn from_raw(raw: u64) -> SeqNo {
+        SeqNo(raw)
     }
 }
 
