@@ -7,6 +7,51 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-070 increment 5: the apply lifecycle, enforced at the library
+  layer.** The `lifecycle` module of `crates/journal`, discharging
+  imported obligations 2 (the ordering half), 4, 5, 6, 7, and 8
+  (ADR-0028, with ADR-0027's ordering and ADR-0021's single-use act)
+  over decoded journals — every admission a pure function of the
+  bytes, which is the whole point. One act, one apply: `admit_apply`
+  requires an unconsumed authorization act for exactly the offered
+  plan; another plan's act is no act for this one, an in-flight apply
+  refuses a second admission citing the act it consumed, a consumed
+  act admits nothing after its terminal, and one act facing a second
+  grant refuses at the grant — a fixture the mutation pass itself
+  demanded when the acts-never-consumed mutant survived the first
+  suite, recorded rather than smoothed over. Disposal before
+  recovery: a recovery plan named by a disposal linkage is
+  inadmissible while the original's Failed record sits above the
+  journal's durable watermark — appended-but-uncommitted refuses,
+  one commit through the seam admits; the HLP-005 structural half on
+  a shared device set is the platform packages' obligation. Each of
+  the three re-entry edges — resume, reboot-resume, roll-forward —
+  traces to the original act through an unbroken chain of connected
+  Section 8 transitions with the act preceding the grant, and a
+  broken chain refuses naming the break. A re-entry past the
+  PLAN-007 window rejects; a fresh act journaled after the
+  suspension readmits the same apply citing both acts — two acts,
+  one apply, journaled as such — and a pre-suspension act does not
+  count. Time is an injected `LogicalTime` seam: the truth of "now"
+  is the helper's, the comparison is the library's. The roll-forward
+  variant carries the `FreshRediscovery` attestation in its type, so
+  JRN-003's journal-plus-fresh-re-discovery rule is demanded by the
+  signature on exactly the edge ADR-0027 names. And the hand-forged
+  in-memory-grant test: a restart recomputes identically from the
+  bytes alone, a journal whose act was never written refuses
+  admission and every re-entry edge by name, and the admitted types
+  have no public constructor for a forged grant to inhabit. Six
+  mutants (acts peeked not consumed, plan binding dropped,
+  durability check dropped, connectivity dropped, stale fresh act
+  accepted, window inverted) each killed by a named test — the first
+  surviving until the pass forced the one-act-two-grants fixture.
+  **This completes WP-070's five assigned increments**; everything
+  beyond is consumer-driven, re-taken by the platform helper
+  packages against real transport, privilege, and durability under
+  their own assignments. This is a Rust merge: the WP-020 2e
+  stopping condition trips, and the r10 re-pin sitting follows under
+  WP-020's ownership.
+
 - **WP-070 increment 4: retention and compaction under ADR-0029's
   liveness rule.** The `retention` module of `crates/journal`,
   discharging imported obligations 9, 10, 11's derivation half, 12,
