@@ -7,6 +7,29 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-020: the r10 sitting — all three acceptances re-taken on
+  `59ba1f6`, the stopping condition re-pinned there, closing the
+  WP-070 arc.** The fifth trip from outside the package: WP-070
+  increment 5 (PR #296) landed the apply-lifecycle module and
+  completed that package's assigned increments. One sitting on
+  2026-08-12, one fresh disposable Proxmox-hosted VM (VMID 9433,
+  kernel 5.15.0-186-generic, no reboot during provisioning), the r9
+  runbook copied to r10 with header prose alone changing: the full
+  eleven-control refusal set refused, 2e passed (its tenth re-take —
+  fourteen passes across eleven guests), the 2h suite passed (its
+  eighth re-take, `fixtures_executed=1`, `ranges_written=1`,
+  `contracted_bytes_written=8`), and the 2j suite passed its fifth
+  re-take (`ranges_written=2`, `contracted_bytes_written=16`, both
+  signatures restored). Fixtures byte-identical to the catalogue,
+  loop table empty, manifest re-verified independently, teardown
+  verified with nothing remaining (2026-08-12T22:37:55Z). Custody run
+  16: transcript digests agreeing across guest, host, and workstation
+  (`115267d2…6275`). One operational deviation recorded rather than
+  hidden: the sitting-launch automation failed to deliver the script
+  to the guest, the launch was performed manually about forty minutes
+  after provisioning, no invocation occurred before it, and nothing
+  measured was affected.
+
 - **WP-070 increment 5: the apply lifecycle, enforced at the library
   layer.** The `lifecycle` module of `crates/journal`, discharging
   imported obligations 2 (the ordering half), 4, 5, 6, 7, and 8
