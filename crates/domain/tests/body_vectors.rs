@@ -25,7 +25,10 @@ use partman_domain::model::naming::{
     AggregateTechnology, FileSystemKind, NamingFields, NodeId, SignatureFamily, TableRole,
     derive_id,
 };
-use partman_domain::model::plan::{OperationPlan, ValidityWindow};
+use partman_domain::model::plan::{
+    DraftPrecondition, DraftStep, DraftTarget, ImpossibilityReason, OperationPlan, ReversalDraft,
+    ReversalLinkage, StepImpossibility, ValidityWindow,
+};
 use partman_domain::model::protection::{Facts, HostRange, StepRanges, TransportClass};
 use partman_domain::model::snapshot::{SnapshotKind, TopologySnapshot};
 use partman_domain::model::step::{PlanStep, Severity, StepFlags, StepRisk};
@@ -314,12 +317,123 @@ fn wipe_step(snapshot: &TopologySnapshot, target: NodeId) -> PlanStep {
     .expect("constructs")
 }
 
+/// The created range the v2 create/draft vectors share: 10 MiB at
+/// 1 MiB on the plan-base device.
+fn created_range(dev_id: NodeId) -> HostRange {
+    HostRange {
+        host: dev_id,
+        start: 1 << 20,
+        length: 10 << 20,
+    }
+}
+
+/// The forward create step over the plan-base capture.
+fn create_step(snapshot: &TopologySnapshot, dev_id: NodeId) -> PlanStep {
+    PlanStep::mutating(
+        snapshot,
+        dev_id,
+        StepRanges {
+            written_table_extents: vec![],
+            consumed: vec![created_range(dev_id)],
+            destroyed: vec![],
+        },
+        vec![],
+        StepRisk {
+            severity: Severity::Disruptive,
+            flags: StepFlags::default(),
+        },
+    )
+    .expect("constructs")
+}
+
+/// The simulated prediction of the plan-base device after the create:
+/// the minted partition placed at its range, under a GPT table view.
+fn simulated_created() -> TopologySnapshot {
+    let dev = device(b"VEC-PLAN");
+    let dev_id = derive_id(&dev).expect("derivable");
+    let table = NamingFields::PartitionTable {
+        parent: dev_id,
+        role: TableRole::Gpt,
+    };
+    let table_id = derive_id(&table).expect("derivable");
+    let part = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: 1 << 20,
+    };
+    let part_id = derive_id(&part).expect("derivable");
+    let mut facts = Facts::default();
+    facts.transports.insert(dev_id, TransportClass::Sata);
+    facts.extents.insert(
+        dev_id,
+        HostRange {
+            host: dev_id,
+            start: 0,
+            length: 1 << 30,
+        },
+    );
+    facts.extents.insert(part_id, created_range(dev_id));
+    facts.table_states.insert(dev_id, stamped_table_state());
+    TopologySnapshot::assemble(
+        SnapshotKind::Simulated,
+        false,
+        vec![dev, table, part],
+        vec![
+            Edge {
+                kind: EdgeKind::Containment,
+                source: dev_id,
+                target: table_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: table_id,
+                target: part_id,
+            },
+        ],
+        facts,
+    )
+    .expect("assembles")
+}
+
+/// The create-reversal draft (ADR-0022): one step destroying the
+/// created range, target spelled as the forward step's output,
+/// truthfulness carried as the created node's emptiness.
+fn draft_create_reversal() -> ReversalDraft {
+    let (snapshot, dev_id) = plan_base();
+    let forward_step = create_step(&snapshot, dev_id);
+    ReversalDraft::compose(
+        b"vec-plan-fwd/reversal".to_vec(),
+        1_700_000_000,
+        &simulated_created(),
+        ValidityWindow {
+            not_after: 1_700_086_400,
+        },
+        vec![DraftStep {
+            target: DraftTarget::StepOutput(0),
+            ranges: StepRanges {
+                written_table_extents: vec![],
+                consumed: vec![],
+                destroyed: vec![created_range(dev_id)],
+            },
+            acknowledgments: vec![],
+            risk: StepRisk {
+                severity: Severity::Reversible,
+                flags: StepFlags::default(),
+            },
+            preconditions: vec![DraftPrecondition::StepOutputUnoccupied { step: 0 }],
+        }],
+        b"vec-plan-fwd".to_vec(),
+        std::slice::from_ref(&forward_step),
+    )
+    .expect("the draft composes against the prediction")
+}
+
 fn snapshot_for(name: &str) -> TopologySnapshot {
     match name {
         "snapshot-minimal-captured" => minimal_captured(),
         "snapshot-minimal-simulated-transitional" => simulated_transitional(),
         "snapshot-full-captured" => full_captured(),
         "snapshot-plan-base-captured" => plan_base().0,
+        "snapshot-plan-base-simulated-created" => simulated_created(),
         other => panic!("no construction for snapshot vector {other}"),
     }
 }
@@ -367,12 +481,114 @@ fn plan_for(name: &str) -> (OperationPlan, TopologySnapshot) {
             )
             .expect("assembles")
         }
+        "plan-v2-wipe-impossible" => OperationPlan::assemble_linked(
+            b"vec-plan-v2".to_vec(),
+            1_700_000_000,
+            &snapshot,
+            ValidityWindow {
+                not_after: 1_700_086_400,
+            },
+            BTreeMap::new(),
+            vec![step],
+            ReversalLinkage::Impossible {
+                statements: vec![StepImpossibility {
+                    step: 0,
+                    reason: ImpossibilityReason::DataDestroyed,
+                }],
+            },
+        )
+        .expect("assembles"),
+        "plan-v2-forward-create-draft-linked" => {
+            let draft = draft_create_reversal();
+            OperationPlan::assemble_linked(
+                b"vec-plan-fwd".to_vec(),
+                1_700_000_000,
+                &snapshot,
+                ValidityWindow {
+                    not_after: 1_700_086_400,
+                },
+                BTreeMap::new(),
+                vec![create_step(&snapshot, dev_id)],
+                ReversalLinkage::Draft {
+                    plan_id: draft.plan_id().to_vec(),
+                    draft_hash: draft.body_hash().expect("hashable"),
+                },
+            )
+            .expect("assembles")
+        }
         other => panic!("no construction for plan vector {other}"),
     };
     (plan, snapshot)
 }
 
 // ---------------------------------------------------------------------------
+
+#[test]
+#[ignore = "generator: prints new fixture entries as JSON"]
+fn print_new_vectors() {
+    fn to_json(value: &Value) -> Json {
+        match value {
+            Value::Unsigned(number) => serde_json::json!({"uint": number.to_string()}),
+            Value::Bytes(bytes) => serde_json::json!({"bytes": hex(bytes)}),
+            Value::Text(text) => serde_json::json!({"text": text}),
+            Value::Bool(flag) => serde_json::json!({"bool": flag}),
+            Value::Array(items) => {
+                serde_json::json!({"array": items.iter().map(to_json).collect::<Vec<_>>()})
+            }
+            Value::Map(map) => serde_json::json!({
+                "map": map
+                    .iter()
+                    .map(|(key, entry)| serde_json::json!([key, to_json(entry)]))
+                    .collect::<Vec<_>>()
+            }),
+            _ => panic!("tag not used by body vectors"),
+        }
+    }
+    let entry = |name: &str, snapshot: Option<&str>, value: &Value| {
+        let mut object = serde_json::Map::new();
+        object.insert("name".into(), serde_json::json!(name));
+        if let Some(snapshot) = snapshot {
+            object.insert("snapshot".into(), serde_json::json!(snapshot));
+        }
+        object.insert("value".into(), to_json(value));
+        object.insert(
+            "canonical".into(),
+            serde_json::json!(hex(&encode(value).expect("encodable"))),
+        );
+        object.insert(
+            "sha256".into(),
+            serde_json::json!(hex(hash(value).expect("hashable").as_bytes())),
+        );
+        println!(
+            "{},",
+            serde_json::to_string_pretty(&Json::Object(object)).expect("serializes")
+        );
+    };
+
+    let simulated = simulated_created();
+    entry(
+        "snapshot-plan-base-simulated-created",
+        None,
+        &simulated.body_value().expect("body"),
+    );
+    for name in [
+        "plan-v2-wipe-impossible",
+        "plan-v2-forward-create-draft-linked",
+    ] {
+        let (plan, _) = plan_for(name);
+        entry(
+            name,
+            Some("snapshot-plan-base-captured"),
+            &plan.body_value().expect("body"),
+        );
+    }
+    let draft = draft_create_reversal();
+    entry(
+        "draft-create-reversal",
+        Some("snapshot-plan-base-simulated-created"),
+        &draft.body_value(),
+    );
+}
 
 // Requirements: MODEL-005, MODEL-003, MODEL-006
 //   Every recorded body vector's value tree encodes to its recorded
@@ -426,15 +642,43 @@ fn plan_constructions_reproduce_and_bind_their_snapshot() {
     let fixture = fixture();
     for entry in vectors(&fixture, "plans") {
         let name = entry["name"].as_str().expect("named");
+        let bound = entry["snapshot"].as_str().expect("plans name a snapshot");
+        let snapshot_entry = named(&fixture, "snapshots", bound);
+        let recorded_digest = snapshot_entry["sha256"].as_str().expect("sha256 hex");
+
+        // A draft is a plan-shaped body whose snapshot hash is its
+        // simulated proposal's; it round-trips its own boundary, never
+        // the plain one (the step-output spelling refuses there).
+        if name.starts_with("draft-") {
+            let draft = match name {
+                "draft-create-reversal" => draft_create_reversal(),
+                other => panic!("no construction for draft vector {other}"),
+            };
+            let body = draft.body_value();
+            assert_matches(entry, &body);
+            let Value::Map(map) = &body else {
+                panic!("draft body is a map")
+            };
+            let Some(Value::Bytes(proposal_hash)) = map.get("snapshot_hash") else {
+                panic!("draft carries its proposal hash")
+            };
+            assert_eq!(
+                hex(proposal_hash),
+                recorded_digest,
+                "{name} must carry the digest the fixture records for {bound}"
+            );
+            let bytes = encode(&body).expect("encodable");
+            let rebuilt = ReversalDraft::from_canonical_body(&bytes).expect("round-trips");
+            assert_eq!(rebuilt, draft, "typed draft boundary must reproduce {name}");
+            continue;
+        }
+
         let (plan, snapshot) = plan_for(name);
         let body = plan.body_value().expect("body");
         assert_matches(entry, &body);
-
-        let bound = entry["snapshot"].as_str().expect("plans name a snapshot");
-        let snapshot_entry = named(&fixture, "snapshots", bound);
         assert_eq!(
             hex(plan.snapshot_hash().as_bytes()),
-            snapshot_entry["sha256"].as_str().expect("sha256 hex"),
+            recorded_digest,
             "{name} must bind the digest the fixture records for {bound}"
         );
 
