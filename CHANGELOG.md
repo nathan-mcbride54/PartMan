@@ -48,6 +48,30 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   recorded separately under WP-020's ownership, as every re-take has
   been.
 
+- **WP-020: the r8 sitting — all three acceptances re-taken on
+  `94bfeba`, the stopping condition re-pinned there.** The third trip
+  from outside the package: WP-070 increment 3 (PR #293) landed the
+  journal's record vocabulary, and the condition tripped by design.
+  One sitting on 2026-08-12, one fresh disposable Proxmox-hosted VM
+  (VMID 9431, kernel 5.15.0-186-generic, no reboot during
+  provisioning), the r7 runbook copied to r8 with header prose alone
+  changing: the full eleven-control refusal set refused, 2e passed
+  (its eighth re-take — twelve passes across nine guests), the 2h
+  suite passed (its sixth re-take, `fixtures_executed=1`,
+  `ranges_written=1`, `contracted_bytes_written=8`), and the 2j suite
+  passed its third re-take (`ranges_written=2`,
+  `contracted_bytes_written=16`, both signatures restored). Fixtures
+  byte-identical to the catalogue, loop table empty, manifest
+  re-verified independently, teardown verified with nothing remaining
+  (2026-08-12T20:43:53Z). Custody run 14: transcript digests agreeing
+  across guest, host, and workstation (`1cbd7e18…4177`). The sweep
+  also corrected an overstatement in the r7 record's label paragraph,
+  in place: the sitting-script header's trip ordinal continues the
+  script lineage's own numbering — one behind the record's running
+  count, which includes the original post-merge re-take — and the r7
+  record had claimed the lineage numbering was moved to the record's;
+  it was not, and the correction names both numberings.
+
 - **WP-070 increment 3: the record vocabulary under JRN-006.** The
   `records` module of `crates/journal` and the `schemas/journal/`
   schema set (`records.md`, plus `framing.md` documenting increment
