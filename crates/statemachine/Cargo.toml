@@ -1,0 +1,16 @@
+[package]
+name = "partman-statemachine"
+description = "The WP-070 execution state machine: Section 8's thirteen states and published transition table as types, with undeclared transitions unrepresentable"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+# None, deliberately: the state machine is Section 8's vocabulary and
+# nothing else. The shipped dependency closure is empty, and the journal
+# crate (increment 2) will depend on this one, never the reverse.
+
+[lints]
+workspace = true

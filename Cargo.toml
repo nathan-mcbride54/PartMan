@@ -7,6 +7,7 @@ members = [
     "crates/fixtures",
     "crates/planner",
     "crates/rpc",
+    "crates/statemachine",
     "crates/table-parser",
     "crates/tokens",
     "tools/slint-feasibility",
