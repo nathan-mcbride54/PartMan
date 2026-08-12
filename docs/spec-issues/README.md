@@ -86,11 +86,11 @@ increment 3 as a property test. SI-36 is withdrawn and gates nothing.
 
 | Class | Meaning | Issues |
 | --- | --- | --- |
-| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-11, SI-12, SI-15, SI-16, SI-17, SI-18, SI-19, SI-20, SI-21, SI-22, SI-23, SI-24, SI-25, SI-27, SI-29, SI-30, SI-31, SI-32, SI-33, SI-34, SI-35, SI-38, SI-39, SI-40 (by ADR-0020 with no spec change — the decision amends no normative text, recorded in its banner so the absent spec change reads as deliberate, not forgotten) |
+| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-11, SI-12, SI-15, SI-16, SI-17, SI-18, SI-19, SI-20, SI-21, SI-22, SI-23, SI-24, SI-25, SI-26, SI-27, SI-29, SI-30, SI-31, SI-32, SI-33, SI-34, SI-35, SI-38, SI-39, SI-40 (by ADR-0020 with no spec change — the decision amends no normative text, recorded in its banner so the absent spec change reads as deliberate, not forgotten) |
 | **Direct blocker** | Must be decided before increment 3 writes a type | *(none — SI-28 reclassified below, 2026-08-09)* |
 | **Transitive blocker** | A separately sequenced prerequisite decision that must resolve before a direct blocker can be decided | *(none)* |
 | **Input** | A subquestion or evidence case resolved within the consuming direct blocker's decision | *(none — SI-29 and SI-30 resolved within SI-11's decision; SI-37 reclassified below)* |
-| **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-26, SI-37 (before the spec change that first moves a closure-blocked multipath-capable population to `Permitted`; ADR-0018), SI-28 (**Mitigated-open**, floor in force; before the round that either relaxes the floor under ADR-0017's revisit condition or lands a discriminating mechanism; reclassified off the increment-3 gate 2026-08-09) |
+| **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-37 (before the spec change that first moves a closure-blocked multipath-capable population to `Permitted`; ADR-0018), SI-28 (**Mitigated-open**, floor in force; before the round that either relaxes the floor under ADR-0017's revisit condition or lands a discriminating mechanism; reclassified off the increment-3 gate 2026-08-09) |
 | **Withdrawn** | Retained as history after the filing was shown not to be a conflict | SI-36 |
 
 No direct blockers remain. SI-28's Mitigated-open state — the interim
@@ -1964,7 +1964,27 @@ enumeration or a required minimum is unstated.
 
 ## SI-26 `Stable` is not a capability status
 
-**Requirements:** Section 16, CAP-003 · **Later (WP-050)**
+> **Resolved 2026-08-12 in spec 12.9.1 by ADR-0032.** Section 16's
+> "Stable" is CAP-003's `supported` — a 2.0.0-era stale synonym, and
+> the evidence rule already lives there: CAP-003's definition
+> ("`supported` — apply permitted, backed by matrix evidence
+> (CAP-006)") and Section 16's prohibition are one rule seen from two
+> sections. No maturity axis — it would double the vocabulary for a
+> qualified-but-immature state no requirement recognizes and weaken
+> what `supported` promises (the ADR-C3/ADR-0015 vocabulary-doubling
+> lesson). WP-050's delivered engine already enforces the reading
+> structurally: `supported` is constructible only through CAP-006
+> qualification evidence whose token has no constructor until a
+> qualifying row exists. Landed as a **patch** — the ADR-0020
+> reading-selection shape with a one-phrase editorial parenthetical
+> ("that is, CAP-003 `supported`") instead of a bare banner; the major
+> counter-argument is recorded in the ADR. Rejected: the maturity
+> axis, and renaming the word outright (retexts a prohibition sentence
+> for what a parenthetical achieves). CAP-003's four values stand
+> verbatim. The filing below is retained as history.
+
+**Requirements:** Section 16, CAP-003 ·
+**Resolved** (was: Later (WP-050))
 
 Section 16 forbids marking a capability "Stable" without matrix fixture and
 acceptance evidence, but `Stable` is not one of CAP-003's four values
