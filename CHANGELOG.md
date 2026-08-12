@@ -943,6 +943,26 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **WP-060: the assignment stops citing SI-16 as an open gate.** The
+  established re-attribution shape (#261/#264/#267): citing the retired
+  question would be the drift the register's sole-authority rule
+  forbids. The register-gates row records SI-16 as resolved (ADR-0024,
+  spec 12.2.0: PART-013 discharges by the helper's authored table
+  state — parse-level backup on `Present`, a journaled positive
+  determination on `Absent` with no user acknowledgement, a verified
+  raw capture of the write-target regions for the typed REC-001 repair
+  family on `Indeterminate`, capture-impossible refusing except under a
+  plan-creation acknowledgement naming the regions); the boundary
+  bullet and the post-increments paragraph move from open gate to
+  recorded decision, with the backup-family increment startable and its
+  fixtures named. README's WP-060 row moves with the bytes it
+  describes; the spec pin moves to 12.2.0. The `crates/planner`
+  gate-list comment naming SI-16 is Rust and rides the same future
+  increment as the SI-19 and SI-15 debts (the `39b59f5` stopping-
+  condition economics, recorded in #264/#267). SI-17 and SI-24 remain
+  open, refused conservatively as before. No code, test, type, or
+  normative text changes.
+
 - **spec-change 12.2.0: SI-16 is resolved by ADR-0024 — PART-013
   discharges by the helper's authored table state.** Each of the
   filing's three options is right somewhere, and the error was choosing
