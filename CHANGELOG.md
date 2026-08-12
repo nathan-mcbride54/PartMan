@@ -943,6 +943,21 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **spec-change 12.9.1: SI-26 is resolved by ADR-0032 — Section 16's
+  "Stable" is CAP-003's `supported`.** A 2.0.0-era stale synonym; the
+  evidence rule already lives at `supported` ("backed by matrix
+  evidence (CAP-006)"), so the prohibition and the definition are one
+  rule seen from two sections. No maturity axis — the vocabulary-
+  doubling shape ADR-C3 removed, for a qualified-but-immature state no
+  requirement recognizes. WP-050's delivered engine already enforces
+  the reading structurally (the CAP-006 token has no constructor until
+  a qualifying row exists). Landed as a patch: the ADR-0020
+  reading-selection shape with a one-phrase editorial parenthetical
+  instead of a bare banner, the major counter-argument recorded in the
+  ADR. Accepted by Nate McBride 2026-08-12 by directive ("finish SI-25
+  and SI-26"), recorded as the ADR's acceptance basis. CAP-003's four
+  values stand verbatim.
+
 - **spec-change 12.9.0: SI-25 is resolved by ADR-0031 — CAP-002 is a
   required minimum over a closed-and-versioned operation vocabulary.**
   The floor keeps DIA-005 implementable and PART-007/010/011
