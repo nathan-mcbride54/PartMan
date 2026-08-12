@@ -943,6 +943,30 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **WP-060: the assignment stops citing SI-15 as an open gate.** The
+  #261/#264 re-attribution shape: citing the retired question would be
+  the drift the register's sole-authority rule forbids. The
+  register-gates row records SI-15 as resolved (ADR-0023, spec 12.1.0:
+  a PART-009 deviation is authored, not inherited — the filed
+  grow-at-tail case proceeds, authoring only the aligned new end, the
+  untouched start an inherited fact in consequence text, coincident-
+  edge placement conformant); the boundary bullet, the increment-3
+  delivery note, and the post-increments paragraph move from open gate
+  to recorded decision, with the solver unlock startable as a
+  separately reviewed increment implementing the ADR's fixtures.
+  README's WP-060 row moves with the bytes it describes; the spec pin
+  moves to 12.1.0. **The solver's refusal itself stands in code as
+  delivered** — `crates/planner`'s named SI-15 refusal, its test, and
+  its doc comments are Rust, any non-Markdown merge re-opens the three
+  VM acceptances pinned at `39b59f5`, and the refusal is behavior a
+  reviewed increment should change, not a comment sweep — so the
+  unlock increment (with the SI-19 comment debt riding the same
+  change) is where the code catches up, and until then the refusal
+  cites a decision rather than an open question, which the assignment
+  now says in place. SI-16, SI-17, SI-24 remain open, refused
+  conservatively as before. No code, test, type, or normative text
+  changes.
+
 - **spec-change 12.1.0: SI-15 is resolved by ADR-0023 — a PART-009
   deviation is authored, not inherited.** An authored boundary (byte
   offset set by the plan) meets the 1 MiB default, is coincident with a
