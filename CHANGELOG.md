@@ -943,6 +943,25 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **WP-060: the assignment stops citing SI-24 as an open gate — its
+  register-gate list is now empty.** The established re-attribution
+  shape (#261/#264/#267/#270/#273): citing the retired question would
+  be the drift the register's sole-authority rule forbids. The
+  register-gates row records SI-24 as resolved (ADR-0026, spec 12.4.0:
+  a dry run is an apply rehearsal, not CAP-003's simulation — it runs
+  and refuses at the helper's own recomputed capability gate with a
+  typed pending-qualification reason, never successful, PLAN-009's
+  guarantee absolute); the PLAN-009 consumed-not-claimed line and the
+  no-register-answer boundary bullet move from open gate to recorded
+  decision, with the principle preserved for any newly filed gate.
+  README's WP-060 row moves with the bytes it describes; the spec pin
+  moves to 12.4.0. Every gate the assignment ever named — SI-15, SI-16,
+  SI-17, SI-19, SI-24 — is now resolved through its own recorded
+  decision, and four increments are startable (reversal, solver unlock,
+  backup family, combination unlock), with the planner's gate-list
+  comment and refusal debts riding the first Rust change among them.
+  No code, test, type, or normative text changes.
+
 - **spec-change 12.4.0: SI-24 is resolved by ADR-0026 — a dry run is an
   apply rehearsal, not CAP-003's simulation.** The conflict turned on
   one undefined word the spec's own vocabulary had already split:
