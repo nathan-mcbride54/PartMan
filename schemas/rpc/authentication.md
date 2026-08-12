@@ -1,6 +1,6 @@
 # The helper-authentication skeleton
 
-- Spec version: 11.1.0
+- Spec version: 11.2.0
 - Requirement IDs: RPC-001
 - Owner: WP-040 (`docs/work-packages/WP-040.md`)
 - Underlying byte profile: none — this document records a type
@@ -46,15 +46,18 @@ endpoint-less — a truthful state, not a gap — and the skeleton's
 `waits_on` says so per claim rather than letting absence read as
 oversight.
 
-## 3. No authorization vocabulary (SI-18's gate)
+## 3. No authorization vocabulary (a standing decision since ADR-0021)
 
-SI-18 holds open whether a severity-1 plan needs fresh interactive
-authorization: SAFE-002 and HLP-003 are written in contradiction, and
-the answer decides whether a plan carries an authorization-requirement
-field distinct from severity. Until the register resolves it, this
-vocabulary names **identity facts only** — what a peer proves it is —
-and contains nothing about what a peer may do, when a human must
-approve, or when an approval expires. HLP-003's authorization binding
-is WP-070's to implement under whatever SI-18 decides, and the closure
-test pins the vocabulary to exactly the three identity claims so
-anything more is a visible reviewed edit against that gate.
+This section's posture began as SI-18's gate and is now permanent:
+SI-18 resolved 2026-08-11 in spec 11.2.0 by ADR-0021. Authorization is
+a two-tier ladder whose enforced tier the helper derives from its own
+recomputed severity and flags (HLP-002); **no authorization-requirement
+field enters the plan**, and a client-assertable authorization is
+unrepresentable (CAP-007). This vocabulary therefore names **identity
+facts only** — what a peer proves it is — and contains nothing about
+what a peer may do, when a human must approve, or when an approval
+expires, as a standing rule rather than a wait on the register.
+HLP-003's two-tier binding is WP-070's to implement under ADR-0021,
+with the helper-computed tier carried as validate-plan response data,
+and the closure test pins the vocabulary to exactly the three identity
+claims so anything more is a visible reviewed edit against that rule.
