@@ -1,4 +1,5 @@
-//! The extent solver (WP-060 increment 3), alignment-conservative.
+//! The extent solver (WP-060 increment 3), alignment-conservative,
+//! carrying ADR-0023's authored/inherited distinction (increment 5).
 //!
 //! Free space is computed from the snapshot's authenticated extents and
 //! nothing else: a host's free ranges are its own extent minus the
@@ -15,14 +16,18 @@
 //! vocabulary that carries it, recorded in the plan as PART-009
 //! requires, which is a body change under WP-010's grant.
 //!
-//! **SI-15's case refuses by name.** A pre-existing partition whose
-//! extent start is not 1 MiB-aligned, grown at its tail, matches
-//! neither deviation cause — and realigning it would force a data move
-//! the user did not request. The register holds that question
-//! (`docs/spec-issues/README.md`, SI-15), so the solver refuses the
-//! growth with a typed conflict naming the gate, until the register
-//! decides. Refusing is the answer; guessing is what the register
-//! exists to prevent.
+//! **A deviation is an act, not a state** (ADR-0023, resolving SI-15 in
+//! spec 12.1.0). The solver judges only boundaries the plan authors: a
+//! create's start and end, a grow's new end, a shrink's new end. A
+//! pre-existing boundary the plan does not move — a legacy misaligned
+//! start grown at its tail — is an **inherited fact**, byte-identical
+//! before and after, reported as a typed [`InheritedFact`] for the
+//! plan's consequence text and demanding no override. Every authored
+//! boundary meets the default, is coincident with a pre-existing
+//! structural edge (a neighbor's start, the host's end) and recorded as
+//! such, or would need a deviation cause this vocabulary deliberately
+//! cannot express — so it refuses typed instead. There is no fourth
+//! state, held by test.
 
 use partman_domain::model::naming::NodeId;
 use partman_domain::model::protection::HostRange;
@@ -30,6 +35,90 @@ use partman_domain::model::snapshot::TopologySnapshot;
 
 /// PART-009's default alignment: 1 MiB.
 pub const DEFAULT_ALIGNMENT: u64 = 1 << 20;
+
+/// The pre-existing structural edge an authored boundary can lawfully
+/// coincide with (ADR-0023's coincident-edge rule): placing exactly at
+/// such an edge conforms to policy — aligning away from it instead
+/// would mint an unusable sliver — and is recorded as coincident.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StructuralEdge {
+    /// A neighboring child's own start.
+    NeighborStart {
+        /// The neighbor whose start the boundary meets.
+        neighbor: NodeId,
+    },
+    /// The host's own extent end.
+    HostEnd,
+}
+
+/// How an authored boundary satisfies PART-009: aligned to the default,
+/// or coincident with a named pre-existing structural edge. The two
+/// recorded deviation causes have no vocabulary here, and a boundary
+/// that is neither refuses — so this type is the no-fourth-state
+/// property, spelled.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BoundaryPlacement {
+    /// The boundary sits on the 1 MiB default.
+    Aligned,
+    /// The boundary coincides with a pre-existing structural edge and
+    /// is recorded as coincident (ADR-0023).
+    Coincident {
+        /// The edge coincided with.
+        edge: StructuralEdge,
+    },
+}
+
+/// A pre-existing off-policy boundary the plan does not move: an
+/// inherited fact about the device, never a deviation and never a grant
+/// by the user (ADR-0023). Carried out of the solver so the plan's
+/// consequence text can state it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InheritedFact {
+    /// The target's start predates the plan and is not on the 1 MiB
+    /// default; the plan leaves it byte-identical.
+    MisalignedStart {
+        /// The target whose start is inherited.
+        target: NodeId,
+        /// The inherited start offset.
+        start: u64,
+    },
+}
+
+/// A solved create: the placed range plus how each authored boundary
+/// satisfies policy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SolvedCreate {
+    /// The placed range.
+    pub placed: HostRange,
+    /// The authored end's placement (the start is first-fit aligned by
+    /// construction).
+    pub end_placement: BoundaryPlacement,
+}
+
+/// A solved grow: the tail extension, the authored end's placement, and
+/// the inherited start fact where the start predates policy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SolvedGrow {
+    /// The extension range appended at the target's tail.
+    pub extension: HostRange,
+    /// The authored new end's placement.
+    pub end_placement: BoundaryPlacement,
+    /// The untouched misaligned start, where there is one.
+    pub inherited_start: Option<InheritedFact>,
+}
+
+/// A solved shrink: the freed tail, the authored end's placement, and
+/// the inherited start fact where the start predates policy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SolvedShrink {
+    /// The freed tail range (destroyed: bytes beyond the new end are
+    /// gone).
+    pub freed: HostRange,
+    /// The authored new end's placement.
+    pub end_placement: BoundaryPlacement,
+    /// The untouched misaligned start, where there is one.
+    pub inherited_start: Option<InheritedFact>,
+}
 
 /// Why the solver refused — each variant explaining itself with the
 /// numbers it judged.
@@ -54,18 +143,23 @@ pub enum SolveRefusal {
         /// The largest free range available, aligned — zero when none.
         largest_aligned_fit: u64,
     },
-    /// SI-15's held case: the target's extent start is not 1 MiB-aligned,
-    /// and growing it at its tail matches neither of PART-009's
-    /// deviation causes. The register holds whether such growth is
-    /// permitted, requires acknowledgment, or forces realignment; until
-    /// it decides, the solver refuses rather than guesses.
-    MisalignedLegacyGrowth {
-        /// The misaligned target.
+    /// The request authors a boundary that is neither on the 1 MiB
+    /// default nor coincident with a pre-existing structural edge, and
+    /// PART-009's two deviation causes have no vocabulary here — so
+    /// there is no lawful spelling for it (ADR-0023's no-fourth-state
+    /// rule). The refusal names the nearest conforming values so the
+    /// caller can explain what would have succeeded.
+    UnalignedAuthoredBoundary {
+        /// The target whose boundary the request authors.
         target: NodeId,
-        /// Its actual start offset.
-        start: u64,
-        /// The register gate holding the question.
-        gate: &'static str,
+        /// The offending authored offset.
+        boundary: u64,
+        /// The nearest aligned offset below the request, zero when none
+        /// exists above the range's floor.
+        nearest_aligned_below: u64,
+        /// The coincident candidate — the structural edge bounding the
+        /// range the boundary lives in — zero when none applies.
+        coincident_candidate: u64,
     },
     /// Growth needs contiguous free space immediately after the
     /// target's extent, and it is not there.
@@ -95,6 +189,54 @@ fn extent_of(snapshot: &TopologySnapshot, node: NodeId) -> Option<HostRange> {
 
 fn align_up(value: u64, alignment: u64) -> u64 {
     value.div_ceil(alignment) * alignment
+}
+
+/// The structural edge at `offset` on `host`: a neighboring child whose
+/// extent starts exactly there, or the host's own extent end. `None`
+/// when nothing pre-existing sits at that offset.
+fn structural_edge_at(
+    snapshot: &TopologySnapshot,
+    host: NodeId,
+    offset: u64,
+) -> Option<StructuralEdge> {
+    if let Some((neighbor, _)) = snapshot
+        .facts()
+        .extents
+        .iter()
+        .find(|(node, range)| **node != host && range.host == host && range.start == offset)
+    {
+        return Some(StructuralEdge::NeighborStart {
+            neighbor: *neighbor,
+        });
+    }
+    let own = extent_of(snapshot, host)?;
+    (own.start + own.length == offset).then_some(StructuralEdge::HostEnd)
+}
+
+/// Judge one authored end against PART-009: on the default, coincident
+/// with the structural edge bounding its free room, or refused typed —
+/// no fourth state.
+fn authored_end_placement(
+    snapshot: &TopologySnapshot,
+    host: NodeId,
+    target: NodeId,
+    end: u64,
+    room_end: u64,
+) -> Result<BoundaryPlacement, SolveRefusal> {
+    if end.is_multiple_of(DEFAULT_ALIGNMENT) {
+        return Ok(BoundaryPlacement::Aligned);
+    }
+    if end == room_end
+        && let Some(edge) = structural_edge_at(snapshot, host, end)
+    {
+        return Ok(BoundaryPlacement::Coincident { edge });
+    }
+    Err(SolveRefusal::UnalignedAuthoredBoundary {
+        target,
+        boundary: end,
+        nearest_aligned_below: (end / DEFAULT_ALIGNMENT) * DEFAULT_ALIGNMENT,
+        coincident_candidate: room_end,
+    })
 }
 
 /// The host's free ranges: its own extent minus the extents the facts
@@ -141,7 +283,9 @@ pub fn free_extents(
 }
 
 /// First-fit placement for a create: the lowest 1 MiB-aligned start
-/// whose free range holds the full size.
+/// whose free range holds the full size, with the authored end judged
+/// by the same policy — aligned, coincident with the range's bounding
+/// edge, or refused.
 ///
 /// # Errors
 ///
@@ -151,7 +295,7 @@ pub fn place_create(
     snapshot: &TopologySnapshot,
     host: NodeId,
     size: u64,
-) -> Result<HostRange, SolveRefusal> {
+) -> Result<SolvedCreate, SolveRefusal> {
     if size == 0 {
         return Err(SolveRefusal::NotAResize {
             target: host,
@@ -161,6 +305,7 @@ pub fn place_create(
     }
     let free = free_extents(snapshot, host)?;
     let mut largest_aligned_fit = 0_u64;
+    let mut first_nonconforming: Option<SolveRefusal> = None;
     for range in &free {
         let aligned_start = align_up(range.start, DEFAULT_ALIGNMENT);
         let range_end = range.start + range.length;
@@ -170,21 +315,44 @@ pub fn place_create(
         let usable = range_end - aligned_start;
         largest_aligned_fit = largest_aligned_fit.max(usable);
         if usable >= size {
-            return Ok(HostRange {
-                host,
-                start: aligned_start,
-                length: size,
-            });
+            match authored_end_placement(snapshot, host, host, aligned_start + size, range_end) {
+                Ok(end_placement) => {
+                    return Ok(SolvedCreate {
+                        placed: HostRange {
+                            host,
+                            start: aligned_start,
+                            length: size,
+                        },
+                        end_placement,
+                    });
+                }
+                // A later range may still conform — an off-default size
+                // is legal exactly where it fills its room to a
+                // structural edge — so the scan continues and the first
+                // refusal is only reported when no range conforms.
+                Err(refusal) => {
+                    first_nonconforming.get_or_insert(refusal);
+                }
+            }
         }
     }
-    Err(SolveRefusal::NoFitForSize {
+    Err(first_nonconforming.unwrap_or(SolveRefusal::NoFitForSize {
         requested: size,
         largest_aligned_fit,
-    })
+    }))
+}
+
+fn inherited_start(target: NodeId, start: u64) -> Option<InheritedFact> {
+    (!start.is_multiple_of(DEFAULT_ALIGNMENT))
+        .then_some(InheritedFact::MisalignedStart { target, start })
 }
 
 /// The extension range for growing a target to `new_length` at its
-/// tail. SI-15's held case — a misaligned start — refuses by name.
+/// tail. The start is never touched: a misaligned start is an inherited
+/// fact carried for the consequence text, not a deviation and not a
+/// refusal (ADR-0023). The authored new end meets the default, is
+/// coincident with the adjacent room's bounding edge (grow-to-fill), or
+/// refuses.
 ///
 /// # Errors
 ///
@@ -193,20 +361,13 @@ pub fn grow_extension(
     snapshot: &TopologySnapshot,
     target: NodeId,
     new_length: u64,
-) -> Result<HostRange, SolveRefusal> {
+) -> Result<SolvedGrow, SolveRefusal> {
     let own = extent_of(snapshot, target).ok_or(SolveRefusal::TargetHasNoExtent { target })?;
     if new_length <= own.length {
         return Err(SolveRefusal::NotAResize {
             target,
             current: own.length,
             requested: new_length,
-        });
-    }
-    if own.start % DEFAULT_ALIGNMENT != 0 {
-        return Err(SolveRefusal::MisalignedLegacyGrowth {
-            target,
-            start: own.start,
-            gate: "SI-15",
         });
     }
     let needed = new_length - own.length;
@@ -223,16 +384,30 @@ pub fn grow_extension(
             available,
         });
     }
-    Ok(HostRange {
-        host: own.host,
-        start: tail,
-        length: needed,
+    let end_placement = authored_end_placement(
+        snapshot,
+        own.host,
+        target,
+        own.start + new_length,
+        tail + available,
+    )?;
+    Ok(SolvedGrow {
+        extension: HostRange {
+            host: own.host,
+            start: tail,
+            length: needed,
+        },
+        end_placement,
+        inherited_start: inherited_start(target, own.start),
     })
 }
 
 /// The freed tail range for shrinking a target to `new_length`. The
 /// start never moves — a start move is PART-005's journaled territory,
-/// not a shrink.
+/// not a shrink — so a misaligned start is the same inherited fact a
+/// grow carries. The authored new end sits inside the target's own
+/// extent where no structural edge can pre-exist, so it meets the
+/// default or refuses.
 ///
 /// # Errors
 ///
@@ -241,7 +416,7 @@ pub fn shrink_reduction(
     snapshot: &TopologySnapshot,
     target: NodeId,
     new_length: u64,
-) -> Result<HostRange, SolveRefusal> {
+) -> Result<SolvedShrink, SolveRefusal> {
     let own = extent_of(snapshot, target).ok_or(SolveRefusal::TargetHasNoExtent { target })?;
     if new_length == 0 || new_length >= own.length {
         return Err(SolveRefusal::NotAResize {
@@ -250,9 +425,22 @@ pub fn shrink_reduction(
             requested: new_length,
         });
     }
-    Ok(HostRange {
-        host: own.host,
-        start: own.start + new_length,
-        length: own.length - new_length,
+    let end = own.start + new_length;
+    if !end.is_multiple_of(DEFAULT_ALIGNMENT) {
+        return Err(SolveRefusal::UnalignedAuthoredBoundary {
+            target,
+            boundary: end,
+            nearest_aligned_below: (end / DEFAULT_ALIGNMENT) * DEFAULT_ALIGNMENT,
+            coincident_candidate: 0,
+        });
+    }
+    Ok(SolvedShrink {
+        freed: HostRange {
+            host: own.host,
+            start: end,
+            length: own.length - new_length,
+        },
+        end_placement: BoundaryPlacement::Aligned,
+        inherited_start: inherited_start(target, own.start),
     })
 }

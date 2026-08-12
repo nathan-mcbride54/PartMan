@@ -493,8 +493,11 @@ fn malformed_edges_refuse_by_name() {
     );
 }
 
-use super::solve::{DEFAULT_ALIGNMENT, SolveRefusal, free_extents, grow_extension, place_create};
-use super::{SizedRequest, plan_sized};
+use super::solve::{
+    BoundaryPlacement, DEFAULT_ALIGNMENT, SolveRefusal, StructuralEdge, free_extents,
+    grow_extension, place_create, shrink_reduction,
+};
+use super::{Consequence, SizedRequest, plan_sized};
 
 /// A host with one child partition-like extent at [1 MiB, 65 MiB) and a
 /// misaligned second child at [100 MiB + 512, 100 MiB + 512 + 32 MiB).
@@ -597,7 +600,9 @@ fn free_extents_are_the_hosts_minus_its_children() {
 #[test]
 fn placement_is_aligned_first_fit_and_no_fit_is_explained() {
     let (snapshot, host, _, _) = solver_fixture();
-    let placed = place_create(&snapshot, host, 10 * DEFAULT_ALIGNMENT).expect("fits");
+    let placed = place_create(&snapshot, host, 10 * DEFAULT_ALIGNMENT)
+        .expect("fits")
+        .placed;
     assert_eq!(placed.start, 65 * DEFAULT_ALIGNMENT);
     assert_eq!(placed.length, 10 * DEFAULT_ALIGNMENT);
 
@@ -613,33 +618,313 @@ fn placement_is_aligned_first_fit_and_no_fit_is_explained() {
     assert!(largest_aligned_fit > 0, "the largest fit is reported");
 }
 
-// Requirements: PLAN-001
-//   SI-15's held case refuses by name: growing a partition whose start
-//   is not 1 MiB-aligned matches neither of PART-009's deviation
-//   causes, and the refusal names the register gate rather than
-//   guessing an answer the register holds.
-// Evidence: misaligned_growth_refuses_naming_the_register_gate
-#[test]
-fn misaligned_growth_refuses_naming_the_register_gate() {
-    let (snapshot, _, aligned, misaligned) = solver_fixture();
-    let refused =
-        grow_extension(&snapshot, misaligned, 40 * DEFAULT_ALIGNMENT).expect_err("SI-15 holds");
-    let SolveRefusal::MisalignedLegacyGrowth {
-        target,
-        start,
-        gate,
-    } = refused
-    else {
-        panic!("the refusal names the gate: {refused:?}");
+/// The XP-era legacy shape ADR-0023's filed case names: an MBR
+/// partition starting at sector 63 (byte 32,256), inside a 1 GiB host.
+/// Its end sits at 100 MiB before any request.
+fn legacy_fixture() -> (TopologySnapshot, NodeId, NodeId) {
+    let host = device(b"SLV-LEGACY");
+    let host_id = derive_id(&host).expect("derivable");
+    let table = NamingFields::PartitionTable {
+        parent: host_id,
+        role: partman_domain::model::naming::TableRole::Mbr,
     };
-    assert_eq!(target, misaligned);
-    assert_eq!(start, 100 * DEFAULT_ALIGNMENT + 512);
-    assert_eq!(gate, "SI-15");
+    let table_id = derive_id(&table).expect("derivable");
+    let legacy = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: LEGACY_START,
+    };
+    let legacy_id = derive_id(&legacy).expect("derivable");
 
-    let extension =
-        grow_extension(&snapshot, aligned, 70 * DEFAULT_ALIGNMENT).expect("aligned growth solves");
-    assert_eq!(extension.start, 65 * DEFAULT_ALIGNMENT);
-    assert_eq!(extension.length, 6 * DEFAULT_ALIGNMENT);
+    let mut facts = Facts::default();
+    device_facts(&mut facts, host_id);
+    facts.extents.insert(
+        legacy_id,
+        HostRange {
+            host: host_id,
+            start: LEGACY_START,
+            length: 100 * DEFAULT_ALIGNMENT - LEGACY_START,
+        },
+    );
+    let snapshot = TopologySnapshot::assemble(
+        SnapshotKind::Captured,
+        false,
+        vec![host, table, legacy],
+        vec![
+            Edge {
+                kind: EdgeKind::Containment,
+                source: host_id,
+                target: table_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: table_id,
+                target: legacy_id,
+            },
+        ],
+        facts,
+    )
+    .expect("assembles");
+    (snapshot, host_id, legacy_id)
+}
+
+/// Sector 63 at 512-byte sectors: the legacy misaligned start.
+const LEGACY_START: u64 = 63 * 512;
+
+// Requirements: PLAN-001, PART-009
+//   ADR-0023's filed case proceeds (SI-15 resolved, spec 12.1.0): the
+//   63-sector-start grow-at-tail authors only the aligned new end, the
+//   inherited start is byte-identical before and after, and the typed
+//   inherited fact travels with the plan for its consequence text —
+//   recorded as a fact about the device, never a grant by the user.
+//   The same grow to an end that is neither aligned nor coincident
+//   still refuses, naming the nearest conforming values.
+// Evidence: misaligned_growth_authors_only_the_aligned_end
+#[test]
+fn misaligned_growth_authors_only_the_aligned_end() {
+    let (snapshot, _, legacy) = legacy_fixture();
+    let new_length = 200 * DEFAULT_ALIGNMENT - LEGACY_START;
+    let first = plan_sized(
+        SizedRequest::Grow {
+            target: legacy,
+            new_length,
+        },
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect("the filed case proceeds under the recorded decision");
+
+    let extension = first.plan.steps()[0].ranges().consumed[0];
+    assert_eq!(
+        extension.start,
+        100 * DEFAULT_ALIGNMENT,
+        "grown at the tail"
+    );
+    assert_eq!(
+        extension.start + extension.length,
+        200 * DEFAULT_ALIGNMENT,
+        "the one authored boundary follows the 1 MiB default"
+    );
+    let simulated_extent = first
+        .simulated
+        .facts()
+        .extents
+        .get(&legacy)
+        .expect("still there");
+    assert_eq!(
+        simulated_extent.start, LEGACY_START,
+        "the inherited start is byte-identical before and after"
+    );
+    assert_eq!(simulated_extent.length, new_length);
+    assert_eq!(
+        first.consequences,
+        vec![Consequence::InheritedMisalignedStart {
+            target: legacy,
+            start: LEGACY_START,
+        }],
+        "the inherited fact travels as consequence material"
+    );
+    assert!(
+        first.consequences[0].to_string().contains("inherited"),
+        "the rendered sentence states the fact"
+    );
+
+    let refused = grow_extension(&snapshot, legacy, 150 * DEFAULT_ALIGNMENT)
+        .expect_err("an unaligned, non-coincident authored end has no lawful spelling");
+    assert_eq!(
+        refused,
+        SolveRefusal::UnalignedAuthoredBoundary {
+            target: legacy,
+            boundary: 150 * DEFAULT_ALIGNMENT + LEGACY_START,
+            nearest_aligned_below: 150 * DEFAULT_ALIGNMENT,
+            coincident_candidate: 1 << 30,
+        }
+    );
+}
+
+// Requirements: PLAN-001, PART-009
+//   ADR-0023's coincident-edge rule: grow-to-fill places the authored
+//   end exactly at the neighbor's pre-existing (misaligned) start,
+//   conforms to policy, and is recorded as coincident — aligning down
+//   instead would mint an unusable sliver, and without this rule the
+//   start question would re-file itself about the end.
+// Evidence: grow_to_fill_is_coincident_with_the_neighbors_edge
+#[test]
+fn grow_to_fill_is_coincident_with_the_neighbors_edge() {
+    let (snapshot, _, aligned, misaligned) = solver_fixture();
+    let fill_length = 99 * DEFAULT_ALIGNMENT + 512;
+    let planned = plan_sized(
+        SizedRequest::Grow {
+            target: aligned,
+            new_length: fill_length,
+        },
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect("grow-to-fill conforms");
+    assert_eq!(
+        planned.consequences,
+        vec![Consequence::CoincidentBoundary {
+            target: aligned,
+            boundary: 100 * DEFAULT_ALIGNMENT + 512,
+            edge: StructuralEdge::NeighborStart {
+                neighbor: misaligned
+            },
+        }],
+        "the coincident placement is recorded, naming the edge"
+    );
+
+    let solved = grow_extension(&snapshot, aligned, fill_length).expect("solves");
+    assert_eq!(
+        solved.end_placement,
+        BoundaryPlacement::Coincident {
+            edge: StructuralEdge::NeighborStart {
+                neighbor: misaligned
+            }
+        }
+    );
+    assert_eq!(
+        solved.inherited_start, None,
+        "the aligned start inherits nothing"
+    );
+}
+
+// Requirements: PLAN-001, PART-009
+//   Section 11.2's preserved-alignment invariant read as ADR-0023's
+//   split: authored boundaries meet policy (the shrink's new end on the
+//   default), inherited boundaries are byte-identical before and after
+//   (the untouched misaligned start, carried as the typed inherited
+//   fact) — proven over the shrink path, the grow path's twin.
+// Evidence: authored_boundaries_meet_policy_and_inherited_stay_byte_identical
+#[test]
+fn authored_boundaries_meet_policy_and_inherited_stay_byte_identical() {
+    let (snapshot, _, legacy) = legacy_fixture();
+    let new_length = 50 * DEFAULT_ALIGNMENT - LEGACY_START;
+    let planned = plan_sized(
+        SizedRequest::Shrink {
+            target: legacy,
+            new_length,
+        },
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect("an aligned shrink end conforms");
+    let freed = planned.plan.steps()[0].ranges().destroyed[0];
+    assert_eq!(
+        freed.start,
+        50 * DEFAULT_ALIGNMENT,
+        "the authored new end meets the default"
+    );
+    let simulated_extent = planned
+        .simulated
+        .facts()
+        .extents
+        .get(&legacy)
+        .expect("still there");
+    assert_eq!(
+        simulated_extent.start, LEGACY_START,
+        "inherited, byte-identical"
+    );
+    assert_eq!(simulated_extent.length, new_length);
+    assert_eq!(
+        planned.consequences,
+        vec![Consequence::InheritedMisalignedStart {
+            target: legacy,
+            start: LEGACY_START,
+        }]
+    );
+
+    let refused = shrink_reduction(&snapshot, legacy, 50 * DEFAULT_ALIGNMENT)
+        .expect_err("an unaligned shrink end refuses");
+    assert!(matches!(
+        refused,
+        SolveRefusal::UnalignedAuthoredBoundary { .. }
+    ));
+}
+
+// Requirements: PLAN-001, PART-009
+//   ADR-0023's no-fourth-state property, swept: every authored end the
+//   solver accepts is on the 1 MiB default or coincident with a named
+//   pre-existing structural edge, and every other request refuses typed
+//   — the deviation-override vocabulary stays inexpressible, so nothing
+//   the solver emits can carry a fourth state.
+// Evidence: no_authored_boundary_has_a_fourth_state
+#[test]
+fn no_authored_boundary_has_a_fourth_state() {
+    let (snapshot, _, legacy) = legacy_fixture();
+    let own_length = 100 * DEFAULT_ALIGNMENT - LEGACY_START;
+    let host_end: u64 = 1 << 30;
+    for megabytes in [101_u64, 137, 512, 1023] {
+        for offset in [0_i64, -512, 512, 1] {
+            let end = (megabytes * DEFAULT_ALIGNMENT)
+                .checked_add_signed(offset)
+                .expect("in range");
+            let new_length = end - LEGACY_START;
+            if new_length <= own_length {
+                continue;
+            }
+            let solved = grow_extension(&snapshot, legacy, new_length);
+            if end.is_multiple_of(DEFAULT_ALIGNMENT) {
+                assert_eq!(
+                    solved.expect("an aligned end conforms").end_placement,
+                    BoundaryPlacement::Aligned,
+                    "aligned at {end}"
+                );
+            } else if end == host_end {
+                assert_eq!(
+                    solved.expect("the fill end conforms").end_placement,
+                    BoundaryPlacement::Coincident {
+                        edge: StructuralEdge::HostEnd
+                    },
+                    "coincident at {end}"
+                );
+            } else {
+                assert!(
+                    matches!(
+                        solved,
+                        Err(SolveRefusal::UnalignedAuthoredBoundary { boundary, .. })
+                            if boundary == end
+                    ),
+                    "no fourth state at {end}"
+                );
+            }
+        }
+    }
+    // The genuine fill case: growing to the host's end is coincident
+    // with a named edge even though 1 GiB is also on the default —
+    // the default wins the record, and either way there is no fourth
+    // state. An off-default fill against the misaligned neighbor is
+    // the coincident case proven above.
+    let filled = grow_extension(&snapshot, legacy, host_end - LEGACY_START)
+        .expect("fill to the host end conforms");
+    assert_eq!(filled.end_placement, BoundaryPlacement::Aligned);
+
+    // Creates obey the same law: an off-default size conforms exactly
+    // where it fills its room to a structural edge, and refuses
+    // elsewhere.
+    let (snapshot, host, _, misaligned) = solver_fixture();
+    let refused = place_create(&snapshot, host, 10 * DEFAULT_ALIGNMENT + 7)
+        .expect_err("an unaligned create end with room beyond it refuses");
+    assert!(matches!(
+        refused,
+        SolveRefusal::UnalignedAuthoredBoundary { .. }
+    ));
+    let filling = place_create(&snapshot, host, 35 * DEFAULT_ALIGNMENT + 512)
+        .expect("filling to the neighbor's start conforms");
+    assert_eq!(filling.placed.start, 65 * DEFAULT_ALIGNMENT);
+    assert_eq!(
+        filling.end_placement,
+        BoundaryPlacement::Coincident {
+            edge: StructuralEdge::NeighborStart {
+                neighbor: misaligned
+            }
+        }
+    );
 }
 
 // Requirements: PLAN-001, PLAN-006
@@ -720,7 +1005,9 @@ use super::simulate::SimulateRefusal;
 #[test]
 fn the_simulated_topology_arrives_and_is_never_a_base() {
     let (snapshot, host, _, _) = solver_fixture();
-    let Planned { plan, simulated } = plan_sized(
+    let Planned {
+        plan, simulated, ..
+    } = plan_sized(
         SizedRequest::Create {
             host,
             size: 10 * DEFAULT_ALIGNMENT,
@@ -773,7 +1060,7 @@ fn the_simulated_topology_arrives_and_is_never_a_base() {
 #[test]
 fn a_wipe_simulation_removes_the_chain_and_the_stamp() {
     let (snapshot, dev, _) = chain_fixture();
-    let Planned { plan: _, simulated } = plan(
+    let Planned { simulated, .. } = plan(
         PlanRequest {
             operation: Operation::Wipe,
             target: dev,
@@ -830,7 +1117,7 @@ fn an_unrepresentable_effect_refuses_the_whole_plan() {
 #[test]
 fn a_grow_simulation_updates_the_extent() {
     let (snapshot, _, aligned, _) = solver_fixture();
-    let Planned { plan: _, simulated } = plan_sized(
+    let Planned { simulated, .. } = plan_sized(
         SizedRequest::Grow {
             target: aligned,
             new_length: 70 * DEFAULT_ALIGNMENT,
