@@ -86,11 +86,11 @@ increment 3 as a property test. SI-36 is withdrawn and gates nothing.
 
 | Class | Meaning | Issues |
 | --- | --- | --- |
-| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-11, SI-12, SI-15, SI-16, SI-17, SI-18, SI-19, SI-20, SI-21, SI-24, SI-27, SI-29, SI-30, SI-31, SI-32, SI-33, SI-34, SI-35, SI-38, SI-39, SI-40 (by ADR-0020 with no spec change — the decision amends no normative text, recorded in its banner so the absent spec change reads as deliberate, not forgotten) |
+| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-11, SI-12, SI-15, SI-16, SI-17, SI-18, SI-19, SI-20, SI-21, SI-22, SI-24, SI-27, SI-29, SI-30, SI-31, SI-32, SI-33, SI-34, SI-35, SI-38, SI-39, SI-40 (by ADR-0020 with no spec change — the decision amends no normative text, recorded in its banner so the absent spec change reads as deliberate, not forgotten) |
 | **Direct blocker** | Must be decided before increment 3 writes a type | *(none — SI-28 reclassified below, 2026-08-09)* |
 | **Transitive blocker** | A separately sequenced prerequisite decision that must resolve before a direct blocker can be decided | *(none)* |
 | **Input** | A subquestion or evidence case resolved within the consuming direct blocker's decision | *(none — SI-29 and SI-30 resolved within SI-11's decision; SI-37 reclassified below)* |
-| **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-22, SI-23, SI-25, SI-26, SI-37 (before the spec change that first moves a closure-blocked multipath-capable population to `Permitted`; ADR-0018), SI-28 (**Mitigated-open**, floor in force; before the round that either relaxes the floor under ADR-0017's revisit condition or lands a discriminating mechanism; reclassified off the increment-3 gate 2026-08-09) |
+| **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-23, SI-25, SI-26, SI-37 (before the spec change that first moves a closure-blocked multipath-capable population to `Permitted`; ADR-0018), SI-28 (**Mitigated-open**, floor in force; before the round that either relaxes the floor under ADR-0017's revisit condition or lands a discriminating mechanism; reclassified off the increment-3 gate 2026-08-09) |
 | **Withdrawn** | Retained as history after the filing was shown not to be a conflict | SI-36 |
 
 No direct blockers remain. SI-28's Mitigated-open state — the interim
@@ -1812,7 +1812,36 @@ retained grant HLP-003 forbids.
 
 ## SI-22 Journal retention can delete what recovery depends on
 
-**Requirements:** JRN-001, JRN-003, JRN-004, SEC-009, Section 8, SAFE-005 · **Later (WP-070)**
+> **Resolved 2026-08-12 in spec 12.7.0 by ADR-0029.** Liveness-scoped
+> retention: bounded and unbounded stop colliding when they stop
+> sharing a population. Retention MAY reclaim only records of terminal
+> applies — a non-terminal apply's records, the authorization act's
+> included (ADR-0028's fed-forward fact, absorbed), are exempt until
+> their apply terminates, with the exemption closing over ADR-0027's
+> linkage graph (finite, because chains are). JRN-004's bound stays
+> true universally: terminal history bounded by SEC-009's retention
+> controls, the live segment by a per-apply journal budget whose
+> exhaustion is a journaled failure through Section 8's existing
+> edges — fail-closed toward the writer, never the recoverer, the
+> round's sharpest finding turned into an enforced property.
+> Reclamation writes a durable compaction record, so replay classifies
+> every gap: policy, torn tail (JRN-001's rule, governing the tail
+> while compaction governs the head), or corruption, which refuses.
+> Sequence numbers are never reused or reset across rotation or
+> compaction. The exemption is the enforced correctness floor;
+> audit-log retention beyond it stays SEC-009's user-controlled
+> domain. ADR-0028's revisit condition is discharged by this
+> reconciliation. Rejected and recorded in the ADR: retention-wins
+> (the filed trap ratified), recovery-wins-transitively-forever
+> (unbounded journal), time-capped exemption (re-creates the hazard on
+> exactly the unbounded state). The budget's magnitude and the
+> compaction record's encoding land with JRN-006 under WP-070, jointly
+> sequenced; no re-attribution follows — no WP-070 assignment exists,
+> and the ADR records the verification obligations so its creation
+> cannot omit them. The filing below is retained as history.
+
+**Requirements:** JRN-001, JRN-003, JRN-004, SEC-009, Section 8, SAFE-005 ·
+**Resolved** (was: Later (WP-070))
 
 JRN-004 requires bounded journals with retention controls; JRN-003 requires
 recovery state to derive solely from the journal; Section 8 requires

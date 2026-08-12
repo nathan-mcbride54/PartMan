@@ -943,6 +943,32 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **spec-change 12.7.0: SI-22 is resolved by ADR-0029 —
+  liveness-scoped retention.** Bounded and unbounded stop colliding
+  when they stop sharing a population: retention MAY reclaim only
+  records of terminal applies, a non-terminal apply's records (the
+  authorization act's included — ADR-0028's fed-forward fact absorbed,
+  its revisit condition discharged) are exempt until their apply
+  terminates, and the exemption closes over ADR-0027's linkage graph.
+  JRN-004's bound stays true universally: terminal history under
+  SEC-009's retention controls, the live segment under a per-apply
+  journal budget whose exhaustion is a journaled failure through
+  Section 8's existing edges — fail-closed toward the writer, never
+  the recoverer, the round's sharpest finding turned into an enforced
+  property. Reclamation writes a durable compaction record; replay
+  classifies every gap as policy, torn tail, or corruption; sequence
+  numbers are never reused or reset across rotation or compaction.
+  Rejected and recorded: retention-wins (the filed trap ratified),
+  recovery-wins-forever (unbounded journal), time-capped exemption
+  (the hazard re-created on the unbounded state). Minor under §0.1:
+  JRN-004's sentence verbatim, the rule additions; JRN-001, JRN-003,
+  SEC-009, Section 8, SAFE-005 untouched. Accepted by Nate McBride
+  2026-08-12 by delegation, recorded as the ADR's acceptance basis.
+  The budget's magnitude and compaction encoding land with JRN-006
+  under WP-070, jointly sequenced; no re-attribution follows — no
+  WP-070 assignment exists, and the ADR records the verification
+  obligations so its creation cannot omit them.
+
 - **spec-change 12.6.0: SI-21 is resolved by ADR-0028 — an
   authorization act authorizes one apply, a journal-continuous
   lifecycle that interruption suspends and only terminals end.** No
