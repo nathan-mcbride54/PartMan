@@ -943,6 +943,31 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **spec-change 12.4.0: SI-24 is resolved by ADR-0026 — a dry run is an
+  apply rehearsal, not CAP-003's simulation.** The conflict turned on
+  one undefined word the spec's own vocabulary had already split:
+  `preview` licenses the pure planner surface (PLAN-001 planning,
+  PLAN-002's simulated final topology), while a PLAN-009 dry run
+  belongs to the apply surface `preview` refuses. A dry run of a
+  preview-backed plan runs — not refused upfront from the client's
+  advisory view (CAP-007's inversion) — and terminates at the helper's
+  own recomputed capability gate with a typed refusal naming the
+  qualification gap and its CAP-006 remediation, distinguishable by
+  type from every validation-failure class. Such a dry run is never
+  successful, so PLAN-009's guarantee stands absolute with no
+  success-with-caveat outcome representable; the pipeline's internal
+  gate order is deliberately not decided (parity is the property,
+  sameness of the refusal pair the tested fact, the order WP-070's).
+  Rejected and recorded: success-with-carried-caveat, the partial
+  pipeline, narrowing `preview`, upfront client-side refusal. Minor
+  under §0.1: both existing texts stand verbatim, the additions define
+  an undefined word and an unaddressed case. Accepted by Nate McBride
+  2026-08-12 by delegation on the previous day's round, recorded as
+  the ADR's acceptance basis. WP-060's last register gate clears;
+  decided before the pipeline exists deliberately — the decision
+  constrains the implementation rather than reading it, the ADR-0022
+  class.
+
 - **WP-060: the assignment stops citing SI-17 as an open gate — SI-24
   is the one that remains.** The established re-attribution shape
   (#261/#264/#267/#270): citing the retired question would be the drift

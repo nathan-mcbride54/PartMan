@@ -86,11 +86,11 @@ increment 3 as a property test. SI-36 is withdrawn and gates nothing.
 
 | Class | Meaning | Issues |
 | --- | --- | --- |
-| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-11, SI-12, SI-15, SI-16, SI-17, SI-18, SI-19, SI-27, SI-29, SI-30, SI-31, SI-32, SI-33, SI-34, SI-35, SI-38, SI-39, SI-40 (by ADR-0020 with no spec change — the decision amends no normative text, recorded in its banner so the absent spec change reads as deliberate, not forgotten) |
+| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-11, SI-12, SI-15, SI-16, SI-17, SI-18, SI-19, SI-24, SI-27, SI-29, SI-30, SI-31, SI-32, SI-33, SI-34, SI-35, SI-38, SI-39, SI-40 (by ADR-0020 with no spec change — the decision amends no normative text, recorded in its banner so the absent spec change reads as deliberate, not forgotten) |
 | **Direct blocker** | Must be decided before increment 3 writes a type | *(none — SI-28 reclassified below, 2026-08-09)* |
 | **Transitive blocker** | A separately sequenced prerequisite decision that must resolve before a direct blocker can be decided | *(none)* |
 | **Input** | A subquestion or evidence case resolved within the consuming direct blocker's decision | *(none — SI-29 and SI-30 resolved within SI-11's decision; SI-37 reclassified below)* |
-| **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-20, SI-21, SI-22, SI-23, SI-24, SI-25, SI-26, SI-37 (before the spec change that first moves a closure-blocked multipath-capable population to `Permitted`; ADR-0018), SI-28 (**Mitigated-open**, floor in force; before the round that either relaxes the floor under ADR-0017's revisit condition or lands a discriminating mechanism; reclassified off the increment-3 gate 2026-08-09) |
+| **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-20, SI-21, SI-22, SI-23, SI-25, SI-26, SI-37 (before the spec change that first moves a closure-blocked multipath-capable population to `Permitted`; ADR-0018), SI-28 (**Mitigated-open**, floor in force; before the round that either relaxes the floor under ADR-0017's revisit condition or lands a discriminating mechanism; reclassified off the increment-3 gate 2026-08-09) |
 | **Withdrawn** | Retained as history after the filing was shown not to be a conflict | SI-36 |
 
 No direct blockers remain. SI-28's Mitigated-open state — the interim
@@ -1777,7 +1777,36 @@ must reach it.
 
 ## SI-24 CAP-003 `preview` versus PLAN-009 dry-run parity
 
-**Requirements:** CAP-003, PLAN-009, HLP-002, CAP-007 · **Later (WP-050)**
+> **Resolved 2026-08-12 in spec 12.4.0 by ADR-0026.** CAP-003's
+> "simulation" is the planner's prediction — PLAN-001 planning and
+> PLAN-002's simulated final topology, the pure surface `preview`
+> licenses — while a PLAN-009 dry run is an apply rehearsal belonging
+> to the surface `preview` refuses. The conflict turned on one
+> undefined word the spec's own vocabulary had already split: PLAN-002
+> names its output the simulated final topology, PLAN-009 never calls
+> the dry run a simulation, and the glossary defines Preview with no
+> dry-run mention. A dry run of a preview-backed plan **runs** — not
+> refused upfront from the client's advisory view, which would invert
+> CAP-007 in the refusing direction — and terminates at the helper's
+> own recomputed capability gate with a typed refusal naming the
+> qualification gap and its CAP-006 remediation, distinguishable by
+> type from every validation-failure class. Such a dry run is never
+> successful, so PLAN-009's guarantee stands absolute with no
+> success-with-caveat outcome representable. The pipeline's internal
+> gate order is deliberately not decided: parity is the property,
+> sameness of the dry-run/apply refusal pair is what verification
+> asserts, and the order is WP-070's. Rejected and recorded in the
+> ADR: success-with-carried-caveat (the asterisk that eats the one
+> crisp guarantee), the partial pipeline (the second pipeline PLAN-009
+> forbids), narrowing `preview` (amputation), upfront client-side
+> refusal (CAP-007's inversion). Decided before the pipeline exists,
+> deliberately: no evidence clause names an unbuilt artifact, and the
+> decision constrains the implementation rather than reading it — the
+> ADR-0022 class. WP-060's last register gate clears. The filing below
+> is retained as history.
+
+**Requirements:** CAP-003, PLAN-009, HLP-002, CAP-007 ·
+**Resolved** (was: Later (WP-050))
 
 CAP-003 says preview permits "planning and simulation" while apply is refused.
 PLAN-009 says a dry run traverses the identical pipeline including helper
