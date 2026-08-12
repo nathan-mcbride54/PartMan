@@ -943,6 +943,31 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **spec-change 12.6.0: SI-21 is resolved by ADR-0028 — an
+  authorization act authorizes one apply, a journal-continuous
+  lifecycle that interruption suspends and only terminals end.** No
+  reuse occurs on Section 8's three re-entry edges because nothing is
+  used twice: resume and roll-forward continue the same apply under
+  the same journaled, hash-bound, single-use act, consumed once at the
+  apply's start; "unbroken" is what JRN-001 already guarantees. The
+  authorization is a journal fact, never process state — the
+  helper-exit worry dissolves into JRN-003 and HLP-005 — and the
+  caching prohibition forbids approvals outliving their apply, not
+  applies outliving interruptions. Freshness is bounded by PLAN-007's
+  existing machinery: re-entry past the window is rejected per HLP-004
+  and readmitted only through re-approval against a fresh snapshot, a
+  fresh act for the same continuing apply. Each edge keeps its named
+  verification; WIN-009 reads as continuity, not a grant. Rejected and
+  recorded: re-prompt-every-resume (rubber-stamp economics, new table
+  edges), retained helper state, severity-scaled resume prompting.
+  Fed forward to SI-22, undecided: the authorization record is
+  recovery-critical. Minor under §0.1: additions defining a term the
+  ladder used; every pre-existing sentence verbatim. Accepted by Nate
+  McBride 2026-08-12 by delegation, recorded as the ADR's acceptance
+  basis. No re-attribution follows — no WP-070 assignment exists, and
+  the ADR records the verification obligations so its creation cannot
+  omit them.
+
 - **spec-change 12.5.0: SI-20 is resolved by ADR-0027 — the two
   RecoveryRequired exits are the two arms.** A roll-forward action
   continues the original plan (same hash, same journal, resuming from

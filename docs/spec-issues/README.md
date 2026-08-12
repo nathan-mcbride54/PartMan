@@ -86,11 +86,11 @@ increment 3 as a property test. SI-36 is withdrawn and gates nothing.
 
 | Class | Meaning | Issues |
 | --- | --- | --- |
-| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-11, SI-12, SI-15, SI-16, SI-17, SI-18, SI-19, SI-20, SI-24, SI-27, SI-29, SI-30, SI-31, SI-32, SI-33, SI-34, SI-35, SI-38, SI-39, SI-40 (by ADR-0020 with no spec change — the decision amends no normative text, recorded in its banner so the absent spec change reads as deliberate, not forgotten) |
+| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-11, SI-12, SI-15, SI-16, SI-17, SI-18, SI-19, SI-20, SI-21, SI-24, SI-27, SI-29, SI-30, SI-31, SI-32, SI-33, SI-34, SI-35, SI-38, SI-39, SI-40 (by ADR-0020 with no spec change — the decision amends no normative text, recorded in its banner so the absent spec change reads as deliberate, not forgotten) |
 | **Direct blocker** | Must be decided before increment 3 writes a type | *(none — SI-28 reclassified below, 2026-08-09)* |
 | **Transitive blocker** | A separately sequenced prerequisite decision that must resolve before a direct blocker can be decided | *(none)* |
 | **Input** | A subquestion or evidence case resolved within the consuming direct blocker's decision | *(none — SI-29 and SI-30 resolved within SI-11's decision; SI-37 reclassified below)* |
-| **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-21, SI-22, SI-23, SI-25, SI-26, SI-37 (before the spec change that first moves a closure-blocked multipath-capable population to `Permitted`; ADR-0018), SI-28 (**Mitigated-open**, floor in force; before the round that either relaxes the floor under ADR-0017's revisit condition or lands a discriminating mechanism; reclassified off the increment-3 gate 2026-08-09) |
+| **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-22, SI-23, SI-25, SI-26, SI-37 (before the spec change that first moves a closure-blocked multipath-capable population to `Permitted`; ADR-0018), SI-28 (**Mitigated-open**, floor in force; before the round that either relaxes the floor under ADR-0017's revisit condition or lands a discriminating mechanism; reclassified off the increment-3 gate 2026-08-09) |
 | **Withdrawn** | Retained as history after the filing was shown not to be a conflict | SI-36 |
 
 No direct blockers remain. SI-28's Mitigated-open state — the interim
@@ -1772,7 +1772,36 @@ RecoveryRequired, for which the table provides no exit — there is no
 
 ## SI-21 Resume and roll-forward reuse an authorization HLP-003 forbids
 
-**Requirements:** HLP-003, HLP-005, Section 8, WIN-009 · **Later (WP-070)**
+> **Resolved 2026-08-12 in spec 12.6.0 by ADR-0028.** No reuse occurs,
+> because nothing is used twice: an authorization act authorizes one
+> **apply**, and an apply is a journal-continuous execution lifecycle —
+> from its act to a terminal state, identified by the plan hash and an
+> unbroken JRN-001 chain — that interruption suspends and only
+> `Completed`, `Failed`, or `Cancelled` ends. The three re-entry edges
+> continue the *same* apply under the *same* journaled, hash-bound,
+> single-use act, consumed once at the apply's start. The helper-exit
+> worry dissolves because the authorization is a journal fact, never
+> process state (JRN-003 reconstructs; HLP-005's idle exit discards
+> nothing meant to persist in a process); the caching prohibition
+> forbids approvals outliving their apply, not applies outliving
+> interruptions. Freshness has its boundary in PLAN-007's existing
+> machinery: every re-entry is bounded by the validity window, a
+> re-entry past expiry is rejected per HLP-004 and readmitted only
+> through re-approval against a fresh snapshot — a fresh act for the
+> same continuing apply, one-act-one-apply being a ceiling on an act's
+> reach, never a floor on their count. Each edge keeps its named
+> verification, and WIN-009 reads as same-apply continuity, not a
+> retained grant. Rejected and recorded in the ADR: re-prompting on
+> every resume (rubber-stamp training plus new table edges), retained
+> helper state (contradicts HLP-003 outright), severity-scaled resume
+> prompting (a second encoding of the ladder's dimension). Fed forward
+> to SI-22, undecided: the authorization record is recovery-critical.
+> No re-attribution follows — no WP-070 assignment exists, and the ADR
+> records the verification obligations so its creation cannot omit
+> them. The filing below is retained as history.
+
+**Requirements:** HLP-003, HLP-005, Section 8, WIN-009 ·
+**Resolved** (was: Later (WP-070))
 
 The table reaches `Executing` from `RecoveryRequired`, and `Protecting` from
 `Revalidating` after `RebootPending`, without passing `AwaitingAuthorization`.
