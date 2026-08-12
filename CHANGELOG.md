@@ -943,6 +943,30 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **spec-change 12.3.0: SI-17 is resolved by ADR-0025 —
+  `irreversible-after-start` claims the mid-execution window; severity
+  claims endpoints.** The flag is defined for the first time: a step
+  carries it when a reachable interrupted state exists from which the
+  pre-step state cannot be restored by unwinding — recovery past the
+  first write is roll-forward per the journal, never unwind — with the
+  criterion a reachable unrestorable intermediate, not the existence of
+  a write. Severity 1's "fully undoable before or after apply"
+  quantifies over endpoints (ADR-0022's completed-apply boundary), so
+  the combination is legal and PLAN-004's declared orthogonality
+  becomes true. One coupling rule: a flagged step's cancellation claims
+  `no-writes` only before its first write — Section 8's existing effect
+  values, selected, not extended; cannot-stop and cannot-unwind stay
+  independent in both directions. No new guard needed: any flag binds
+  the ADR-0021 ceremony, the reversal-draft obligation stands, UI-005
+  displays both facts. Rejected and recorded: permanent illegality
+  (severity inflation or flag suppression — the 2.0.0 conflation in
+  reverse), endpoint-irreversibility as the definition, dropping the
+  flag. Minor under §0.1: the flag had no prior definition; severity
+  1's text, PLAN-005, and Section 8 stand verbatim. Accepted by Nate
+  McBride 2026-08-11 by delegation, recorded as the ADR's acceptance
+  basis. The planner's combination refusal unlocks, riding the crate's
+  next Rust increment; SI-24 is WP-060's one remaining register gate.
+
 - **WP-060: the assignment stops citing SI-16 as an open gate.** The
   established re-attribution shape (#261/#264/#267): citing the retired
   question would be the drift the register's sole-authority rule

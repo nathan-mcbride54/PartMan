@@ -86,11 +86,11 @@ increment 3 as a property test. SI-36 is withdrawn and gates nothing.
 
 | Class | Meaning | Issues |
 | --- | --- | --- |
-| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-11, SI-12, SI-15, SI-16, SI-18, SI-19, SI-27, SI-29, SI-30, SI-31, SI-32, SI-33, SI-34, SI-35, SI-38, SI-39, SI-40 (by ADR-0020 with no spec change — the decision amends no normative text, recorded in its banner so the absent spec change reads as deliberate, not forgotten) |
+| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-11, SI-12, SI-15, SI-16, SI-17, SI-18, SI-19, SI-27, SI-29, SI-30, SI-31, SI-32, SI-33, SI-34, SI-35, SI-38, SI-39, SI-40 (by ADR-0020 with no spec change — the decision amends no normative text, recorded in its banner so the absent spec change reads as deliberate, not forgotten) |
 | **Direct blocker** | Must be decided before increment 3 writes a type | *(none — SI-28 reclassified below, 2026-08-09)* |
 | **Transitive blocker** | A separately sequenced prerequisite decision that must resolve before a direct blocker can be decided | *(none)* |
 | **Input** | A subquestion or evidence case resolved within the consuming direct blocker's decision | *(none — SI-29 and SI-30 resolved within SI-11's decision; SI-37 reclassified below)* |
-| **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-17, SI-20, SI-21, SI-22, SI-23, SI-24, SI-25, SI-26, SI-37 (before the spec change that first moves a closure-blocked multipath-capable population to `Permitted`; ADR-0018), SI-28 (**Mitigated-open**, floor in force; before the round that either relaxes the floor under ADR-0017's revisit condition or lands a discriminating mechanism; reclassified off the increment-3 gate 2026-08-09) |
+| **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-20, SI-21, SI-22, SI-23, SI-24, SI-25, SI-26, SI-37 (before the spec change that first moves a closure-blocked multipath-capable population to `Permitted`; ADR-0018), SI-28 (**Mitigated-open**, floor in force; before the round that either relaxes the floor under ADR-0017's revisit condition or lands a discriminating mechanism; reclassified off the increment-3 gate 2026-08-09) |
 | **Withdrawn** | Retained as history after the filing was shown not to be a conflict | SI-36 |
 
 No direct blockers remain. SI-28's Mitigated-open state — the interim
@@ -1614,7 +1614,37 @@ intended to repair a table are fail-closed against themselves.
 
 ## SI-17 Severity 1 versus the `irreversible-after-start` flag
 
-**Requirements:** PLAN-004, PLAN-005, UI-009, HLP-003 · **Later (WP-060)**
+> **Resolved 2026-08-11 in spec 12.3.0 by ADR-0025.**
+> `irreversible-after-start` is defined temporally, for the first time:
+> a step carries it when a reachable interrupted state exists from which
+> the pre-step state cannot be restored by unwinding — once the first
+> write lands, stopping cannot go back, and interruption recovery is
+> roll-forward per the journal, never unwind. The criterion is a
+> reachable unrestorable intermediate, not the existence of a write
+> (the journaled PART-005-shape copy is unflagged; the in-place
+> multi-sector rewrite is flagged). The flag therefore claims the
+> mid-execution window while severity claims endpoints — "fully
+> undoable before or after apply" quantifies over before-first-write
+> and after-completion, ADR-0022's completed-apply boundary — so **the
+> combination is legal** and PLAN-004's declared orthogonality becomes
+> true rather than aspirational. One coupling rule: a flagged step's
+> cancellation claims `no-writes` only before its first write, its
+> post-write outcomes `partial` or completion — Section 8's existing
+> effect values, selected, not extended. Cannot-stop (PLAN-005's
+> `non-cancellable`) and cannot-unwind are independent facts in both
+> directions. No new guard was needed: any flag binds the interactive
+> ceremony (ADR-0021), the severity-1 reversal draft stands (ADR-0022),
+> and UI-005 displays both facts — an inflated severity would repeat
+> the 2.0.0 conflation and lie about the completed effect. Rejected
+> and recorded in the ADR: permanent illegality (severity inflation or
+> flag suppression), endpoint-irreversibility as the definition
+> (redundant, contradictory by construction), and dropping the flag
+> (deletes the interruption-window warning). The planner's named
+> refusal unlocks, riding the crate's next Rust increment. The filing
+> below is retained as history.
+
+**Requirements:** PLAN-004, PLAN-005, UI-009, HLP-003 ·
+**Resolved** (was: Later (WP-060))
 
 PLAN-004 declares the flags orthogonal to severity, but severity 1 is "fully
 undoable ... via an emitted reversal plan", which `irreversible-after-start`
