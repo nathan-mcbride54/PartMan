@@ -100,12 +100,17 @@ external tool is invoked, and on INV-006's no-repair/no-auto-mount discipline.
 Issue #94 is closed: the full acceptance, including its adversarial rebind leg,
 succeeded in a disposable Proxmox-hosted non-WSL Linux VM on 2026-08-03 — on the
 implementation commit `2dbf601`, and again on the merged commit `c75b340` that
-lands on main — and was re-taken four times on 2026-08-11, each in a fresh
+lands on main — and was re-taken six times, each in a fresh
 disposable VM after the record's stopping condition tripped: on `582e6d1`
 (issue #175), on `4fbb2f9` when increments 2g/2h landed, on `68298f2` when
-the #248/#249/#250 review-finding fixes landed, and on `0625b07` when
-increment 2i's general executor landed, with identical harness values and
-fixture digests every time. The run record with its
+the #248/#249/#250 review-finding fixes landed, on `0625b07` when
+increment 2i's general executor landed, on `39b59f5` when increment 2j
+registered the two-range suite (all 2026-08-11), and on `a2e6db2`
+(2026-08-12) when WP-070 increment 1 tripped it from outside WP-020, with
+identical harness values and fixture digests every time. (This sentence
+previously read "four times" while the custody table held six rows — the
+`39b59f5` re-take never updated it, the stale-count shape again, corrected
+with the sixth.) The run record with its
 exclusions and stated limits is in `docs/work-packages/WP-020.md`. Closing it
 registered no destructive suite.
 Later packages may add pure planner, validator, and regular-file fixture tests.
@@ -235,12 +240,14 @@ on refusal as well as on success, since every refusal after the write leaves
 the fixture mutated. That check establishes the files' content, not
 durability.
 
-Its operator-run acceptance passed on 2026-08-11 — four times: re-taken the
-same day on `68298f2` after the #248/#250 fixes changed its own probe and
-write lines, on `0625b07` through increment 2i's general executor, and on
-`39b59f5` in the sitting that first took the 2j acceptance — each time in
-the same VM sitting as a re-take of the read-only acceptance above, and is
-recorded in `docs/work-packages/WP-020.md`. The kernel refused the mid-run
+Its operator-run acceptance passed five times — first on 2026-08-11,
+re-taken the same day on `68298f2` after the #248/#250 fixes changed its
+own probe and write lines, on `0625b07` through increment 2i's general
+executor, and on `39b59f5` in the sitting that first took the 2j
+acceptance, then on `a2e6db2` (2026-08-12) after WP-070 increment 1
+tripped the stopping condition — each time in the same VM sitting as a
+re-take of the read-only acceptance above, and is recorded in
+`docs/work-packages/WP-020.md`. The kernel refused the mid-run
 `LOOP_CHANGE_FD` as the design requires (measured on two kernel revisions,
 and classified from an observed status re-read since the second sitting),
 the contracted range changed and nothing else did, and the sitting's full
