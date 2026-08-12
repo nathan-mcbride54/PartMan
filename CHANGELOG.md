@@ -943,6 +943,22 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **spec-change 12.9.0: SI-25 is resolved by ADR-0031 — CAP-002 is a
+  required minimum over a closed-and-versioned operation vocabulary.**
+  The floor keeps DIA-005 implementable and PART-007/010/011
+  representable; the instant-closure keeps CAP-005's one-engine promise
+  stable (no surface carries an operation the versioned vocabulary does
+  not). `wipe` is a family whose six DIA-005 kinds become separate
+  operations when erase surfaces are built — capability differs per
+  kind, never-equivalent made structural; the kind-discriminant was
+  rejected as equivalence at the modeling layer. The delivered
+  `crates/capability` `Operation` enum stands until WP-050's next
+  reviewed increment extends it under this discipline. Rejected and
+  recorded: closed enumeration, unversioned minimum. Minor under §0.1:
+  CAP-002's sentence verbatim, the rules additions. Accepted by Nate
+  McBride 2026-08-12 by directive ("finish SI-25 and SI-26"), recorded
+  as the ADR's acceptance basis.
+
 - **spec-change 12.8.0: SI-23 is resolved by ADR-0030 — the REC-011
   backup is a first-class protection artifact.** Four rules for the
   object the spec mandated and then said nothing about. Home: a

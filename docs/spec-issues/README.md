@@ -86,11 +86,11 @@ increment 3 as a property test. SI-36 is withdrawn and gates nothing.
 
 | Class | Meaning | Issues |
 | --- | --- | --- |
-| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-11, SI-12, SI-15, SI-16, SI-17, SI-18, SI-19, SI-20, SI-21, SI-22, SI-23, SI-24, SI-27, SI-29, SI-30, SI-31, SI-32, SI-33, SI-34, SI-35, SI-38, SI-39, SI-40 (by ADR-0020 with no spec change — the decision amends no normative text, recorded in its banner so the absent spec change reads as deliberate, not forgotten) |
+| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-11, SI-12, SI-15, SI-16, SI-17, SI-18, SI-19, SI-20, SI-21, SI-22, SI-23, SI-24, SI-25, SI-27, SI-29, SI-30, SI-31, SI-32, SI-33, SI-34, SI-35, SI-38, SI-39, SI-40 (by ADR-0020 with no spec change — the decision amends no normative text, recorded in its banner so the absent spec change reads as deliberate, not forgotten) |
 | **Direct blocker** | Must be decided before increment 3 writes a type | *(none — SI-28 reclassified below, 2026-08-09)* |
 | **Transitive blocker** | A separately sequenced prerequisite decision that must resolve before a direct blocker can be decided | *(none)* |
 | **Input** | A subquestion or evidence case resolved within the consuming direct blocker's decision | *(none — SI-29 and SI-30 resolved within SI-11's decision; SI-37 reclassified below)* |
-| **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-25, SI-26, SI-37 (before the spec change that first moves a closure-blocked multipath-capable population to `Permitted`; ADR-0018), SI-28 (**Mitigated-open**, floor in force; before the round that either relaxes the floor under ADR-0017's revisit condition or lands a discriminating mechanism; reclassified off the increment-3 gate 2026-08-09) |
+| **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-26, SI-37 (before the spec change that first moves a closure-blocked multipath-capable population to `Permitted`; ADR-0018), SI-28 (**Mitigated-open**, floor in force; before the round that either relaxes the floor under ADR-0017's revisit condition or lands a discriminating mechanism; reclassified off the increment-3 gate 2026-08-09) |
 | **Withdrawn** | Retained as history after the filing was shown not to be a conflict | SI-36 |
 
 No direct blockers remain. SI-28's Mitigated-open state — the interim
@@ -1933,7 +1933,27 @@ for a non-physical reason (contradicting PLAN-009).
 
 ## SI-25 CAP-002's operation list does not span the operation surface
 
-**Requirements:** CAP-002, DIA-004, DIA-005, PART-007, PART-010, PART-011 · **Later (WP-050)**
+> **Resolved 2026-08-12 in spec 12.9.0 by ADR-0031.** CAP-002's list is
+> a **required minimum over a closed-and-versioned operation
+> vocabulary**: the floor of what MUST be modeled separately wherever
+> it exists, with the vocabulary closed at every moment and extended
+> only through reviewed MODEL-003-versioned spec change — minimum-over-
+> time, closed-in-the-instant, reconciling the two readings' true
+> halves (the floor keeps DIA-005 implementable; the closure keeps
+> CAP-005's one-engine promise stable). `wipe` is a family whose
+> DIA-005 kinds become separate operations when erase surfaces are
+> built — capability differs per kind, so never-equivalent becomes
+> structural; the kind-discriminated alternative was rejected as
+> equivalence at the modeling layer. PART-007/010/011 join as named
+> operations when their packages build them. The delivered
+> `crates/capability` `Operation` enum stands until WP-050's next
+> reviewed increment extends it under this discipline. Rejected and
+> recorded in the ADR: closed enumeration (DIA-005 unimplementable,
+> required operations unrepresentable) and unversioned minimum
+> (surface drift). The filing below is retained as history.
+
+**Requirements:** CAP-002, DIA-004, DIA-005, PART-007, PART-010, PART-011 ·
+**Resolved** (was: Later (WP-050))
 
 CAP-002 enumerates fourteen operations including a single `wipe`, but DIA-005
 requires overwrite, crypto-erase, sanitize, format, discard, and file deletion to
