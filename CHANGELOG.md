@@ -7,6 +7,30 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-020: the r7 sitting — all three acceptances re-taken on
+  `15e6469`, the stopping condition re-pinned there.** The second trip
+  from outside the package: WP-070 increment 2 (PR #291) landed
+  `crates/journal`, a crate no acceptance executes, and the condition
+  tripped by design, exactly as it did for increment 1. One sitting on
+  2026-08-12, one fresh disposable Proxmox-hosted VM (VMID 9430, kernel
+  5.15.0-186-generic, no reboot during provisioning), the r6 runbook
+  copied to r7: the full eleven-control refusal set refused, 2e passed
+  (its seventh re-take — eleven passes across eight guests), the 2h
+  suite passed (its fifth re-take, `fixtures_executed=1`,
+  `ranges_written=1`, `contracted_bytes_written=8`), and the 2j suite
+  passed its second re-take (`ranges_written=2`,
+  `contracted_bytes_written=16`, `EFI PART` at offsets 512 and
+  4,193,792 before, eight zeros each in between, both restored after).
+  Both fixtures ended byte-identical to the compiled catalogue, the
+  loop table ended empty, the manifest re-verified independently, and
+  teardown was verified with nothing remaining (2026-08-12T19:52:37Z).
+  Custody run 13: transcript digests agreeing across guest, host, and
+  workstation (`bc3fe187…8b48d7`). The r7 copy corrected all three
+  carried-over labels the r6 record had noted — the header's trip
+  numbering, the 2j transcript section's "FIRST TAKE", and the
+  evidence-bundle path — so that debt does not carry forward; no label
+  touched a measured value in either lineage.
+
 - **WP-070 increment 2: the journal core.** `crates/journal`
   (workspace lints, `unsafe_code` denied by inheritance per SAFE-009's
   journal-crate rule, dependency closure empty — the
