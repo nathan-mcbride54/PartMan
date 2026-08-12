@@ -1050,6 +1050,393 @@ fn the_simulated_topology_arrives_and_is_never_a_base() {
     );
 }
 
+use super::EmittedReversal;
+use partman_domain::model::plan::{
+    BindRefusal, DraftPrecondition, DraftTarget, ImpossibilityReason, ReversalLinkage,
+};
+use partman_domain::model::step::Precondition;
+
+/// The post-apply capture for the solver fixture's 10 MiB create at
+/// 65 MiB: the created partition placed for real, optionally with a
+/// filesystem landed inside it (the truth-decay world).
+fn created_capture(with_fs: bool) -> TopologySnapshot {
+    let host = device(b"SLV-HOST");
+    let host_id = derive_id(&host).expect("derivable");
+    let table = NamingFields::PartitionTable {
+        parent: host_id,
+        role: partman_domain::model::naming::TableRole::Gpt,
+    };
+    let table_id = derive_id(&table).expect("derivable");
+    let aligned = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: DEFAULT_ALIGNMENT,
+    };
+    let aligned_id = derive_id(&aligned).expect("derivable");
+    let misaligned = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: 100 * DEFAULT_ALIGNMENT + 512,
+    };
+    let misaligned_id = derive_id(&misaligned).expect("derivable");
+    let created = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: 65 * DEFAULT_ALIGNMENT,
+    };
+    let created_id = derive_id(&created).expect("derivable");
+    let fs = NamingFields::FileSystem {
+        host: created_id,
+        kind: partman_domain::model::naming::FileSystemKind::Ext4,
+        superblock_offset: 1024,
+    };
+    let fs_id = derive_id(&fs).expect("derivable");
+
+    let mut facts = Facts::default();
+    device_facts(&mut facts, host_id);
+    facts.extents.insert(
+        aligned_id,
+        HostRange {
+            host: host_id,
+            start: DEFAULT_ALIGNMENT,
+            length: 64 * DEFAULT_ALIGNMENT,
+        },
+    );
+    facts.extents.insert(
+        misaligned_id,
+        HostRange {
+            host: host_id,
+            start: 100 * DEFAULT_ALIGNMENT + 512,
+            length: 32 * DEFAULT_ALIGNMENT,
+        },
+    );
+    facts.extents.insert(
+        created_id,
+        HostRange {
+            host: host_id,
+            start: 65 * DEFAULT_ALIGNMENT,
+            length: 10 * DEFAULT_ALIGNMENT,
+        },
+    );
+    let mut nodes = vec![host, table, aligned, misaligned, created];
+    let mut edges = vec![
+        Edge {
+            kind: EdgeKind::Containment,
+            source: host_id,
+            target: table_id,
+        },
+        Edge {
+            kind: EdgeKind::Containment,
+            source: table_id,
+            target: aligned_id,
+        },
+        Edge {
+            kind: EdgeKind::Containment,
+            source: table_id,
+            target: misaligned_id,
+        },
+        Edge {
+            kind: EdgeKind::Containment,
+            source: table_id,
+            target: created_id,
+        },
+    ];
+    if with_fs {
+        facts.extents.insert(
+            fs_id,
+            HostRange {
+                host: created_id,
+                start: 0,
+                length: DEFAULT_ALIGNMENT,
+            },
+        );
+        nodes.push(fs);
+        edges.push(Edge {
+            kind: EdgeKind::Containment,
+            source: created_id,
+            target: fs_id,
+        });
+    }
+    TopologySnapshot::assemble(SnapshotKind::Captured, false, nodes, edges, facts)
+        .expect("assembles")
+}
+
+// Requirements: PLAN-008, PLAN-001
+//   PLAN-008's first arm end to end (ADR-0022): the sized create emits
+//   a truthful reversal draft — byte-deterministic, its target spelled
+//   as the creating step's output, its truthfulness the created node's
+//   emptiness — the forward body carries the draft by ID and body hash,
+//   the draft names the forward plan by ID alone, the forward step's
+//   Reversible claim stands on the draft, and the linked body still
+//   revalidates through the typed boundary.
+// Evidence: the_create_reversal_draft_is_deterministic_and_linked
+#[test]
+fn the_create_reversal_draft_is_deterministic_and_linked() {
+    let (snapshot, host, _, _) = solver_fixture();
+    let request = SizedRequest::Create {
+        host,
+        size: 10 * DEFAULT_ALIGNMENT,
+    };
+    let plan_once = || {
+        plan_sized(
+            request,
+            &snapshot,
+            &TechnologyLimits::default(),
+            &RuntimeFacts::clean(),
+            &identity(),
+        )
+        .expect("plans")
+    };
+    let first = plan_once();
+    let second = plan_once();
+    let EmittedReversal::Draft(draft) = &first.reversal else {
+        panic!("the create emits a draft: {:?}", first.reversal);
+    };
+    let EmittedReversal::Draft(second_draft) = &second.reversal else {
+        panic!("plans again");
+    };
+    assert_eq!(
+        partman_domain::canonical::encode(&draft.body_value()).expect("encodable"),
+        partman_domain::canonical::encode(&second_draft.body_value()).expect("encodable"),
+        "PLAN-001 holds over the draft: byte-equal drafts for equal inputs"
+    );
+
+    assert_eq!(
+        first.plan.reversal(),
+        Some(&ReversalLinkage::Draft {
+            plan_id: b"pln-1/reversal".to_vec(),
+            draft_hash: draft.body_hash().expect("hashable"),
+        }),
+        "the forward body freezes the advertisement by ID and hash"
+    );
+    assert_eq!(
+        draft.forward_plan_id(),
+        b"pln-1",
+        "the draft answers by ID alone"
+    );
+    assert_eq!(
+        draft.steps()[0].target,
+        DraftTarget::StepOutput(0),
+        "a created node is spelled as the creating step's output, never an address"
+    );
+    assert_eq!(
+        draft.steps()[0].preconditions,
+        vec![DraftPrecondition::StepOutputUnoccupied { step: 0 }]
+    );
+    assert_eq!(
+        first.plan.severity(),
+        Severity::Reversible,
+        "the Reversible claim is made exactly where the truthful draft exists"
+    );
+    let rebuilt = OperationPlan::from_canonical_body(&body_bytes(&first.plan), &snapshot)
+        .expect("the linked body revalidates");
+    assert_eq!(
+        rebuilt.body_hash().expect("hash"),
+        first.plan.body_hash().expect("hash")
+    );
+}
+
+// Requirements: PLAN-008
+//   The reference resolves against a post-apply capture and refuses
+//   against the pre-apply one (ADR-0022's verification): binding
+//   produces an ordinary plan bound to the capture's hash whose own
+//   linkage is the reapply-forward statement — and the prediction
+//   itself never binds.
+// Evidence: the_draft_binds_after_apply_and_never_to_the_prediction
+#[test]
+fn the_draft_binds_after_apply_and_never_to_the_prediction() {
+    let (snapshot, host, _, _) = solver_fixture();
+    let planned = plan_sized(
+        SizedRequest::Create {
+            host,
+            size: 10 * DEFAULT_ALIGNMENT,
+        },
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect("plans");
+    let EmittedReversal::Draft(draft) = &planned.reversal else {
+        panic!("the create emits a draft");
+    };
+
+    let post = created_capture(false);
+    let bound = draft
+        .bind(&post, &planned.plan)
+        .expect("the reference resolves against the post-apply capture");
+    assert_eq!(
+        bound.snapshot_hash(),
+        &post.body_hash().expect("hashable"),
+        "binding is a validation act"
+    );
+    assert_eq!(
+        bound.reversal(),
+        Some(&ReversalLinkage::ReapplyForward {
+            forward_plan_id: b"pln-1".to_vec()
+        }),
+        "the regress terminates in a reference"
+    );
+
+    let refused = draft
+        .bind(&snapshot, &planned.plan)
+        .expect_err("the pre-apply world resolves nothing");
+    assert_eq!(
+        refused,
+        BindRefusal::UnresolvedReference {
+            step: 0,
+            candidates: 0
+        }
+    );
+
+    assert_eq!(
+        draft.bind(&planned.simulated, &planned.plan),
+        Err(BindRefusal::PredictionNeverBinds),
+        "nobody ever applies a prediction"
+    );
+}
+
+// Requirements: PLAN-008
+//   Truthfulness is a two-time property (ADR-0022's named fixture): the
+//   draft that was metadata-only at emission refuses by precondition
+//   once anything lands in the created structure, instead of silently
+//   becoming a destructive plan wearing a reversal's advertisement.
+// Evidence: a_decayed_reversal_refuses_instead_of_destroying
+#[test]
+fn a_decayed_reversal_refuses_instead_of_destroying() {
+    let (snapshot, host, _, _) = solver_fixture();
+    let planned = plan_sized(
+        SizedRequest::Create {
+            host,
+            size: 10 * DEFAULT_ALIGNMENT,
+        },
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect("plans");
+    let EmittedReversal::Draft(draft) = &planned.reversal else {
+        panic!("the create emits a draft");
+    };
+    let decayed = created_capture(true);
+    let refused = draft
+        .bind(&decayed, &planned.plan)
+        .expect_err("data landed in the created partition");
+    assert!(
+        matches!(refused, BindRefusal::PreconditionFailed { .. }),
+        "the decay refuses by precondition: {refused:?}"
+    );
+}
+
+// Requirements: PLAN-008
+//   The grow's draft shrinks back while the reclaimed tail is clean:
+//   an address-spelled target (the target pre-exists), the tail's
+//   emptiness carried in the target's own address space, and the
+//   forward severity deliberately conservative — a draft does not
+//   compel the Reversible claim.
+// Evidence: the_grow_draft_shrinks_back_while_the_tail_is_clean
+#[test]
+fn the_grow_draft_shrinks_back_while_the_tail_is_clean() {
+    let (snapshot, _, aligned, _) = solver_fixture();
+    let planned = plan_sized(
+        SizedRequest::Grow {
+            target: aligned,
+            new_length: 70 * DEFAULT_ALIGNMENT,
+        },
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect("plans");
+    let EmittedReversal::Draft(draft) = &planned.reversal else {
+        panic!("the grow emits a draft: {:?}", planned.reversal);
+    };
+    assert_eq!(draft.steps()[0].target, DraftTarget::Address(aligned));
+    assert_eq!(
+        draft.steps()[0].preconditions,
+        vec![DraftPrecondition::Carried(Precondition::RegionUnoccupied {
+            region: HostRange {
+                host: aligned,
+                start: 64 * DEFAULT_ALIGNMENT,
+                length: 6 * DEFAULT_ALIGNMENT,
+            }
+        })],
+        "the reclaimed tail is judged in the target's own address space"
+    );
+    assert_eq!(
+        planned.plan.severity(),
+        Severity::Disruptive,
+        "conservative-up, stated: the draft exists, the claim is not compelled"
+    );
+}
+
+// Requirements: PLAN-008
+//   PLAN-008's second arm: operations with no truthful reversal state
+//   why, per step, machine-readably — the wipe's destroyed bytes, the
+//   identity write's uncarried prior value — and the statements ride
+//   the hashed body as the linkage.
+// Evidence: unreversible_operations_state_why_per_step
+#[test]
+fn unreversible_operations_state_why_per_step() {
+    let (snapshot, clean, _) = fixture();
+    let wiped = plan(
+        PlanRequest {
+            operation: Operation::Wipe,
+            target: clean,
+        },
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect("plans");
+    let EmittedReversal::Impossible(statements) = &wiped.reversal else {
+        panic!("a wipe has no truthful reversal");
+    };
+    assert_eq!(statements.len(), 1);
+    assert_eq!(statements[0].reason, ImpossibilityReason::DataDestroyed);
+    assert!(matches!(
+        wiped.plan.reversal(),
+        Some(ReversalLinkage::Impossible { statements }) if statements.len() == 1
+    ));
+
+    let (chain, dev, luks) = chain_fixture();
+    let set = PlanRequestSet {
+        requests: vec![
+            PlanRequest {
+                operation: Operation::Wipe,
+                target: luks,
+            },
+            PlanRequest {
+                operation: Operation::Wipe,
+                target: dev,
+            },
+        ],
+        dependencies: vec![Dependency {
+            before: 0,
+            after: 1,
+        }],
+    };
+    let planned = plan_set(
+        &set,
+        &chain,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect("plans");
+    let EmittedReversal::Impossible(statements) = &planned.reversal else {
+        panic!("the wipe chain has no truthful reversal");
+    };
+    assert_eq!(
+        statements
+            .iter()
+            .map(|statement| statement.step)
+            .collect::<Vec<_>>(),
+        vec![0, 1],
+        "statements cover the emitted step order exactly"
+    );
+}
+
 // Requirements: PLAN-002
 //   The wipe simulation removes everything the facts place on the wiped
 //   bytes, transitively with everything named relative to it, and drops
