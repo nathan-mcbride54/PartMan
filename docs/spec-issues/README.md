@@ -86,11 +86,11 @@ increment 3 as a property test. SI-36 is withdrawn and gates nothing.
 
 | Class | Meaning | Issues |
 | --- | --- | --- |
-| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-11, SI-12, SI-27, SI-29, SI-30, SI-31, SI-32, SI-33, SI-34, SI-35, SI-38, SI-39, SI-40 (by ADR-0020 with no spec change — the decision amends no normative text, recorded in its banner so the absent spec change reads as deliberate, not forgotten) |
+| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-11, SI-12, SI-18, SI-27, SI-29, SI-30, SI-31, SI-32, SI-33, SI-34, SI-35, SI-38, SI-39, SI-40 (by ADR-0020 with no spec change — the decision amends no normative text, recorded in its banner so the absent spec change reads as deliberate, not forgotten) |
 | **Direct blocker** | Must be decided before increment 3 writes a type | *(none — SI-28 reclassified below, 2026-08-09)* |
 | **Transitive blocker** | A separately sequenced prerequisite decision that must resolve before a direct blocker can be decided | *(none)* |
 | **Input** | A subquestion or evidence case resolved within the consuming direct blocker's decision | *(none — SI-29 and SI-30 resolved within SI-11's decision; SI-37 reclassified below)* |
-| **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-15, SI-16, SI-17, SI-18, SI-19, SI-20, SI-21, SI-22, SI-23, SI-24, SI-25, SI-26, SI-37 (before the spec change that first moves a closure-blocked multipath-capable population to `Permitted`; ADR-0018), SI-28 (**Mitigated-open**, floor in force; before the round that either relaxes the floor under ADR-0017's revisit condition or lands a discriminating mechanism; reclassified off the increment-3 gate 2026-08-09) |
+| **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-15, SI-16, SI-17, SI-19, SI-20, SI-21, SI-22, SI-23, SI-24, SI-25, SI-26, SI-37 (before the spec change that first moves a closure-blocked multipath-capable population to `Permitted`; ADR-0018), SI-28 (**Mitigated-open**, floor in force; before the round that either relaxes the floor under ADR-0017's revisit condition or lands a discriminating mechanism; reclassified off the increment-3 gate 2026-08-09) |
 | **Withdrawn** | Retained as history after the filing was shown not to be a conflict | SI-36 |
 
 No direct blockers remain. SI-28's Mitigated-open state — the interim
@@ -1570,7 +1570,33 @@ model cannot silently decide whether the combination is legal.
 
 ## SI-18 Does a severity-1 plan need fresh authorization?
 
-**Requirements:** SAFE-002, HLP-003, Section 0.2 · **Later (WP-040)**
+> **Resolved 2026-08-11 in spec 11.2.0 by ADR-0021.** Authorization is a
+> two-tier ladder and SAFE-002 is untouched — the SI-38 precedence shape,
+> a Section 3 constraint never bent to fit a lower section. Every apply
+> at every severity requires a floor authorization: a fresh, explicit act
+> by the RPC-001-authenticated user naming the exact plan hash,
+> single-use, PLAN-007-windowed, journaled, never cached, and satisfiable
+> programmatically — which keeps SAFE-003's unattended/scripted-apply
+> population live. The interactive ceremony HLP-003 already required at
+> severity ≥ Disruptive stands verbatim and additionally binds any plan
+> carrying a step flag — the severity-plus-flags participation PLAN-004
+> promised and HLP-003 never stated; the concrete gap was a LUKS keyslot
+> addition, fully reversible yet `security-sensitive`, which a
+> severity-only ladder would have given the lightest authorization in
+> the product. The enforced tier derives from the helper's own
+> recomputed severity and flags (HLP-002), never from client claims.
+> **The entry's named question is answered: no authorization-requirement
+> field enters the plan** — the requirement is a total function of body
+> content already present, a stored copy would add only an agreement
+> obligation (ADR-0016's lesson reached with no field at all), and
+> WP-040's authorization vocabulary unlocks with no jointly-sequenced
+> WP-010 schema change. Rejected and recorded in the ADR: reading
+> SAFE-002 through HLP-003's silence, the ceremony everywhere, and the
+> helper-authored plan-carried field. The filing below is retained as
+> history.
+
+**Requirements:** SAFE-002, HLP-003, Section 0.2 ·
+**Resolved** (was: Later (WP-040))
 
 SAFE-002 confines privileged behavior to a helper "executing a validated plan
 after fresh, explicit user authorization", which reads as every privileged

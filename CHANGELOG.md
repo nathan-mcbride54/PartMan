@@ -943,6 +943,35 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **spec-change 11.2.0: SI-18 is resolved by ADR-0021 — authorization is
+  a two-tier ladder, and SAFE-002 is untouched.** Every apply of every
+  plan, at every severity including 0, requires a floor authorization: a
+  fresh, explicit act by the RPC-001-authenticated user naming the exact
+  plan hash, single-use, valid only inside the plan's PLAN-007 window,
+  journaled, never cached, session-wide, or remembered, and satisfiable
+  programmatically — which keeps SAFE-003's unattended/scripted-apply
+  population a live surface. The interactive OS-mediated ceremony
+  HLP-003 already required at severity ≥ Disruptive stands verbatim and
+  additionally binds any plan carrying a step flag — the
+  severity-plus-flags participation PLAN-004 promised and HLP-003 never
+  stated; the concrete gap was a LUKS keyslot addition, fully reversible
+  (severity 1) yet `security-sensitive`. A flagged plan can never be
+  applied unattended. The enforced tier derives from the helper's own
+  recomputed severity and flags (HLP-002), never from client claims, and
+  no authorization-requirement field enters the plan — the register's
+  named question answered: it is a total function of body content
+  already present, so WP-040's authorization vocabulary unlocks with no
+  jointly-sequenced WP-010 schema change and the authentication skeleton
+  stays identity-only. Rejected and recorded: reading SAFE-002 through
+  HLP-003's silence (inverts §0.2, the SI-38 shape), the ceremony
+  everywhere (rubber-stamps the ceremony where it carries load and
+  forecloses a population SAFE-003 contemplates), and a helper-authored
+  plan-carried field. Minor under §0.1: both pre-existing HLP-003
+  sentences stand verbatim and nothing narrows. Accepted by Nate McBride
+  2026-08-11 by delegation, recorded as the ADR's acceptance basis; the
+  verification obligations land with WP-070 and are enumerated in the
+  ADR so none is discovered late.
+
 - **SI-40 is resolved by ADR-0020, with no spec change — deliberately.**
   Reading (a) of the filing's options, decided by the decision owner
   the same day the filing landed: FS-007's "blocked reasons" is the

@@ -1,6 +1,6 @@
 # Contributing
 
-This repository implements `AGENT_BUILD_SPEC.md` 11.1.0. Safety requirements in
+This repository implements `AGENT_BUILD_SPEC.md` 11.2.0. Safety requirements in
 that document override all other instructions.
 
 ## License of contributions
