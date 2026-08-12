@@ -7,6 +7,34 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-070 increment 1: the execution state machine, pure.**
+  `crates/statemachine` (workspace lints, `unsafe_code` denied by
+  inheritance, no dependencies — the journal will depend on it, never
+  the reverse): Section 8's thirteen states and its twenty-three-row
+  transition table as `Transition` variants, so an undeclared
+  transition has no variant to be — unrepresentable at construction,
+  Section 11.6's obligation and ADR-0027's imported obligation 1,
+  proven over all 169 ordered state pairs against an independent
+  transcription of the specification's rows rather than against the
+  crate itself. Terminal records carry their effect summaries
+  structurally (`TerminalRecord` constructs only for the three
+  terminal states; a non-terminal state is a typed refusal naming
+  itself), the published per-row effect constraints are encoded and
+  pinned (`no-writes` alone on the three no-writes rows,
+  `no-writes`-or-`partial` on the honored cancel, `None` where the row
+  constrains nothing — the per-journal pause cancel stays the journal
+  increment's to determine), no transition leaves a terminal state,
+  every non-terminal state has an exit, and ADR-0027's two arms are
+  asserted as the exact `RecoveryRequired` exit set. The
+  machine-readable table Section 8 requires under `schemas/` lands as
+  `schemas/state-machine.md`, rendered by `published_markdown()` from
+  the same variants the property tests check and held byte-fresh by
+  test — one source, three views — with regeneration via the
+  documented `render` example, which performs no repository write
+  itself. Converts the traceability mode to `generated`. The re-pin
+  sitting this Rust merge owes under the WP-020 stopping condition is
+  run and recorded separately, as always.
+
 - **WP-020 increment 2j is Delivered on its first-take acceptance, and
   increment 2 itself is delivered as scoped; the 2e stopping condition is
   re-pinned at `39b59f5`.** One sitting on 2026-08-11, one fresh disposable
