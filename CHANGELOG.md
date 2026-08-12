@@ -943,6 +943,31 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **spec-change 12.5.0: SI-20 is resolved by ADR-0027 — the two
+  RecoveryRequired exits are the two arms.** A roll-forward action
+  continues the original plan (same hash, same journal, resuming from
+  the last durable checkpoint through the existing → Executing edge,
+  re-verification inherited from JRN-003) and is the one recovery act
+  that is not its own plan — the prose sentence scoped, every other
+  instance true. Any distinct recovery action is its own
+  `OperationPlan`, and selecting it is the acceptance the → Failed
+  trigger names: honest effect summary, full report, journaled linkage
+  naming the recovery plan, one user act driving two records, with the
+  disposal durable before the recovery plan may apply (JRN-002's shape,
+  HLP-005-structural on shared device sets — the filed torn state
+  unreachable). No state, edge, or trigger added; the rows, terminal
+  list, and "No other transitions exist" stand verbatim; no
+  → Cancelled edge, since unwind semantics belong to the Executing
+  era. Rejected and recorded: recovery-as-the-original (breaks hash
+  binding), new exits or `Superseded` (couples lifecycles or renames a
+  fact), rewording the Failed row (major for what prose does at
+  minor). SI-21 untouched on both edges. Minor under §0.1:
+  closing-prose additions only. Accepted by Nate McBride 2026-08-12 by
+  delegation, recorded as the ADR's acceptance basis. No
+  re-attribution follows — no WP-070 assignment exists, and the ADR
+  records the verification obligations so its creation cannot omit
+  them.
+
 - **WP-060: the assignment stops citing SI-24 as an open gate — its
   register-gate list is now empty.** The established re-attribution
   shape (#261/#264/#267/#270/#273): citing the retired question would
