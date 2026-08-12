@@ -943,6 +943,36 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **spec-change 12.0.0: SI-19 is resolved by ADR-0022 — the reversal is
+  an ordinary draft, linked by reference, and `OperationPlan` is not
+  recursive.** The filing predated 8.0.0, which dissolved its core:
+  binding is a validation act for every plan, so a reversal emitted at
+  planning time is exactly as unbound as every other draft. The draft's
+  proposal is the forward plan's simulated final topology; its binding
+  is its own validate-plan after the forward apply, so nobody ever
+  applies a prediction and the delivered Simulated-never-binds rule
+  stands untouched. Section 6's body item becomes reversal linkage —
+  the draft's plan ID and body hash, acyclic by construction
+  (forward→hash, reversal→ID, mutual hash references being
+  unconstructible). Round three's created-node residue gets its only
+  possible spelling: typed step-output references resolved to derived
+  addresses at the reversal's validation per ADR-0019, refusing when
+  unresolvable. Truthfulness is a two-time property re-checked as
+  body-content preconditions — the volume-that-gained-data fixture
+  refuses rather than silently becoming destructive — and a reversal
+  apply takes its own ADR-0021 authorization at its own severity and
+  flags. Rejected and recorded: binding the simulated topology
+  (collides with a delivered mutation-tested rule), exemption (the
+  fail-open arm), lazy re-planning with no emission (kills REC-010's
+  advertisement and severity 1's definition; survives as the staleness
+  fallback), recursive embedding (regress, depth budgets, frozen-draft
+  agreement obligation). Major under §0.1: PLAN-008's and Section 6's
+  existing texts change meaning. Accepted by Nate McBride 2026-08-11 by
+  delegation, recorded as the ADR's acceptance basis. WP-060's PLAN-008
+  increment unlocks; the linkage byte encoding lands as the
+  jointly-sequenced WP-060/WP-010 schema change when implemented;
+  SI-15/16/17/20/24 and REC-* stay open.
+
 - **WP-040: the assignment and skeleton documents stop citing SI-18 as
   an open gate.** The re-attribution shape of #197/#215, applied to the
   package the resolution unblocks: citing the retired question would be
