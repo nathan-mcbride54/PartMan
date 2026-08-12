@@ -7,6 +7,51 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-070 increment 2: the journal core.** `crates/journal`
+  (workspace lints, `unsafe_code` denied by inheritance per SAFE-009's
+  journal-crate rule, dependency closure empty — the
+  `partman-statemachine` dependency arrives with increment 3's record
+  vocabulary, exactly as increment 1's manifest recorded): JRN-001's
+  frame mechanics as a pure library. The byte log is append-only with
+  per-record CRC-32/IEEE checksums and strictly monotonic one-based
+  sequence numbers — the encoding pinned byte-for-byte against an
+  independent bit-by-bit transcription of the format and the standard
+  check value, every earlier snapshot a byte prefix of every later
+  one. A torn tail is detected and safely truncated, proven by a sweep
+  over every byte cut of a three-record log plus the
+  damaged-complete-final-frame shape; interior damage refuses rather
+  than truncates — a checksum mismatch with bytes behind it, a
+  duplicated frame, a forged sequence zero, and a complete over-bound
+  frame are each a typed refusal naming the defect and its offset,
+  because safe truncation is the tail's rule alone. JRN-002's
+  durability rule lands as a typed injected boundary: `commit` offers a
+  `DurabilitySeam` exactly the not-yet-durable byte suffix, a refusal
+  leaves the watermark and the pending suffix untouched for re-offer,
+  and a `WriteClearance` is constructible only behind the watermark —
+  so the storage-writing code the M3 helper packages build demands
+  proof of prior journal durability instead of a comment, while
+  platform fsync truth stays their acceptance obligation, said in the
+  trait's documentation rather than implied. JRN-003's replay is a
+  pure function of the bytes and the covered ranges: identical inputs
+  replay identically, recovery is a fixpoint (replaying the truncated
+  valid prefix reproduces the same records with no further
+  truncation), and a recovered journal continues the sequence exactly
+  where the surviving records end — nothing derives from writer
+  memory. Imported obligation 11's core (ADR-0029, shared with
+  increment 4) ships as the three-way gap classification: a
+  compaction-covered gap proceeds — over `CoveredRanges`, the
+  classification's typed input, which increment 4 derives from durable
+  compaction records — a torn tail truncates, and any uncovered or
+  partially covered gap refuses as the named mid-chain-gap corruption
+  case, at the head and in the chain alike. Seven mutants (uncovered
+  gaps accepted, clearance without durability, interior damage
+  truncating, checksums ignored, regressions accepted, watermark
+  advancing without the seam, recovery resetting the sequence) were
+  each killed by a named test before proposal. This is a Rust merge:
+  the WP-020 2e stopping condition pinned at `a2e6db2` trips, and the
+  r7 re-pin sitting is run and recorded separately under WP-020's
+  ownership, as every re-take has been.
+
 - **WP-020: the r6 sitting — all three acceptances re-taken on
   `a2e6db2`, the stopping condition re-pinned there.** The first trip
   from outside the package: WP-070 increment 1 (PR #289) landed
