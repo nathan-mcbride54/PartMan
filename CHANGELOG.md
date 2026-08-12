@@ -943,6 +943,33 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **WP-040: the assignment and skeleton documents stop citing SI-18 as
+  an open gate.** The re-attribution shape of #197/#215, applied to the
+  package the resolution unblocks: citing the retired question would be
+  the drift the register's sole-authority rule forbids. The assignment's
+  register-gates row now reads none open and records the answer it was
+  waiting on (ADR-0021, spec 11.2.0: two-tier ladder, tier
+  helper-derived from recomputed severity and flags, no plan-carried
+  authorization-requirement field — so the jointly-sequenced WP-010
+  schema change the assignment anticipated does not arise); the
+  Boundary's no-authorization-semantics bullet and the delivery
+  status's closing sentence move from gate to standing decision;
+  `schemas/rpc/authentication.md` §3 does the same, with the closure
+  test's exhaustive-match pin now guarding a standing rule rather than
+  a wait; README's WP-040 row closing sentence moves with the bytes it
+  describes; both documents' spec-version pins move to 11.2.0. The
+  increments' delivery rows keep their "while SI-18 holds" phrasing as
+  history of what was delivered under the gate, said so in the closing
+  sentence rather than silently reinterpreted. **Deliberately not
+  touched: the three `crates/rpc` doc-comment references**
+  (`lib.rs`, `identity.rs`, `identity_tests.rs`) — any non-Markdown
+  merge re-opens the three VM acceptances pinned at `39b59f5`, a
+  sitting no comment edit justifies, so the comment re-attribution
+  rides the next Rust change to the crate and is recorded here rather
+  than left to be discovered. No type, test, schema byte, or normative
+  text changes; the vocabulary stays pinned to exactly the three
+  identity claims.
+
 - **spec-change 11.2.0: SI-18 is resolved by ADR-0021 — authorization is
   a two-tier ladder, and SAFE-002 is untouched.** Every apply of every
   plan, at every severity including 0, requires a floor authorization: a
