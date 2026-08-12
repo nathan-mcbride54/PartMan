@@ -233,12 +233,14 @@ fn a_hand_forged_step_is_refused_by_recomputation() {
 #[test]
 fn plan_severity_is_the_maximum_step_severity() {
     let (snapshot, dev_id) = clean_snapshot(b"D0");
+    // Informational deliberately: a Reversible claim in this unlinked
+    // body form refuses (ADR-0022's rule, tested on its own below).
     let low = PlanStep::mutating(
         &snapshot,
         dev_id,
         StepRanges::default(),
         vec![],
-        risk(Severity::Reversible),
+        risk(Severity::Informational),
     )
     .expect("constructs");
     let high = PlanStep::mutating(
@@ -290,12 +292,652 @@ fn unknown_plan_and_step_fields_are_refused() {
     ));
 }
 
-// Requirements: SAFE-003, MODEL-005
-//   The authored-field rule at the boundary (ADR-0014, MODEL-005's
-//   authoring set): where the helper-produced snapshot stamps a table
-//   state, a plan identity claiming a different state never validates;
-//   an agreeing identity round-trips.
-// Evidence: a_client_authored_table_state_never_validates
+use super::naming::TableRole;
+use super::plan::{
+    DraftPrecondition, DraftStep, DraftTarget, ImpossibilityReason, PlanError, ReversalDraft,
+    ReversalLinkage, StepImpossibility,
+};
+use super::step::Precondition;
+use super::topology::{Edge, EdgeKind};
+
+/// The create-reversal worlds (ADR-0022): a device before the forward
+/// apply, the simulated prediction of the created partition, the world
+/// after a real apply, and the same world after data landed in the
+/// created partition.
+struct ReversalWorlds {
+    pre: TopologySnapshot,
+    proposal: TopologySnapshot,
+    post: TopologySnapshot,
+    post_with_data: TopologySnapshot,
+    dev_id: super::naming::NodeId,
+    created_range: HostRange,
+}
+
+fn reversal_worlds() -> ReversalWorlds {
+    let dev = device(b"RV0");
+    let dev_id = derive_id(&dev).expect("derivable");
+    let table = NamingFields::PartitionTable {
+        parent: dev_id,
+        role: TableRole::Gpt,
+    };
+    let table_id = derive_id(&table).expect("derivable");
+    let part = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: 1 << 20,
+    };
+    let part_id = derive_id(&part).expect("derivable");
+    let created_range = HostRange {
+        host: dev_id,
+        start: 1 << 20,
+        length: 10 << 20,
+    };
+    let fs = NamingFields::FileSystem {
+        host: part_id,
+        kind: super::naming::FileSystemKind::Ext4,
+        superblock_offset: 1024,
+    };
+    let fs_id = derive_id(&fs).expect("derivable");
+
+    let base_facts = |with_part: bool, with_fs: bool| {
+        let mut facts = Facts::default();
+        facts.transports.insert(dev_id, TransportClass::Sata);
+        facts.extents.insert(
+            dev_id,
+            HostRange {
+                host: dev_id,
+                start: 0,
+                length: 1 << 30,
+            },
+        );
+        if with_part {
+            facts.extents.insert(part_id, created_range);
+        }
+        if with_fs {
+            facts.extents.insert(
+                fs_id,
+                HostRange {
+                    host: part_id,
+                    start: 0,
+                    length: 5 << 20,
+                },
+            );
+        }
+        facts
+    };
+    let containment = |source, target| Edge {
+        kind: EdgeKind::Containment,
+        source,
+        target,
+    };
+    let assemble = |kind, nodes: Vec<NamingFields>, edges: Vec<Edge>, facts| {
+        TopologySnapshot::assemble(kind, false, nodes, edges, facts).expect("assembles")
+    };
+
+    let pre = assemble(
+        SnapshotKind::Captured,
+        vec![dev.clone(), table.clone()],
+        vec![containment(dev_id, table_id)],
+        base_facts(false, false),
+    );
+    let proposal = assemble(
+        SnapshotKind::Simulated,
+        vec![dev.clone(), table.clone(), part.clone()],
+        vec![
+            containment(dev_id, table_id),
+            containment(table_id, part_id),
+        ],
+        base_facts(true, false),
+    );
+    let post = assemble(
+        SnapshotKind::Captured,
+        vec![dev.clone(), table.clone(), part.clone()],
+        vec![
+            containment(dev_id, table_id),
+            containment(table_id, part_id),
+        ],
+        base_facts(true, false),
+    );
+    let post_with_data = assemble(
+        SnapshotKind::Captured,
+        vec![dev, table, part, fs],
+        vec![
+            containment(dev_id, table_id),
+            containment(table_id, part_id),
+        ],
+        base_facts(true, true),
+    );
+    ReversalWorlds {
+        pre,
+        proposal,
+        post,
+        post_with_data,
+        dev_id,
+        created_range,
+    }
+}
+
+/// The forward create step, its emitted reversal draft, and the linked
+/// forward plan carrying the draft's hash.
+fn forward_and_draft(worlds: &ReversalWorlds) -> (OperationPlan, ReversalDraft) {
+    let create = PlanStep::mutating(
+        &worlds.pre,
+        worlds.dev_id,
+        StepRanges {
+            written_table_extents: vec![],
+            consumed: vec![worlds.created_range],
+            destroyed: vec![],
+        },
+        vec![],
+        risk(Severity::Disruptive),
+    )
+    .expect("constructs");
+    let draft = ReversalDraft::compose(
+        b"plan-fwd/reversal".to_vec(),
+        1_700_000_000,
+        &worlds.proposal,
+        ValidityWindow {
+            not_after: 1_700_086_400,
+        },
+        vec![DraftStep {
+            target: DraftTarget::StepOutput(0),
+            ranges: StepRanges {
+                written_table_extents: vec![],
+                consumed: vec![],
+                destroyed: vec![worlds.created_range],
+            },
+            acknowledgments: vec![],
+            risk: risk(Severity::Reversible),
+            preconditions: vec![DraftPrecondition::StepOutputUnoccupied { step: 0 }],
+        }],
+        b"plan-fwd".to_vec(),
+        std::slice::from_ref(&create),
+    )
+    .expect("the draft composes against the prediction");
+    let forward = OperationPlan::assemble_linked(
+        b"plan-fwd".to_vec(),
+        1_700_000_000,
+        &worlds.pre,
+        ValidityWindow {
+            not_after: 1_700_086_400,
+        },
+        std::collections::BTreeMap::new(),
+        vec![create],
+        ReversalLinkage::Draft {
+            plan_id: draft.plan_id().to_vec(),
+            draft_hash: draft.body_hash().expect("hashable"),
+        },
+    )
+    .expect("the linked forward plan assembles");
+    (forward, draft)
+}
+
+// Requirements: MODEL-003, MODEL-005, PLAN-006
+//   The linked (version-2) body round-trips through the typed boundary
+//   with its reversal linkage and per-step preconditions intact, and
+//   the draft body round-trips its own boundary — the recompute rule
+//   held for both artifacts of ADR-0022's architecture.
+// Evidence: linked_bodies_and_drafts_round_trip
+#[test]
+fn linked_bodies_and_drafts_round_trip() {
+    let worlds = reversal_worlds();
+    let (forward, draft) = forward_and_draft(&worlds);
+    let bytes = canonical::encode(&forward.body_value().expect("body")).expect("encodable");
+    let rebuilt = OperationPlan::from_canonical_body(&bytes, &worlds.pre).expect("round-trips");
+    assert_eq!(
+        rebuilt.body_hash().expect("hashable"),
+        forward.body_hash().expect("hashable")
+    );
+    assert!(matches!(
+        rebuilt.reversal(),
+        Some(ReversalLinkage::Draft { .. })
+    ));
+
+    let draft_bytes = canonical::encode(&draft.body_value()).expect("encodable");
+    let draft_rebuilt =
+        ReversalDraft::from_canonical_body(&draft_bytes).expect("the draft round-trips");
+    assert_eq!(draft_rebuilt, draft);
+    assert_eq!(draft_rebuilt.forward_plan_id(), b"plan-fwd");
+}
+
+// Requirements: PLAN-004, MODEL-005
+//   ADR-0022's severity rule, structural in both assembly paths and at
+//   the boundary: a Reversible claim stands only on an emitted reversal
+//   — the unlinked form refuses it outright, an impossibility linkage
+//   refuses it, and a forged body claiming severity 1 over an
+//   impossibility linkage never parses.
+// Evidence: a_reversible_claim_stands_only_on_an_emitted_reversal
+#[test]
+fn a_reversible_claim_stands_only_on_an_emitted_reversal() {
+    let (snapshot, dev_id) = clean_snapshot(b"D0");
+    let reversible = PlanStep::mutating(
+        &snapshot,
+        dev_id,
+        StepRanges::default(),
+        vec![],
+        risk(Severity::Reversible),
+    )
+    .expect("constructs");
+
+    let unlinked = OperationPlan::assemble(
+        b"plan-r".to_vec(),
+        1_700_000_000,
+        &snapshot,
+        ValidityWindow {
+            not_after: 1_700_086_400,
+        },
+        std::collections::BTreeMap::new(),
+        vec![reversible.clone()],
+    );
+    assert_eq!(unlinked, Err(PlanError::ReversibleWithoutReversal));
+
+    let impossible = OperationPlan::assemble_linked(
+        b"plan-r".to_vec(),
+        1_700_000_000,
+        &snapshot,
+        ValidityWindow {
+            not_after: 1_700_086_400,
+        },
+        std::collections::BTreeMap::new(),
+        vec![reversible],
+        ReversalLinkage::Impossible {
+            statements: vec![StepImpossibility {
+                step: 0,
+                reason: ImpossibilityReason::DataDestroyed,
+            }],
+        },
+    );
+    assert_eq!(impossible, Err(PlanError::ReversibleWithoutReversal));
+
+    // The forged spelling: a legal severity-2 impossibility plan whose
+    // severity byte is edited to 1 after assembly.
+    let disruptive = PlanStep::mutating(
+        &snapshot,
+        dev_id,
+        StepRanges::default(),
+        vec![],
+        risk(Severity::Disruptive),
+    )
+    .expect("constructs");
+    let plan = OperationPlan::assemble_linked(
+        b"plan-r".to_vec(),
+        1_700_000_000,
+        &snapshot,
+        ValidityWindow {
+            not_after: 1_700_086_400,
+        },
+        std::collections::BTreeMap::new(),
+        vec![disruptive],
+        ReversalLinkage::Impossible {
+            statements: vec![StepImpossibility {
+                step: 0,
+                reason: ImpossibilityReason::DataDestroyed,
+            }],
+        },
+    )
+    .expect("assembles");
+    let Value::Map(mut map) = plan.body_value().expect("body") else {
+        panic!("body is a map");
+    };
+    let Some(Value::Array(steps)) = map.get_mut("steps") else {
+        panic!("steps present");
+    };
+    let Value::Map(step_map) = &mut steps[0] else {
+        panic!("step is a map");
+    };
+    step_map.insert("severity".to_owned(), Value::Unsigned(1));
+    let forged = canonical::encode(&Value::Map(map)).expect("encodable");
+    assert_eq!(
+        OperationPlan::from_canonical_body(&forged, &snapshot),
+        Err(PlanSchemaError::ReversibleWithoutReversal)
+    );
+}
+
+// Requirements: MODEL-005, PLAN-006
+//   A step-output reference resolves against a post-apply capture and
+//   refuses against a pre-apply one; the bound plan is an ordinary
+//   linked plan bound to the capture's hash, carrying the resolved
+//   preconditions and the reapply-forward statement that terminates the
+//   regress.
+// Evidence: a_reference_resolves_after_apply_and_refuses_before
+#[test]
+fn a_reference_resolves_after_apply_and_refuses_before() {
+    let worlds = reversal_worlds();
+    let (forward, draft) = forward_and_draft(&worlds);
+
+    let bound = draft
+        .bind(&worlds.post, &forward)
+        .expect("the reference resolves against the post-apply capture");
+    assert_eq!(
+        bound.snapshot_hash(),
+        &worlds.post.body_hash().expect("hashable"),
+        "binding is a validation act: the bound plan binds the capture"
+    );
+    assert_eq!(
+        bound.reversal(),
+        Some(&ReversalLinkage::ReapplyForward {
+            forward_plan_id: b"plan-fwd".to_vec()
+        })
+    );
+    assert_eq!(bound.severity(), Severity::Reversible);
+    assert!(matches!(
+        bound.steps()[0].preconditions(),
+        [Precondition::HostUnoccupied { .. }]
+    ));
+
+    let refused = draft
+        .bind(&worlds.pre, &forward)
+        .expect_err("a pre-apply world resolves nothing");
+    assert_eq!(
+        refused,
+        super::plan::BindRefusal::UnresolvedReference {
+            step: 0,
+            candidates: 0
+        }
+    );
+
+    // A forward plan under a different ID: the draft refuses to bind
+    // against a plan it does not reverse.
+    let create = PlanStep::mutating(
+        &worlds.pre,
+        worlds.dev_id,
+        StepRanges {
+            written_table_extents: vec![],
+            consumed: vec![worlds.created_range],
+            destroyed: vec![],
+        },
+        vec![],
+        risk(Severity::Disruptive),
+    )
+    .expect("constructs");
+    let other_forward = OperationPlan::assemble(
+        b"plan-other".to_vec(),
+        1_700_000_000,
+        &worlds.pre,
+        ValidityWindow {
+            not_after: 1_700_086_400,
+        },
+        std::collections::BTreeMap::new(),
+        vec![create],
+    )
+    .expect("assembles");
+    assert_eq!(
+        draft.bind(&worlds.post, &other_forward),
+        Err(super::plan::BindRefusal::NotItsForwardPlan)
+    );
+}
+
+// Requirements: MODEL-005
+//   Truthfulness is a two-time property (ADR-0022's named fixture): the
+//   reversal that was metadata-only at emission refuses by precondition
+//   once data landed in the created structure — at the draft's binding
+//   and at the plain boundary alike — instead of silently becoming a
+//   destructive plan wearing a reversal's advertisement.
+// Evidence: a_decayed_precondition_refuses_at_binding
+#[test]
+fn a_decayed_precondition_refuses_at_binding() {
+    let worlds = reversal_worlds();
+    let (forward, draft) = forward_and_draft(&worlds);
+    let refused = draft
+        .bind(&worlds.post_with_data, &forward)
+        .expect_err("data landed; the reversal is no longer metadata-only");
+    assert!(matches!(
+        refused,
+        super::plan::BindRefusal::PreconditionFailed { .. }
+    ));
+
+    // The same decay at the plain boundary: bind while clean, then
+    // present the bound bytes against the data-carrying world.
+    let bound = draft.bind(&worlds.post, &forward).expect("binds clean");
+    let bytes = canonical::encode(&bound.body_value().expect("body")).expect("encodable");
+    let result = OperationPlan::from_canonical_body(&bytes, &worlds.post_with_data);
+    assert!(
+        matches!(
+            result,
+            Err(PlanSchemaError::SnapshotMismatch | PlanSchemaError::PreconditionFailed { .. })
+        ),
+        "a decayed world refuses one way or the other: {result:?}"
+    );
+}
+
+// Requirements: MODEL-005
+//   The boundary's own precondition check: a linked plan assembled over
+//   a world that already violates a step precondition never parses
+//   against that world — assembly is permissive (the planner's honesty
+//   is judged elsewhere), the boundary is not.
+// Evidence: a_precondition_violated_in_the_bound_world_never_parses
+#[test]
+fn a_precondition_violated_in_the_bound_world_never_parses() {
+    let worlds = reversal_worlds();
+    let part_id = worlds
+        .post_with_data
+        .facts()
+        .extents
+        .iter()
+        .find(|(_, extent)| **extent == worlds.created_range)
+        .map(|(node, _)| *node)
+        .expect("the created partition is placed");
+    let step = PlanStep::mutating(
+        &worlds.post_with_data,
+        part_id,
+        StepRanges::default(),
+        vec![],
+        risk(Severity::Disruptive),
+    )
+    .expect("constructs")
+    .with_preconditions(vec![Precondition::HostUnoccupied { host: part_id }]);
+    let plan = OperationPlan::assemble_linked(
+        b"plan-x".to_vec(),
+        1_700_000_000,
+        &worlds.post_with_data,
+        ValidityWindow {
+            not_after: 1_700_086_400,
+        },
+        std::collections::BTreeMap::new(),
+        vec![step],
+        ReversalLinkage::Impossible {
+            statements: vec![StepImpossibility {
+                step: 0,
+                reason: ImpossibilityReason::DataDestroyed,
+            }],
+        },
+    )
+    .expect("assembly is permissive");
+    let bytes = canonical::encode(&plan.body_value().expect("body")).expect("encodable");
+    assert!(matches!(
+        OperationPlan::from_canonical_body(&bytes, &worlds.post_with_data),
+        Err(PlanSchemaError::PreconditionFailed { .. })
+    ));
+}
+
+// Requirements: MODEL-005, MODEL-003
+//   A prediction proposes and never binds, structurally and everywhere:
+//   composing a draft demands the simulated proposal, binding demands a
+//   real capture, and the plain boundary refuses a simulated snapshot
+//   as a binding base before reading a single field.
+// Evidence: a_prediction_never_binds_anywhere
+#[test]
+fn a_prediction_never_binds_anywhere() {
+    let worlds = reversal_worlds();
+    let (forward, draft) = forward_and_draft(&worlds);
+
+    assert_eq!(
+        draft.bind(&worlds.proposal, &forward),
+        Err(super::plan::BindRefusal::PredictionNeverBinds)
+    );
+
+    let bytes = canonical::encode(&forward.body_value().expect("body")).expect("encodable");
+    assert_eq!(
+        OperationPlan::from_canonical_body(&bytes, &worlds.proposal),
+        Err(PlanSchemaError::PredictionNeverBinds)
+    );
+
+    let create = PlanStep::mutating(
+        &worlds.pre,
+        worlds.dev_id,
+        StepRanges {
+            written_table_extents: vec![],
+            consumed: vec![worlds.created_range],
+            destroyed: vec![],
+        },
+        vec![],
+        risk(Severity::Disruptive),
+    )
+    .expect("constructs");
+    assert_eq!(
+        ReversalDraft::compose(
+            b"r".to_vec(),
+            1_700_000_000,
+            &worlds.pre,
+            ValidityWindow {
+                not_after: 1_700_086_400,
+            },
+            vec![],
+            b"plan-fwd".to_vec(),
+            std::slice::from_ref(&create),
+        ),
+        Err(super::plan::DraftRefusal::ProposalMustBeSimulated)
+    );
+}
+
+// Requirements: MODEL-003, MODEL-005
+//   The linkage asymmetry is acyclic by construction: the forward side
+//   carries a hash, the draft side carries an ID only, and a
+//   reapply-forward linkage smuggling a hash key refuses as an unknown
+//   field — the mutual-hash spelling has no encoding.
+// Evidence: the_linkage_asymmetry_has_no_mutual_hash_spelling
+#[test]
+fn the_linkage_asymmetry_has_no_mutual_hash_spelling() {
+    let worlds = reversal_worlds();
+    let (forward, draft) = forward_and_draft(&worlds);
+
+    let Value::Map(forward_body) = forward.body_value().expect("body") else {
+        panic!("body is a map");
+    };
+    let Some(Value::Map(linkage)) = forward_body.get("reversal") else {
+        panic!("the forward body carries the linkage");
+    };
+    assert!(linkage.contains_key("hash"), "forward side: by hash");
+
+    let Value::Map(mut draft_body) = draft.body_value() else {
+        panic!("draft body is a map");
+    };
+    let Some(Value::Map(draft_linkage)) = draft_body.get("reversal") else {
+        panic!("the draft body carries the statement");
+    };
+    assert!(
+        !draft_linkage.contains_key("hash"),
+        "draft side: by ID only"
+    );
+
+    // Forge the mutual-hash spelling and watch it refuse.
+    let Some(Value::Map(draft_linkage)) = draft_body.get_mut("reversal") else {
+        panic!("present");
+    };
+    draft_linkage.insert("hash".to_owned(), Value::Bytes(vec![0; 32]));
+    let forged = canonical::encode(&Value::Map(draft_body)).expect("encodable");
+    assert!(matches!(
+        ReversalDraft::from_canonical_body(&forged),
+        Err(PlanSchemaError::UnknownField { .. })
+    ));
+}
+
+// Requirements: MODEL-003
+//   PLAN-008's second arm is complete per step or refused: statements
+//   must cover exactly the plan's step indices in order, at assembly
+//   and at the boundary, and the draft's step-output spelling never
+//   parses as a bound plan's step.
+// Evidence: impossibility_coverage_and_draft_spellings_are_enforced
+#[test]
+fn impossibility_coverage_and_draft_spellings_are_enforced() {
+    let (snapshot, dev_id) = clean_snapshot(b"D0");
+    let step = PlanStep::mutating(
+        &snapshot,
+        dev_id,
+        wipe(dev_id),
+        vec![],
+        risk(Severity::Destructive),
+    )
+    .expect("constructs");
+
+    let uncovered = OperationPlan::assemble_linked(
+        b"plan-i".to_vec(),
+        1_700_000_000,
+        &snapshot,
+        ValidityWindow {
+            not_after: 1_700_086_400,
+        },
+        std::collections::BTreeMap::new(),
+        vec![step.clone()],
+        ReversalLinkage::Impossible {
+            statements: vec![StepImpossibility {
+                step: 1,
+                reason: ImpossibilityReason::DataDestroyed,
+            }],
+        },
+    );
+    assert_eq!(uncovered, Err(PlanError::MalformedLinkage));
+
+    let plan = OperationPlan::assemble_linked(
+        b"plan-i".to_vec(),
+        1_700_000_000,
+        &snapshot,
+        ValidityWindow {
+            not_after: 1_700_086_400,
+        },
+        std::collections::BTreeMap::new(),
+        vec![step],
+        ReversalLinkage::Impossible {
+            statements: vec![StepImpossibility {
+                step: 0,
+                reason: ImpossibilityReason::DataDestroyed,
+            }],
+        },
+    )
+    .expect("assembles");
+
+    // The draft-only target spelling refuses at the plain boundary.
+    let Value::Map(mut map) = plan.body_value().expect("body") else {
+        panic!("body is a map");
+    };
+    let Some(Value::Array(steps)) = map.get_mut("steps") else {
+        panic!("steps present");
+    };
+    let Value::Map(step_map) = &mut steps[0] else {
+        panic!("step is a map");
+    };
+    step_map.remove("target");
+    step_map.insert("target_step_output".to_owned(), Value::Unsigned(0));
+    let forged = canonical::encode(&Value::Map(map)).expect("encodable");
+    assert_eq!(
+        OperationPlan::from_canonical_body(&forged, &snapshot),
+        Err(PlanSchemaError::DraftSpellingOutsideDraft)
+    );
+
+    // Preconditions have no home in the unlinked form.
+    let (snapshot2, dev2) = clean_snapshot(b"D2");
+    let with_preconditions = PlanStep::mutating(
+        &snapshot2,
+        dev2,
+        StepRanges::default(),
+        vec![],
+        risk(Severity::Disruptive),
+    )
+    .expect("constructs")
+    .with_preconditions(vec![Precondition::HostUnoccupied { host: dev2 }]);
+    assert_eq!(
+        OperationPlan::assemble(
+            b"plan-p".to_vec(),
+            1_700_000_000,
+            &snapshot2,
+            ValidityWindow {
+                not_after: 1_700_086_400,
+            },
+            std::collections::BTreeMap::new(),
+            vec![with_preconditions],
+        ),
+        Err(PlanError::UncarriedPreconditions)
+    );
+}
 #[test]
 fn a_client_authored_table_state_never_validates() {
     use super::identity::{DeviceIdentity, IndeterminateCause, TableState};
@@ -340,7 +982,7 @@ fn a_client_authored_table_state_never_validates() {
         dev_id,
         StepRanges::default(),
         vec![],
-        risk(Severity::Reversible),
+        risk(Severity::Informational),
     )
     .expect("constructs");
 

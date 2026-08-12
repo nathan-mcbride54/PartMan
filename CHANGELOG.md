@@ -7,6 +7,40 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-010 slice 3l: plan body version 2 — the ADR-0022 reversal
+  linkage, jointly sequenced with WP-060's reversal increment.**
+  Section 6's reversal item becomes body content: `draft` linkage
+  carrying the emitted draft's plan ID and body hash, `impossible`
+  carrying per-step statements over a closed reason vocabulary
+  (`data-destroyed`, `prior-value-not-carried`) that must cover exactly
+  the plan's steps, and the draft's own `reapply-forward` naming the
+  forward plan by ID alone — the acyclic asymmetry with no mutual-hash
+  spelling (a `reapply-forward` map smuggling a `hash` key refuses as an
+  undeclared field). Steps gain required `preconditions`
+  (`region-unoccupied`, `host-unoccupied`, and the draft-only
+  `step-output-unoccupied`), re-checked at every validation boundary —
+  ADR-0022's two-time truthfulness, with the volume-with-data decay
+  fixture refusing at binding and at the plain boundary. The
+  `ReversalDraft` artifact lands with its step-output target spelling
+  (a created node has no address to spell), emission-time truthfulness
+  judged against the simulated proposal, a decode-recompute boundary of
+  its own, and a binding boundary that resolves references against the
+  helper's capture (zero or many candidates refuse), re-runs the sole
+  constructor, and assembles an ordinary bound plan against the
+  capture's hash. Two rules are structural everywhere: **no draft, no
+  Reversible** (severity 1 refuses in the unlinked form, under an
+  impossibility linkage, and as a forged severity byte at decode), and
+  **a prediction never binds** (the plain boundary and the draft's
+  binding boundary both refuse simulated snapshots outright). Version 1
+  stays emitted and accepted until the planner migrates — its
+  retirement is its own reviewed change under MODEL-003's
+  explicit-migration discipline. Vectors: four new entries (the
+  simulated-created snapshot, the v2 wipe with impossibility
+  statements, the v2 forward create with draft linkage, and the
+  create-reversal draft), pinned by the Rust constructors and
+  reproduced by the TypeScript parity suite with no TypeScript change.
+  Four mutants applied and each failed a named test before proposal.
+
 - **WP-060 increment 5: the SI-15 solver unlock — a deviation is an
   act, not a state.** ADR-0023 (spec 12.1.0) implemented in
   `crates/planner`'s extent solver: the `MisalignedLegacyGrowth`

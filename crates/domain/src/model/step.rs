@@ -35,7 +35,9 @@ use std::collections::BTreeSet;
 use std::fmt;
 
 use super::naming::NodeId;
-use super::protection::{IndeterminateGround, StepRanges, Verdict, affected_set, node_verdict};
+use super::protection::{
+    HostRange, IndeterminateGround, StepRanges, Verdict, affected_set, node_verdict,
+};
 use super::snapshot::TopologySnapshot;
 
 /// PLAN-004's ordinal severity scale.
@@ -122,9 +124,64 @@ impl Acknowledgment {
     }
 }
 
+/// A step precondition (Section 6's step-preconditions item, ADR-0022's
+/// two-time truthfulness): body content a validation boundary re-checks
+/// against the snapshot it binds, so a claim that was true at emission
+/// refuses once the world has moved instead of silently becoming a
+/// different plan. The vocabulary is closed; a kind exists because a
+/// recorded decision needs it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Precondition {
+    /// The named region hosts nothing: no authenticated fact places any
+    /// node (other than the host itself) on any of its bytes. The
+    /// shrink-back shape: a grow's reversal is truthful exactly while
+    /// nothing sits on the reclaimed tail of the target's own address
+    /// space.
+    RegionUnoccupied {
+        /// The region that must be empty.
+        region: HostRange,
+    },
+    /// The named node's entire address space hosts nothing. ADR-0022's
+    /// named fixture — a reversal that deletes a created structure is
+    /// metadata-only exactly while the structure holds no user data,
+    /// and refuses once anything lands in it.
+    HostUnoccupied {
+        /// The node whose address space must be empty.
+        host: NodeId,
+    },
+}
+
+impl Precondition {
+    /// The first node violating this precondition in the given
+    /// snapshot's authenticated facts, or `None` where it holds.
+    #[must_use]
+    pub fn violated_by(&self, snapshot: &TopologySnapshot) -> Option<NodeId> {
+        match self {
+            Self::RegionUnoccupied { region } => snapshot
+                .facts()
+                .extents
+                .iter()
+                .find(|(node, extent)| {
+                    **node != region.host
+                        && extent.host == region.host
+                        && extent.start < region.start.saturating_add(region.length)
+                        && region.start < extent.start.saturating_add(extent.length)
+                })
+                .map(|(node, _)| *node),
+            Self::HostUnoccupied { host } => snapshot
+                .facts()
+                .extents
+                .iter()
+                .find(|(node, extent)| **node != *host && extent.host == *host)
+                .map(|(node, _)| *node),
+        }
+    }
+}
+
 /// A mutating plan step: target, declared ranges, and the affected set
 /// the closure computed. Fields are private; [`PlanStep::mutating`] is
-/// the only way to obtain one.
+/// the only way to obtain one (preconditions attach afterward — they
+/// only ever make validation stricter, so they need no closure run).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PlanStep {
     target: NodeId,
@@ -132,6 +189,7 @@ pub struct PlanStep {
     affected: BTreeSet<NodeId>,
     acknowledgments: Vec<Acknowledgment>,
     risk: StepRisk,
+    preconditions: Vec<Precondition>,
 }
 
 impl PlanStep {
@@ -208,7 +266,25 @@ impl PlanStep {
             affected,
             acknowledgments,
             risk,
+            preconditions: vec![],
         })
+    }
+
+    /// Attach preconditions to a constructed step. Additive and
+    /// closure-free deliberately: a precondition can only make a
+    /// validation boundary refuse more, never reach further, so the
+    /// sole-constructor law is untouched.
+    #[must_use]
+    pub fn with_preconditions(mut self, preconditions: Vec<Precondition>) -> Self {
+        self.preconditions = preconditions;
+        self
+    }
+
+    /// The step's preconditions, re-checked at every validation
+    /// boundary against the snapshot it binds.
+    #[must_use]
+    pub fn preconditions(&self) -> &[Precondition] {
+        &self.preconditions
     }
 
     /// The step's declared risk (PLAN-004).
