@@ -7,6 +7,28 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-060 increment 5: the SI-15 solver unlock — a deviation is an
+  act, not a state.** ADR-0023 (spec 12.1.0) implemented in
+  `crates/planner`'s extent solver: the `MisalignedLegacyGrowth`
+  refusal is replaced by the decided behavior. The filed 63-sector
+  grow-at-tail case proceeds, authoring only the aligned new end; the
+  untouched misaligned start is an inherited fact, byte-identical
+  before and after (held by test against the simulated topology) and
+  carried out of the planner as typed consequence material with its
+  rendered sentence — planner-layer carriage, since ADR-0023 rejected
+  typed hashed carriage and the consequence-text body vocabulary is a
+  later jointly-sequenced change. Grow-to-fill against a misaligned
+  neighbor is conformant and recorded as coincident naming the edge
+  (the coincident-edge rule); the §11.2 authored/inherited split is
+  proven on the shrink path; and the no-fourth-state property is swept
+  across grow, shrink, and create — authored ends now meet policy on
+  every solver path (create and shrink ends were previously unjudged,
+  which would have been the fourth state), with the
+  `UnalignedAuthoredBoundary` refusal naming the nearest conforming
+  values. The deviation-override vocabulary stays deliberately
+  inexpressible. Four mutants applied and each failed a named test
+  before proposal.
+
 - **WP-020: the r10 sitting — all three acceptances re-taken on
   `59ba1f6`, the stopping condition re-pinned there, closing the
   WP-070 arc.** The fifth trip from outside the package: WP-070

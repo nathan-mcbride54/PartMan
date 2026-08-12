@@ -26,9 +26,11 @@
 //! operation's canonical effect-table entry. The step graph (increment
 //! 2), the extent solver with request parameters (increment 3), and the
 //! simulated final topology (increment 4) build on this chassis. The
-//! register gates the assignment names — SI-15, SI-16, SI-17, SI-19,
-//! SI-24 — gate those later increments; nothing in this one touches
-//! their questions.
+//! register gates the assignment named — SI-15, SI-16, SI-17, SI-19,
+//! SI-24 — have each resolved through a recorded decision; the unlock
+//! increments implement those decisions' fixtures, starting with
+//! ADR-0023's authored/inherited alignment rule in the solver
+//! (increment 5).
 
 use partman_capability::engine::{RuntimeFacts, TechnologyLimits, UnknownTarget, capability};
 use partman_capability::{Capability, Status};
@@ -40,7 +42,10 @@ use partman_domain::model::step::{PlanStep, Severity, StepFlags, StepRefusal, St
 
 use crate::graph::{Dependency, GraphRefusal, execution_order};
 use crate::simulate::{Effects, SimulateRefusal, simulate};
-use crate::solve::{SolveRefusal, grow_extension, place_create, shrink_reduction};
+use crate::solve::{
+    BoundaryPlacement, InheritedFact, SolveRefusal, SolvedCreate, SolvedGrow, SolvedShrink,
+    StructuralEdge, grow_extension, place_create, shrink_reduction,
+};
 use partman_domain::model::protection::StepRanges;
 
 pub mod graph;
@@ -117,8 +122,9 @@ pub enum PlanRefusal {
         refusal: GraphRefusal,
     },
     /// The extent solver refused — no fit, missing extents, a
-    /// non-resize, or SI-15's held misaligned-growth case, each
-    /// explained by its variant with the numbers it judged.
+    /// non-resize, or an authored boundary with no lawful spelling
+    /// (ADR-0023's no-fourth-state rule), each explained by its
+    /// variant with the numbers it judged.
     SolveRefused {
         /// The solver's verbatim refusal.
         refusal: SolveRefusal,
@@ -143,6 +149,90 @@ pub struct Planned {
     /// schema string that can never be a planning base or satisfy a
     /// PLAN-006 comparison.
     pub simulated: TopologySnapshot,
+    /// The typed consequence facts the plan's consequence text must
+    /// state (PART-009 via ADR-0023): inherited off-policy boundaries
+    /// the plan leaves byte-identical, and authored boundaries recorded
+    /// as coincident. Planner-layer carriage — the hashed consequence-
+    /// text vocabulary is a later jointly-sequenced body change, and
+    /// ADR-0023 rejected typed hashed carriage of these facts.
+    pub consequences: Vec<Consequence>,
+}
+
+/// One typed consequence fact, with its user-facing sentence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Consequence {
+    /// The target's pre-existing start is off the 1 MiB default and the
+    /// plan leaves it byte-identical: a fact about the device, never a
+    /// grant by the user (ADR-0023).
+    InheritedMisalignedStart {
+        /// The target whose start is inherited.
+        target: NodeId,
+        /// The inherited start offset.
+        start: u64,
+    },
+    /// An authored boundary was placed coincident with a pre-existing
+    /// structural edge and is recorded as such (ADR-0023's
+    /// coincident-edge rule).
+    CoincidentBoundary {
+        /// The target whose boundary was authored.
+        target: NodeId,
+        /// The authored offset.
+        boundary: u64,
+        /// The edge coincided with.
+        edge: StructuralEdge,
+    },
+}
+
+impl std::fmt::Display for Consequence {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InheritedMisalignedStart { target, start } => write!(
+                formatter,
+                "{target} starts at byte {start}, off the 1 MiB default; the start predates this \
+                 plan and is left byte-identical — an inherited fact about the device, not a \
+                 change this plan makes"
+            ),
+            Self::CoincidentBoundary {
+                target,
+                boundary,
+                edge,
+            } => match edge {
+                StructuralEdge::NeighborStart { neighbor } => write!(
+                    formatter,
+                    "{target}'s new boundary at byte {boundary} coincides with {neighbor}'s start \
+                     and is recorded as coincident"
+                ),
+                StructuralEdge::HostEnd => write!(
+                    formatter,
+                    "{target}'s new boundary at byte {boundary} coincides with the end of its \
+                     host and is recorded as coincident"
+                ),
+            },
+        }
+    }
+}
+
+/// The consequence facts one solved request contributes: the coincident
+/// record where the end placement is coincident, and the inherited
+/// start where one exists.
+fn solved_consequences(
+    target: NodeId,
+    end: u64,
+    end_placement: BoundaryPlacement,
+    inherited: Option<InheritedFact>,
+) -> Vec<Consequence> {
+    let mut consequences = Vec::new();
+    if let BoundaryPlacement::Coincident { edge } = end_placement {
+        consequences.push(Consequence::CoincidentBoundary {
+            target,
+            boundary: end,
+            edge,
+        });
+    }
+    if let Some(InheritedFact::MisalignedStart { target, start }) = inherited {
+        consequences.push(Consequence::InheritedMisalignedStart { target, start });
+    }
+    consequences
 }
 
 /// The canonical-operation effects this model can honestly simulate.
@@ -308,7 +398,11 @@ pub fn plan(
         std::collections::BTreeMap::new(),
         vec![step],
     )
-    .map(|plan| Planned { plan, simulated })
+    .map(|plan| Planned {
+        plan,
+        simulated,
+        consequences: vec![],
+    })
     .map_err(|error| PlanRefusal::PlanRefused { error })
 }
 
@@ -329,9 +423,12 @@ pub fn plan_sized(
     runtime: &RuntimeFacts,
     identity: &PlanIdentity,
 ) -> Result<Planned, PlanRefusal> {
-    let (operation, target, ranges, effects) = match request {
+    let (operation, target, ranges, effects, consequences) = match request {
         SizedRequest::Create { host, size } => {
-            let placed = place_create(snapshot, host, size)
+            let SolvedCreate {
+                placed,
+                end_placement,
+            } = place_create(snapshot, host, size)
                 .map_err(|refusal| PlanRefusal::SolveRefused { refusal })?;
             (
                 Operation::Create,
@@ -345,10 +442,15 @@ pub fn plan_sized(
                     minted_partition: Some(placed),
                     ..Effects::default()
                 },
+                solved_consequences(host, placed.start + placed.length, end_placement, None),
             )
         }
         SizedRequest::Grow { target, new_length } => {
-            let extension = grow_extension(snapshot, target, new_length)
+            let SolvedGrow {
+                extension,
+                end_placement,
+                inherited_start,
+            } = grow_extension(snapshot, target, new_length)
                 .map_err(|refusal| PlanRefusal::SolveRefused { refusal })?;
             (
                 Operation::Grow,
@@ -362,10 +464,20 @@ pub fn plan_sized(
                     resized: vec![(target, new_length)],
                     ..Effects::default()
                 },
+                solved_consequences(
+                    target,
+                    extension.start + extension.length,
+                    end_placement,
+                    inherited_start,
+                ),
             )
         }
         SizedRequest::Shrink { target, new_length } => {
-            let freed = shrink_reduction(snapshot, target, new_length)
+            let SolvedShrink {
+                freed,
+                end_placement,
+                inherited_start,
+            } = shrink_reduction(snapshot, target, new_length)
                 .map_err(|refusal| PlanRefusal::SolveRefused { refusal })?;
             (
                 Operation::Shrink,
@@ -379,6 +491,7 @@ pub fn plan_sized(
                     resized: vec![(target, new_length)],
                     ..Effects::default()
                 },
+                solved_consequences(target, freed.start, end_placement, inherited_start),
             )
         }
     };
@@ -403,7 +516,11 @@ pub fn plan_sized(
         std::collections::BTreeMap::new(),
         vec![step],
     )
-    .map(|plan| Planned { plan, simulated })
+    .map(|plan| Planned {
+        plan,
+        simulated,
+        consequences,
+    })
     .map_err(|error| PlanRefusal::PlanRefused { error })
 }
 
@@ -492,6 +609,10 @@ pub fn plan_set(
         std::collections::BTreeMap::new(),
         steps,
     )
-    .map(|plan| Planned { plan, simulated })
+    .map(|plan| Planned {
+        plan,
+        simulated,
+        consequences: vec![],
+    })
     .map_err(|error| PlanRefusal::PlanRefused { error })
 }
