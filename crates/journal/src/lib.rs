@@ -38,6 +38,7 @@
 //! schema above it (JRN-006, MODEL-003) is `schemas/journal/records.md`
 //! and the [`records`] module.
 
+pub mod lifecycle;
 pub mod records;
 pub mod retention;
 
