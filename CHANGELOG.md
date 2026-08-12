@@ -52,6 +52,24 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   stopping condition trips, and the r10 re-pin sitting follows under
   WP-020's ownership.
 
+- **WP-020: the r9 sitting — all three acceptances re-taken on
+  `d4f61ed`, the stopping condition re-pinned there.** The fourth trip
+  from outside the package: WP-070 increment 4 (PR #295) landed the
+  journal's retention module, and the condition tripped by design.
+  One sitting on 2026-08-12, one fresh disposable Proxmox-hosted VM
+  (VMID 9432, kernel 5.15.0-186-generic, no reboot during
+  provisioning), the r8 runbook copied to r9 with header prose alone
+  changing: the full eleven-control refusal set refused, 2e passed
+  (its ninth re-take — thirteen passes across ten guests), the 2h
+  suite passed (its seventh re-take, `fixtures_executed=1`,
+  `ranges_written=1`, `contracted_bytes_written=8`), and the 2j suite
+  passed its fourth re-take (`ranges_written=2`,
+  `contracted_bytes_written=16`, both signatures restored). Fixtures
+  byte-identical to the catalogue, loop table empty, manifest
+  re-verified independently, teardown verified with nothing remaining
+  (2026-08-12T21:28:09Z). Custody run 15: transcript digests agreeing
+  across guest, host, and workstation (`a16de758…d2a4`).
+
 - **WP-070 increment 4: retention and compaction under ADR-0029's
   liveness rule.** The `retention` module of `crates/journal`,
   discharging imported obligations 9, 10, 11's derivation half, 12,
