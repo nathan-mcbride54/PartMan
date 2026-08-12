@@ -943,6 +943,26 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **WP-060: the assignment stops citing SI-17 as an open gate — SI-24
+  is the one that remains.** The established re-attribution shape
+  (#261/#264/#267/#270): citing the retired question would be the drift
+  the register's sole-authority rule forbids. The register-gates row
+  records SI-17 as resolved (ADR-0025, spec 12.3.0:
+  `irreversible-after-start` defined temporally — the flag claims the
+  mid-execution window, severity claims endpoints, the combination
+  legal, a flagged step's cancellation claiming `no-writes` only before
+  its first write); the boundary bullet and the post-increments
+  paragraph move from open gate to recorded decision, with the
+  combination-unlock increment startable and its fixtures named.
+  README's WP-060 row moves with the bytes it describes; the spec pin
+  moves to 12.3.0. The planner's contested-combination refusal and its
+  gate-list comments are Rust and stand as delivered — behavior for a
+  reviewed increment, not a comment sweep — riding the same future
+  Rust change as the SI-19/SI-15/SI-16 debts (the `39b59f5`
+  stopping-condition economics). SI-24 remains open, refused
+  conservatively as before. No code, test, type, or normative text
+  changes.
+
 - **spec-change 12.3.0: SI-17 is resolved by ADR-0025 —
   `irreversible-after-start` claims the mid-execution window; severity
   claims endpoints.** The flag is defined for the first time: a step
