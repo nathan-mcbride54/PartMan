@@ -7,6 +7,34 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-020: the r6 sitting — all three acceptances re-taken on
+  `a2e6db2`, the stopping condition re-pinned there.** The first trip
+  from outside the package: WP-070 increment 1 (PR #289) landed
+  `crates/statemachine`, a crate no acceptance executes, and the
+  condition tripped anyway because it binds to the tree, not to a code
+  path — its design, not a false positive. One sitting on 2026-08-12,
+  one fresh disposable Proxmox-hosted VM (VMID 9429, kernel
+  5.15.0-186-generic), the r5 runbook copied to r6 with only VMID,
+  candidate commit, and header prose changed: the full eleven-control
+  refusal set refused, 2e passed (its sixth re-take — ten passes across
+  seven guests), the 2h suite passed (its fourth re-take,
+  `fixtures_executed=1`, `ranges_written=1`), and the 2j suite passed
+  its first re-take (`ranges_written=2`, `contracted_bytes_written=16`,
+  `EFI PART` at offsets 512 and 4,193,792 before, eight zeros each in
+  between, both restored after). Both fixtures ended byte-identical to
+  the compiled catalogue, the loop table ended empty, the manifest
+  re-verified independently, and teardown was verified with nothing
+  remaining (2026-08-12T18:48:50Z). Custody run 12:
+  transcript digests agreeing across guest, host, and workstation
+  (`1277f1b1…2ec0`). Three carried-over labels in the copied artifacts
+  are recorded in the WP-020 record rather than hidden (the script
+  header's trip numbering, the transcript's "FIRST TAKE" section label
+  for the 2j re-take, the teardown bundle's r5 path label); none
+  touches a measured value. A pre-existing stale count in
+  `docs/quality/test-tiers.md` ("four times" against six custody rows)
+  was found in the sweep and corrected with the correction noted in
+  place.
+
 - **WP-070 increment 1: the execution state machine, pure.**
   `crates/statemachine` (workspace lints, `unsafe_code` denied by
   inheritance, no dependencies — the journal will depend on it, never
