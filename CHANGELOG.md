@@ -943,6 +943,32 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **WP-060: the assignment stops citing SI-19 as an open gate.** The
+  #261 re-attribution shape applied to the package SI-19's resolution
+  unblocks: citing the retired question would be the drift the
+  register's sole-authority rule forbids. The register-gates row now
+  records SI-19 as resolved (ADR-0022, spec 12.0.0: the reversal is an
+  ordinary `OperationPlan` draft bound at its own validation after the
+  forward apply, linked by reference — `OperationPlan` is not
+  recursive — with step-output references for created-node targets and
+  two-time truthfulness as draft preconditions); the PLAN-008
+  requirement line, the no-register-answer boundary bullet, and the
+  post-increments paragraph move from gate to recorded decision, with
+  the reversal increment startable as the next separately reviewed
+  increment and the linkage byte encoding still a jointly-sequenced
+  WP-010 schema change; README's WP-060 row moves with the bytes it
+  describes; the assignment's spec-version pin moves to 12.0.0. The
+  delivered increments' rows keep their withheld-Reversible and
+  refused-gate phrasing as history of what shipped while the gate
+  held. SI-15, SI-16, SI-17, SI-24 remain open gates, refused
+  conservatively as before. **Deliberately not touched: the two
+  `crates/planner` doc-comment references to SI-19** (`lib.rs`'s gate
+  list, the withheld-Reversible comment) — any non-Markdown merge
+  re-opens the three VM acceptances pinned at `39b59f5` (the #261
+  precedent), so the comment re-attribution rides the next Rust change
+  to the crate, which the now-startable reversal increment will be. No
+  code, test, type, or normative text changes.
+
 - **spec-change 12.0.0: SI-19 is resolved by ADR-0022 — the reversal is
   an ordinary draft, linked by reference, and `OperationPlan` is not
   recursive.** The filing predated 8.0.0, which dissolved its core:
