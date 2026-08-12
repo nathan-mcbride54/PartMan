@@ -1,0 +1,18 @@
+[package]
+name = "partman-journal"
+description = "The WP-070 journal core: append-only checksummed frames with monotonic sequence numbers, torn-tail recovery, the JRN-002 durability seam as a typed boundary, idempotent replay, and three-way gap classification"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+# None, deliberately: the journal core is frame mechanics — bytes,
+# checksums, sequence numbers — and holds no record semantics. The
+# JRN-006 record vocabulary (increment 3) is where the dependency on
+# `partman-statemachine` arrives, with the transition records; the
+# shipped dependency closure stays empty until a record class needs it.
+
+[lints]
+workspace = true
