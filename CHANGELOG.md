@@ -943,6 +943,34 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **spec-change 12.8.0: SI-23 is resolved by ADR-0030 — the REC-011
+  backup is a first-class protection artifact.** Four rules for the
+  object the spec mandated and then said nothing about. Home: a
+  dedicated helper-owned store inheriting JRN-004's admin-protected
+  location clause, sibling to and never inside the journal (JRN-005's
+  bounds stand; ADR-0029's budget unbloated; ADR-0029's named fork
+  answered — the lifecycle does not route through the journal).
+  Reference by identity: journal, plan, and every SAFE-006 surface
+  carry the content hash and store identity only — SAFE-006's list
+  verbatim, a hash is not the material, helper-only reads (SAFE-008),
+  restores as identity-validated plans (REC-001) at their own tier.
+  Retention: ADR-0029's liveness rule adopted in REC-011's own text —
+  exempt while the creating apply or its referencing closure is
+  non-terminal, "RecoveryAction must reach it" made structural. End of
+  life: explicit user-controlled retention in SEC-009's shape, never
+  silent in either direction — retention preserves revoked-passphrase
+  slots, deletion forfeits the only disaster-recovery copy, both
+  stated at the deciding surface, defaults displayed and changeable.
+  Rejected and recorded: journal embedding, arbitrary location,
+  auto-delete with its silent-retention mirror. ADR-0024's
+  corrupt-source discharge stays WP-R100's. Minor under §0.1:
+  REC-011's two sentences verbatim, the rules additions. Accepted by
+  Nate McBride 2026-08-12 by delegation, recorded as the ADR's
+  acceptance basis. Store layout and encoding land with
+  WP-R100/WP-070, jointly sequenced; no re-attribution follows —
+  neither assignment exists, and the ADR records the verification
+  obligations so their creation cannot omit them.
+
 - **spec-change 12.7.0: SI-22 is resolved by ADR-0029 —
   liveness-scoped retention.** Bounded and unbounded stop colliding
   when they stop sharing a population: retention MAY reclaim only
