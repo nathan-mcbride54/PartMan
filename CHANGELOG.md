@@ -943,6 +943,33 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **spec-change 12.2.0: SI-16 is resolved by ADR-0024 — PART-013
+  discharges by the helper's authored table state.** Each of the
+  filing's three options is right somewhere, and the error was choosing
+  one for all cases. `Present`: parse-level backup untouched, verified,
+  failure → Failed. `Absent`: the obligation discharges as a journaled
+  determination — the backup record is the positively determined
+  absence, a value not a skip (ADR-C4 reaching the journal), the same
+  fresh determination PART-001 requires, with no user acknowledgement.
+  `Indeterminate`: ordinary operations stay SAFE-005-disabled before
+  PART-013 is reached, while the typed REC-001 repair family — a step
+  class, never an intent flag — backs up a verified raw capture of
+  exactly the regions it will write; capture-impossible refuses per
+  Section 8's existing row, with Section 12's own
+  separately-supported-recovery-strategy exit formalized as a
+  plan-creation journaled acknowledgement naming the uncapturable
+  regions. A blank device and an unreadable one never take the same
+  arm, and no arm is silent. Rejected and recorded: uniform vacuous
+  satisfaction (fail-open on corrupt media), uniform acknowledgement
+  (ceremony where it cannot inform), uniform block (the filing's own
+  reductio). Minor under §0.1: PART-013's sentence stands verbatim and
+  the arms are additions; SAFE-005, Section 8, REC-011, and the
+  MUST-NOT clause untouched. Accepted by Nate McBride 2026-08-11 by
+  delegation, recorded as the ADR's acceptance basis. The protection
+  record's journal encoding lands with JRN-006 under WP-070, jointly
+  sequenced; the backup step family stays unbuilt until its own
+  increment; SI-17 and SI-24 stay open.
+
 - **WP-060: the assignment stops citing SI-15 as an open gate.** The
   #261/#264 re-attribution shape: citing the retired question would be
   the drift the register's sole-authority rule forbids. The

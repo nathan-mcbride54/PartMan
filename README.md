@@ -1,7 +1,7 @@
 # PartMan
 
 PartMan is a safety-first, cross-platform disk partition manager defined by
-`AGENT_BUILD_SPEC.md` 12.1.0. The intended product is a dark-first Tauri desktop
+`AGENT_BUILD_SPEC.md` 12.2.0. The intended product is a dark-first Tauri desktop
 application plus a scriptable CLI, backed by a shared Rust domain, planner,
 validator, journal, image engine, and per-platform privileged helpers.
 
