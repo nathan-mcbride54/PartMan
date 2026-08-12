@@ -7,6 +7,47 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-070 increment 4: retention and compaction under ADR-0029's
+  liveness rule.** The `retention` module of `crates/journal`,
+  discharging imported obligations 9, 10, 11's derivation half, 12,
+  and 13's fixture. The liveness-scoped exemption is computed from
+  decoded records alone and closes over ADR-0027's linkage graph: a
+  terminal apply whose disposal chain has not wholly terminated keeps
+  every record pinned — a disposal-named plan that never started
+  counts as non-terminal, the conservative reading, fail-closed
+  toward retention — and a fully terminated chain ages into ordinary
+  history, with a double-terminal journal refusing rather than
+  guessing. No code path reclaims a live record, structurally:
+  `compact()` is the sole reclamation entry point, computes the
+  reclaimable set itself from the journal's own records, and offers no
+  parameter by which a caller could name a range; budget exhaustion
+  (`over_budget`, the spend measured in encoded frame bytes per apply)
+  resolves only to the published `Executing → RecoveryRequired` row —
+  an existing Section 8 edge, never a new one, never a reclamation —
+  so the writer is stopped and the recoverer is never blinded.
+  `decode_journal`'s two-pass replay derives `CoveredRanges` from the
+  journal's own durable compaction records and nothing else: an
+  absence no record covers refuses as the named mid-chain corruption
+  case, and a compaction record cannot hide frame-level damage
+  because checksums run before gap classification. Sequence
+  monotonicity holds across compaction and continued appends —
+  retained frames keep their numbers, compaction records consume the
+  continuing positions, recover-and-continue preserves them, and a
+  second retention round stays monotonic — and compaction records are
+  journal infrastructure, never reclaimed, because reclaiming one
+  would orphan the gap it legitimizes. Obligation 13's reconciliation
+  fixture passes: the ADR-0028-shaped chain trace — the original's
+  Failed-with-linkage terminal, the live recovery's act and records —
+  reads identically before and after compacting around the live
+  apply, from the bytes alone. Six mutants (unstarted-recovery
+  exemption dropped, linkage closure ignored, tolerant second pass,
+  sequence reset on compaction, infrastructure reclaimed, exhaustion
+  through a wrong edge) were each killed by a named test before
+  proposal. This is a Rust merge: the WP-020 2e stopping condition
+  pinned at `94bfeba` trips, and the r9 re-pin sitting is run and
+  recorded separately under WP-020's ownership, as every re-take has
+  been.
+
 - **WP-020: the r8 sitting — all three acceptances re-taken on
   `94bfeba`, the stopping condition re-pinned there.** The third trip
   from outside the package: WP-070 increment 3 (PR #293) landed the

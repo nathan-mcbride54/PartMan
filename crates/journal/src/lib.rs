@@ -18,11 +18,12 @@
 //!   compaction records — is the [`records`] module (increment 3),
 //!   layered strictly above the frames: the frame layer never
 //!   interprets a payload.
-//! - **No retention, no budget, no real compaction.** [`CoveredRanges`]
-//!   is the classification's typed input; increment 4 derives it from
-//!   durable compaction records and owns the liveness-scoped exemption,
-//!   the per-apply budget, and monotonicity across compaction
-//!   (ADR-0029).
+//! - **No retention decisions at this layer.** [`CoveredRanges`] is the
+//!   classification's typed input here; the [`retention`] module
+//!   (increment 4) derives it from durable compaction records and owns
+//!   the liveness-scoped exemption, the linkage closure, the per-apply
+//!   budget accounting, and compaction (ADR-0029). The frame layer
+//!   itself never reclaims anything.
 //! - **No platform durability.** [`DurabilitySeam`] is JRN-002's rule as
 //!   a type: an fsync-shaped boundary this crate calls and never
 //!   implements. Real fsync truth is the helper packages' acceptance
@@ -38,6 +39,7 @@
 //! and the [`records`] module.
 
 pub mod records;
+pub mod retention;
 
 /// The one-based sequence number a journal record carries. Sequence
 /// numbers are strictly monotonic over the journal's whole life and are
@@ -67,6 +69,22 @@ impl SeqNo {
     /// actually declared.
     pub(crate) const fn from_raw(raw: u64) -> SeqNo {
         SeqNo(raw)
+    }
+}
+
+impl Journal {
+    /// Rebuild a journal over frames the retention module has just
+    /// re-encoded from replayed records. Crate-internal, and the
+    /// recovery reading applies: the assembled bytes are the durable
+    /// baseline, and only new appends need the seam.
+    pub(crate) fn reassemble(bytes: Vec<u8>, last: Option<SeqNo>, next_seq: SeqNo) -> Journal {
+        Journal {
+            durable_len: bytes.len(),
+            durable_through: last,
+            last_appended: last,
+            bytes,
+            next_seq,
+        }
     }
 }
 
@@ -518,6 +536,18 @@ pub fn replay(bytes: &[u8], covered: &CoveredRanges) -> Result<Replay, ReplayRef
     })
 }
 
+/// Encode one frame. `len` is the caller-checked payload length; every
+/// caller has just validated or replayed the payload it passes.
+pub(crate) fn encode_frame(seq: SeqNo, len: u32, payload: &[u8]) -> Vec<u8> {
+    let mut frame = Vec::with_capacity(MIN_FRAME_LEN + payload.len());
+    frame.extend_from_slice(&seq.get().to_le_bytes());
+    frame.extend_from_slice(&len.to_le_bytes());
+    frame.extend_from_slice(payload);
+    let crc = crc32(&frame);
+    frame.extend_from_slice(&crc.to_le_bytes());
+    frame
+}
+
 const fn torn(valid_len: usize, total_len: usize) -> TornTail {
     TornTail {
         valid_len,
@@ -613,12 +643,8 @@ impl Journal {
             }
         };
         let seq = self.next_seq;
-        let frame_start = self.bytes.len();
-        self.bytes.extend_from_slice(&seq.get().to_le_bytes());
-        self.bytes.extend_from_slice(&len.to_le_bytes());
-        self.bytes.extend_from_slice(payload);
-        let crc = crc32(&self.bytes[frame_start..]);
-        self.bytes.extend_from_slice(&crc.to_le_bytes());
+        self.bytes
+            .extend_from_slice(&encode_frame(seq, len, payload));
         self.last_appended = Some(seq);
         self.next_seq = seq.next();
         Ok(Appended { seq })
