@@ -89,7 +89,7 @@ pub const PER_APPLY_JOURNAL_BUDGET_BYTES: u64 = 256 * 1024 * 1024;
 /// asserts nothing about the plan's existence or validity, which is
 /// why a public constructor is honest here where the domain crate's
 /// [`canonical::Hash`] deliberately has none.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PlanHashRef([u8; 32]);
 
 impl PlanHashRef {

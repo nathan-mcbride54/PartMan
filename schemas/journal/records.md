@@ -202,5 +202,8 @@ a6646b696e646a636f6d70616374696f6e646c617374026566697273740166736368656d61767061
 - **No plan content.** Records reference plans by MODEL-005 body hash
   only — the WP-010 joint sequencing each ADR names, discharged
   hash-only, with no WP-010 body schema change required.
-- **No retention state.** Liveness, the budget's enforcement, and
-  `CoveredRanges` derivation from compaction records are increment 4's.
+- **No retention state.** Liveness, the linkage closure, the budget's
+  accounting, and `CoveredRanges` derivation from compaction records
+  live in the crate's `retention` module (increment 4); this schema
+  itself carries none of it — a compaction record declares a reclaimed
+  range and its authority, nothing more.
