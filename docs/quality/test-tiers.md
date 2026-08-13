@@ -1,7 +1,7 @@
 # Test tiers
 
 The test-tier definitions come from Section 11.3 of
-`AGENT_BUILD_SPEC.md` 12.10.0.
+`AGENT_BUILD_SPEC.md` 12.11.0.
 
 ## Tier 1
 

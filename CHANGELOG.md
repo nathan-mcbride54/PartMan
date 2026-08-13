@@ -7,6 +7,28 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **spec-change 12.11.0: the Linux naming-source designations
+  (ADR-0034).** The normative act ADR-0019 anticipated, made on the
+  #318 readback rows and nothing else. The per-platform source table
+  gains a (platform, attachment class) key with exactly one designated
+  cell: a Linux USB-attached block device's serial is the `serial`
+  attribute of its nearest USB device-node sysfs ancestor, bytes
+  verbatim as read, trailing newline included. WWN and every other
+  Linux attachment class are undesignated — fields absent, fail-closed
+  through ADR-0019's existing weak-name and collision-group machinery.
+  Two previously undefined naming outcomes close in the same act: a
+  measured absence (`ObservedAbsent`) joins `unavailable`
+  (operand-eligible weak name), and a failed read of a designated
+  source (the measured `device/wwid` `ENXIO` shape) yields an
+  indeterminate non-operand that still appears in the body. Naming
+  inputs must flow through a bytes-preserving path; the delivered
+  `read_attribute` is not one, and the bytes seam is WP-L100
+  increment 3's first delivery obligation. Rejected and recorded:
+  udev `ID_SERIAL_SHORT`, sysfs `device/serial` (zero observations on
+  any Linux host), `device/wwid` for WWN, and holding for a complete
+  table. Decided on the adversarially reviewed round of 2026-08-13
+  under the decision owner's directive; merging is not acceptance.
+
 - **WP-020: the r13 sitting — all three acceptances re-taken on
   `b50dd19`, the stopping condition re-pinned there, closing the
   WP-L100 arc.** The eighth trip from outside the package (the arc's
