@@ -424,15 +424,65 @@ pub struct PlanRequestSet {
     pub dependencies: Vec<Dependency>,
 }
 
+/// ADR-0025's criterion, typed (spec 12.3.0, resolving SI-17): how a
+/// step family's interruptions resolve. The flag partitions real
+/// steps by this — the vacuity attack is answered by the criterion,
+/// not by discipline.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InterruptionProfile {
+    /// Every interruption resolves to landed-entirely-or-not-at-all;
+    /// no unrestorable intermediate is reachable.
+    LandsEntirelyOrNot,
+    /// Interruption windows exist, but every interrupted state keeps
+    /// the original recoverable — PART-005's journaled chunk copy:
+    /// the original mapping or a fully-copied state, always.
+    RecoverableIntermediate,
+    /// A reachable interrupted state exists from which the pre-step
+    /// state cannot be restored by unwinding — once the first write
+    /// lands, stopping cannot go back, and recovery is roll-forward
+    /// per the journal (Section 8).
+    UnrestorableIntermediate,
+}
+
+/// The flag ADR-0025 defines, derived from the criterion: only the
+/// unrestorable intermediate carries `irreversible-after-start`.
+#[must_use]
+pub const fn irreversible_after_start(profile: InterruptionProfile) -> bool {
+    matches!(profile, InterruptionProfile::UnrestorableIntermediate)
+}
+
+/// Each plannable operation's interruption profile, stated per step
+/// family as ADR-0025 requires of each building package. A destroyed
+/// range decides the unrestorable arm outright: destroyed bytes make
+/// every post-first-write state unrestorable by unwinding, whatever
+/// else the step does.
+const fn interruption_profile(operation: Operation) -> InterruptionProfile {
+    match operation {
+        // The wipe destroys in place; the shrink destroys its freed
+        // tail and transforms the filesystem in place.
+        Operation::Wipe | Operation::Shrink => InterruptionProfile::UnrestorableIntermediate,
+        // PART-005's journaled chunk copy: windows, but no
+        // unrestorable intermediate — the unflagged fixture of
+        // ADR-0025's partition, stated here for the family even though
+        // the planner does not emit it yet.
+        Operation::Move | Operation::Copy => InterruptionProfile::RecoverableIntermediate,
+        // Table-entry and identity writes land entirely or not at all
+        // at this model's granularity, with the parse-level backup as
+        // the unwind substrate.
+        _ => InterruptionProfile::LandsEntirelyOrNot,
+    }
+}
+
 /// The risk this planner declares for a canonical single-operation
 /// step: the operation's class decides the severity conservatively —
 /// destructive for `Wipe`, data-moving for the content-moving family,
-/// disruptive otherwise — and no flag is set, because every flag's
-/// semantics either awaits its unlock increment (ADR-0025's criterion)
-/// or a vocabulary a later increment owns. The Reversible claim is
-/// made exactly where a truthful draft is emitted — the sized create,
-/// in [`plan_sized`] — per ADR-0022's rule: no draft, no Reversible,
-/// and with the draft, the claim is honest rather than withheld.
+/// disruptive otherwise — and `irreversible-after-start` is derived
+/// from the family's interruption profile (ADR-0025's criterion; the
+/// withheld-flag posture ended with SI-17's resolution). The
+/// Reversible claim is made exactly where a truthful draft is emitted
+/// — the sized create, in [`plan_sized`] — per ADR-0022's rule: no
+/// draft, no Reversible, and with the draft, the claim is honest
+/// rather than withheld.
 fn canonical_risk(operation: Operation) -> StepRisk {
     let severity = match operation {
         // Intentional destruction, PLAN-004's own definition.
@@ -451,7 +501,74 @@ fn canonical_risk(operation: Operation) -> StepRisk {
     };
     StepRisk {
         severity,
-        flags: StepFlags::default(),
+        flags: StepFlags {
+            irreversible_after_start: irreversible_after_start(interruption_profile(operation)),
+            ..StepFlags::default()
+        },
+    }
+}
+
+/// PLAN-004's plan-level flag union: plan flags are the union of step
+/// flags. UI-009's confirmation strength and HLP-003's authorization
+/// tier key off this together with severity — under ADR-0021's closed
+/// rule, a nonempty union binds the interactive ceremony; the tier's
+/// computation and enforcement are the helper packages'
+/// (`partman-journal` carries the vocabulary), recorded as a boundary.
+#[must_use]
+pub fn plan_flags(plan: &OperationPlan) -> StepFlags {
+    let mut union = StepFlags::default();
+    for step in plan.steps() {
+        let flags = step.risk().flags;
+        union.security_sensitive |= flags.security_sensitive;
+        union.irreversible_after_start |= flags.irreversible_after_start;
+        union.requires_offline |= flags.requires_offline;
+        union.requires_reboot |= flags.requires_reboot;
+        union.requires_rescue |= flags.requires_rescue;
+    }
+    union
+}
+
+/// Section 8's cancellation-effect claims, constructible only through
+/// ADR-0025's coupling rule: a flagged step's cancellation claims
+/// `no-writes` only before its first write — after it, the honest
+/// outcomes are `partial` or completion, and the dishonest claim has
+/// no constructor. The planner owns this PLAN-005-adjacent vocabulary;
+/// the executor that records the claim consumes it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CancelClaim {
+    /// Nothing was written; the world is the pre-step world.
+    NoWrites,
+    /// A checkpointed partial effect stands; recovery reads the journal.
+    Partial,
+}
+
+/// Why a cancellation claim refused construction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClaimRefusal {
+    /// ADR-0025's coupling rule: a step flagged
+    /// `irreversible-after-start` structurally cannot report a
+    /// post-first-write cancellation as if nothing happened.
+    FlaggedAfterFirstWrite,
+}
+
+impl CancelClaim {
+    /// Claim `no-writes` for a cancellation of the given step risk.
+    ///
+    /// # Errors
+    ///
+    /// [`ClaimRefusal::FlaggedAfterFirstWrite`] where the step carries
+    /// `irreversible-after-start` and its first write has landed.
+    pub const fn no_writes(risk: StepRisk, first_write_landed: bool) -> Result<Self, ClaimRefusal> {
+        if risk.flags.irreversible_after_start && first_write_landed {
+            return Err(ClaimRefusal::FlaggedAfterFirstWrite);
+        }
+        Ok(Self::NoWrites)
+    }
+
+    /// Claim a checkpointed partial effect — honest at any moment.
+    #[must_use]
+    pub const fn partial() -> Self {
+        Self::Partial
     }
 }
 
@@ -1123,9 +1240,18 @@ pub fn plan_repair(
         StepRisk {
             // Table metadata is rewritten in place over an unsound
             // source; loss is possible on failure — conservative-up,
-            // stated.
+            // stated. The in-place multi-sector rewrite is ADR-0025's
+            // flagged fixture: once the first write lands over the
+            // damaged original, unwinding is impossible (the raw
+            // capture's restore is REC-001's recovery plan, not an
+            // unwind).
             severity: Severity::DataMoving,
-            flags: StepFlags::default(),
+            flags: StepFlags {
+                irreversible_after_start: irreversible_after_start(
+                    InterruptionProfile::UnrestorableIntermediate,
+                ),
+                ..StepFlags::default()
+            },
         },
         StepClass::TableRepair,
     )

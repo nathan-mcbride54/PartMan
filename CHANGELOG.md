@@ -7,6 +7,31 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-060 increment 8: the combination unlock — ADR-0025's criterion
+  derived, the contested combination constructing.** The
+  `irreversible-after-start` flag is now derived from a typed
+  criterion (`InterruptionProfile`) rather than withheld: the wipe,
+  the shrink, and the table repair carry it (in-place destruction and
+  rewriting — for the repair, the raw capture is a recovery substrate,
+  not an unwind), entry-level writes do not, and PART-005's journaled
+  chunk copy is stated unflagged for the family before the planner
+  emits it — the partition fixtures ADR-0025 names. Severity 1 plus
+  the flag assembles through the sole constructors exactly when its
+  truthful reversal draft stands beside it — endpoints fully undoable,
+  mid-window roll-forward-only — and still refuses with no draft: the
+  flag changes nothing about ADR-0022's rule. The coupling rule lands
+  unconstructible rather than discouraged (`CancelClaim::no_writes`
+  has no path for a flagged step after its first write; cannot-stop
+  and cannot-unwind independent both ways), and `plan_flags` delivers
+  PLAN-004's plan-level union so the ceremony's inputs are derivable —
+  the flagged severity-1 plan's union is nonempty, binding the
+  interactive ceremony under ADR-0021's closed rule, with the tier's
+  computation and enforcement recorded as the helper packages'
+  boundary. Three mutants (disabled flag derivation, disabled coupling
+  rule, broken union operator) each failed a named test. With this,
+  all four unlock increments the resolved register gates opened are
+  delivered.
+
 - **WP-060 increment 7: the backup family — PART-013's planning half,
   state-selected per ADR-0024.** Every plan now carries its derived
   protection obligations, one per table-bearing device it touches, arm

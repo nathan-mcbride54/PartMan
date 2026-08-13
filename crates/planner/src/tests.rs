@@ -1755,6 +1755,300 @@ fn capture_impossible_proceeds_only_under_the_named_acknowledgement() {
     assert_eq!(rebuilt.steps()[0].acknowledgments().len(), 1);
 }
 
+use super::{
+    CancelClaim, ClaimRefusal, InterruptionProfile, interruption_profile, irreversible_after_start,
+    plan_flags,
+};
+use partman_domain::model::plan::{
+    DraftPrecondition as DP, DraftStep, PlanError, ReversalDraft, StepImpossibility as Statement,
+};
+use partman_domain::model::protection::StepRanges;
+use partman_domain::model::step::{PlanStep, StepFlags, StepRisk};
+
+// Requirements: PLAN-004
+//   ADR-0025's criterion partitions real step families (SI-17
+//   resolved, spec 12.3.0): the PART-005 journaled chunk copy has
+//   windows but no unrestorable intermediate — unflagged; the in-place
+//   destructive and transforming families are flagged; entry-level
+//   writes land entirely or not at all — unflagged. The flag is
+//   derived from the criterion, never declared ad hoc.
+// Evidence: the_criterion_partitions_step_families
+#[test]
+fn the_criterion_partitions_step_families() {
+    assert_eq!(
+        interruption_profile(Operation::Move),
+        InterruptionProfile::RecoverableIntermediate,
+        "the journaled chunk copy: windows, but always recoverable"
+    );
+    assert!(!irreversible_after_start(interruption_profile(
+        Operation::Copy
+    )));
+    assert_eq!(
+        interruption_profile(Operation::Wipe),
+        InterruptionProfile::UnrestorableIntermediate,
+        "in-place destruction: the first write forecloses unwinding"
+    );
+    assert!(irreversible_after_start(interruption_profile(
+        Operation::Shrink
+    )));
+    assert_eq!(
+        interruption_profile(Operation::Create),
+        InterruptionProfile::LandsEntirelyOrNot
+    );
+    assert!(!irreversible_after_start(interruption_profile(
+        Operation::Label
+    )));
+
+    // The derivation reaches the emitted plans: the wipe is flagged,
+    // the create is not.
+    let (snapshot, clean, _) = fixture();
+    let wiped = plan(
+        PlanRequest {
+            operation: Operation::Wipe,
+            target: clean,
+        },
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect("plans");
+    assert!(
+        wiped.plan.steps()[0].risk().flags.irreversible_after_start,
+        "the wipe carries the flag its criterion derives"
+    );
+    let (solver, host, _, _) = solver_fixture();
+    let created = plan_sized(
+        SizedRequest::Create {
+            host,
+            size: 10 * DEFAULT_ALIGNMENT,
+        },
+        &solver,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect("plans");
+    assert!(
+        !created.plan.steps()[0]
+            .risk()
+            .flags
+            .irreversible_after_start,
+        "an entry-level write is unflagged"
+    );
+}
+
+// Requirements: PLAN-004, PLAN-008
+//   ADR-0025's contested combination constructs (the planner's named
+//   withholding replaced by the decided behavior): severity 1 with
+//   `irreversible-after-start` assembles through the sole constructors
+//   exactly when its truthful reversal draft stands beside it —
+//   endpoints fully undoable, mid-window roll-forward-only — and the
+//   same construction with no draft still refuses (ADR-0022's rule,
+//   unchanged by the flag).
+// Evidence: the_combination_constructs_with_its_draft_and_refuses_without
+#[test]
+fn the_combination_constructs_with_its_draft_and_refuses_without() {
+    let (snapshot, host, _, _) = solver_fixture();
+    let placed = HostRange {
+        host,
+        start: 65 * DEFAULT_ALIGNMENT,
+        length: 10 * DEFAULT_ALIGNMENT,
+    };
+    let combination = StepRisk {
+        severity: Severity::Reversible,
+        flags: StepFlags {
+            irreversible_after_start: true,
+            ..StepFlags::default()
+        },
+    };
+    let step = PlanStep::mutating(
+        &snapshot,
+        host,
+        StepRanges {
+            written_table_extents: vec![],
+            consumed: vec![placed],
+            destroyed: vec![],
+        },
+        vec![],
+        combination,
+    )
+    .expect("the combination is legal at the step layer");
+
+    // The truthful draft, composed against the real prediction.
+    let proposal = plan_sized(
+        SizedRequest::Create {
+            host,
+            size: 10 * DEFAULT_ALIGNMENT,
+        },
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect("plans")
+    .simulated;
+    let draft = ReversalDraft::compose(
+        b"combo/reversal".to_vec(),
+        1_700_000_000,
+        &proposal,
+        ValidityWindow {
+            not_after: 1_700_086_400,
+        },
+        vec![DraftStep {
+            target: DraftTarget::StepOutput(0),
+            ranges: StepRanges {
+                written_table_extents: vec![],
+                consumed: vec![],
+                destroyed: vec![placed],
+            },
+            acknowledgments: vec![],
+            risk: combination,
+            preconditions: vec![DP::StepOutputUnoccupied { step: 0 }],
+        }],
+        b"combo".to_vec(),
+        std::slice::from_ref(&step),
+    )
+    .expect("the draft composes");
+
+    let with_draft = OperationPlan::assemble_linked(
+        b"combo".to_vec(),
+        1_700_000_000,
+        &snapshot,
+        ValidityWindow {
+            not_after: 1_700_086_400,
+        },
+        std::collections::BTreeMap::new(),
+        vec![step.clone()],
+        partman_domain::model::plan::ReversalLinkage::Draft {
+            plan_id: draft.plan_id().to_vec(),
+            draft_hash: draft.body_hash().expect("hashable"),
+        },
+    )
+    .expect("severity 1 plus the flag assembles on its truthful draft");
+    assert_eq!(with_draft.severity(), Severity::Reversible);
+    assert!(plan_flags(&with_draft).irreversible_after_start);
+
+    let without_draft = OperationPlan::assemble_linked(
+        b"combo".to_vec(),
+        1_700_000_000,
+        &snapshot,
+        ValidityWindow {
+            not_after: 1_700_086_400,
+        },
+        std::collections::BTreeMap::new(),
+        vec![step],
+        partman_domain::model::plan::ReversalLinkage::Impossible {
+            statements: vec![Statement {
+                step: 0,
+                reason: ImpossibilityReason::DataDestroyed,
+            }],
+        },
+    );
+    assert_eq!(
+        without_draft,
+        Err(PlanError::ReversibleWithoutReversal),
+        "no draft, no Reversible — the flag changes nothing there"
+    );
+}
+
+// Requirements: PLAN-004, PLAN-005
+//   ADR-0025's coupling rule, unconstructible rather than discouraged:
+//   a flagged step's cancellation claims `no-writes` only before its
+//   first write; after it, the honest outcomes are `partial` or
+//   completion, and the dishonest claim has no constructor. Cannot-stop
+//   and cannot-unwind stay independent — an unflagged step's post-write
+//   `no-writes` (an unwound table write) remains representable.
+// Evidence: a_flagged_cancellation_never_claims_no_writes_after_its_first_write
+#[test]
+fn a_flagged_cancellation_never_claims_no_writes_after_its_first_write() {
+    let flagged = StepRisk {
+        severity: Severity::Reversible,
+        flags: StepFlags {
+            irreversible_after_start: true,
+            ..StepFlags::default()
+        },
+    };
+    let unflagged = StepRisk {
+        severity: Severity::Destructive,
+        flags: StepFlags::default(),
+    };
+    assert_eq!(
+        CancelClaim::no_writes(flagged, false),
+        Ok(CancelClaim::NoWrites),
+        "before the first write, no-writes is trivially honest"
+    );
+    assert_eq!(
+        CancelClaim::no_writes(flagged, true),
+        Err(ClaimRefusal::FlaggedAfterFirstWrite),
+        "after it, the claim has no constructor"
+    );
+    assert_eq!(
+        CancelClaim::no_writes(unflagged, true),
+        Ok(CancelClaim::NoWrites),
+        "independence: cannot-unwind is the flag's fact, not severity's"
+    );
+    assert_eq!(CancelClaim::partial(), CancelClaim::Partial);
+}
+
+// Requirements: PLAN-004
+//   The ceremony's inputs on the flagged severity-1 plan (ADR-0025's
+//   fixture 4, the planner's half): the plan-level flag union is
+//   nonempty even at severity 1, which under ADR-0021's closed
+//   flags-nonempty rule binds the interactive ceremony — the
+//   combination can never be applied unattended. The tier's
+//   computation and enforcement are the helper packages'
+//   (partman-journal carries the vocabulary), recorded as a boundary
+//   in the assignment.
+// Evidence: the_flagged_severity_one_plan_carries_ceremony_binding_flags
+#[test]
+fn the_flagged_severity_one_plan_carries_ceremony_binding_flags() {
+    let (snapshot, dev, _) = stateful_device(
+        b"PRT-CEB",
+        TableState::Indeterminate {
+            cause: IndeterminateCause::Ambiguous,
+        },
+        true,
+    );
+    let repaired = plan_repair(
+        &RepairRequest {
+            target: dev,
+            acknowledged_uncapturable: None,
+        },
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect("plans");
+    assert!(
+        plan_flags(&repaired.plan).irreversible_after_start,
+        "the in-place rewrite carries the flag into the plan union"
+    );
+
+    let (solver, host, _, _) = solver_fixture();
+    let created = plan_sized(
+        SizedRequest::Create {
+            host,
+            size: 10 * DEFAULT_ALIGNMENT,
+        },
+        &solver,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect("plans");
+    let union = plan_flags(&created.plan);
+    assert!(
+        !(union.security_sensitive
+            || union.irreversible_after_start
+            || union.requires_offline
+            || union.requires_reboot
+            || union.requires_rescue),
+        "an unflagged severity-1 plan's union stays empty — the ceremony binds on facts, not on reflex"
+    );
+}
+
 // Requirements: PLAN-002
 //   The wipe simulation removes everything the facts place on the wiped
 //   bytes, transitively with everything named relative to it, and drops
