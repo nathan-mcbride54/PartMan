@@ -10,10 +10,12 @@
   the acknowledgment vocabulary), `docs/adr/0014-si35-table-state-axis.md`
   and `docs/adr/0017-si33-continuity-witness.md` (the identity record's
   table state and witness), `docs/adr/0022-si19-reversal-linkage.md`
-  (version 2: the reversal linkage, step preconditions, and the draft's
-  step-output spelling); delivered by WP-010 increment 3 slices 3h, 3i,
-  and 3j (version 1) and the jointly-sequenced ADR-0022 schema change
-  (version 2)
+  (the reversal linkage, step preconditions, and the draft's
+  step-output spelling), `docs/adr/0024-si16-state-selected-protection.md`
+  (the typed step class and the capture-impossible acknowledgment);
+  delivered by WP-010 increment 3 slices 3h, 3i, and 3j (version 1) and
+  the jointly-sequenced ADR-0022 and ADR-0024 schema changes (slices
+  3l and 3m, version 3)
 - Underlying byte profile: `pce/1` (unchanged)
 - Shared vectors: `schemas/domain/body-vectors.json`, `plans` section
 
@@ -24,7 +26,7 @@ own (outcome text, privileges, environment requirements, backup actions,
 cancellation, capability versions) are absent here and land as
 WP-050/WP-060 deliver them — their absence is the increment's recorded
 boundary, not an omission of this document. The reversal item is absent
-no longer: version 2 carries it (ADR-0022).
+no longer: the linked form carries it (ADR-0022).
 
 ## 0. The two versions
 
@@ -35,12 +37,18 @@ form; its retirement is its own reviewed change (MODEL-003's
 explicit-migration discipline — nothing is silently coerced, and any
 other version refuses at decode).
 
-**Version 2** (the linked form, ADR-0022) adds exactly two things:
-Section 6's required `reversal` linkage item, and a required
-`preconditions` array on every step. A version-2 body with a Reversible
+**Version 3** (the linked form, ADR-0022 + ADR-0024) adds exactly three
+things: Section 6's required `reversal` linkage item, a required
+`preconditions` array on every step, and a required `class` on every
+step (ADR-0024's typed repair family). A linked body with a Reversible
 step whose linkage is not a draft or reapply-forward statement refuses
 (**no draft, no Reversible**), and the rule reaches back: a version-1
 body cannot carry a Reversible step at all.
+
+**Version 2** — the linked form without the class field — existed for
+exactly one change window (slice 3l), gained no emitter outside it and
+no surviving artifact, and is refused at decode; its retirement is
+recorded in the changelog rather than smoothed over.
 
 **A prediction never binds.** `OperationPlan::from_canonical_body`
 refuses a `partman.topology-snapshot.simulated` snapshot as its binding
@@ -51,14 +59,14 @@ base before reading a single field, for either version.
 | Key | Type | Content |
 | --- | --- | --- |
 | `schema` | Text | `partman.plan` (MODEL-003). |
-| `schema_version` | Unsigned | `1` or `2` (§0). |
+| `schema_version` | Unsigned | `1` or `3` (§0). |
 | `plan_id` | Bytes | The plan's identifier bytes. |
 | `created_at` | Unsigned | Creation timestamp, seconds since the epoch. |
 | `snapshot_hash` | Bytes(32) | The source snapshot's body hash **as bound at validation** (PLAN-006, 8.0.0's rule). A plan presented against any other snapshot refuses — the ACC-007 stale-plan shape at the type layer. In a reversal **draft**, these bytes are the simulated proposal's hash, and the draft's own boundary (§5) is the only one that accepts them. |
 | `not_after` | Unsigned | PLAN-007's validity window, body content deliberately: enforced, never re-derived, so an unauthenticated expiry cannot be extended without invalidating the authorization bound to the plan (ADR-C2's row). |
 | `identities` | Map | Bound device identities keyed by the target's derived address in lowercase hex (Section 6; §2). Empty in a draft — a draft binds identities at validation, and carrying them in a prediction would be a client-authored claim. |
 | `steps` | Array | The step graph in dependency order — a semantic array, never a set (MODEL-006 distinguishes exactly this). One step map per step (§3). |
-| `reversal` | Map, version 2 only, required | Section 6's reversal linkage (§4). |
+| `reversal` | Map, version 3 only, required | Section 6's reversal linkage (§4). |
 
 Unknown keys refuse at the typed boundary.
 
@@ -91,10 +99,11 @@ Two derivations are deliberately **not** in the bytes:
 | `written_table_extents` | Array | `HostRange` maps (§3a) the step writes as table content. |
 | `consumed` | Array | `HostRange` maps the step consumes. |
 | `destroyed` | Array | `HostRange` maps the step destroys. |
-| `acknowledgments` | Array | Maps of `kind` Text (`release`, `opaque-destruction`, `identity-bound-restore` — ADR-0018's vocabulary, closed at three) and `node` Bytes(32). |
+| `acknowledgments` | Array | Maps of `kind` Text (`release`, `opaque-destruction`, `identity-bound-restore`, `uncapturable-regions` — ADR-0018's vocabulary plus ADR-0024's entry, closed at four) and `node` Bytes(32); the `uncapturable-regions` kind additionally carries `regions`, an Array of `{start: Unsigned, length: Unsigned}` on the covered device, strictly ascending, non-overlapping, nonzero. The table-state kinds (`identity-bound-restore`, `uncapturable-regions`) are lawful only on a `table-repair`-class step over a device whose authored table state is `Indeterminate` — the constructor law, re-run at the boundary. |
 | `severity` | Unsigned | PLAN-004's ordinal: 0 informational, 1 reversible, 2 disruptive, 3 data-moving, 4 destructive. Plan severity is the step maximum. Severity 1 requires the linkage rule (§0). |
 | `flags` | Array | The set flags' names, in the fixed order: `security-sensitive`, `irreversible-after-start`, `requires-offline`, `requires-reboot`, `requires-rescue` (PLAN-004's orthogonal flags; unset flags are omitted). |
-| `preconditions` | Array, version 2 only, required | Precondition maps (§3b), re-checked at every validation boundary against the binding snapshot — ADR-0022's two-time truthfulness. A failed precondition refuses the plan. |
+| `preconditions` | Array, version 3 only, required | Precondition maps (§3b), re-checked at every validation boundary against the binding snapshot — ADR-0022's two-time truthfulness. A failed precondition refuses the plan. |
+| `class` | Text, version 3 only, required | `ordinary` or `table-repair` — ADR-0024's typed step class. The repair family is a class, never an intent flag; its protection arms and acknowledgment kinds attach to it. A draft step is `ordinary` (a repair-family draft is a future reviewed extension). |
 
 ### 3a. `HostRange`
 
@@ -129,7 +138,10 @@ A map with a `kind` Text, exactly one of:
 - `impossible` — `statements` Array of `{step: Unsigned, reason: Text}`:
   PLAN-008's per-step machine-readable statements, covering exactly the
   plan's step indices in ascending order. Reasons are a closed
-  vocabulary: `data-destroyed`, `prior-value-not-carried`.
+  vocabulary: `data-destroyed`, `prior-value-not-carried`,
+  `pre-state-preserved-for-recovery` (ADR-0024's repair arm: the raw
+  capture is the reversal substrate, and putting it back is REC-001's
+  recovery plan, never a planner emission).
 - `reapply-forward` — `plan_id` Bytes: the draft's own linkage — its
   reversal is re-application of the forward plan, named by ID.
 
@@ -140,7 +152,7 @@ a `hash` key refuses as an undeclared field.
 
 ## 5. The reversal draft (PLAN-008)
 
-A draft is an ordinary version-2 plan body whose `snapshot_hash` is the
+A draft is an ordinary version-3 plan body whose `snapshot_hash` is the
 forward plan's **simulated final topology** hash (the proposal), whose
 `identities` map is empty, whose `reversal` is the `reapply-forward`
 statement, and whose steps may spell a created-node target as
@@ -178,10 +190,13 @@ set.
 ## 7. Conformance
 
 The shared vectors pin, over the same base capture: the bare destructive
-wipe and its identity-bound twin (version 1), the version-2 wipe with
-its impossibility statements, the version-2 forward create carrying its
-draft linkage, and the create-reversal draft itself bound to the
-simulated-created snapshot vector. Each records the digest of the
+wipe and its identity-bound twin (version 1), the version-3 wipe with
+its impossibility statements, the version-3 forward create carrying its
+draft linkage, the create-reversal draft itself bound to the
+simulated-created snapshot vector, and the version-3 table-repair plan
+over the indeterminate-table snapshot, carrying the
+capture-impossible acknowledgment and the pre-state-preserved
+statement. Each records the digest of the
 snapshot vector it binds (for the draft: proposes), and the parity
 suites in both languages assert the embedded `snapshot_hash` bytes equal
 that vector's recorded digest — the PLAN-006 binding held across the

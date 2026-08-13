@@ -749,6 +749,329 @@ fn a_precondition_violated_in_the_bound_world_never_parses() {
     ));
 }
 
+use super::identity::IndeterminateCause;
+use super::plan::{ImpossibilityReason as Reason3, StepImpossibility as Statement3};
+use super::step::{Acknowledgment, StepClass, StepRefusal};
+
+/// A device whose authored table state is `Indeterminate`, its damaged
+/// table located as a child extent — ADR-0024's repair-arm world — and
+/// a `Present`-state twin beside it.
+fn repair_world() -> (TopologySnapshot, super::naming::NodeId, HostRange) {
+    use super::identity::TableState;
+    use super::naming::TableRole;
+
+    let dev = device(b"RPR");
+    let dev_id = derive_id(&dev).expect("derivable");
+    let table = NamingFields::PartitionTable {
+        parent: dev_id,
+        role: TableRole::Gpt,
+    };
+    let table_id = derive_id(&table).expect("derivable");
+    let table_region = HostRange {
+        host: dev_id,
+        start: 0,
+        length: 17_408,
+    };
+    let mut facts = Facts::default();
+    facts.transports.insert(dev_id, TransportClass::Sata);
+    facts.extents.insert(
+        dev_id,
+        HostRange {
+            host: dev_id,
+            start: 0,
+            length: 1 << 30,
+        },
+    );
+    facts.extents.insert(table_id, table_region);
+    facts.table_states.insert(
+        dev_id,
+        TableState::Indeterminate {
+            cause: IndeterminateCause::Ambiguous,
+        },
+    );
+    let snapshot = TopologySnapshot::assemble(
+        SnapshotKind::Captured,
+        false,
+        vec![dev, table],
+        vec![super::topology::Edge {
+            kind: super::topology::EdgeKind::Containment,
+            source: dev_id,
+            target: table_id,
+        }],
+        facts,
+    )
+    .expect("assembles");
+    (snapshot, dev_id, table_region)
+}
+
+// Requirements: MODEL-005, PLAN-004
+//   ADR-0024's acknowledgment arms are class-conditioned and
+//   unconstructible outside the typed repair family: the
+//   capture-impossible entry (naming exact, well-formed regions) and
+//   the identity-bound-restore entry construct exactly on a
+//   table-repair step over an Indeterminate-state device, and refuse on
+//   an ordinary step, over a Present state, and with malformed regions.
+// Evidence: the_capture_impossible_acknowledgment_attaches_only_to_the_repair_family
+#[test]
+fn the_capture_impossible_acknowledgment_attaches_only_to_the_repair_family() {
+    let (snapshot, dev_id, table_region) = repair_world();
+    let repair_ranges = || StepRanges {
+        written_table_extents: vec![table_region],
+        consumed: vec![],
+        destroyed: vec![],
+    };
+    let acknowledged = |regions: Vec<HostRange>| Acknowledgment::UncapturableRegions {
+        table: dev_id,
+        regions,
+    };
+
+    PlanStep::mutating_classed(
+        &snapshot,
+        dev_id,
+        repair_ranges(),
+        vec![acknowledged(vec![table_region])],
+        risk(Severity::Disruptive),
+        StepClass::TableRepair,
+    )
+    .expect("the repair family constructs with the acknowledgment");
+    PlanStep::mutating_classed(
+        &snapshot,
+        dev_id,
+        repair_ranges(),
+        vec![Acknowledgment::IdentityBoundRestore { table: dev_id }],
+        risk(Severity::Disruptive),
+        StepClass::TableRepair,
+    )
+    .expect("identity-bound-restore's arm exists on the repair family");
+
+    // Outside the family: unconstructible — ADR-0024 fixture 3's last
+    // clause, as the constructor law rather than discipline.
+    let ordinary = PlanStep::mutating(
+        &snapshot,
+        dev_id,
+        repair_ranges(),
+        vec![acknowledged(vec![table_region])],
+        risk(Severity::Disruptive),
+    );
+    assert!(matches!(
+        ordinary,
+        Err(StepRefusal::UnlawfulAcknowledgment { .. })
+    ));
+    let restore_ordinary = PlanStep::mutating(
+        &snapshot,
+        dev_id,
+        repair_ranges(),
+        vec![Acknowledgment::IdentityBoundRestore { table: dev_id }],
+        risk(Severity::Disruptive),
+    );
+    assert!(matches!(
+        restore_ordinary,
+        Err(StepRefusal::UnlawfulAcknowledgment { .. })
+    ));
+
+    // On a positively determined table: unconstructible in the family
+    // too — the arm is Indeterminate's alone, for both kinds.
+    let (present, present_dev) = clean_snapshot_with_table(b"RPR-OK");
+    let on_present = PlanStep::mutating_classed(
+        &present,
+        present_dev,
+        StepRanges::default(),
+        vec![Acknowledgment::UncapturableRegions {
+            table: present_dev,
+            regions: vec![HostRange {
+                host: present_dev,
+                start: 0,
+                length: 512,
+            }],
+        }],
+        risk(Severity::Disruptive),
+        StepClass::TableRepair,
+    );
+    assert!(matches!(
+        on_present,
+        Err(StepRefusal::UnlawfulAcknowledgment { .. })
+    ));
+    let restore_on_present = PlanStep::mutating_classed(
+        &present,
+        present_dev,
+        StepRanges::default(),
+        vec![Acknowledgment::IdentityBoundRestore { table: present_dev }],
+        risk(Severity::Disruptive),
+        StepClass::TableRepair,
+    );
+    assert!(matches!(
+        restore_on_present,
+        Err(StepRefusal::UnlawfulAcknowledgment { .. })
+    ));
+}
+
+// Requirements: MODEL-005
+//   The capture-impossible acknowledgment must name well-formed regions
+//   — the journal's discipline at the constructor: empty sets,
+//   zero-length regions, overlaps, and wrong-host regions all refuse.
+// Evidence: malformed_capture_impossible_regions_refuse
+#[test]
+fn malformed_capture_impossible_regions_refuse() {
+    let (snapshot, dev_id, table_region) = repair_world();
+    let repair_ranges = || StepRanges {
+        written_table_extents: vec![table_region],
+        consumed: vec![],
+        destroyed: vec![],
+    };
+    let acknowledged = |regions: Vec<HostRange>| Acknowledgment::UncapturableRegions {
+        table: dev_id,
+        regions,
+    };
+    // Malformed regions refuse: empty, zero-length, overlapping, and a
+    // region on the wrong host.
+    for regions in [
+        vec![],
+        vec![HostRange {
+            host: dev_id,
+            start: 0,
+            length: 0,
+        }],
+        vec![
+            HostRange {
+                host: dev_id,
+                start: 0,
+                length: 1024,
+            },
+            HostRange {
+                host: dev_id,
+                start: 512,
+                length: 1024,
+            },
+        ],
+        vec![HostRange {
+            host: derive_id(&device(b"OTHER")).expect("derivable"),
+            start: 0,
+            length: 512,
+        }],
+    ] {
+        let malformed = PlanStep::mutating_classed(
+            &snapshot,
+            dev_id,
+            repair_ranges(),
+            vec![acknowledged(regions)],
+            risk(Severity::Disruptive),
+            StepClass::TableRepair,
+        );
+        assert!(matches!(
+            malformed,
+            Err(StepRefusal::UnlawfulAcknowledgment { .. })
+        ));
+    }
+}
+
+/// A clean device with a Present table state (the fixture above's
+/// positively determined twin).
+fn clean_snapshot_with_table(serial: &[u8]) -> (TopologySnapshot, super::naming::NodeId) {
+    use super::identity::TableState;
+    let dev = device(serial);
+    let dev_id = derive_id(&dev).expect("derivable");
+    let mut facts = Facts::default();
+    facts.transports.insert(dev_id, TransportClass::Sata);
+    facts.extents.insert(
+        dev_id,
+        HostRange {
+            host: dev_id,
+            start: 0,
+            length: 1 << 30,
+        },
+    );
+    facts.table_states.insert(
+        dev_id,
+        TableState::Present {
+            checksum: canonical::hash(&Value::Text("repair twin checksum".into()))
+                .expect("hashable"),
+        },
+    );
+    let snapshot =
+        TopologySnapshot::assemble(SnapshotKind::Captured, false, vec![dev], vec![], facts)
+            .expect("assembles");
+    (snapshot, dev_id)
+}
+
+// Requirements: MODEL-003, MODEL-005
+//   The classed (version-3) body round-trips with its class and
+//   acknowledgment intact; a forged class flip never parses (the
+//   acknowledgment law re-runs at the boundary); and the superseded
+//   version 2 is refused at decode.
+// Evidence: the_classed_body_round_trips_and_a_forged_class_never_parses
+#[test]
+fn the_classed_body_round_trips_and_a_forged_class_never_parses() {
+    let (snapshot, dev_id, table_region) = repair_world();
+    let step = PlanStep::mutating_classed(
+        &snapshot,
+        dev_id,
+        StepRanges {
+            written_table_extents: vec![table_region],
+            consumed: vec![],
+            destroyed: vec![],
+        },
+        vec![Acknowledgment::UncapturableRegions {
+            table: dev_id,
+            regions: vec![table_region],
+        }],
+        risk(Severity::Disruptive),
+        StepClass::TableRepair,
+    )
+    .expect("constructs");
+    let plan = OperationPlan::assemble_linked(
+        b"plan-rpr".to_vec(),
+        1_700_000_000,
+        &snapshot,
+        ValidityWindow {
+            not_after: 1_700_086_400,
+        },
+        std::collections::BTreeMap::new(),
+        vec![step],
+        ReversalLinkage::Impossible {
+            statements: vec![Statement3 {
+                step: 0,
+                reason: Reason3::PreStatePreservedForRecovery,
+            }],
+        },
+    )
+    .expect("assembles");
+    let bytes = canonical::encode(&plan.body_value().expect("body")).expect("encodable");
+    let rebuilt = OperationPlan::from_canonical_body(&bytes, &snapshot).expect("round-trips");
+    assert_eq!(rebuilt.steps()[0].class(), StepClass::TableRepair);
+
+    // Forge the class to ordinary: the acknowledgment law re-runs at
+    // the boundary and refuses the entry the ordinary class cannot
+    // carry.
+    let Value::Map(mut map) = plan.body_value().expect("body") else {
+        panic!("body is a map");
+    };
+    let Some(Value::Array(steps)) = map.get_mut("steps") else {
+        panic!("steps present");
+    };
+    let Value::Map(step_map) = &mut steps[0] else {
+        panic!("step is a map");
+    };
+    step_map.insert("class".to_owned(), Value::Text("ordinary".to_owned()));
+    let forged = canonical::encode(&Value::Map(map)).expect("encodable");
+    assert!(matches!(
+        OperationPlan::from_canonical_body(&forged, &snapshot),
+        Err(PlanSchemaError::Step(
+            StepRefusal::UnlawfulAcknowledgment { .. }
+        ))
+    ));
+
+    // The one-window version 2 is refused at decode.
+    let Value::Map(mut downgraded) = plan.body_value().expect("body") else {
+        panic!("body is a map");
+    };
+    downgraded.insert("schema_version".to_owned(), Value::Unsigned(2));
+    let stale = canonical::encode(&Value::Map(downgraded)).expect("encodable");
+    assert_eq!(
+        OperationPlan::from_canonical_body(&stale, &snapshot),
+        Err(PlanSchemaError::WrongSchemaVersion)
+    );
+}
+
 // Requirements: MODEL-005, MODEL-003
 //   A prediction proposes and never binds, structurally and everywhere:
 //   composing a draft demands the simulated proposal, binding demands a

@@ -7,6 +7,33 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-010 slice 3m: plan body version 3 — the ADR-0024
+  protection-family schema change, jointly sequenced with WP-060's
+  backup-family increment.** Every linked step now carries its typed
+  `class` (`ordinary` | `table-repair`): the REC-001 repair family is a
+  class, never an intent flag, per the safety-is-computed discipline.
+  The acknowledgment vocabulary closes at four:
+  `uncapturable-regions` lands as ADR-0024's plan-creation
+  capture-impossible acknowledgment, naming exact well-formed regions
+  (strictly ascending, non-overlapping, nonzero, on the covered
+  device), and `identity-bound-restore`'s arm exists at last — both
+  table-state kinds are lawful exactly on a table-repair step over a
+  device whose authored table state is `Indeterminate`, and
+  unconstructible outside the typed family: on an ordinary step, over a
+  Present state, or with malformed regions, the sole constructor
+  refuses, and the same law re-runs at the boundary so a forged class
+  flip never parses. The impossibility vocabulary gains
+  `pre-state-preserved-for-recovery` — the repair's honest reversal
+  statement: the raw capture is the substrate, and putting it back is
+  REC-001's recovery plan. Version 2, which lived for exactly one
+  change window with no surviving artifact, is refused at decode —
+  retirement recorded here rather than smoothed over. Vectors
+  regenerated as v3, plus the table-repair-acknowledged plan and its
+  indeterminate-table snapshot; the TypeScript parity suite reproduces
+  all of it unchanged. The mutation pass demanded one new fixture (the
+  Present-state identity-bound-restore refusal) whose absence it
+  exposed — recorded rather than smoothed over; three mutants killed.
+
 - **WP-060 increment 6: the reversal — PLAN-008 emitted, ADR-0022
   implemented.** Every plan the planner produces now carries PLAN-008's
   output, in the body (the slice-3l linkage) and beside it (the
