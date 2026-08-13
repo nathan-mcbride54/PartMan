@@ -5,6 +5,39 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ## Unreleased
 
+### Fixed
+
+- **WP-L100: two corrections to increment 2, recorded rather than
+  edited away.** Both were found by the adversarial round that ran
+  before increment 3, and both are the same class — a claim stated at
+  more strength than its source licenses.
+  First, increment 2's own text said the no-identity-record rule was
+  "held by a test over the crate's public surface", and it shipped
+  without one: `DeviceIdentity` appeared nowhere but a doc comment. The
+  guard now exists — a text scan over every shipped module for the
+  construction, derivation, and import spellings, leaving the crate doc
+  free to name the type in prose in order to say why it is absent — and
+  it is mutation-verified: an identity-strength reference entering the
+  crate fails it.
+  Second, `schemas/adapter-linux/fields.md` gave the `device/serial`
+  attribute the strength `real-hardware`, resting on an observability
+  row that bundles `{vendor, model, wwid, serial}` as one read set and
+  attributes the observed value to sysfs generically. That a serial came
+  from sysfs is established; that *this attribute* produced it is a
+  natural reading rather than a transcription. Ordinarily academic —
+  not here, because ADR-0019 makes the choice of a single named source
+  per platform a normative, hash-visible act, so a naming designation
+  cannot rest on a bundled row. The row is restated at the strength the
+  record supports, the reason is recorded in the document's own
+  what-this-does-not-establish section, and the readback is filed as an
+  obligation on WP-035 — the transcript is archived with its digest
+  recorded and holds the instrument's exact paths, so closing it is a
+  readback rather than a new sitting. **Until it lands, the Linux
+  naming-source designation ADR-0019 owes cannot be made, and WP-L100
+  increment 3 cannot address a node.** No behaviour changes: the crate
+  already constructed no identity record and already read the same
+  attribute.
+
 ### Added
 
 - **WP-L100 increment 2: devices and their identity material.**

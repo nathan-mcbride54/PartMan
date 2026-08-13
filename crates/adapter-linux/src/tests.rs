@@ -759,6 +759,36 @@ fn the_published_field_roster_matches_this_crates_constants() {
     );
 }
 
+// Requirements: INV-002
+//   No shipped module constructs an identity record or derives a strength
+//   from one. SAFE-003's record carries a required table state whose every
+//   variant is a determination INV-003 forbids this contract making, so an
+//   honest client record is not constructible and the real one binds at
+//   validation from the helper's own re-discovery. A text scan over every
+//   shipped module, and its exact reach is the needle list in the test
+//   body: it catches the construction, derivation, and import spellings,
+//   while leaving the crate doc free to name the type in prose in order to
+//   say why it is absent — which is the sentence this test backs.
+// Evidence: no_shipped_module_constructs_an_identity_record
+#[test]
+fn no_shipped_module_constructs_an_identity_record() {
+    for (name, source) in shipped_sources() {
+        for needle in [
+            "DeviceIdentity {",
+            "DeviceIdentity::",
+            "IdentityStrength",
+            "model::identity",
+            ".strength()",
+        ] {
+            assert!(
+                !source.contains(needle),
+                "{name} contains `{needle}`: this contract emits no identity record and derives \
+                 no strength — the record binds at validation from the helper's re-discovery"
+            );
+        }
+    }
+}
+
 // Requirements: SAFE-002
 //   Both structural guards iterate one fixed roster of shipped modules, so
 //   a module added without an entry would be exempt from both while leaving

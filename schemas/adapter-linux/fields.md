@@ -59,7 +59,7 @@ Paths are relative to the device's directory under the block class.
 | `device/vendor` | `device/vendor` | Vendor/model/WWID row; vendor and model strings observed on real hardware | real-hardware |
 | `device/model` | `device/model` | Vendor/model/WWID row; observed on real hardware | real-hardware |
 | `device/wwid` | `device/wwid` | Present on WSL2 virtual SCSI; **positively absent** on real usb-storage | real-hardware (as an absence) |
-| `device/serial` | `device/serial` | Absent on WSL2 virtual SCSI; the descriptor serial observed on real hardware, and stable across replug and reboot | real-hardware |
+| `device/serial` | `device/serial` | Absent on WSL2 virtual SCSI. A serial **was** observed through sysfs on real hardware and was stable across replug and reboot — but see §5: the row bundles four attributes and attributes the value to sysfs generically, so which one returned it is not transcribed | real-hardware, attribution not transcribed |
 
 Two of these carry a recorded decision rather than a row:
 
@@ -120,6 +120,19 @@ filed on WP-035 says so: it is materially cheaper than a new sitting.
 
 ## 5. What the roster's evidence does not establish
 
+- **Which sysfs attribute returned the serial observed on real hardware.**
+  Corrected here rather than edited away: this document's first version
+  gave `device/serial` the strength `real-hardware` on the strength of a
+  row that bundles `{vendor, model, wwid, serial}` as one read set and
+  attributes the observed value to "sysfs" generically. That a serial came
+  from sysfs is established; that *this attribute* produced it is a
+  natural reading, not a transcription. The distinction is ordinarily
+  academic and is not academic here: ADR-0019 makes the choice of a single
+  named source per platform a normative, hash-visible act, so a naming
+  designation cannot rest on a bundled row. The 2026-08-04 transcript is
+  archived with its digest recorded and holds the instrument's exact
+  paths, so closing this is a readback, not a new sitting — filed as an
+  obligation on WP-035 with the others.
 - That a whole device positively lacks the `partition` attribute. That is
   the admission rule this adapter uses, and **no qualifying row
   establishes it** — the only trace is instrument code inside a
