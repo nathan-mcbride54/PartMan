@@ -97,6 +97,31 @@ pub enum StepClass {
     TableRepair,
 }
 
+/// PLAN-005's cancellation declaration, closed at the requirement's own
+/// three words. The class is a per-family stated declaration under the
+/// WP-060 recorded cancellation-class decision (2026-08-12), never a
+/// derivation from the interruption profile — spec 12.3.0 records
+/// cannot-stop and cannot-unwind as independent facts in both
+/// directions. The default is the fail-closed floor: a step that has
+/// not earned a stronger claim offers no cancellation, because
+/// claiming more would make the UI offer a stop the executor cannot
+/// honor (PLAN-005's second sentence).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Cancellation {
+    /// The step can safely stop at any moment.
+    Cancellable,
+    /// The step can safely stop only at its declared checkpoints —
+    /// PART-005's journaled chunk copy with a durable progress map,
+    /// ACC-012's declared checkpoint.
+    CheckpointCancellable,
+    /// The step cannot safely stop once started; the UI must not offer
+    /// cancellation while it runs (PLAN-005). Independent of
+    /// `irreversible-after-start` in both directions: the atomic entry
+    /// write is non-cancellable yet unflagged.
+    #[default]
+    NonCancellable,
+}
+
 /// ADR-0018's closed acknowledgment vocabulary, extended by ADR-0024's
 /// capture-impossible entry. Each entry names the exact node it covers;
 /// an acknowledgment for one node covers no other, and no entry exists
@@ -246,6 +271,7 @@ pub struct PlanStep {
     risk: StepRisk,
     preconditions: Vec<Precondition>,
     class: StepClass,
+    cancellation: Cancellation,
 }
 
 /// Whether one acknowledgment lawfully covers its node on a step of the
@@ -340,6 +366,37 @@ impl PlanStep {
         risk: StepRisk,
         class: StepClass,
     ) -> Result<Self, StepRefusal> {
+        Self::mutating_declared(
+            snapshot,
+            target,
+            ranges,
+            acknowledgments,
+            risk,
+            class,
+            Cancellation::NonCancellable,
+        )
+    }
+
+    /// The sole constructor's fully-declared form (PLAN-005): the same
+    /// closure and the same acknowledgment law, with the step's
+    /// cancellation declaration carried explicitly. The delegating
+    /// forms default it to the fail-closed floor
+    /// ([`Cancellation::NonCancellable`]); a family claims more only
+    /// through its building package's stated declaration.
+    ///
+    /// # Errors
+    ///
+    /// [`StepRefusal`] naming the first rule violated.
+    #[allow(clippy::too_many_arguments)]
+    pub fn mutating_declared(
+        snapshot: &TopologySnapshot,
+        target: NodeId,
+        ranges: StepRanges,
+        acknowledgments: Vec<Acknowledgment>,
+        risk: StepRisk,
+        class: StepClass,
+        cancellation: Cancellation,
+    ) -> Result<Self, StepRefusal> {
         let topology = snapshot.topology();
         let facts = snapshot.facts();
         for acknowledgment in &acknowledgments {
@@ -390,6 +447,7 @@ impl PlanStep {
             risk,
             preconditions: vec![],
             class,
+            cancellation,
         })
     }
 
@@ -397,6 +455,12 @@ impl PlanStep {
     #[must_use]
     pub const fn class(&self) -> StepClass {
         self.class
+    }
+
+    /// The step's cancellation declaration (PLAN-005).
+    #[must_use]
+    pub const fn cancellation(&self) -> Cancellation {
+        self.cancellation
     }
 
     /// Attach preconditions to a constructed step. Additive and

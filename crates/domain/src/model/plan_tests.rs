@@ -751,7 +751,7 @@ fn a_precondition_violated_in_the_bound_world_never_parses() {
 
 use super::identity::IndeterminateCause;
 use super::plan::{ImpossibilityReason as Reason3, StepImpossibility as Statement3};
-use super::step::{Acknowledgment, StepClass, StepRefusal};
+use super::step::{Acknowledgment, Cancellation, StepClass, StepRefusal};
 
 /// A device whose authored table state is `Indeterminate`, its damaged
 /// table located as a child extent — ADR-0024's repair-arm world — and
@@ -1072,6 +1072,114 @@ fn the_classed_body_round_trips_and_a_forged_class_never_parses() {
     );
 }
 
+// Requirements: PLAN-005, MODEL-003, MODEL-005
+//   The version-4 body carries every step's cancellation declaration:
+//   a declared value rides the hashed body and round-trips intact, the
+//   vocabulary is closed at PLAN-005's three words (an unknown spelling
+//   refuses), the field is required (a linked body without it
+//   refuses), and the superseded version 3 — the linked form without
+//   the field — is refused at decode, its retirement recorded.
+// Evidence: the_cancellation_declaration_rides_the_body_and_the_vocabulary_is_closed
+#[test]
+fn the_cancellation_declaration_rides_the_body_and_the_vocabulary_is_closed() {
+    let (snapshot, dev_id) = clean_snapshot(b"CANCEL");
+    let step = PlanStep::mutating_declared(
+        &snapshot,
+        dev_id,
+        wipe(dev_id),
+        vec![],
+        risk(Severity::Destructive),
+        StepClass::Ordinary,
+        Cancellation::CheckpointCancellable,
+    )
+    .expect("constructs");
+    let plan = OperationPlan::assemble_linked(
+        b"plan-cxl".to_vec(),
+        1_700_000_000,
+        &snapshot,
+        ValidityWindow {
+            not_after: 1_700_086_400,
+        },
+        std::collections::BTreeMap::new(),
+        vec![step],
+        ReversalLinkage::Impossible {
+            statements: vec![Statement3 {
+                step: 0,
+                reason: Reason3::DataDestroyed,
+            }],
+        },
+    )
+    .expect("assembles");
+    let bytes = canonical::encode(&plan.body_value().expect("body")).expect("encodable");
+    let rebuilt = OperationPlan::from_canonical_body(&bytes, &snapshot).expect("round-trips");
+    assert_eq!(
+        rebuilt.steps()[0].cancellation(),
+        Cancellation::CheckpointCancellable,
+        "the declared value rides the body"
+    );
+
+    // The delegating constructors sit on the fail-closed floor.
+    let defaulted = PlanStep::mutating(
+        &snapshot,
+        dev_id,
+        wipe(dev_id),
+        vec![],
+        risk(Severity::Destructive),
+    )
+    .expect("constructs");
+    assert_eq!(defaulted.cancellation(), Cancellation::NonCancellable);
+
+    let mutate_step = |edit: &dyn Fn(&mut std::collections::BTreeMap<String, Value>)| {
+        let Value::Map(mut map) = plan.body_value().expect("body") else {
+            panic!("body is a map");
+        };
+        {
+            let Some(Value::Array(steps)) = map.get_mut("steps") else {
+                panic!("steps present");
+            };
+            let Value::Map(step_map) = &mut steps[0] else {
+                panic!("step is a map");
+            };
+            edit(step_map);
+        }
+        canonical::encode(&Value::Map(map)).expect("encodable")
+    };
+
+    // The vocabulary is closed: a fourth word never parses.
+    let unknown = mutate_step(&|step_map| {
+        step_map.insert(
+            "cancellation".to_owned(),
+            Value::Text("maybe-cancellable".to_owned()),
+        );
+    });
+    assert_eq!(
+        OperationPlan::from_canonical_body(&unknown, &snapshot),
+        Err(PlanSchemaError::MalformedStep)
+    );
+
+    // The field is required content, not an option.
+    let missing = mutate_step(&|step_map| {
+        step_map.remove("cancellation");
+    });
+    assert_eq!(
+        OperationPlan::from_canonical_body(&missing, &snapshot),
+        Err(PlanSchemaError::MalformedStep)
+    );
+
+    // The one-window version 3 — the linked form without the
+    // cancellation field — is refused at decode (MODEL-003's
+    // explicit-migration discipline; the retirement this test records).
+    let Value::Map(mut downgraded) = plan.body_value().expect("body") else {
+        panic!("body is a map");
+    };
+    downgraded.insert("schema_version".to_owned(), Value::Unsigned(3));
+    let stale = canonical::encode(&Value::Map(downgraded)).expect("encodable");
+    assert_eq!(
+        OperationPlan::from_canonical_body(&stale, &snapshot),
+        Err(PlanSchemaError::WrongSchemaVersion)
+    );
+}
+
 // Requirements: MODEL-005, MODEL-003
 //   A prediction proposes and never binds, structurally and everywhere:
 //   composing a draft demands the simulated proposal, binding demands a
@@ -1162,6 +1270,53 @@ fn the_linkage_asymmetry_has_no_mutual_hash_spelling() {
         ReversalDraft::from_canonical_body(&forged),
         Err(PlanSchemaError::UnknownField { .. })
     ));
+}
+
+// Requirements: PLAN-005, MODEL-003
+//   A draft step's cancellation is pinned to the non-cancellable floor
+//   exactly as its class is pinned to ordinary: the emitted draft
+//   carries the floor, and a draft body claiming a stronger class for
+//   its step refuses at decode — a draft family off the floor is a
+//   future reviewed extension of the recorded decision, not a
+//   spelling.
+// Evidence: a_draft_step_sits_on_the_cancellation_floor
+#[test]
+fn a_draft_step_sits_on_the_cancellation_floor() {
+    let worlds = reversal_worlds();
+    let (_, draft) = forward_and_draft(&worlds);
+
+    let Value::Map(mut draft_body) = draft.body_value() else {
+        panic!("draft body is a map");
+    };
+    {
+        let Some(Value::Array(steps)) = draft_body.get("steps") else {
+            panic!("steps present");
+        };
+        let Value::Map(step_map) = &steps[0] else {
+            panic!("step is a map");
+        };
+        assert_eq!(
+            step_map.get("cancellation"),
+            Some(&Value::Text("non-cancellable".to_owned())),
+            "the emitted draft carries the floor"
+        );
+    }
+
+    let Some(Value::Array(steps)) = draft_body.get_mut("steps") else {
+        panic!("steps present");
+    };
+    let Value::Map(step_map) = &mut steps[0] else {
+        panic!("step is a map");
+    };
+    step_map.insert(
+        "cancellation".to_owned(),
+        Value::Text("cancellable".to_owned()),
+    );
+    let forged = canonical::encode(&Value::Map(draft_body)).expect("encodable");
+    assert_eq!(
+        ReversalDraft::from_canonical_body(&forged),
+        Err(PlanSchemaError::MalformedStep)
+    );
 }
 
 // Requirements: MODEL-003
