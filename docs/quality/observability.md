@@ -2258,7 +2258,7 @@ retrieved the transcript through the locator, rehashed it to the same
 digest and byte length, and confirmed the archive's file inventory
 before any cell left `not yet taken`.
 
-#### S5 — medium-register identity on a native MMC controller — preregistered 2026-08-13, not yet taken
+#### S5 — medium-register identity on a native MMC controller — preregistered 2026-08-13; taken the same day; valid
 
 A new arm of this successor protocol, preregistered before execution.
 It touches SI-28's record only as a preregistered instrument and never
@@ -2290,23 +2290,60 @@ before first capture.
 
 | # | Cell | Command / API | Distinguishing condition | Invalidation conditions | Result |
 | --- | --- | --- | --- | --- | --- |
-| S5a | Baseline denial, native slot | `stat` on `/dev/mmcblk0`; `dd` one sector; both as the unprivileged user | The client-baseline posture holds on this host for the mmc node class | mode nonstandard without being recorded; `dd` succeeding | *(not yet taken)* |
-| S5b | The CID value set, card A (64 GB) | `cat` of `cid`, `serial`, `manfid`, `oemid`, `name`, `date`, `type` on the card's `/sys/bus/mmc/devices/` node, double capture | Whether the medium's own register — the identifier SI-28's filing records as unavailable through bridges — is world-readable on a native controller, and its exact byte values | any value unstable across the double capture | *(not yet taken)* |
-| S5c | Block-device linkage | `readlink -f /sys/block/mmcblk0/device`; the mmc bus address recorded | Whether a naming traversal exists from the block device to the CID-bearing node — the structural analogue of ADR-0034's USB-ancestor rule | the link resolving outside `mmc_host/mmc0` | *(not yet taken)* |
-| S5d | Reinsertion stability | Operator removes and reinserts card A; recapture S5b/S5c after settle | Whether the CID survives reinsertion byte-identical, and whether the bus address changes while the CID does not | automount fires and mounts before the recapture completes without being caught by the gate | *(not yet taken)* |
-| S5e | Reboot stability | Full reboot; recapture S5b/S5c | The same, across the deepest boundary this apparatus offers | recapture taken before settle | *(not yet taken)* |
-| S5f | Per-medium distinctness | Card B (256 GB) in the same slot; full S5b value set | Two media, one slot, one controller: whether the CID/serial differs per medium — where the S4 pair's bridge serial collapsed | either card's values unstable | *(not yet taken)* |
-| S5g | The bridge contrast, same medium | Card A in Anker reader R1 on the same host: enumeration class, the ADR-0034 serial traversal, the udev identity keys, and a search for any CID-bearing surface | The same physical medium, native versus bridged: what identity the bridge presents and whether any medium register survives the bridge | the reader enumerating as anything but USB mass storage unrecorded | *(not yet taken)* |
-| S5h | The same-model bridge pair | Card A in R1, then in R2 (same model): each bridge's presented serial and udev identity | Whether the identical-model pair presents distinct per-unit serials or a shared constant — the S4 Windows finding's Linux face, on this hardware | either leg missing; readers not confirmed same model | *(not yet taken)* |
-| S5i | The older bridge | Card A in R3: the same captures as S5g | One more bridge data point, cheap, for the population claim's breadth | — | *(not yet taken)* |
+| S5a | Baseline denial, native slot | `stat` on `/dev/mmcblk0`; `dd` one sector; both as the unprivileged user | The client-baseline posture holds on this host for the mmc node class | mode nonstandard without being recorded; `dd` succeeding | `observed(denied)` — `brw-rw---- root:disk`, `dd` refused `Permission denied` rc 1, `CapEff` all zeros |
+| S5b | The CID value set, card A (64 GB) | `cat` of `cid`, `serial`, `manfid`, `oemid`, `name`, `date`, `type` on the card's `/sys/bus/mmc/devices/` node, double capture | Whether the medium's own register — the identifier SI-28's filing records as unavailable through bridges — is world-readable on a native controller, and its exact byte values | any value unstable across the double capture | `observed` — the full register, world-readable, rc 0 throughout, byte-stable: `cid` `035344535236344786b7ec3aeb018c00`, `serial` `0xb7ec3aeb` (the medium's PSN), `manfid` `0x000003`, `oemid` `0x5344`, `name` `SR64G`, `date` `12/2024`, `type` `SD` — **every field SI-28's filing records Windows as exposing nothing of** |
+| S5c | Block-device linkage | `readlink -f /sys/block/mmcblk0/device`; the mmc bus address recorded | Whether a naming traversal exists from the block device to the CID-bearing node — the structural analogue of ADR-0034's USB-ancestor rule | the link resolving outside `mmc_host/mmc0` | `observed` — resolves to `…/mmc_host/mmc0/mmc0:aaaa`, the CID-bearing node; the readable `rca` attribute (`0xaaaa`) confirms the bus address is the host-assigned RCA — an excluded input for naming, never identity |
+| S5d | Reinsertion stability | Operator removes and reinserts card A; recapture S5b/S5c after settle | Whether the CID survives reinsertion byte-identical, and whether the bus address changes while the CID does not | automount fires and mounts before the recapture completes without being caught by the gate | `observed` — CID and every derived field byte-identical; the RCA reassigned to the same value on this host; the mount gate held (automount disabled; no mount fired) |
+| S5e | Reboot stability | Full reboot; recapture S5b/S5c | The same, across the deepest boundary this apparatus offers | recapture taken before settle | `observed` — fresh boot bracketed by `uptime -s`; CID, serial, and linkage byte-identical; the gate held through the fresh desktop session. The card also rode an unplanned suspend/resume before any capture (the apparatus incident below) and enumerated identically |
+| S5f | Per-medium distinctness | Card B (256 GB) in the same slot; full S5b value set | Two media, one slot, one controller: whether the CID/serial differs per medium — where the S4 pair's bridge serial collapsed | either card's values unstable | `observed(distinct)` — `cid` `035344535232353686454a552b018c00`, `serial` `0x454a552b`, `name` `SR256`: distinct CID and PSN on media sharing `manfid`, `oemid`, and even the manufacture date, while the RCA was the same `0xaaaa` for both — the discriminant is the medium register and only the medium register |
+| S5g | The bridge contrast, same medium | Card A in Anker reader R1 on the same host: enumeration class, the ADR-0034 serial traversal, the udev identity keys, and a search for any CID-bearing surface | The same physical medium, native versus bridged: what identity the bridge presents and whether any medium register survives the bridge | the reader enumerating as anything but USB mass storage unrecorded | `observed` — the bridge is a **NORELSYS NS1081-family** part (the S4 sittings' own chip family), enumerating **two LUNs** (`1081CS0`/`1081CS1`) that both carry the USB descriptor serial **`0123456789ABCDE` — the canonical placeholder constant**; the ADR-0034 traversal resolves to the bridge's USB node and returns that constant; no CID-bearing surface exists anywhere under either LUN; a driver supplement (labelled in-transcript, not an instrument capture) pinned the medium to LUN CS0 by its sector count — `124735488`, byte-equal to the native slot's count for the same card — with CS1 the empty slot at size 0. **One constant serial covering a verifiable medium and an empty slot: the filing's original observation, reproduced on Linux** |
+| S5h | The same-model bridge pair | Card A in R1, then in R2 (same model): each bridge's presented serial and udev identity | Whether the identical-model pair presents distinct per-unit serials or a shared constant — the S4 Windows finding's Linux face, on this hardware | either leg missing; readers not confirmed same model | `observed(shared constant)` — R2 presents the byte-identical `0123456789ABCDE` and identical `NORELSYS` identity strings: the pair is indistinguishable at every client-visible surface, the S4 collapse on the same chip family, measured on Linux with a medium whose native register discriminates perfectly |
+| S5i | The older bridge | Card A in R3: the same captures as S5g | One more bridge data point, cheap, for the population claim's breadth | — | `observed` — a different bridge (`Generic- USB3.0 CRW -SD`), serial `201506301013` — a date-shaped firmware constant, not a unit serial — two LUNs again, no CID surface again |
 
 What this arm deliberately does not do: no write, no format, no mount,
 no layout; no register-status or ADR text change; no designation — if
 its cells establish a medium-attributable identifier, the designation
-extension is its own ADR-0034-pattern act on these rows. Custody:
-transcript digested on the ThinkPad before the file moves, recomputed
-on the operator workstation — two independent recomputations, stated
-as such.
+extension is its own ADR-0034-pattern act on these rows.
+
+**The sitting, 2026-08-13 (UTC), all nine cells observed.** Apparatus
+corrections and incidents, recorded rather than smoothed: (1) the
+preregistration guessed the controller `rtsx_pci`-class from the
+reconnaissance's bare PCI path; the environment record measured the
+driver as **`sdhci-pci`** — a native SDHCI part, which strengthens
+rather than weakens the apparatus claim, corrected here against the
+preregistration. (2) The host suspended (GNOME idle default) after
+reconnaissance and before any capture; no capture was affected, the
+card enumerated identically on resume, and idle suspend was disabled
+for the sitting. (3) The host's WiFi dropped once between the R1 and
+R2 legs during reader handling and was operator-cycled; no capture
+was in flight, both legs' captures are complete and byte-stable, and
+the interruption bracket is visible in the leg timestamps. (4) One
+labelled driver supplement (LUN sector counts) was appended outside
+the digested instruments and is marked as such in-transcript.
+
+**What the cells jointly establish.** On one host, in one transcript:
+the same physical medium is perfectly identifiable through a native
+controller — full CID register, stable across suspend, reinsertion,
+and reboot, distinct from its same-manufacturer sibling — and
+identity-invisible through every one of three USB bridges, two of
+which (a same-model pair on the S4 sittings' own NS1081 chip family)
+share the placeholder constant `0123456789ABCDE` covering both the
+medium and an adjacent empty slot. Part 7 requirement 1's Linux
+measurement now exists; what SI-28's round five does with it — the
+Linux attribution rule, any mmc-node designation extension under
+ADR-0034's pattern, and the filing's general-predicate amendment —
+is register work these rows enable and do not decide.
+
+Custody: transcript SHA-256
+`b8cb899539bb5f9782bf9c93edef0695a5d4ec4992475e46faa2ad1d60e7b58e`
+(18814 bytes), computed on the ThinkPad before the file moved and
+recomputed on the operator workstation — two independent
+recomputations as preregistered, both agreeing; instruments
+(`s5-capture.sh`, `s5-env.sh`) archived beside it at
+`%USERPROFILE%\PartMan-evidence\2026-08-13-s5-thinkpad\`, custodian
+Nate McBride, their digests recorded in-transcript before any
+capture (the capture instrument's digest covers the S5a patch made
+and restaged before the environment record ran).
 
 ## macOS
 
