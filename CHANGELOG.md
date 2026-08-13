@@ -7,6 +7,28 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-020: the r11 sitting — all three acceptances re-taken on
+  `667f6aa`, the stopping condition re-pinned there, closing the
+  WP-060 unlock arc.** The sixth trip from outside the package, and
+  the first covered by a single sitting over multiple merges: the
+  WP-060 unlock arc (PRs #299–#304 — increments 5 through 8 with the
+  jointly-sequenced WP-010 plan-body slices 3l and 3m) recorded up
+  front that its six Rust merges would trip the condition once and be
+  re-measured once at the arc's head, and that is what ran. One
+  sitting on 2026-08-13 (UTC), one fresh disposable Proxmox-hosted VM
+  (VMID 9434, kernel 5.15.0-186-generic, no reboot during
+  provisioning), the r10 runbook copied to r11 with header prose and
+  two carried-over VMID labels corrected: the full eleven-control
+  refusal set refused, 2e passed (its eleventh re-take — fifteen
+  passes across twelve guests, identical value set), the 2h suite
+  passed (its ninth re-take, `fixtures_executed=1`, `ranges_written=1`,
+  `contracted_bytes_written=8`), and the 2j suite passed its sixth
+  re-take (`ranges_written=2`, `contracted_bytes_written=16`, both
+  signatures restored). Fixtures byte-identical to the catalogue, loop
+  table empty, teardown verified with nothing remaining
+  (2026-08-13T00:53:24Z). Custody run 17: transcript digests agreeing
+  across guest, host, and workstation (`10297fab…4b8d`).
+
 - **WP-060 increment 8: the combination unlock — ADR-0025's criterion
   derived, the contested combination constructing.** The
   `irreversible-after-start` flag is now derived from a typed
