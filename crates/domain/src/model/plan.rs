@@ -32,7 +32,8 @@ use super::naming::{self, NodeId};
 use super::protection::{HostRange, StepRanges};
 use super::snapshot::{SnapshotKind, TopologySnapshot};
 use super::step::{
-    Acknowledgment, PlanStep, Precondition, Severity, StepClass, StepFlags, StepRefusal, StepRisk,
+    Acknowledgment, Cancellation, PlanStep, Precondition, Severity, StepClass, StepFlags,
+    StepRefusal, StepRisk,
 };
 
 /// The plan body's schema identity (MODEL-003).
@@ -44,15 +45,19 @@ pub const SCHEMA: &str = "partman.plan";
 /// form; its retirement is its own reviewed change (MODEL-003's
 /// explicit-migration discipline).
 pub const SCHEMA_VERSION: u64 = 1;
-/// The linked plan body schema version (ADR-0022, spec 12.0.0, and
-/// ADR-0024, spec 12.2.0): Section 6's reversal-linkage item is
-/// required, every step carries its preconditions, and every step
-/// carries its typed class. Version 2 — the linked form without the
-/// class field — lived for exactly one change window, gained no
-/// emitter outside it and no surviving artifact, and is refused at
-/// decode with its retirement recorded in the changelog (MODEL-003's
-/// explicit-migration discipline).
-pub const LINKED_SCHEMA_VERSION: u64 = 3;
+/// The linked plan body schema version (ADR-0022, spec 12.0.0;
+/// ADR-0024, spec 12.2.0; and PLAN-005 under the WP-060 recorded
+/// cancellation-class decision, 2026-08-12): Section 6's
+/// reversal-linkage item is required, and every step carries its
+/// preconditions, its typed class, and its cancellation declaration.
+/// Versions 2 (the linked form without the class field) and 3 (the
+/// linked form without the cancellation field) each lived for exactly
+/// one change window, gained no emitter outside it and no surviving
+/// artifact — version 3's vectors were regenerated in the change that
+/// retired it — and are refused at decode with their retirements
+/// recorded in the changelog (MODEL-003's explicit-migration
+/// discipline).
+pub const LINKED_SCHEMA_VERSION: u64 = 4;
 
 /// PLAN-008's per-step reversal-impossibility reason — closed, typed,
 /// free of free text (the JRN-005 discipline).
@@ -780,6 +785,28 @@ const fn class_wire_name(class: StepClass) -> &'static str {
     }
 }
 
+/// PLAN-005's three words, spelled exactly as the requirement spells
+/// them.
+const fn cancellation_wire_name(cancellation: Cancellation) -> &'static str {
+    match cancellation {
+        Cancellation::Cancellable => "cancellable",
+        Cancellation::CheckpointCancellable => "checkpoint-cancellable",
+        Cancellation::NonCancellable => "non-cancellable",
+    }
+}
+
+fn parse_cancellation(map: &BTreeMap<String, Value>) -> Result<Cancellation, PlanSchemaError> {
+    match map.get("cancellation") {
+        Some(Value::Text(cancellation)) => match cancellation.as_str() {
+            "cancellable" => Ok(Cancellation::Cancellable),
+            "checkpoint-cancellable" => Ok(Cancellation::CheckpointCancellable),
+            "non-cancellable" => Ok(Cancellation::NonCancellable),
+            _ => Err(PlanSchemaError::MalformedStep),
+        },
+        _ => Err(PlanSchemaError::MalformedStep),
+    }
+}
+
 fn parse_class(map: &BTreeMap<String, Value>) -> Result<StepClass, PlanSchemaError> {
     match map.get("class") {
         Some(Value::Text(class)) => match class.as_str() {
@@ -805,6 +832,10 @@ fn step_value(step: &PlanStep, linked: bool) -> Value {
         map.insert(
             "class".to_owned(),
             Value::Text(class_wire_name(step.class()).to_owned()),
+        );
+        map.insert(
+            "cancellation".to_owned(),
+            Value::Text(cancellation_wire_name(step.cancellation()).to_owned()),
         );
     }
     map.insert(
@@ -959,13 +990,14 @@ fn parse_step(
                 | "acknowledgments"
                 | "severity"
                 | "flags"
-        ) || (linked && matches!(key.as_str(), "preconditions" | "class"));
+        ) || (linked
+            && matches!(key.as_str(), "preconditions" | "class" | "cancellation"));
         if !known {
             return Err(PlanSchemaError::UnknownField { key: key.clone() });
         }
     }
     let target = parse_node(map.get("target"))?;
-    let (preconditions, class) = if linked {
+    let (preconditions, class, cancellation) = if linked {
         let Some(Value::Array(entries)) = map.get("preconditions") else {
             return Err(PlanSchemaError::MalformedStep);
         };
@@ -975,9 +1007,10 @@ fn parse_step(
                 .map(parse_precondition)
                 .collect::<Result<Vec<_>, _>>()?,
             parse_class(map)?,
+            parse_cancellation(map)?,
         )
     } else {
-        (vec![], StepClass::Ordinary)
+        (vec![], StepClass::Ordinary, Cancellation::NonCancellable)
     };
     let ranges = StepRanges {
         written_table_extents: parse_ranges(map.get("written_table_extents"))?,
@@ -995,9 +1028,17 @@ fn parse_step(
     // The recompute: the sole constructor runs the closure and the
     // acknowledgment law — the class-conditioned law included — over
     // the snapshot's authenticated facts. A forged step never returns.
-    PlanStep::mutating_classed(snapshot, target, ranges, acknowledgments, risk, class)
-        .map(|step| step.with_preconditions(preconditions))
-        .map_err(PlanSchemaError::Step)
+    PlanStep::mutating_declared(
+        snapshot,
+        target,
+        ranges,
+        acknowledgments,
+        risk,
+        class,
+        cancellation,
+    )
+    .map(|step| step.with_preconditions(preconditions))
+    .map_err(PlanSchemaError::Step)
 }
 
 fn hex_to_id(text: &str) -> Option<NodeId> {
@@ -1827,6 +1868,15 @@ fn draft_step_value(step: &DraftStep) -> Value {
         "class".to_owned(),
         Value::Text(class_wire_name(StepClass::Ordinary).to_owned()),
     );
+    // The same pin for PLAN-005's declaration: every draft family the
+    // planner emits today (the create's deleting entry write, the
+    // grow's shrinking-back) sits on the non-cancellable floor, and a
+    // draft family earning more is a reviewed extension of the WP-060
+    // recorded decision.
+    map.insert(
+        "cancellation".to_owned(),
+        Value::Text(cancellation_wire_name(Cancellation::NonCancellable).to_owned()),
+    );
     map.insert(
         "written_table_extents".to_owned(),
         ranges_value(&step.ranges.written_table_extents),
@@ -1857,6 +1907,7 @@ fn parse_draft_step(value: &Value) -> Result<DraftStep, PlanSchemaError> {
                 | "target_step_output"
                 | "preconditions"
                 | "class"
+                | "cancellation"
                 | "written_table_extents"
                 | "consumed"
                 | "destroyed"
@@ -1869,6 +1920,11 @@ fn parse_draft_step(value: &Value) -> Result<DraftStep, PlanSchemaError> {
     }
     if parse_class(map)? != StepClass::Ordinary {
         // A repair-family draft step is a future reviewed extension.
+        return Err(PlanSchemaError::MalformedStep);
+    }
+    if parse_cancellation(map)? != Cancellation::NonCancellable {
+        // A draft family off the non-cancellable floor is a future
+        // reviewed extension of the recorded decision.
         return Err(PlanSchemaError::MalformedStep);
     }
     let target = match (map.get("target"), map.get("target_step_output")) {

@@ -7,6 +7,35 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-010 slice 3n: plan body version 4 — PLAN-005's cancellation
+  declaration enters the hashed body.** Jointly sequenced with WP-060
+  increment 9 under the WP-060 recorded cancellation-class decision
+  (2026-08-12): every version-4 step carries a required `cancellation`
+  field, closed at PLAN-005's own three words (`cancellable`,
+  `checkpoint-cancellable`, `non-cancellable`), typed in the domain as
+  `Cancellation` with the fail-closed `non-cancellable` floor as its
+  default — the delegating constructors sit on the floor, and only the
+  fully-declared form (`PlanStep::mutating_declared`) claims more. An
+  unknown spelling refuses, the missing field refuses, and the
+  declaration is independent of `irreversible-after-start` in both
+  directions (spec 12.3.0), so no coupling law was invented. A draft
+  step's declaration is pinned to the floor exactly as its class is
+  pinned to `ordinary`: the emitted draft carries `non-cancellable`,
+  and a draft body claiming more refuses at decode — a draft family
+  off the floor is a future reviewed extension of the recorded
+  decision. **Version 3 is retired**: one change window old, no
+  emitter outside it, no surviving artifact — its vectors regenerated
+  as version 4 (`plan-v4-wipe-impossible`,
+  `plan-v4-forward-create-draft-linked`,
+  `plan-v4-table-repair-acknowledged`, and the re-encoded
+  `draft-create-reversal`) in the same change, reproduced by the
+  TypeScript suite unchanged — and refused at decode (MODEL-003's
+  explicit-migration discipline; the v2 precedent). Version 1 stays
+  emitted and accepted; its retirement remains its own reviewed
+  change. Four mutants (default flipped off the floor, the version-3
+  refusal dropped, an unknown spelling accepted, the draft floor pin
+  dropped) each failed a named test before proposal.
+
 - **WP-020: the r11 sitting — all three acceptances re-taken on
   `667f6aa`, the stopping condition re-pinned there, closing the
   WP-060 unlock arc.** The sixth trip from outside the package, and

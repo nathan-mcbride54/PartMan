@@ -1,8 +1,8 @@
 # The operation-plan body format
 
 - Spec version: 12.9.1
-- Requirement IDs: MODEL-003, MODEL-005, MODEL-006, PLAN-004, PLAN-006,
-  PLAN-007, PLAN-008, SAFE-003, Section 6
+- Requirement IDs: MODEL-003, MODEL-005, MODEL-006, PLAN-004, PLAN-005,
+  PLAN-006, PLAN-007, PLAN-008, SAFE-003, Section 6
 - Decided by: `docs/adr/0012-non-goal-protection-is-unrepresentable.md`
   (the hand-forged-artifact refusal), `docs/adr/0016-si34-verdict-placement.md`
   (verdict through body-carried inputs),
@@ -12,10 +12,14 @@
   table state and witness), `docs/adr/0022-si19-reversal-linkage.md`
   (the reversal linkage, step preconditions, and the draft's
   step-output spelling), `docs/adr/0024-si16-state-selected-protection.md`
-  (the typed step class and the capture-impossible acknowledgment);
-  delivered by WP-010 increment 3 slices 3h, 3i, and 3j (version 1) and
+  (the typed step class and the capture-impossible acknowledgment),
+  and the WP-060 recorded cancellation-class decision, 2026-08-12
+  (PLAN-005's per-step declaration, its fail-closed floor, and the
+  draft's pinned floor);
+  delivered by WP-010 increment 3 slices 3h, 3i, and 3j (version 1),
   the jointly-sequenced ADR-0022 and ADR-0024 schema changes (slices
-  3l and 3m, version 3)
+  3l and 3m, version 3), and the jointly-sequenced PLAN-005 schema
+  change (slice 3n, version 4)
 - Underlying byte profile: `pce/1` (unchanged)
 - Shared vectors: `schemas/domain/body-vectors.json`, `plans` section
 
@@ -23,10 +27,12 @@ This document records a delivered format. It decides nothing: a field
 exists here because `crates/domain` encodes it, never because this
 document says so. The Section 6 items whose vocabularies other packages
 own (outcome text, privileges, environment requirements, backup actions,
-cancellation, capability versions) are absent here and land as
-WP-050/WP-060 deliver them — their absence is the increment's recorded
-boundary, not an omission of this document. The reversal item is absent
-no longer: the linked form carries it (ADR-0022).
+capability versions) are absent here and land as WP-050/WP-060 deliver
+them — their absence is the increment's recorded boundary, not an
+omission of this document. The reversal item is absent no longer: the
+linked form carries it (ADR-0022). Neither is the cancellation item:
+version 4 carries PLAN-005's per-step declaration (slice 3n, under the
+WP-060 recorded cancellation-class decision).
 
 ## 0. The two versions
 
@@ -37,18 +43,24 @@ form; its retirement is its own reviewed change (MODEL-003's
 explicit-migration discipline — nothing is silently coerced, and any
 other version refuses at decode).
 
-**Version 3** (the linked form, ADR-0022 + ADR-0024) adds exactly three
-things: Section 6's required `reversal` linkage item, a required
-`preconditions` array on every step, and a required `class` on every
-step (ADR-0024's typed repair family). A linked body with a Reversible
-step whose linkage is not a draft or reapply-forward statement refuses
+**Version 4** (the linked form, ADR-0022 + ADR-0024 + PLAN-005 under
+the WP-060 recorded cancellation-class decision) adds to version 1
+exactly four things: Section 6's required `reversal` linkage item, a
+required `preconditions` array on every step, a required `class` on
+every step (ADR-0024's typed repair family), and a required
+`cancellation` on every step (PLAN-005's declaration, closed at the
+requirement's own three words). A linked body with a Reversible step
+whose linkage is not a draft or reapply-forward statement refuses
 (**no draft, no Reversible**), and the rule reaches back: a version-1
 body cannot carry a Reversible step at all.
 
-**Version 2** — the linked form without the class field — existed for
-exactly one change window (slice 3l), gained no emitter outside it and
-no surviving artifact, and is refused at decode; its retirement is
-recorded in the changelog rather than smoothed over.
+**Versions 2 and 3** — the linked form without the class field, and
+the linked form without the cancellation field — each existed for
+exactly one change window (slices 3l and 3m), gained no emitter
+outside it and no surviving artifact (version 3's vectors were
+regenerated as version 4 in the change that retired it), and are
+refused at decode; each retirement is recorded in the changelog rather
+than smoothed over.
 
 **A prediction never binds.** `OperationPlan::from_canonical_body`
 refuses a `partman.topology-snapshot.simulated` snapshot as its binding
@@ -59,14 +71,14 @@ base before reading a single field, for either version.
 | Key | Type | Content |
 | --- | --- | --- |
 | `schema` | Text | `partman.plan` (MODEL-003). |
-| `schema_version` | Unsigned | `1` or `3` (§0). |
+| `schema_version` | Unsigned | `1` or `4` (§0). |
 | `plan_id` | Bytes | The plan's identifier bytes. |
 | `created_at` | Unsigned | Creation timestamp, seconds since the epoch. |
 | `snapshot_hash` | Bytes(32) | The source snapshot's body hash **as bound at validation** (PLAN-006, 8.0.0's rule). A plan presented against any other snapshot refuses — the ACC-007 stale-plan shape at the type layer. In a reversal **draft**, these bytes are the simulated proposal's hash, and the draft's own boundary (§5) is the only one that accepts them. |
 | `not_after` | Unsigned | PLAN-007's validity window, body content deliberately: enforced, never re-derived, so an unauthenticated expiry cannot be extended without invalidating the authorization bound to the plan (ADR-C2's row). |
 | `identities` | Map | Bound device identities keyed by the target's derived address in lowercase hex (Section 6; §2). Empty in a draft — a draft binds identities at validation, and carrying them in a prediction would be a client-authored claim. |
 | `steps` | Array | The step graph in dependency order — a semantic array, never a set (MODEL-006 distinguishes exactly this). One step map per step (§3). |
-| `reversal` | Map, version 3 only, required | Section 6's reversal linkage (§4). |
+| `reversal` | Map, version 4 only, required | Section 6's reversal linkage (§4). |
 
 Unknown keys refuse at the typed boundary.
 
@@ -102,8 +114,9 @@ Two derivations are deliberately **not** in the bytes:
 | `acknowledgments` | Array | Maps of `kind` Text (`release`, `opaque-destruction`, `identity-bound-restore`, `uncapturable-regions` — ADR-0018's vocabulary plus ADR-0024's entry, closed at four) and `node` Bytes(32); the `uncapturable-regions` kind additionally carries `regions`, an Array of `{start: Unsigned, length: Unsigned}` on the covered device, strictly ascending, non-overlapping, nonzero. The table-state kinds (`identity-bound-restore`, `uncapturable-regions`) are lawful only on a `table-repair`-class step over a device whose authored table state is `Indeterminate` — the constructor law, re-run at the boundary. |
 | `severity` | Unsigned | PLAN-004's ordinal: 0 informational, 1 reversible, 2 disruptive, 3 data-moving, 4 destructive. Plan severity is the step maximum. Severity 1 requires the linkage rule (§0). |
 | `flags` | Array | The set flags' names, in the fixed order: `security-sensitive`, `irreversible-after-start`, `requires-offline`, `requires-reboot`, `requires-rescue` (PLAN-004's orthogonal flags; unset flags are omitted). |
-| `preconditions` | Array, version 3 only, required | Precondition maps (§3b), re-checked at every validation boundary against the binding snapshot — ADR-0022's two-time truthfulness. A failed precondition refuses the plan. |
-| `class` | Text, version 3 only, required | `ordinary` or `table-repair` — ADR-0024's typed step class. The repair family is a class, never an intent flag; its protection arms and acknowledgment kinds attach to it. A draft step is `ordinary` (a repair-family draft is a future reviewed extension). |
+| `preconditions` | Array, version 4 only, required | Precondition maps (§3b), re-checked at every validation boundary against the binding snapshot — ADR-0022's two-time truthfulness. A failed precondition refuses the plan. |
+| `class` | Text, version 4 only, required | `ordinary` or `table-repair` — ADR-0024's typed step class. The repair family is a class, never an intent flag; its protection arms and acknowledgment kinds attach to it. A draft step is `ordinary` (a repair-family draft is a future reviewed extension). |
+| `cancellation` | Text, version 4 only, required | `cancellable`, `checkpoint-cancellable`, or `non-cancellable` — PLAN-005's declaration, spelled exactly as the requirement spells it, closed at three. The class is each building package's per-family stated declaration over the fail-closed `non-cancellable` floor (the WP-060 recorded decision); it is independent of `irreversible-after-start` in both directions (spec 12.3.0). A draft step is `non-cancellable` (a draft family off the floor is a future reviewed extension). |
 
 ### 3a. `HostRange`
 
@@ -152,7 +165,7 @@ a `hash` key refuses as an undeclared field.
 
 ## 5. The reversal draft (PLAN-008)
 
-A draft is an ordinary version-3 plan body whose `snapshot_hash` is the
+A draft is an ordinary version-4 plan body whose `snapshot_hash` is the
 forward plan's **simulated final topology** hash (the proposal), whose
 `identities` map is empty, whose `reversal` is the `reapply-forward`
 statement, and whose steps may spell a created-node target as
@@ -190,10 +203,10 @@ set.
 ## 7. Conformance
 
 The shared vectors pin, over the same base capture: the bare destructive
-wipe and its identity-bound twin (version 1), the version-3 wipe with
-its impossibility statements, the version-3 forward create carrying its
+wipe and its identity-bound twin (version 1), the version-4 wipe with
+its impossibility statements, the version-4 forward create carrying its
 draft linkage, the create-reversal draft itself bound to the
-simulated-created snapshot vector, and the version-3 table-repair plan
+simulated-created snapshot vector, and the version-4 table-repair plan
 over the indeterminate-table snapshot, carrying the
 capture-impossible acknowledgment and the pre-state-preserved
 statement. Each records the digest of the

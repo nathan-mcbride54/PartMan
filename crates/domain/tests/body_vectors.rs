@@ -490,7 +490,7 @@ fn snapshot_for(name: &str) -> TopologySnapshot {
 }
 
 fn plan_for(name: &str) -> (OperationPlan, TopologySnapshot) {
-    if name == "plan-v3-table-repair-acknowledged" {
+    if name == "plan-v4-table-repair-acknowledged" {
         return table_repair_plan();
     }
     let (snapshot, dev_id) = plan_base();
@@ -535,7 +535,7 @@ fn plan_for(name: &str) -> (OperationPlan, TopologySnapshot) {
             )
             .expect("assembles")
         }
-        "plan-v3-wipe-impossible" => OperationPlan::assemble_linked(
+        "plan-v4-wipe-impossible" => OperationPlan::assemble_linked(
             b"vec-plan-v3".to_vec(),
             1_700_000_000,
             &snapshot,
@@ -552,7 +552,7 @@ fn plan_for(name: &str) -> (OperationPlan, TopologySnapshot) {
             },
         )
         .expect("assembles"),
-        "plan-v3-forward-create-draft-linked" => {
+        "plan-v4-forward-create-draft-linked" => {
             let draft = draft_create_reversal();
             OperationPlan::assemble_linked(
                 b"vec-plan-fwd".to_vec(),
@@ -675,8 +675,8 @@ fn print_new_vectors() {
         &indeterminate_table_snapshot().0.body_value().expect("body"),
     );
     for name in [
-        "plan-v3-wipe-impossible",
-        "plan-v3-forward-create-draft-linked",
+        "plan-v4-wipe-impossible",
+        "plan-v4-forward-create-draft-linked",
     ] {
         let (plan, _) = plan_for(name);
         entry(
@@ -687,7 +687,7 @@ fn print_new_vectors() {
     }
     let (repair, _) = table_repair_plan();
     entry(
-        "plan-v3-table-repair-acknowledged",
+        "plan-v4-table-repair-acknowledged",
         Some("snapshot-plan-base-indeterminate-table"),
         &repair.body_value().expect("body"),
     );
