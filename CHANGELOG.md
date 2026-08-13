@@ -5,6 +5,31 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ## Unreleased
 
+### Added
+
+- **WP-020: the r13 sitting — all three acceptances re-taken on
+  `b50dd19`, the stopping condition re-pinned there, closing the
+  WP-L100 arc.** The eighth trip from outside the package (the arc's
+  three Rust merges, PRs #314, #316, and #317: the Linux adapter's
+  contract-and-seam increment, its devices-and-identity increment, and
+  its recorded corrections), covered by a single sitting at the arc's
+  head. Unlike the two arcs before it, the WP-L100 arc's plan recorded
+  no sitting economics — only that its Markdown-only governance step
+  owed none — so the one-sitting choice was made at re-take time on
+  the r11/r12 precedent and the record states it as this re-pin's own
+  decision rather than the arc's plan. One sitting on 2026-08-13
+  (UTC), one fresh disposable Proxmox-hosted VM (VMID 9436, kernel
+  5.15.0-186-generic), the r12 runbook copied to r13 with header prose
+  alone changed: the full eleven-control refusal set refused, 2e
+  passed (its thirteenth re-take, identical value set), the 2h suite
+  passed (`fixtures_executed=1`, `ranges_written=1`,
+  `contracted_bytes_written=8`), and the 2j suite passed
+  (`ranges_written=2`, `contracted_bytes_written=16`, both signatures
+  restored). Fixtures byte-identical to the catalogue, loop table
+  empty, teardown verified with nothing remaining
+  (2026-08-13T14:27:20Z), custody run 20 with transcript digests
+  agreeing across guest, host, and workstation (`81e009db…6b5b`).
+
 ### Fixed
 
 - **WP-L100: two corrections to increment 2, recorded rather than
