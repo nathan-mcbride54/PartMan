@@ -4179,7 +4179,52 @@ What this closes and what it does not: #318 items 1 and 2 asked for
 transcription, and these rows are it. The ADR-0019 Linux naming-source
 designation remains **unmade** — it is a normative act landing only with a
 spec change, and nothing in this section makes it. These rows are what
-that act can now rest on.
+that act can now rest on. (The designation has since been made: ADR-0034,
+spec 12.11.0, on these rows.)
+
+### The floor-rows sitting — preregistered 2026-08-13, not yet taken
+
+Five cells, declared before execution per this document's method. They
+close issue #318 items 4, 5, and 6 (three of SI-28's floor inputs and
+adjacent unmeasured reads), discharge ADR-0034's evidence obligation 1
+(the designated serial source's canonical path), and close the one gap
+the 2026-08-13 readback stated plainly: no record reads the
+whole-device sysfs `size` attribute.
+
+Apparatus: one disposable Proxmox VM (fresh jammy image against the
+pinned digest), **one** of the two authorized SanDisk fixture sticks
+passed through on the XHCI controller (the L-E wedge lesson), media
+content as the prior sitting left it — no provisioning, the device set
+read-only with `blockdev --setro` before any capture. Client-baseline
+measurement user (non-root, no `disk` group, no capability), root
+driver for the two root-side cells. Instrument derived from the
+archived `l-client.sh` lineage with its digest recorded in-transcript
+before first capture.
+
+| # | Cell | Command / API | Privilege | Distinguishing condition | Invalidation conditions | Result |
+| --- | --- | --- | --- | --- | --- | --- |
+| FR1 | `removable` on a real whole device | `cat /sys/class/block/<dev>/removable`, double capture | client baseline | The SI-28 floor input's value for a real USB mass-storage device — no qualifying row exists on any Linux host, though both WP-035's CLI and WP-L100's adapter read it | value unstable across the double capture; device re-enumerated mid-capture | *(not yet taken)* |
+| FR2 | Physical and logical block size, real hardware | `cat /sys/class/block/<dev>/queue/physical_block_size` and `queue/logical_block_size`, double capture | client baseline | Both values on real non-virtual hardware — measured on WSL2 virtual SCSI only, and the one non-WSL frozen projection names the logical size alone | value unstable across the double capture | *(not yet taken)* |
+| FR3 | The whole-device discriminator | `ls /sys/class/block/<dev>/` and `ls /sys/class/block/<dev>1/`; `cat` of `partition` on both nodes with exit status recorded | client baseline | Whether a whole device **positively lacks** the `partition` attribute while its partition carries it — the admission rule both delivered implementations use, resting today on a code precedent inside a non-qualifying record | either listing incomplete; the partition node absent at capture | *(not yet taken)* |
+| FR4 | The designated serial source's canonical path | `realpath /sys/block/<dev>/device/../../../../serial` beside `cat` of the same path, double capture | client baseline | ADR-0034's evidence obligation 1: the as-executed traversal's resolved absolute path, closing the structural-resolution inference the designation currently carries | realpath and cat disagree on target; value differs from the udev-recorded serial | *(not yet taken)* |
+| FR5 | Whole-device sysfs `size` against a byte interface | `cat /sys/block/<dev>/size` (client baseline, double capture) and `blockdev --getsize64 /dev/<dev>` (root), same device, same sitting | both, separately labelled | Whether sysfs `size` × 512 equals the byte interface's answer **on the whole-device node** — the 2026-08-13 readback measured the 512-byte unit on the partition node alone and stated the whole-device gap rather than bridging it by convention | either read failing; the two captures unstable | *(not yet taken)* |
+
+Validity gates, all required: fresh VM and recorded environment
+(`l-env.sh` lineage); `udevadm settle` plus double-capture byte
+stability for every sysfs read; no mount of any measured object
+(asserted before and after via `/proc/self/mounts`); the device
+read-only at every capture; per-command exit statuses in-transcript;
+custody identical to the matrices above — outside-repository archive
+with locator and custodian, SHA-256 digest and byte length, instrument
+digests recorded before first capture, guest/host/workstation digest
+agreement. Gate failures make cells `void(<gate>)`, never negatives.
+
+What this sitting deliberately does not do: no transport-discrimination
+protocol row (issue #318's grant question is undecided and this
+preregistration does not preempt it); no layout provisioning; no second
+stick (FR cells are single-device claims; the pair's distinctness is
+already recorded); no CID measurement (no native MMC controller exists
+in this apparatus).
 
 ## Reproducing this
 
