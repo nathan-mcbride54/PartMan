@@ -414,6 +414,32 @@ placement, recovery, or ruleset questions.
 
 ## SI-28 A card reader's serial identifies the transport, not the medium
 
+> **Amended 2026-08-13 to the general predicate — Part 7 requirement 6,
+> executed; status unchanged, nothing resolved.** The filing's claim is
+> general, and the card reader below is one measured instance of it:
+> **an identifier reported through an attachment bridge attributes to
+> the bridge, not to the medium, unless a measured per-platform rule
+> establishes medium attribution.** The instance set now measured
+> behind it (`docs/quality/observability.md`): the original Windows
+> two-LUN reader; the S4 same-model pair sharing one constant serial
+> at every layer; and the 2026-08-13 S5 sitting, which measured the
+> same shape on Linux on the same NORELSYS chip family — a same-model
+> bridge pair sharing the placeholder constant `0123456789ABCDE`
+> across both readers and both LUNs, covering a verifiable medium and
+> an empty slot alike, with a second bridge model presenting a
+> date-shaped firmware constant — and measured the **inverse** for the
+> first time: a native `sdhci-pci` controller exposing the medium's
+> own CID register, world-readable, stable across suspend,
+> reinsertion, and reboot, and distinct across two same-manufacturer
+> same-date media (whose host-assigned RCA was identical — the
+> excluded-input class, confirmed by measurement). The macOS
+> reconnaissance archives record the same bridge constant through the
+> named IOKit keys. Round five therefore starts from the general
+> predicate and its measured instances — not from the classification
+> framing the three filed options below share, which round four
+> already established cannot resolve this issue. The options are
+> retained as filed history, not as the live route set.
+
 > **Reclassified 2026-08-09 by the decision owner: off the increment-3
 > gate, the SI-37 pattern.** SI-28 stays **Mitigated-open** — not
 > Resolved, and Part 7's warning against false closure stands in full.
