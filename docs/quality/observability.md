@@ -2258,6 +2258,56 @@ retrieved the transcript through the locator, rehashed it to the same
 digest and byte length, and confirmed the archive's file inventory
 before any cell left `not yet taken`.
 
+#### S5 — medium-register identity on a native MMC controller — preregistered 2026-08-13, not yet taken
+
+A new arm of this successor protocol, preregistered before execution.
+It touches SI-28's record only as a preregistered instrument and never
+its established results or its register disposition; the register owns
+status. Its subject is the measurement Part 7 requirement 1 names as
+round five's prerequisite: whether a **medium-attributable identifier**
+— the SD card's own CID register — is client-readable on a native
+(non-bridged) controller, whether it is stable and per-medium distinct,
+and what the *same medium* presents when moved behind USB bridges,
+including a same-model bridge pair (the S4 collision population's
+Linux face).
+
+Apparatus, recorded as it is rather than idealized: a personal
+ThinkPad (Debian 13, kernel 6.12.x, GNOME), its built-in micro SD slot
+on a PCIe `rtsx_pci`-class controller (`mmc_host/mmc0`), operator Nate
+McBride present throughout with a remote driver over SSH as the
+unprivileged user; that user is in `sudo` but not `disk` and holds no
+ambient capability — the baseline-denial cell records the posture
+rather than asserting it. Media: the two authorized SanDisk micro SD
+cards (64 GB, 256 GB). Readers for the contrast legs: three Anker
+USB-C card readers — two of one model, one older. GNOME automount is
+disabled for the sitting (`org.gnome.desktop.media-handling automount`
+and `automount-open` set false, restored after) and the mount table is
+captured at every leg — no measured object may be mounted at any
+capture; a leg that catches a mount is `void(mount)`, never a
+negative. Double capture with `udevadm settle` for every value set;
+per-command exit statuses; instrument digests recorded in-transcript
+before first capture.
+
+| # | Cell | Command / API | Distinguishing condition | Invalidation conditions | Result |
+| --- | --- | --- | --- | --- | --- |
+| S5a | Baseline denial, native slot | `stat` on `/dev/mmcblk0`; `dd` one sector; both as the unprivileged user | The client-baseline posture holds on this host for the mmc node class | mode nonstandard without being recorded; `dd` succeeding | *(not yet taken)* |
+| S5b | The CID value set, card A (64 GB) | `cat` of `cid`, `serial`, `manfid`, `oemid`, `name`, `date`, `type` on the card's `/sys/bus/mmc/devices/` node, double capture | Whether the medium's own register — the identifier SI-28's filing records as unavailable through bridges — is world-readable on a native controller, and its exact byte values | any value unstable across the double capture | *(not yet taken)* |
+| S5c | Block-device linkage | `readlink -f /sys/block/mmcblk0/device`; the mmc bus address recorded | Whether a naming traversal exists from the block device to the CID-bearing node — the structural analogue of ADR-0034's USB-ancestor rule | the link resolving outside `mmc_host/mmc0` | *(not yet taken)* |
+| S5d | Reinsertion stability | Operator removes and reinserts card A; recapture S5b/S5c after settle | Whether the CID survives reinsertion byte-identical, and whether the bus address changes while the CID does not | automount fires and mounts before the recapture completes without being caught by the gate | *(not yet taken)* |
+| S5e | Reboot stability | Full reboot; recapture S5b/S5c | The same, across the deepest boundary this apparatus offers | recapture taken before settle | *(not yet taken)* |
+| S5f | Per-medium distinctness | Card B (256 GB) in the same slot; full S5b value set | Two media, one slot, one controller: whether the CID/serial differs per medium — where the S4 pair's bridge serial collapsed | either card's values unstable | *(not yet taken)* |
+| S5g | The bridge contrast, same medium | Card A in Anker reader R1 on the same host: enumeration class, the ADR-0034 serial traversal, the udev identity keys, and a search for any CID-bearing surface | The same physical medium, native versus bridged: what identity the bridge presents and whether any medium register survives the bridge | the reader enumerating as anything but USB mass storage unrecorded | *(not yet taken)* |
+| S5h | The same-model bridge pair | Card A in R1, then in R2 (same model): each bridge's presented serial and udev identity | Whether the identical-model pair presents distinct per-unit serials or a shared constant — the S4 Windows finding's Linux face, on this hardware | either leg missing; readers not confirmed same model | *(not yet taken)* |
+| S5i | The older bridge | Card A in R3: the same captures as S5g | One more bridge data point, cheap, for the population claim's breadth | — | *(not yet taken)* |
+
+What this arm deliberately does not do: no write, no format, no mount,
+no layout; no register-status or ADR text change; no designation — if
+its cells establish a medium-attributable identifier, the designation
+extension is its own ADR-0034-pattern act on these rows. Custody:
+transcript digested on the ThinkPad before the file moves, recomputed
+on the operator workstation — two independent recomputations, stated
+as such.
+
 ## macOS
 
 **Established 2026-08-05.** The client rows came from the increment 6 matrix
