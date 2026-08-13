@@ -7,6 +7,23 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **spec-change 12.12.0: the Linux mmc-class designation extension
+  (ADR-0035).** ADR-0034's revisit condition fired in its sanctioned
+  direction the same day: the S5 sitting measured a serial source for
+  an undesignated attachment class, and the extension lands with its
+  rows. The (Linux, native MMC-attached block device) serial cell
+  designates the linked mmc node's `cid` attribute — the full
+  register, verbatim, newline included — with the attachment class
+  defined by the S5c-measured structural resolution. The kernel's
+  `serial`/PSN projection is the recorded rejection (a transformation
+  with strictly weaker collision resistance). WWN undesignated for
+  the class; every ADR-0034 rule applies unchanged; eMMC and
+  second-host captures are evidence obligations, not scope-outs.
+  Linux thereby gains its first medium-attributable naming route,
+  sitting opposite the S4/S5-measured bridge-collision families in
+  the same table — the shape SI-28's round five needs, which these
+  rows enable and do not decide.
+
 - **spec-change 12.11.0: the Linux naming-source designations
   (ADR-0034).** The normative act ADR-0019 anticipated, made on the
   #318 readback rows and nothing else. The per-platform source table
