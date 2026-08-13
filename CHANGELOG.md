@@ -7,6 +7,29 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-010 slice 3o: the version-1 plan body retired.** The reviewed
+  change plan-body.md §0 has promised since slice 3l: with the planner
+  on the linked form since WP-060 increment 6 and the version-4
+  carriage landed by slice 3n, version 1's last emitters were this
+  crate's own tests and its two fixture vectors. Both are migrated —
+  the tests assemble linked bodies, and the identity-bound vector's
+  SAFE-003 coverage survives as `plan-v4-bound-identity-wipe` (the
+  redundant bare-wipe vector is dropped, every other vector
+  byte-identical) — so `OperationPlan::assemble` is removed, the
+  reversal linkage becomes a required field rather than an `Option` (a
+  plan without a linkage is unconstructible, not refused; the
+  `reversal()` accessor keeps its `Option` shape for its consumers),
+  `PlanError::UncarriedPreconditions` goes with the form that needed
+  it, and version 1 refuses at decode like every other retired version
+  (MODEL-003's explicit-migration discipline). The committed
+  regression pins both spellings: a downgraded version byte and the
+  full v1 shape (no reversal, no preconditions, no class, no
+  cancellation) refuse as `WrongSchemaVersion` — the version gate
+  comes first. Two mutants (the version-1 decode arm restored, the
+  retired constructor's linkage-freedom restored via an
+  always-backed `reversible_backed`) each failed a named test before
+  proposal.
+
 - **WP-060 increment 9: the cancellation vocabulary — PLAN-005
   delivered on the recorded cancellation-class decision.** Every step
   the planner emits now declares exactly one of PLAN-005's three words

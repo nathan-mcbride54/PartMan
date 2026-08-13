@@ -54,8 +54,14 @@ fn risk(severity: Severity) -> StepRisk {
     }
 }
 
-fn plan_over(snapshot: &TopologySnapshot, step: PlanStep) -> OperationPlan {
-    OperationPlan::assemble(
+fn plan_over_steps(snapshot: &TopologySnapshot, steps: Vec<PlanStep>) -> OperationPlan {
+    let statements = (0..steps.len())
+        .map(|step| StepImpossibility {
+            step,
+            reason: ImpossibilityReason::DataDestroyed,
+        })
+        .collect();
+    OperationPlan::assemble_linked(
         b"plan-1".to_vec(),
         1_700_000_000,
         snapshot,
@@ -63,9 +69,14 @@ fn plan_over(snapshot: &TopologySnapshot, step: PlanStep) -> OperationPlan {
             not_after: 1_700_086_400,
         },
         std::collections::BTreeMap::new(),
-        vec![step],
+        steps,
+        ReversalLinkage::Impossible { statements },
     )
     .expect("assembles")
+}
+
+fn plan_over(snapshot: &TopologySnapshot, step: PlanStep) -> OperationPlan {
+    plan_over_steps(snapshot, vec![step])
 }
 
 // Requirements: MODEL-003, MODEL-005, PLAN-006, PLAN-007
@@ -251,17 +262,7 @@ fn plan_severity_is_the_maximum_step_severity() {
         risk(Severity::Destructive),
     )
     .expect("constructs");
-    let plan = OperationPlan::assemble(
-        b"plan-2".to_vec(),
-        1_700_000_000,
-        &snapshot,
-        ValidityWindow {
-            not_after: 1_700_086_400,
-        },
-        std::collections::BTreeMap::new(),
-        vec![low, high],
-    )
-    .expect("assembles");
+    let plan = plan_over_steps(&snapshot, vec![low, high]);
     assert_eq!(plan.severity(), Severity::Destructive);
 }
 
@@ -500,11 +501,13 @@ fn linked_bodies_and_drafts_round_trip() {
 }
 
 // Requirements: PLAN-004, MODEL-005
-//   ADR-0022's severity rule, structural in both assembly paths and at
-//   the boundary: a Reversible claim stands only on an emitted reversal
-//   — the unlinked form refuses it outright, an impossibility linkage
-//   refuses it, and a forged body claiming severity 1 over an
-//   impossibility linkage never parses.
+//   ADR-0022's severity rule, structural at assembly and at the
+//   boundary: a Reversible claim stands only on an emitted reversal —
+//   an impossibility linkage refuses it, and a forged body claiming
+//   severity 1 over an impossibility linkage never parses. (The
+//   unlinked form's outright refusal is gone with the form itself:
+//   since the version-1 retirement a plan without a linkage is
+//   unconstructible, not refused.)
 // Evidence: a_reversible_claim_stands_only_on_an_emitted_reversal
 #[test]
 fn a_reversible_claim_stands_only_on_an_emitted_reversal() {
@@ -517,18 +520,6 @@ fn a_reversible_claim_stands_only_on_an_emitted_reversal() {
         risk(Severity::Reversible),
     )
     .expect("constructs");
-
-    let unlinked = OperationPlan::assemble(
-        b"plan-r".to_vec(),
-        1_700_000_000,
-        &snapshot,
-        ValidityWindow {
-            not_after: 1_700_086_400,
-        },
-        std::collections::BTreeMap::new(),
-        vec![reversible.clone()],
-    );
-    assert_eq!(unlinked, Err(PlanError::ReversibleWithoutReversal));
 
     let impossible = OperationPlan::assemble_linked(
         b"plan-r".to_vec(),
@@ -649,7 +640,7 @@ fn a_reference_resolves_after_apply_and_refuses_before() {
         risk(Severity::Disruptive),
     )
     .expect("constructs");
-    let other_forward = OperationPlan::assemble(
+    let other_forward = OperationPlan::assemble_linked(
         b"plan-other".to_vec(),
         1_700_000_000,
         &worlds.pre,
@@ -658,6 +649,12 @@ fn a_reference_resolves_after_apply_and_refuses_before() {
         },
         std::collections::BTreeMap::new(),
         vec![create],
+        ReversalLinkage::Impossible {
+            statements: vec![StepImpossibility {
+                step: 0,
+                reason: ImpossibilityReason::PriorValueNotCarried,
+            }],
+        },
     )
     .expect("assembles");
     assert_eq!(
@@ -1180,6 +1177,62 @@ fn the_cancellation_declaration_rides_the_body_and_the_vocabulary_is_closed() {
     );
 }
 
+// Requirements: MODEL-003
+//   The version-1 retirement (slice 3o): the unlinked form is refused
+//   at decode like every other retired version, and the live version
+//   is the only one the boundary accepts. Nothing emits version 1 —
+//   its last emitters were this crate's own tests and vectors, and
+//   `OperationPlan::assemble` is gone with it, so a plan without a
+//   reversal linkage is unconstructible rather than refused.
+// Evidence: the_retired_version_1_refuses_at_decode
+#[test]
+fn the_retired_version_1_refuses_at_decode() {
+    let (snapshot, dev_id) = clean_snapshot(b"V1");
+    let step = PlanStep::mutating(
+        &snapshot,
+        dev_id,
+        wipe(dev_id),
+        vec![],
+        risk(Severity::Destructive),
+    )
+    .expect("constructs");
+    let plan = plan_over(&snapshot, step);
+    let Value::Map(mut downgraded) = plan.body_value().expect("body") else {
+        panic!("body is a map");
+    };
+    downgraded.insert("schema_version".to_owned(), Value::Unsigned(1));
+    let stale = canonical::encode(&Value::Map(downgraded)).expect("encodable");
+    assert_eq!(
+        OperationPlan::from_canonical_body(&stale, &snapshot),
+        Err(PlanSchemaError::WrongSchemaVersion)
+    );
+
+    // The v1 spelling proper — no reversal, no preconditions, no class,
+    // no cancellation — refuses the same way, not by a field error: the
+    // version gate comes first.
+    let Value::Map(mut unlinked) = plan.body_value().expect("body") else {
+        panic!("body is a map");
+    };
+    unlinked.insert("schema_version".to_owned(), Value::Unsigned(1));
+    unlinked.remove("reversal");
+    {
+        let Some(Value::Array(steps)) = unlinked.get_mut("steps") else {
+            panic!("steps present");
+        };
+        let Value::Map(step_map) = &mut steps[0] else {
+            panic!("step is a map");
+        };
+        step_map.remove("preconditions");
+        step_map.remove("class");
+        step_map.remove("cancellation");
+    }
+    let v1_shaped = canonical::encode(&Value::Map(unlinked)).expect("encodable");
+    assert_eq!(
+        OperationPlan::from_canonical_body(&v1_shaped, &snapshot),
+        Err(PlanSchemaError::WrongSchemaVersion)
+    );
+}
+
 // Requirements: MODEL-005, MODEL-003
 //   A prediction proposes and never binds, structurally and everywhere:
 //   composing a draft demands the simulated proposal, binding demands a
@@ -1390,31 +1443,6 @@ fn impossibility_coverage_and_draft_spellings_are_enforced() {
         OperationPlan::from_canonical_body(&forged, &snapshot),
         Err(PlanSchemaError::DraftSpellingOutsideDraft)
     );
-
-    // Preconditions have no home in the unlinked form.
-    let (snapshot2, dev2) = clean_snapshot(b"D2");
-    let with_preconditions = PlanStep::mutating(
-        &snapshot2,
-        dev2,
-        StepRanges::default(),
-        vec![],
-        risk(Severity::Disruptive),
-    )
-    .expect("constructs")
-    .with_preconditions(vec![Precondition::HostUnoccupied { host: dev2 }]);
-    assert_eq!(
-        OperationPlan::assemble(
-            b"plan-p".to_vec(),
-            1_700_000_000,
-            &snapshot2,
-            ValidityWindow {
-                not_after: 1_700_086_400,
-            },
-            std::collections::BTreeMap::new(),
-            vec![with_preconditions],
-        ),
-        Err(PlanError::UncarriedPreconditions)
-    );
 }
 #[test]
 fn a_client_authored_table_state_never_validates() {
@@ -1472,7 +1500,7 @@ fn a_client_authored_table_state_never_validates() {
             cause: IndeterminateCause::Ambiguous,
         }),
     );
-    let plan = OperationPlan::assemble(
+    let plan = OperationPlan::assemble_linked(
         b"plan-3".to_vec(),
         1_700_000_000,
         &snapshot,
@@ -1481,6 +1509,12 @@ fn a_client_authored_table_state_never_validates() {
         },
         agreeing,
         vec![step],
+        ReversalLinkage::Impossible {
+            statements: vec![StepImpossibility {
+                step: 0,
+                reason: ImpossibilityReason::PriorValueNotCarried,
+            }],
+        },
     )
     .expect("assembles");
     let bytes = canonical::encode(&plan.body_value().expect("body")).expect("encodable");
