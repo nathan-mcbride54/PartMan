@@ -7,6 +7,31 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-060 increment 6: the reversal — PLAN-008 emitted, ADR-0022
+  implemented.** Every plan the planner produces now carries PLAN-008's
+  output, in the body (the slice-3l linkage) and beside it (the
+  `EmittedReversal` value for REC-010's advertisement and UI-005's
+  display). The sized create emits a truthful draft deleting the
+  created structure through a step-output reference — never an
+  address, the node does not exist yet — with the created node's
+  emptiness as its precondition, and claims **Reversible** exactly
+  because that truthful draft exists (the withheld-claim posture
+  becoming ADR-0022's rule). The grow emits a shrink-back draft whose
+  reclaimed-tail emptiness is judged in the target's own address
+  space, and deliberately keeps its conservative severity — no draft,
+  no Reversible is one-directional. Wipes, shrinks, and identity
+  writes state per step, machine-readably, why reversal is impossible.
+  End-to-end at the planner: the draft is byte-deterministic
+  (PLAN-001), binds against a post-apply capture into an ordinary plan
+  bound to the capture's hash whose own linkage is the reapply-forward
+  statement, refuses against the pre-apply world (nothing to resolve),
+  refuses the prediction itself (nobody applies a prediction), and
+  refuses by precondition once data lands in the created partition —
+  the truth-decay fixture ADR-0022 names. Four mutants (dropped draft
+  plan-ID derivation, dropped preconditions, reclaimed tail in the
+  wrong address space, swapped impossibility reason) each failed a
+  named test before proposal.
+
 - **WP-010 slice 3l: plan body version 2 — the ADR-0022 reversal
   linkage, jointly sequenced with WP-060's reversal increment.**
   Section 6's reversal item becomes body content: `draft` linkage

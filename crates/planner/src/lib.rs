@@ -36,9 +36,14 @@ use partman_capability::engine::{RuntimeFacts, TechnologyLimits, UnknownTarget, 
 use partman_capability::{Capability, Status};
 use partman_domain::model::capability::{Operation, OperationClass, canonical_ranges};
 use partman_domain::model::naming::NodeId;
-use partman_domain::model::plan::{OperationPlan, PlanError, ValidityWindow};
+use partman_domain::model::plan::{
+    DraftPrecondition, DraftRefusal, DraftStep, DraftTarget, ImpossibilityReason, OperationPlan,
+    PlanError, ReversalDraft, ReversalLinkage, StepImpossibility, ValidityWindow,
+};
 use partman_domain::model::snapshot::TopologySnapshot;
-use partman_domain::model::step::{PlanStep, Severity, StepFlags, StepRefusal, StepRisk};
+use partman_domain::model::step::{
+    PlanStep, Precondition, Severity, StepFlags, StepRefusal, StepRisk,
+};
 
 use crate::graph::{Dependency, GraphRefusal, execution_order};
 use crate::simulate::{Effects, SimulateRefusal, simulate};
@@ -46,7 +51,7 @@ use crate::solve::{
     BoundaryPlacement, InheritedFact, SolveRefusal, SolvedCreate, SolvedGrow, SolvedShrink,
     StructuralEdge, grow_extension, place_create, shrink_reduction,
 };
-use partman_domain::model::protection::StepRanges;
+use partman_domain::model::protection::{HostRange, StepRanges};
 
 pub mod graph;
 pub mod simulate;
@@ -136,6 +141,28 @@ pub enum PlanRefusal {
         /// The simulation's verbatim refusal.
         refusal: SimulateRefusal,
     },
+    /// The reversal draft refused composition (PLAN-008): emission-time
+    /// truthfulness failed, and a plan whose advertised reversal cannot
+    /// honestly exist is refused rather than emitted with a false
+    /// advertisement.
+    ReversalRefused {
+        /// The draft's verbatim refusal.
+        refusal: DraftRefusal,
+    },
+}
+
+/// PLAN-008's emitted reversal output: a truthful draft, or the
+/// per-step machine-readable impossibility statements — one of the two
+/// for every plan, never neither.
+#[derive(Debug)]
+pub enum EmittedReversal {
+    /// The truthful reversal draft, proposing the forward plan's
+    /// simulated final topology and binding at its own validation after
+    /// the forward apply (ADR-0022).
+    Draft(ReversalDraft),
+    /// Per-step statements of why reversal is impossible, in the plan
+    /// body's step order.
+    Impossible(Vec<StepImpossibility>),
 }
 
 /// PLAN-002's complete product: the plan and the simulated final
@@ -149,6 +176,12 @@ pub struct Planned {
     /// schema string that can never be a planning base or satisfy a
     /// PLAN-006 comparison.
     pub simulated: TopologySnapshot,
+    /// PLAN-008's output: the emitted reversal draft or the per-step
+    /// impossibility statements. The plan body's reversal linkage
+    /// carries the same fact in hashed form (the draft by ID and body
+    /// hash); this field carries the draft itself for REC-010's
+    /// advertisement and UI-005's display.
+    pub reversal: EmittedReversal,
     /// The typed consequence facts the plan's consequence text must
     /// state (PART-009 via ADR-0023): inherited off-policy boundaries
     /// the plan leaves byte-identical, and authored boundaries recorded
@@ -316,14 +349,15 @@ pub struct PlanRequestSet {
     pub dependencies: Vec<Dependency>,
 }
 
-/// The risk this increment declares for a canonical single-operation
+/// The risk this planner declares for a canonical single-operation
 /// step: the operation's class decides the severity conservatively —
 /// destructive for `Wipe`, data-moving for the content-moving family,
 /// disruptive otherwise — and no flag is set, because every flag's
-/// semantics either awaits SI-17 (the contested combination) or a
-/// vocabulary a later increment owns. Conservative and stated is the
-/// increment-1 posture; the risk model's full conditioning arrives with
-/// the solver.
+/// semantics either awaits its unlock increment (ADR-0025's criterion)
+/// or a vocabulary a later increment owns. The Reversible claim is
+/// made exactly where a truthful draft is emitted — the sized create,
+/// in [`plan_sized`] — per ADR-0022's rule: no draft, no Reversible,
+/// and with the draft, the claim is honest rather than withheld.
 fn canonical_risk(operation: Operation) -> StepRisk {
     let severity = match operation {
         // Intentional destruction, PLAN-004's own definition.
@@ -334,17 +368,35 @@ fn canonical_risk(operation: Operation) -> StepRisk {
         | Operation::Shrink
         | Operation::Encrypt
         | Operation::Decrypt => Severity::DataMoving,
-        // Everything else is at least disruptive here, deliberately:
-        // severity 0 never fits a mutating step, and severity 1 claims a
-        // "fully undoable via an emitted reversal plan" that PLAN-008
-        // cannot emit until SI-19 decides its binding — a Reversible
-        // claim without the reversal would be the assertion this
-        // codebase refuses everywhere else. Conservative-up, stated.
+        // Everything else is at least disruptive here — conservative-up,
+        // stated; the sized create claims Reversible where its draft
+        // exists, and the grow deliberately stays here until its
+        // FS-grow reversibility story is measured.
         _ => Severity::Disruptive,
     };
     StepRisk {
         severity,
         flags: StepFlags::default(),
+    }
+}
+
+/// PLAN-008's per-operation impossibility reason for the operations the
+/// planner can plan today but cannot truthfully reverse. Total over
+/// exactly the operations that reach reversal emission; the
+/// draft-backed pair and the never-planned rest are structurally
+/// upstream.
+fn impossibility(operation: Operation) -> ImpossibilityReason {
+    match operation {
+        // Destroyed bytes are not restorable — the wipe entirely, the
+        // shrink's freed tail.
+        Operation::Wipe | Operation::Shrink => ImpossibilityReason::DataDestroyed,
+        // The model carries no prior value to restore.
+        Operation::Label | Operation::Uuid => ImpossibilityReason::PriorValueNotCarried,
+        // Create and Grow emit drafts instead of statements, and every
+        // other operation refuses before reversal emission (source
+        // class, or unrepresentable simulation). A new operation
+        // reaching here is a review point, not a default.
+        _ => unreachable!("refused before reversal emission"),
     }
 }
 
@@ -390,17 +442,25 @@ pub fn plan(
     let simulated =
         simulate(snapshot, &effects).map_err(|refusal| PlanRefusal::SimulateRefused { refusal })?;
 
-    OperationPlan::assemble(
+    let statements = vec![StepImpossibility {
+        step: 0,
+        reason: impossibility(request.operation),
+    }];
+    OperationPlan::assemble_linked(
         identity.plan_id.clone(),
         identity.created_at,
         snapshot,
         identity.validity,
         std::collections::BTreeMap::new(),
         vec![step],
+        ReversalLinkage::Impossible {
+            statements: statements.clone(),
+        },
     )
     .map(|plan| Planned {
         plan,
         simulated,
+        reversal: EmittedReversal::Impossible(statements),
         consequences: vec![],
     })
     .map_err(|error| PlanRefusal::PlanRefused { error })
@@ -423,27 +483,116 @@ pub fn plan_sized(
     runtime: &RuntimeFacts,
     identity: &PlanIdentity,
 ) -> Result<Planned, PlanRefusal> {
-    let (operation, target, ranges, effects, consequences) = match request {
+    let SolvedRequest {
+        operation,
+        target,
+        ranges,
+        effects,
+        consequences,
+        material,
+    } = solve_sized(request, snapshot)?;
+
+    let answer = capability(operation, target, snapshot, limits, runtime)
+        .map_err(|UnknownTarget { target }| PlanRefusal::UnknownTarget { target })?;
+    if matches!(answer.status(), Status::Unsupported | Status::Blocked) {
+        return Err(PlanRefusal::CapabilityRefused { answer });
+    }
+
+    // The Reversible claim is made exactly where the truthful draft is
+    // emitted (ADR-0022): the sized create is metadata-only and its
+    // draft deletes the empty created structure. The grow keeps the
+    // conservative severity while its draft still exists — the rule is
+    // one-directional: no draft, no Reversible, but a draft does not
+    // compel the claim.
+    let risk = if matches!(material, ReversalMaterial::CreateDraft { .. }) {
+        StepRisk {
+            severity: Severity::Reversible,
+            flags: StepFlags::default(),
+        }
+    } else {
+        canonical_risk(operation)
+    };
+    let step = PlanStep::mutating(snapshot, target, ranges, vec![], risk)
+        .map_err(|refusal| PlanRefusal::StepRefused { refusal })?;
+
+    let simulated =
+        simulate(snapshot, &effects).map_err(|refusal| PlanRefusal::SimulateRefused { refusal })?;
+
+    let reversal = emit_reversal(material, &simulated, identity, &step)?;
+    let linkage = match &reversal {
+        EmittedReversal::Draft(draft) => ReversalLinkage::Draft {
+            plan_id: draft.plan_id().to_vec(),
+            draft_hash: draft
+                .body_hash()
+                .map_err(|error| PlanRefusal::PlanRefused { error })?,
+        },
+        EmittedReversal::Impossible(statements) => ReversalLinkage::Impossible {
+            statements: statements.clone(),
+        },
+    };
+
+    OperationPlan::assemble_linked(
+        identity.plan_id.clone(),
+        identity.created_at,
+        snapshot,
+        identity.validity,
+        std::collections::BTreeMap::new(),
+        vec![step],
+        linkage,
+    )
+    .map(|plan| Planned {
+        plan,
+        simulated,
+        reversal,
+        consequences,
+    })
+    .map_err(|error| PlanRefusal::PlanRefused { error })
+}
+
+/// One solved sized request: everything [`plan_sized`] needs downstream
+/// of the solver.
+struct SolvedRequest {
+    operation: Operation,
+    target: NodeId,
+    ranges: StepRanges,
+    effects: Effects,
+    consequences: Vec<Consequence>,
+    material: ReversalMaterial,
+}
+
+/// Solve one sized request through the extent solver, carrying the
+/// consequence facts and the reversal material each shape decides.
+fn solve_sized(
+    request: SizedRequest,
+    snapshot: &TopologySnapshot,
+) -> Result<SolvedRequest, PlanRefusal> {
+    match request {
         SizedRequest::Create { host, size } => {
             let SolvedCreate {
                 placed,
                 end_placement,
             } = place_create(snapshot, host, size)
                 .map_err(|refusal| PlanRefusal::SolveRefused { refusal })?;
-            (
-                Operation::Create,
-                host,
-                StepRanges {
+            Ok(SolvedRequest {
+                operation: Operation::Create,
+                target: host,
+                ranges: StepRanges {
                     written_table_extents: vec![],
                     consumed: vec![placed],
                     destroyed: vec![],
                 },
-                Effects {
+                effects: Effects {
                     minted_partition: Some(placed),
                     ..Effects::default()
                 },
-                solved_consequences(host, placed.start + placed.length, end_placement, None),
-            )
+                consequences: solved_consequences(
+                    host,
+                    placed.start + placed.length,
+                    end_placement,
+                    None,
+                ),
+                material: ReversalMaterial::CreateDraft { placed },
+            })
         }
         SizedRequest::Grow { target, new_length } => {
             let SolvedGrow {
@@ -452,25 +601,41 @@ pub fn plan_sized(
                 inherited_start,
             } = grow_extension(snapshot, target, new_length)
                 .map_err(|refusal| PlanRefusal::SolveRefused { refusal })?;
-            (
-                Operation::Grow,
+            let own_start = snapshot
+                .facts()
+                .extents
+                .get(&target)
+                .map_or(0, |extent| extent.start);
+            Ok(SolvedRequest {
+                operation: Operation::Grow,
                 target,
-                StepRanges {
+                ranges: StepRanges {
                     written_table_extents: vec![],
                     consumed: vec![extension],
                     destroyed: vec![],
                 },
-                Effects {
+                effects: Effects {
                     resized: vec![(target, new_length)],
                     ..Effects::default()
                 },
-                solved_consequences(
+                consequences: solved_consequences(
                     target,
                     extension.start + extension.length,
                     end_placement,
                     inherited_start,
                 ),
-            )
+                material: ReversalMaterial::GrowDraft {
+                    extension,
+                    // The reclaimed tail in the target's own address
+                    // space: nothing may sit on it for the shrink-back
+                    // to stay metadata-only.
+                    reclaimed: HostRange {
+                        host: target,
+                        start: extension.start - own_start,
+                        length: extension.length,
+                    },
+                },
+            })
         }
         SizedRequest::Shrink { target, new_length } => {
             let SolvedShrink {
@@ -479,49 +644,116 @@ pub fn plan_sized(
                 inherited_start,
             } = shrink_reduction(snapshot, target, new_length)
                 .map_err(|refusal| PlanRefusal::SolveRefused { refusal })?;
-            (
-                Operation::Shrink,
+            Ok(SolvedRequest {
+                operation: Operation::Shrink,
                 target,
-                StepRanges {
+                ranges: StepRanges {
                     written_table_extents: vec![],
                     consumed: vec![],
                     destroyed: vec![freed],
                 },
-                Effects {
+                effects: Effects {
                     resized: vec![(target, new_length)],
                     ..Effects::default()
                 },
-                solved_consequences(target, freed.start, end_placement, inherited_start),
-            )
+                consequences: solved_consequences(
+                    target,
+                    freed.start,
+                    end_placement,
+                    inherited_start,
+                ),
+                material: ReversalMaterial::Impossible(ImpossibilityReason::DataDestroyed),
+            })
         }
-    };
-
-    let answer = capability(operation, target, snapshot, limits, runtime)
-        .map_err(|UnknownTarget { target }| PlanRefusal::UnknownTarget { target })?;
-    if matches!(answer.status(), Status::Unsupported | Status::Blocked) {
-        return Err(PlanRefusal::CapabilityRefused { answer });
     }
+}
 
-    let step = PlanStep::mutating(snapshot, target, ranges, vec![], canonical_risk(operation))
-        .map_err(|refusal| PlanRefusal::StepRefused { refusal })?;
+/// What [`plan_sized`] decided to emit as PLAN-008's output, before the
+/// draft is composed.
+#[derive(Clone, Copy)]
+enum ReversalMaterial {
+    /// The create's reversal: delete the created structure while it
+    /// holds nothing, its target spelled as the creating step's output.
+    CreateDraft {
+        /// The placed range the forward step consumes.
+        placed: HostRange,
+    },
+    /// The grow's reversal: shrink back to the old end while nothing
+    /// sits on the reclaimed tail.
+    GrowDraft {
+        /// The tail extension in the host's address space.
+        extension: HostRange,
+        /// The same tail in the target's own address space.
+        reclaimed: HostRange,
+    },
+    /// No truthful reversal exists; say why.
+    Impossible(ImpossibilityReason),
+}
 
-    let simulated =
-        simulate(snapshot, &effects).map_err(|refusal| PlanRefusal::SimulateRefused { refusal })?;
-
-    OperationPlan::assemble(
-        identity.plan_id.clone(),
+/// Compose the emitted reversal (PLAN-008): the draft's plan ID is
+/// derived from the forward plan's deterministically, its proposal is
+/// the simulated final topology, and its truthfulness is judged at
+/// emission by [`ReversalDraft::compose`].
+fn emit_reversal(
+    material: ReversalMaterial,
+    simulated: &TopologySnapshot,
+    identity: &PlanIdentity,
+    forward_step: &PlanStep,
+) -> Result<EmittedReversal, PlanRefusal> {
+    let draft_steps = match material {
+        ReversalMaterial::Impossible(reason) => {
+            return Ok(EmittedReversal::Impossible(vec![StepImpossibility {
+                step: 0,
+                reason,
+            }]));
+        }
+        ReversalMaterial::CreateDraft { placed } => vec![DraftStep {
+            target: DraftTarget::StepOutput(0),
+            ranges: StepRanges {
+                written_table_extents: vec![],
+                consumed: vec![],
+                destroyed: vec![placed],
+            },
+            acknowledgments: vec![],
+            risk: StepRisk {
+                severity: Severity::Reversible,
+                flags: StepFlags::default(),
+            },
+            preconditions: vec![DraftPrecondition::StepOutputUnoccupied { step: 0 }],
+        }],
+        ReversalMaterial::GrowDraft {
+            extension,
+            reclaimed,
+        } => vec![DraftStep {
+            target: DraftTarget::Address(reclaimed.host),
+            ranges: StepRanges {
+                written_table_extents: vec![],
+                consumed: vec![],
+                destroyed: vec![extension],
+            },
+            acknowledgments: vec![],
+            risk: StepRisk {
+                severity: Severity::Reversible,
+                flags: StepFlags::default(),
+            },
+            preconditions: vec![DraftPrecondition::Carried(Precondition::RegionUnoccupied {
+                region: reclaimed,
+            })],
+        }],
+    };
+    let mut draft_plan_id = identity.plan_id.clone();
+    draft_plan_id.extend_from_slice(b"/reversal");
+    ReversalDraft::compose(
+        draft_plan_id,
         identity.created_at,
-        snapshot,
-        identity.validity,
-        std::collections::BTreeMap::new(),
-        vec![step],
-    )
-    .map(|plan| Planned {
-        plan,
         simulated,
-        consequences,
-    })
-    .map_err(|error| PlanRefusal::PlanRefused { error })
+        identity.validity,
+        draft_steps,
+        identity.plan_id.clone(),
+        std::slice::from_ref(forward_step),
+    )
+    .map(EmittedReversal::Draft)
+    .map_err(|refusal| PlanRefusal::ReversalRefused { refusal })
 }
 
 /// The position of an operation in CAP-002's list — the discriminant
@@ -577,8 +809,9 @@ pub fn plan_set(
         .map_err(|refusal| PlanRefusal::GraphRefused { refusal })?;
 
     let mut steps = Vec::with_capacity(set.requests.len());
-    for index in order.order {
-        let request = set.requests[index];
+    let mut statements = Vec::with_capacity(set.requests.len());
+    for (position, index) in order.order.iter().enumerate() {
+        let request = set.requests[*index];
         let step = PlanStep::mutating(
             snapshot,
             request.target,
@@ -588,6 +821,13 @@ pub fn plan_set(
         )
         .map_err(|refusal| PlanRefusal::StepRefused { refusal })?;
         steps.push(step);
+        // PLAN-008's statements follow the emitted step order: every
+        // canonical operation this path plans is a wipe or an identity
+        // write, none truthfully reversible.
+        statements.push(StepImpossibility {
+            step: position,
+            reason: impossibility(request.operation),
+        });
     }
 
     let mut combined = Effects::default();
@@ -601,17 +841,21 @@ pub fn plan_set(
     let simulated = simulate(snapshot, &combined)
         .map_err(|refusal| PlanRefusal::SimulateRefused { refusal })?;
 
-    OperationPlan::assemble(
+    OperationPlan::assemble_linked(
         identity.plan_id.clone(),
         identity.created_at,
         snapshot,
         identity.validity,
         std::collections::BTreeMap::new(),
         steps,
+        ReversalLinkage::Impossible {
+            statements: statements.clone(),
+        },
     )
     .map(|plan| Planned {
         plan,
         simulated,
+        reversal: EmittedReversal::Impossible(statements),
         consequences: vec![],
     })
     .map_err(|error| PlanRefusal::PlanRefused { error })
