@@ -100,7 +100,7 @@ external tool is invoked, and on INV-006's no-repair/no-auto-mount discipline.
 Issue #94 is closed: the full acceptance, including its adversarial rebind leg,
 succeeded in a disposable Proxmox-hosted non-WSL Linux VM on 2026-08-03 — on the
 implementation commit `2dbf601`, and again on the merged commit `c75b340` that
-lands on main — and was re-taken eleven times, each in a fresh
+lands on main — and was re-taken twelve times, each in a fresh
 disposable VM after the record's stopping condition tripped: on `582e6d1`
 (issue #175), on `4fbb2f9` when increments 2g/2h landed, on `68298f2` when
 the #248/#249/#250 review-finding fixes landed, on `0625b07` when
@@ -110,10 +110,13 @@ when WP-070 increment 1 tripped it from outside WP-020, on `15e6469`
 (the same day) when WP-070 increment 2 tripped it again, on `94bfeba`
 (the same day) when WP-070 increment 3 tripped it a third time, on
 `d4f61ed` (the same day) when WP-070 increment 4 tripped it a fourth, on
-`59ba1f6` (the same day) when WP-070 increment 5 tripped it a fifth, and
-on `667f6aa` (2026-08-13 UTC) when the WP-060 unlock arc — six Rust
+`59ba1f6` (the same day) when WP-070 increment 5 tripped it a fifth, on
+`667f6aa` (2026-08-13 UTC) when the WP-060 unlock arc — six Rust
 merges, PRs #299–#304 — tripped it a sixth time from outside, re-taken
-once at the arc's head per that arc's recorded plan,
+once at the arc's head per that arc's recorded plan, and on `77b0dd7`
+(2026-08-13 UTC) when the PLAN-005 cancellation arc — three Rust
+merges, PRs #307–#309 — tripped it a seventh, again re-taken once at
+the arc's head,
 with identical harness values and fixture digests every time. (This sentence
 previously read "four times" while the custody table held six rows — the
 `39b59f5` re-take never updated it, the stale-count shape again, corrected

@@ -7,6 +7,32 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-020: the r12 sitting — all three acceptances re-taken on
+  `77b0dd7`, the stopping condition re-pinned there, closing the
+  PLAN-005 cancellation arc.** The seventh trip from outside the
+  package (the arc's three Rust merges, PRs #307–#309: WP-010
+  plan-body slices 3n and 3o with the jointly-sequenced WP-060
+  increment 9), covered by a single sitting at the arc's head per the
+  arc's own recorded one-sitting economics. One sitting on 2026-08-13
+  (UTC), one fresh disposable Proxmox-hosted VM (VMID 9435, kernel
+  5.15.0-186-generic), the r11 runbook copied to r12 with header prose
+  alone changed: the full eleven-control refusal set refused, 2e
+  passed (its twelfth re-take, identical value set), the 2h suite
+  passed (`fixtures_executed=1`, `ranges_written=1`,
+  `contracted_bytes_written=8`), and the 2j suite passed
+  (`ranges_written=2`, `contracted_bytes_written=16`, both signatures
+  restored). Fixtures byte-identical to the catalogue, loop table
+  empty, teardown verified with nothing remaining
+  (2026-08-13T02:36:40Z). One operational deviation recorded rather
+  than hidden: the sitting's first invocation went through `sudo`, and
+  2e's own Tier-1 redaction sweep refused it on the injected
+  `SUDO_USER` value — the sweep doing its job on an operator-injected
+  variable — so the void transcript is retained (custody run 18), the
+  guest was rolled back to the `pre-acceptance` snapshot, and the
+  cited run was root-invoked from the snapshot state (custody run 19:
+  transcript digests agreeing across guest, host, and workstation,
+  `b42574de…d4d5`).
+
 - **WP-010 slice 3o: the version-1 plan body retired.** The reviewed
   change plan-body.md §0 has promised since slice 3l: with the planner
   on the linked form since WP-060 increment 6 and the version-4
