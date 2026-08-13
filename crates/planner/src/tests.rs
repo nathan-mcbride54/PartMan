@@ -1756,13 +1756,14 @@ fn capture_impossible_proceeds_only_under_the_named_acknowledgement() {
 }
 
 use super::{
-    CancelClaim, ClaimRefusal, InterruptionProfile, interruption_profile, irreversible_after_start,
-    plan_flags,
+    CancelClaim, ClaimRefusal, InterruptionProfile, cancellation_class, interruption_profile,
+    irreversible_after_start, plan_flags,
 };
 use partman_domain::model::plan::{
     DraftPrecondition as DP, DraftStep, PlanError, ReversalDraft, StepImpossibility as Statement,
 };
 use partman_domain::model::protection::StepRanges;
+use partman_domain::model::step::Cancellation;
 use partman_domain::model::step::{PlanStep, StepFlags, StepRisk};
 
 // Requirements: PLAN-004
@@ -1835,6 +1836,140 @@ fn the_criterion_partitions_step_families() {
             .flags
             .irreversible_after_start,
         "an entry-level write is unflagged"
+    );
+}
+
+// Requirements: PLAN-005
+//   The cancellation class partitions the operation vocabulary under
+//   the WP-060 recorded cancellation-class decision (2026-08-12): the
+//   journaled-chunk-copy family is checkpoint-cancellable on PART-005's
+//   durable progress map and ACC-012's declared checkpoint — stated for
+//   the family before the planner emits it — and every family the
+//   planner emits today sits on the non-cancellable floor, each
+//   earning more only through the decision's named revisit conditions.
+//   The class is a stated declaration, never a derivation from the
+//   interruption profile: cannot-stop and cannot-unwind are
+//   independent facts in both directions (spec 12.3.0), and the
+//   partition exhibits all the combinations that exist today.
+// Evidence: the_cancellation_class_partitions_step_families
+#[test]
+fn the_cancellation_class_partitions_step_families() {
+    assert_eq!(
+        cancellation_class(Operation::Move),
+        Cancellation::CheckpointCancellable,
+        "the journaled chunk copy stops at its declared checkpoints"
+    );
+    assert_eq!(
+        cancellation_class(Operation::Copy),
+        Cancellation::CheckpointCancellable
+    );
+    for floor in [
+        Operation::Wipe,
+        Operation::Shrink,
+        Operation::Create,
+        Operation::Grow,
+        Operation::Label,
+        Operation::Uuid,
+        Operation::Repair,
+        Operation::Encrypt,
+        Operation::Decrypt,
+    ] {
+        assert_eq!(
+            cancellation_class(floor),
+            Cancellation::NonCancellable,
+            "no measured safe-stop story: {floor:?} sits on the floor"
+        );
+    }
+
+    // The recorded independence, visible in the vocabulary: the entry
+    // write cannot stop yet unwinds trivially (unflagged); the chunk
+    // copy stops at checkpoints yet is unflagged; the wipe can neither
+    // stop nor unwind. Neither axis derives the other.
+    assert!(!irreversible_after_start(interruption_profile(
+        Operation::Label
+    )));
+    assert!(!irreversible_after_start(interruption_profile(
+        Operation::Move
+    )));
+    assert!(irreversible_after_start(interruption_profile(
+        Operation::Wipe
+    )));
+}
+
+// Requirements: PLAN-005, MODEL-005
+//   The declaration reaches the emitted body end to end: every step of
+//   an emitted plan carries its stated class in the hashed version-4
+//   body — the wipe and the repair on the floor, spelled exactly as
+//   PLAN-005 spells it — and the declaration survives the typed
+//   boundary's recompute.
+// Evidence: the_emitted_body_carries_the_cancellation_declaration
+#[test]
+fn the_emitted_body_carries_the_cancellation_declaration() {
+    let (snapshot, clean, _) = fixture();
+    let wiped = plan(
+        PlanRequest {
+            operation: Operation::Wipe,
+            target: clean,
+        },
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect("plans");
+    assert_eq!(
+        wiped.plan.steps()[0].cancellation(),
+        cancellation_class(Operation::Wipe),
+        "the emitted step carries the stated class"
+    );
+    let Value::Map(body) = wiped.plan.body_value().expect("body") else {
+        panic!("body is a map");
+    };
+    let Some(Value::Array(steps)) = body.get("steps") else {
+        panic!("steps present");
+    };
+    let Value::Map(step_map) = &steps[0] else {
+        panic!("step is a map");
+    };
+    assert_eq!(
+        step_map.get("cancellation"),
+        Some(&Value::Text("non-cancellable".to_owned())),
+        "the hashed body spells the floor exactly as PLAN-005 spells it"
+    );
+
+    let bytes = canonical::encode(&Value::Map(body)).expect("encodable");
+    let rebuilt =
+        partman_domain::model::plan::OperationPlan::from_canonical_body(&bytes, &snapshot)
+            .expect("revalidates");
+    assert_eq!(
+        rebuilt.steps()[0].cancellation(),
+        Cancellation::NonCancellable,
+        "the declaration survives the boundary's recompute"
+    );
+
+    // The typed repair family declares through the same seam.
+    let (repair_world, device, _) = stateful_device(
+        b"PRT-CXL",
+        TableState::Indeterminate {
+            cause: IndeterminateCause::Ambiguous,
+        },
+        true,
+    );
+    let repaired = plan_repair(
+        &RepairRequest {
+            target: device,
+            acknowledged_uncapturable: None,
+        },
+        &repair_world,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect("plans");
+    assert_eq!(
+        repaired.plan.steps()[0].cancellation(),
+        Cancellation::NonCancellable,
+        "the repair family sits on the floor"
     );
 }
 

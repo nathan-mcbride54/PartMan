@@ -7,6 +7,37 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-060 increment 9: the cancellation vocabulary — PLAN-005
+  delivered on the recorded cancellation-class decision.** Every step
+  the planner emits now declares exactly one of PLAN-005's three words
+  in the hashed version-4 body, on WP-010 slice 3n's jointly-sequenced
+  schema change. The class is a per-family stated declaration
+  (`cancellation_class`, the interruption-profile precedent) under the
+  decision recorded in the WP-060 assignment in the WP-035
+  route-decision shape — never a derivation from the interruption
+  profile, since spec 12.3.0 records cannot-stop and cannot-unwind as
+  independent facts in both directions, and the partition fixture
+  exhibits the combinations: the entry write cannot stop yet unwinds
+  trivially, the journaled chunk copy stops at its declared
+  checkpoints yet is unflagged, the wipe can neither stop nor unwind.
+  `Move`/`Copy` are stated `checkpoint-cancellable` on PART-005's
+  durable progress map and ACC-012's declared checkpoint — for the
+  family, before the planner emits it — and every family the planner
+  emits today sits on the `non-cancellable` floor, each earning more
+  only through the decision's named revisit conditions (the overwrite
+  wipe's measured safe-stop story first among them). The derivation is
+  wired explicitly into all four step-construction sites, never left
+  to the carriage's default; the emitted body carries the declaration
+  end to end and it survives the boundary's recompute; `CancelClaim`
+  and ADR-0025's coupling rule are untouched; the UI's must-not-offer
+  law and EXE-004's acknowledgment are recorded as the UI and executor
+  packages' boundaries. Three mutants (the family statement flipped to
+  the floor, a call site bypassing the derivation with an off-floor
+  constant, the floor arm flipped off the floor) each failed a named
+  test; the floor-constant bypass is semantically equivalent today and
+  recorded in the assignment rather than claimed killable. With this,
+  every item the WP-060 assignment's beyond-list named is delivered.
+
 - **WP-010 slice 3n: plan body version 4 — PLAN-005's cancellation
   declaration enters the hashed body.** Jointly sequenced with WP-060
   increment 9 under the WP-060 recorded cancellation-class decision
