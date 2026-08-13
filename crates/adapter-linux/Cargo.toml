@@ -1,0 +1,20 @@
+[package]
+name = "partman-adapter-linux"
+description = "The WP-L100 Linux read-only inventory adapter: the ordinary-client contract's bounded read seam, its MODEL-004 observations, and the published INV-003 reach"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+# `partman-domain` deliberately, and the dependency is the point: this adapter
+# produces MODEL-004 observations in the domain's own ADR-C4 vocabulary rather
+# than a second, parallel one beside it. The direction is Section 4.3's —
+# platform adapters depend on canonical domain interfaces, and canonical crates
+# never depend on adapters — so nothing here may be imported back into the
+# domain.
+partman-domain = { path = "../domain" }
+
+[lints]
+workspace = true
