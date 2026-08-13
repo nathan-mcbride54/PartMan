@@ -4182,7 +4182,7 @@ spec change, and nothing in this section makes it. These rows are what
 that act can now rest on. (The designation has since been made: ADR-0034,
 spec 12.11.0, on these rows.)
 
-### The floor-rows sitting — preregistered 2026-08-13, not yet taken
+### The floor-rows sitting — preregistered 2026-08-13; taken the same day; valid on its second invocation
 
 Five cells, declared before execution per this document's method. They
 close issue #318 items 4, 5, and 6 (three of SI-28's floor inputs and
@@ -4203,11 +4203,11 @@ before first capture.
 
 | # | Cell | Command / API | Privilege | Distinguishing condition | Invalidation conditions | Result |
 | --- | --- | --- | --- | --- | --- | --- |
-| FR1 | `removable` on a real whole device | `cat /sys/class/block/<dev>/removable`, double capture | client baseline | The SI-28 floor input's value for a real USB mass-storage device — no qualifying row exists on any Linux host, though both WP-035's CLI and WP-L100's adapter read it | value unstable across the double capture; device re-enumerated mid-capture | *(not yet taken)* |
-| FR2 | Physical and logical block size, real hardware | `cat /sys/class/block/<dev>/queue/physical_block_size` and `queue/logical_block_size`, double capture | client baseline | Both values on real non-virtual hardware — measured on WSL2 virtual SCSI only, and the one non-WSL frozen projection names the logical size alone | value unstable across the double capture | *(not yet taken)* |
-| FR3 | The whole-device discriminator | `ls /sys/class/block/<dev>/` and `ls /sys/class/block/<dev>1/`; `cat` of `partition` on both nodes with exit status recorded | client baseline | Whether a whole device **positively lacks** the `partition` attribute while its partition carries it — the admission rule both delivered implementations use, resting today on a code precedent inside a non-qualifying record | either listing incomplete; the partition node absent at capture | *(not yet taken)* |
-| FR4 | The designated serial source's canonical path | `realpath /sys/block/<dev>/device/../../../../serial` beside `cat` of the same path, double capture | client baseline | ADR-0034's evidence obligation 1: the as-executed traversal's resolved absolute path, closing the structural-resolution inference the designation currently carries | realpath and cat disagree on target; value differs from the udev-recorded serial | *(not yet taken)* |
-| FR5 | Whole-device sysfs `size` against a byte interface | `cat /sys/block/<dev>/size` (client baseline, double capture) and `blockdev --getsize64 /dev/<dev>` (root), same device, same sitting | both, separately labelled | Whether sysfs `size` × 512 equals the byte interface's answer **on the whole-device node** — the 2026-08-13 readback measured the 512-byte unit on the partition node alone and stated the whole-device gap rather than bridging it by convention | either read failing; the two captures unstable | *(not yet taken)* |
+| FR1 | `removable` on a real whole device | `cat /sys/class/block/<dev>/removable`, double capture | client baseline | The SI-28 floor input's value for a real USB mass-storage device — no qualifying row exists on any Linux host, though both WP-035's CLI and WP-L100's adapter read it | value unstable across the double capture; device re-enumerated mid-capture | `observed` — `1`, rc 0, byte-stable across both captures: the first qualifying `removable` value on any Linux host, and it is the value the SI-28 floor needs for this device class |
+| FR2 | Physical and logical block size, real hardware | `cat /sys/class/block/<dev>/queue/physical_block_size` and `queue/logical_block_size`, double capture | client baseline | Both values on real non-virtual hardware — measured on WSL2 virtual SCSI only, and the one non-WSL frozen projection names the logical size alone | value unstable across the double capture | `observed` — physical `512`, logical `512`, both rc 0, byte-stable: the first real-hardware `physical_block_size` row |
+| FR3 | The whole-device discriminator | `ls /sys/class/block/<dev>/` and `ls /sys/class/block/<dev>1/`; `cat` of `partition` on both nodes with exit status recorded | client baseline | Whether a whole device **positively lacks** the `partition` attribute while its partition carries it — the admission rule both delivered implementations use, resting today on a code precedent inside a non-qualifying record | either listing incomplete; the partition node absent at capture | `observed` — on the whole device the read fails `ENOENT` (`No such file or directory`, rc 1) with the attribute absent from the directory listing — a measured absence, the `ObservedAbsent` shape, not a failed read; on the partition the attribute reads `1`, rc 0; both byte-stable. The admission rule now rests on a qualifying measurement |
+| FR4 | The designated serial source's canonical path | `realpath /sys/block/<dev>/device/../../../../serial` beside `cat` of the same path, double capture | client baseline | ADR-0034's evidence obligation 1: the as-executed traversal's resolved absolute path, closing the structural-resolution inference the designation currently carries | realpath and cat disagree on target; value differs from the udev-recorded serial | `observed` — the traversal resolves to `/sys/devices/pci0000:00/…/usb10/10-1/serial`, a **USB device node's** `serial` attribute exactly as ADR-0034's structural rule states; the value read via the traversal and via the resolved path is identical (`A20036CA8695D921`, the recorded serial of this unit); byte-stable. The designation's structural-resolution inference is discharged (this apparatus presents QEMU's passthrough topology — the structural claim, not the specific path, is the measured fact) |
+| FR5 | Whole-device sysfs `size` against a byte interface | `cat /sys/block/<dev>/size` (client baseline, double capture) and `blockdev --getsize64 /dev/<dev>` (root), same device, same sitting | both, separately labelled | Whether sysfs `size` × 512 equals the byte interface's answer **on the whole-device node** — the 2026-08-13 readback measured the 512-byte unit on the partition node alone and stated the whole-device gap rather than bridging it by convention | either read failing; the two captures unstable | `observed` — sysfs `size` = `244457472` (client, byte-stable), `blockdev --getsize64` = `125162225664` (root), and 244457472 × 512 = 125162225664 **exactly**: the 512-byte unit is measured on the whole-device node itself. The convention WP-L100 increment 3 was directed to accept is now a measured fact on this class; the acceptance decision still lands in that increment's record, citing this row instead of a convention |
 
 Validity gates, all required: fresh VM and recorded environment
 (`l-env.sh` lineage); `udevadm settle` plus double-capture byte
@@ -4225,6 +4225,33 @@ preregistration does not preempt it); no layout provisioning; no second
 stick (FR cells are single-device claims; the pair's distinctness is
 already recorded); no CID measurement (no native MMC controller exists
 in this apparatus).
+
+**The sitting, 2026-08-13 (UTC).** Disposable VM 9437 on the same
+Proxmox host, fresh jammy image against the pinned digest, kernel
+`5.15.0-186-generic`, the bus-port `2-3` SanDisk unit (the readback
+rows' measured unit, serial `A20036CA8695D921`) passed through with
+`usb3=1`; `muser1` created with no supplementary groups as the client
+baseline; the device `blockdev --setro` before any capture and `ro=1`
+at every read; no mount of the measured object before or after;
+`udevadm settle` before captures; every cell byte-stable across the
+double capture. **The first invocation was void** — the client
+instrument was staged in `/root`, which the unprivileged user cannot
+read, and `runuser` refused it before any client capture ran; the void
+transcript is retained under the keep-revisions practice, the
+instrument was restaged world-readable at `/usr/local/lib`, and the
+cited run's transcript records the amended `fr-root.sh` digest. The
+guest's snapd loop devices were present and recorded; this protocol
+names no loop-administrator exclusion. Teardown verified
+2026-08-13T15:57:45Z: no VM config, no storage volume, no LVM volume.
+
+**Custody.** Transcript and the void first invocation archived at
+`%USERPROFILE%\PartMan-evidence\2026-08-13-fr-vmid9437\` on the
+operator workstation, custodian Nate McBride. Cited transcript SHA-256
+`6173cc46f62671d63b0fdaf44a3f218aad03088d884a6f3d0f31d19ab1f340a6`
+(4310 bytes), computed in the guest before the file moved, recomputed
+on the Proxmox host, recomputed on the workstation — all three
+agreeing. Instrument digests recorded in-transcript before any
+capture.
 
 ## Reproducing this
 
