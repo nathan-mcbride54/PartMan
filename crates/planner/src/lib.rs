@@ -44,7 +44,8 @@ use partman_domain::model::plan::{
 };
 use partman_domain::model::snapshot::TopologySnapshot;
 use partman_domain::model::step::{
-    Acknowledgment, PlanStep, Precondition, Severity, StepClass, StepFlags, StepRefusal, StepRisk,
+    Acknowledgment, Cancellation, PlanStep, Precondition, Severity, StepClass, StepFlags,
+    StepRefusal, StepRisk,
 };
 
 use crate::graph::{Dependency, GraphRefusal, execution_order};
@@ -473,6 +474,33 @@ const fn interruption_profile(operation: Operation) -> InterruptionProfile {
     }
 }
 
+/// PLAN-005's cancellation class, stated per operation family under
+/// the WP-060 recorded cancellation-class decision (2026-08-12) — a
+/// stated declaration exactly like [`interruption_profile`], never a
+/// derivation from it: spec 12.3.0 records cannot-stop and
+/// cannot-unwind as independent facts in both directions. A family
+/// claims `cancellable` or `checkpoint-cancellable` only on decided
+/// text or a measured mechanism; the floor is `non-cancellable`,
+/// because claiming less cancellation than reality costs only
+/// convenience while claiming more makes the UI offer a stop the
+/// executor cannot honor (PLAN-005's second sentence).
+const fn cancellation_class(operation: Operation) -> Cancellation {
+    match operation {
+        // PART-005's journaled chunk copy with a durable progress map;
+        // ACC-012's declared checkpoint — decided text, stated for the
+        // family before the planner emits it (the interruption-profile
+        // precedent).
+        Operation::Move | Operation::Copy => Cancellation::CheckpointCancellable,
+        // Everything the planner emits today: the entry writes and the
+        // sized create land entirely or not at all (nothing to stop);
+        // the wipe, the shrink, the table repair, and the
+        // encryption-layer transforms have no measured safe-stop story
+        // — the wipe is the decision's named first revisit candidate,
+        // waiting on the executor era's measurement.
+        _ => Cancellation::NonCancellable,
+    }
+}
+
 /// The risk this planner declares for a canonical single-operation
 /// step: the operation's class decides the severity conservatively —
 /// destructive for `Wipe`, data-moving for the content-moving family,
@@ -712,12 +740,14 @@ pub fn plan(
 
     let ranges = canonical_ranges(request.operation, request.target, snapshot.facts());
     indeterminate_table_guard(snapshot, request.target, &ranges)?;
-    let step = PlanStep::mutating(
+    let step = PlanStep::mutating_declared(
         snapshot,
         request.target,
         ranges,
         vec![],
         canonical_risk(request.operation),
+        StepClass::Ordinary,
+        cancellation_class(request.operation),
     )
     .map_err(|refusal| PlanRefusal::StepRefused { refusal })?;
 
@@ -799,8 +829,16 @@ pub fn plan_sized(
         canonical_risk(operation)
     };
     indeterminate_table_guard(snapshot, target, &ranges)?;
-    let step = PlanStep::mutating(snapshot, target, ranges, vec![], risk)
-        .map_err(|refusal| PlanRefusal::StepRefused { refusal })?;
+    let step = PlanStep::mutating_declared(
+        snapshot,
+        target,
+        ranges,
+        vec![],
+        risk,
+        StepClass::Ordinary,
+        cancellation_class(operation),
+    )
+    .map_err(|refusal| PlanRefusal::StepRefused { refusal })?;
 
     let simulated =
         simulate(snapshot, &effects).map_err(|refusal| PlanRefusal::SimulateRefused { refusal })?;
@@ -1099,12 +1137,14 @@ pub fn plan_set(
     let mut statements = Vec::with_capacity(set.requests.len());
     for (position, index) in order.order.iter().enumerate() {
         let request = set.requests[*index];
-        let step = PlanStep::mutating(
+        let step = PlanStep::mutating_declared(
             snapshot,
             request.target,
             canonical_ranges(request.operation, request.target, snapshot.facts()),
             vec![],
             canonical_risk(request.operation),
+            StepClass::Ordinary,
+            cancellation_class(request.operation),
         )
         .map_err(|refusal| PlanRefusal::StepRefused { refusal })?;
         steps.push(step);
@@ -1228,7 +1268,7 @@ pub fn plan_repair(
         }],
         None => vec![],
     };
-    let step = PlanStep::mutating_classed(
+    let step = PlanStep::mutating_declared(
         snapshot,
         request.target,
         StepRanges {
@@ -1254,6 +1294,7 @@ pub fn plan_repair(
             },
         },
         StepClass::TableRepair,
+        cancellation_class(Operation::Repair),
     )
     .map_err(|refusal| PlanRefusal::StepRefused { refusal })?;
 
