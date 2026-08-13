@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "apps/cli",
+    "crates/adapter-linux",
     "crates/capability",
     "crates/domain",
     "crates/ffi-linux-loop",

@@ -7,6 +7,67 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-L100 increment 1: the contract, its seam, and its published
+  reach.** `crates/adapter-linux` joins the workspace (workspace lints,
+  `unsafe_code` denied by inheritance — this adapter takes the denial
+  rather than SAFE-009's adapter exception, because it opens nothing
+  that would need one), depending on `partman-domain` deliberately:
+  MODEL-004's observations are the domain's own ADR-C4 vocabulary, not
+  a second one beside it that would drift. The injected read seam
+  returns **bytes**, which is a deliberate variation on WP-035's
+  precedent and the reason this increment can test what it declares —
+  WP-035 enforces its per-value bound inside its production
+  implementation, where a Tier-1 fake cannot reach it, so that bound
+  has no test. Here every rule is decided above the seam: the entry
+  bound and the byte bound each refuse with the count seen rather than
+  truncating (a prefix is byte-for-byte indistinguishable from a
+  complete read of that length), non-UTF-8 bytes refuse rather than
+  being lossily converted, and exactly one trailing newline is
+  stripped — trimming all trailing whitespace turns a padded SCSI
+  vendor into an empty string, which then reads as a positively
+  determined absence, the ADR-C4 violation WP-035 records having made.
+  ADR-C4's separation is structural rather than documented: reading an
+  attribute requires an `InterfaceAnswered` token that only a
+  successful listing produces and that no caller can name into
+  existence (compile-fail-proven), so a missing attribute cannot be
+  read as an absence by a caller who cannot show the interface
+  answered, and an interface that did not answer is `unavailable`,
+  never an empty listing. The interface decides MODEL-004's method,
+  and that is a decision rather than a transcription: `sysfs` is
+  `Direct` and derives `authoritative`, while a `udev` database value —
+  computed by root's udevd at device-add time and read here from its
+  cache — is `Heuristic` and derives `inferred`, because calling a
+  cached third-party computation authoritative would let one stale
+  record outrank nothing. The INV-003 reach declaration (ADR-0013)
+  publishes one cell per state in INV-003's own order, fixed-size so a
+  missing cell is a compile error rather than an omitted `no`, with
+  every cell negative on a **deliberately** not-measured basis:
+  `docs/quality/observability.md` §Linux does hold measured rows here,
+  but a measured basis must be a measurement about *this* contract and
+  this contract reads no field yet — the same rows record that the
+  `udev` database carries `ID_PART_TABLE_TYPE`, so which fields
+  increment 2 lists is what decides reachability, and increment 2
+  earns the basis rather than defaulting it. No identity record is
+  emitted and no strength derived: `DeviceIdentity` carries a required
+  table state, every variant of which is a determination INV-003
+  forbids this contract making, so the record binds at validation from
+  the helper's own re-discovery. `schemas/adapter-linux/reach.md`
+  records the format, pinned to the crate's vocabulary by test.
+  Fourteen tests and one compile-fail proof, none platform-gated —
+  the crate is pure over the seam, so the whole suite runs on all
+  three CI legs rather than only where a defect would be least
+  convenient to find; traceability converted to `generated`. Seven
+  mutants (the entry bound raised past its own fixture, the byte bound
+  doubled, trailing whitespace trimmed instead of one newline,
+  non-UTF-8 converted lossily, a cached database value called direct,
+  an absent interface listed as empty, a failed read reported as an
+  absence) were each killed by a named test before proposal, and the
+  fail-open one was killed twice — the evidence token catches it a
+  second time. This is a Rust merge: the WP-020 2e stopping condition
+  pinned at `77b0dd7` trips, the eighth trip from outside that
+  package, and the re-pin sitting is run and recorded separately under
+  WP-020's ownership, as every re-take has been.
+
 - **spec-change 12.10.0: SI-14 is resolved — a derived property is a
   derivation, not an observation (ADR-0033).** The register-residue
   arc's one ripe issue: its "Later (WP-050)" gate had been reached and
