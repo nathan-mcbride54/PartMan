@@ -20,7 +20,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use partman_domain::canonical::{self, Value, encode, hash};
-use partman_domain::model::identity::{DeviceIdentity, TableState};
+use partman_domain::model::identity::{DeviceIdentity, IndeterminateCause, TableState};
 use partman_domain::model::naming::{
     AggregateTechnology, FileSystemKind, NamingFields, NodeId, SignatureFamily, TableRole,
     derive_id,
@@ -31,7 +31,9 @@ use partman_domain::model::plan::{
 };
 use partman_domain::model::protection::{Facts, HostRange, StepRanges, TransportClass};
 use partman_domain::model::snapshot::{SnapshotKind, TopologySnapshot};
-use partman_domain::model::step::{PlanStep, Severity, StepFlags, StepRisk};
+use partman_domain::model::step::{
+    Acknowledgment, PlanStep, Severity, StepClass, StepFlags, StepRisk,
+};
 use partman_domain::model::topology::{Edge, EdgeKind};
 use serde_json::Value as Json;
 
@@ -427,6 +429,54 @@ fn draft_create_reversal() -> ReversalDraft {
     .expect("the draft composes against the prediction")
 }
 
+/// A device whose authored table state is `Indeterminate`, its damaged
+/// table located as a child extent — the world ADR-0024's repair arm
+/// exists for.
+fn indeterminate_table_snapshot() -> (TopologySnapshot, NodeId, HostRange) {
+    let dev = device(b"VEC-REPAIR");
+    let dev_id = derive_id(&dev).expect("derivable");
+    let table = NamingFields::PartitionTable {
+        parent: dev_id,
+        role: TableRole::Gpt,
+    };
+    let table_id = derive_id(&table).expect("derivable");
+    let table_region = HostRange {
+        host: dev_id,
+        start: 0,
+        length: 17_408,
+    };
+    let mut facts = Facts::default();
+    facts.transports.insert(dev_id, TransportClass::Sata);
+    facts.extents.insert(
+        dev_id,
+        HostRange {
+            host: dev_id,
+            start: 0,
+            length: 1 << 30,
+        },
+    );
+    facts.extents.insert(table_id, table_region);
+    facts.table_states.insert(
+        dev_id,
+        TableState::Indeterminate {
+            cause: IndeterminateCause::Ambiguous,
+        },
+    );
+    let snapshot = TopologySnapshot::assemble(
+        SnapshotKind::Captured,
+        false,
+        vec![dev, table],
+        vec![Edge {
+            kind: EdgeKind::Containment,
+            source: dev_id,
+            target: table_id,
+        }],
+        facts,
+    )
+    .expect("assembles");
+    (snapshot, dev_id, table_region)
+}
+
 fn snapshot_for(name: &str) -> TopologySnapshot {
     match name {
         "snapshot-minimal-captured" => minimal_captured(),
@@ -434,11 +484,15 @@ fn snapshot_for(name: &str) -> TopologySnapshot {
         "snapshot-full-captured" => full_captured(),
         "snapshot-plan-base-captured" => plan_base().0,
         "snapshot-plan-base-simulated-created" => simulated_created(),
+        "snapshot-plan-base-indeterminate-table" => indeterminate_table_snapshot().0,
         other => panic!("no construction for snapshot vector {other}"),
     }
 }
 
 fn plan_for(name: &str) -> (OperationPlan, TopologySnapshot) {
+    if name == "plan-v3-table-repair-acknowledged" {
+        return table_repair_plan();
+    }
     let (snapshot, dev_id) = plan_base();
     let step = wipe_step(&snapshot, dev_id);
     let plan = match name {
@@ -481,8 +535,8 @@ fn plan_for(name: &str) -> (OperationPlan, TopologySnapshot) {
             )
             .expect("assembles")
         }
-        "plan-v2-wipe-impossible" => OperationPlan::assemble_linked(
-            b"vec-plan-v2".to_vec(),
+        "plan-v3-wipe-impossible" => OperationPlan::assemble_linked(
+            b"vec-plan-v3".to_vec(),
             1_700_000_000,
             &snapshot,
             ValidityWindow {
@@ -498,7 +552,7 @@ fn plan_for(name: &str) -> (OperationPlan, TopologySnapshot) {
             },
         )
         .expect("assembles"),
-        "plan-v2-forward-create-draft-linked" => {
+        "plan-v3-forward-create-draft-linked" => {
             let draft = draft_create_reversal();
             OperationPlan::assemble_linked(
                 b"vec-plan-fwd".to_vec(),
@@ -518,6 +572,50 @@ fn plan_for(name: &str) -> (OperationPlan, TopologySnapshot) {
         }
         other => panic!("no construction for plan vector {other}"),
     };
+    (plan, snapshot)
+}
+
+/// The table-repair plan over the indeterminate-table world: the typed
+/// repair-family step carrying the capture-impossible acknowledgment
+/// (ADR-0024), its reversal the pre-state-preserved statement.
+fn table_repair_plan() -> (OperationPlan, TopologySnapshot) {
+    let (snapshot, dev_id, table_region) = indeterminate_table_snapshot();
+    let step = PlanStep::mutating_classed(
+        &snapshot,
+        dev_id,
+        StepRanges {
+            written_table_extents: vec![table_region],
+            consumed: vec![],
+            destroyed: vec![],
+        },
+        vec![Acknowledgment::UncapturableRegions {
+            table: dev_id,
+            regions: vec![table_region],
+        }],
+        StepRisk {
+            severity: Severity::Disruptive,
+            flags: StepFlags::default(),
+        },
+        StepClass::TableRepair,
+    )
+    .expect("the repair family constructs on the indeterminate table");
+    let plan = OperationPlan::assemble_linked(
+        b"vec-plan-repair".to_vec(),
+        1_700_000_000,
+        &snapshot,
+        ValidityWindow {
+            not_after: 1_700_086_400,
+        },
+        BTreeMap::new(),
+        vec![step],
+        ReversalLinkage::Impossible {
+            statements: vec![StepImpossibility {
+                step: 0,
+                reason: ImpossibilityReason::PreStatePreservedForRecovery,
+            }],
+        },
+    )
+    .expect("assembles");
     (plan, snapshot)
 }
 
@@ -571,9 +669,14 @@ fn print_new_vectors() {
         None,
         &simulated.body_value().expect("body"),
     );
+    entry(
+        "snapshot-plan-base-indeterminate-table",
+        None,
+        &indeterminate_table_snapshot().0.body_value().expect("body"),
+    );
     for name in [
-        "plan-v2-wipe-impossible",
-        "plan-v2-forward-create-draft-linked",
+        "plan-v3-wipe-impossible",
+        "plan-v3-forward-create-draft-linked",
     ] {
         let (plan, _) = plan_for(name);
         entry(
@@ -582,6 +685,12 @@ fn print_new_vectors() {
             &plan.body_value().expect("body"),
         );
     }
+    let (repair, _) = table_repair_plan();
+    entry(
+        "plan-v3-table-repair-acknowledged",
+        Some("snapshot-plan-base-indeterminate-table"),
+        &repair.body_value().expect("body"),
+    );
     let draft = draft_create_reversal();
     entry(
         "draft-create-reversal",

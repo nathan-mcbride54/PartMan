@@ -32,7 +32,7 @@ use super::naming::{self, NodeId};
 use super::protection::{HostRange, StepRanges};
 use super::snapshot::{SnapshotKind, TopologySnapshot};
 use super::step::{
-    Acknowledgment, PlanStep, Precondition, Severity, StepFlags, StepRefusal, StepRisk,
+    Acknowledgment, PlanStep, Precondition, Severity, StepClass, StepFlags, StepRefusal, StepRisk,
 };
 
 /// The plan body's schema identity (MODEL-003).
@@ -44,10 +44,15 @@ pub const SCHEMA: &str = "partman.plan";
 /// form; its retirement is its own reviewed change (MODEL-003's
 /// explicit-migration discipline).
 pub const SCHEMA_VERSION: u64 = 1;
-/// The linked plan body schema version (ADR-0022, spec 12.0.0):
-/// Section 6's reversal-linkage item is required, and every step
-/// carries its preconditions.
-pub const LINKED_SCHEMA_VERSION: u64 = 2;
+/// The linked plan body schema version (ADR-0022, spec 12.0.0, and
+/// ADR-0024, spec 12.2.0): Section 6's reversal-linkage item is
+/// required, every step carries its preconditions, and every step
+/// carries its typed class. Version 2 — the linked form without the
+/// class field — lived for exactly one change window, gained no
+/// emitter outside it and no surviving artifact, and is refused at
+/// decode with its retirement recorded in the changelog (MODEL-003's
+/// explicit-migration discipline).
+pub const LINKED_SCHEMA_VERSION: u64 = 3;
 
 /// PLAN-008's per-step reversal-impossibility reason — closed, typed,
 /// free of free text (the JRN-005 discipline).
@@ -58,6 +63,11 @@ pub enum ImpossibilityReason {
     /// The model carries no prior value to restore (labels,
     /// identifiers).
     PriorValueNotCarried,
+    /// The pre-state is preserved as a raw protection capture
+    /// (ADR-0024's repair arm); putting it back is REC-001's
+    /// identity-validated recovery plan, never a planner-emitted
+    /// reversal.
+    PreStatePreservedForRecovery,
 }
 
 impl ImpossibilityReason {
@@ -65,6 +75,7 @@ impl ImpossibilityReason {
         match self {
             Self::DataDestroyed => "data-destroyed",
             Self::PriorValueNotCarried => "prior-value-not-carried",
+            Self::PreStatePreservedForRecovery => "pre-state-preserved-for-recovery",
         }
     }
 }
@@ -625,6 +636,9 @@ fn parse_reversal(value: &Value) -> Result<ReversalLinkage, PlanSchemaError> {
                     Some(Value::Text(reason)) => match reason.as_str() {
                         "data-destroyed" => ImpossibilityReason::DataDestroyed,
                         "prior-value-not-carried" => ImpossibilityReason::PriorValueNotCarried,
+                        "pre-state-preserved-for-recovery" => {
+                            ImpossibilityReason::PreStatePreservedForRecovery
+                        }
                         _ => return Err(PlanSchemaError::MalformedLinkage),
                     },
                     _ => return Err(PlanSchemaError::MalformedLinkage),
@@ -759,6 +773,24 @@ fn parse_draft_precondition(value: &Value) -> Result<DraftPrecondition, PlanSche
     parse_precondition(value).map(DraftPrecondition::Carried)
 }
 
+const fn class_wire_name(class: StepClass) -> &'static str {
+    match class {
+        StepClass::Ordinary => "ordinary",
+        StepClass::TableRepair => "table-repair",
+    }
+}
+
+fn parse_class(map: &BTreeMap<String, Value>) -> Result<StepClass, PlanSchemaError> {
+    match map.get("class") {
+        Some(Value::Text(class)) => match class.as_str() {
+            "ordinary" => Ok(StepClass::Ordinary),
+            "table-repair" => Ok(StepClass::TableRepair),
+            _ => Err(PlanSchemaError::MalformedStep),
+        },
+        _ => Err(PlanSchemaError::MalformedStep),
+    }
+}
+
 fn step_value(step: &PlanStep, linked: bool) -> Value {
     let mut map = BTreeMap::new();
     map.insert(
@@ -769,6 +801,10 @@ fn step_value(step: &PlanStep, linked: bool) -> Value {
         map.insert(
             "preconditions".to_owned(),
             preconditions_value(step.preconditions()),
+        );
+        map.insert(
+            "class".to_owned(),
+            Value::Text(class_wire_name(step.class()).to_owned()),
         );
     }
     map.insert(
@@ -876,6 +912,23 @@ fn acknowledgment_value(acknowledgment: &Acknowledgment) -> Value {
         Acknowledgment::Release { signature } => ("release", signature),
         Acknowledgment::OpaqueDestruction { layer } => ("opaque-destruction", layer),
         Acknowledgment::IdentityBoundRestore { table } => ("identity-bound-restore", table),
+        Acknowledgment::UncapturableRegions { table, regions } => {
+            map.insert(
+                "regions".to_owned(),
+                Value::Array(
+                    regions
+                        .iter()
+                        .map(|region| {
+                            let mut entry = BTreeMap::new();
+                            entry.insert("start".to_owned(), Value::Unsigned(region.start));
+                            entry.insert("length".to_owned(), Value::Unsigned(region.length));
+                            Value::Map(entry)
+                        })
+                        .collect(),
+                ),
+            );
+            ("uncapturable-regions", table)
+        }
     };
     map.insert("kind".to_owned(), Value::Text(kind.to_owned()));
     map.insert("node".to_owned(), Value::Bytes(node.as_bytes().to_vec()));
@@ -906,22 +959,25 @@ fn parse_step(
                 | "acknowledgments"
                 | "severity"
                 | "flags"
-        ) || (linked && key.as_str() == "preconditions");
+        ) || (linked && matches!(key.as_str(), "preconditions" | "class"));
         if !known {
             return Err(PlanSchemaError::UnknownField { key: key.clone() });
         }
     }
     let target = parse_node(map.get("target"))?;
-    let preconditions = if linked {
+    let (preconditions, class) = if linked {
         let Some(Value::Array(entries)) = map.get("preconditions") else {
             return Err(PlanSchemaError::MalformedStep);
         };
-        entries
-            .iter()
-            .map(parse_precondition)
-            .collect::<Result<Vec<_>, _>>()?
+        (
+            entries
+                .iter()
+                .map(parse_precondition)
+                .collect::<Result<Vec<_>, _>>()?,
+            parse_class(map)?,
+        )
     } else {
-        vec![]
+        (vec![], StepClass::Ordinary)
     };
     let ranges = StepRanges {
         written_table_extents: parse_ranges(map.get("written_table_extents"))?,
@@ -937,9 +993,9 @@ fn parse_step(
     }
     let risk = parse_risk(map)?;
     // The recompute: the sole constructor runs the closure and the
-    // acknowledgment law over the snapshot's authenticated facts. A
-    // forged step never returns.
-    PlanStep::mutating(snapshot, target, ranges, acknowledgments, risk)
+    // acknowledgment law — the class-conditioned law included — over
+    // the snapshot's authenticated facts. A forged step never returns.
+    PlanStep::mutating_classed(snapshot, target, ranges, acknowledgments, risk, class)
         .map(|step| step.with_preconditions(preconditions))
         .map_err(PlanSchemaError::Step)
 }
@@ -1003,6 +1059,34 @@ fn parse_acknowledgment(value: &Value) -> Result<Acknowledgment, PlanSchemaError
             "release" => Acknowledgment::Release { signature: node },
             "opaque-destruction" => Acknowledgment::OpaqueDestruction { layer: node },
             "identity-bound-restore" => Acknowledgment::IdentityBoundRestore { table: node },
+            "uncapturable-regions" => {
+                let Some(Value::Array(entries)) = map.get("regions") else {
+                    return Err(PlanSchemaError::MalformedStep);
+                };
+                let mut regions = Vec::with_capacity(entries.len());
+                for entry in entries {
+                    let Value::Map(entry) = entry else {
+                        return Err(PlanSchemaError::MalformedStep);
+                    };
+                    let start = match entry.get("start") {
+                        Some(Value::Unsigned(value)) => *value,
+                        _ => return Err(PlanSchemaError::MalformedStep),
+                    };
+                    let length = match entry.get("length") {
+                        Some(Value::Unsigned(value)) => *value,
+                        _ => return Err(PlanSchemaError::MalformedStep),
+                    };
+                    regions.push(HostRange {
+                        host: node,
+                        start,
+                        length,
+                    });
+                }
+                Acknowledgment::UncapturableRegions {
+                    table: node,
+                    regions,
+                }
+            }
             _ => return Err(PlanSchemaError::MalformedStep),
         }),
         _ => Err(PlanSchemaError::MalformedStep),
@@ -1736,6 +1820,13 @@ fn draft_step_value(step: &DraftStep) -> Value {
                 .collect(),
         ),
     );
+    // A draft step is ordinary by construction today; a repair-family
+    // draft is a future reviewed extension, so the class is pinned
+    // rather than parameterized.
+    map.insert(
+        "class".to_owned(),
+        Value::Text(class_wire_name(StepClass::Ordinary).to_owned()),
+    );
     map.insert(
         "written_table_extents".to_owned(),
         ranges_value(&step.ranges.written_table_extents),
@@ -1765,6 +1856,7 @@ fn parse_draft_step(value: &Value) -> Result<DraftStep, PlanSchemaError> {
             "target"
                 | "target_step_output"
                 | "preconditions"
+                | "class"
                 | "written_table_extents"
                 | "consumed"
                 | "destroyed"
@@ -1774,6 +1866,10 @@ fn parse_draft_step(value: &Value) -> Result<DraftStep, PlanSchemaError> {
         ) {
             return Err(PlanSchemaError::UnknownField { key: key.clone() });
         }
+    }
+    if parse_class(map)? != StepClass::Ordinary {
+        // A repair-family draft step is a future reviewed extension.
+        return Err(PlanSchemaError::MalformedStep);
     }
     let target = match (map.get("target"), map.get("target_step_output")) {
         (Some(value), None) => DraftTarget::Address(parse_node(Some(value))?),

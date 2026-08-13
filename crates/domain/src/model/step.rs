@@ -81,9 +81,26 @@ pub struct StepRisk {
     pub flags: StepFlags,
 }
 
-/// ADR-0018's closed acknowledgment vocabulary. Each entry names the
-/// exact node it covers; an acknowledgment for one node covers no other,
-/// and no entry exists that covers a refusal.
+/// ADR-0024's typed step class: the REC-001 repair family is a step
+/// class, never an intent flag an ordinary operation can wear — the
+/// state-selected protection arms attach to the type, per the
+/// safety-is-computed-never-declared discipline (ADR-0012/0018).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum StepClass {
+    /// An ordinary mutating step.
+    #[default]
+    Ordinary,
+    /// A step of the typed REC-001 table-repair family: the only class
+    /// whose `Indeterminate`-table protection arm is the verified raw
+    /// capture, and the only class that can carry the capture-impossible
+    /// acknowledgment (ADR-0024).
+    TableRepair,
+}
+
+/// ADR-0018's closed acknowledgment vocabulary, extended by ADR-0024's
+/// capture-impossible entry. Each entry names the exact node it covers;
+/// an acknowledgment for one node covers no other, and no entry exists
+/// that covers a refusal.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Acknowledgment {
     /// The release acknowledgment: the user explicitly releases an
@@ -98,19 +115,33 @@ pub enum Acknowledgment {
         signature: NodeId,
     },
     /// The opaque-destruction acknowledgment (FS-010 plus the opacity
-    /// statement) for arms this slice does not yet model; carried in the
-    /// vocabulary so the closed set is the decided three, refusing at
-    /// construction until its arm exists.
+    /// statement) for arms this crate does not yet model; carried in the
+    /// vocabulary so the set stays closed, refusing at construction
+    /// until its arm exists.
     OpaqueDestruction {
         /// The locked layer acknowledged.
         layer: NodeId,
     },
     /// The identity-bound-restore acknowledgment for `Indeterminate`
-    /// tables (REC-001's family); carried closed, refusing at
-    /// construction until its arm exists.
+    /// tables (REC-001's family). Its arm exists since ADR-0024: lawful
+    /// exactly on a [`StepClass::TableRepair`] step covering a device
+    /// whose authored table state is `Indeterminate`.
     IdentityBoundRestore {
         /// The table restored.
         table: NodeId,
+    },
+    /// ADR-0024's capture-impossible acknowledgment: the user's
+    /// separately supported recovery strategy (Section 12's clause),
+    /// recorded at plan creation and naming the exact uncapturable
+    /// regions. Lawful only on a [`StepClass::TableRepair`] step
+    /// covering an `Indeterminate`-state device — unconstructible
+    /// outside the typed repair family — and never a mid-flight prompt.
+    UncapturableRegions {
+        /// The device whose pre-state cannot be preserved.
+        table: NodeId,
+        /// The exact uncapturable regions: on the covered device,
+        /// strictly ascending, non-overlapping, nonzero.
+        regions: Vec<HostRange>,
     },
 }
 
@@ -119,9 +150,33 @@ impl Acknowledgment {
         match self {
             Self::Release { signature } => *signature,
             Self::OpaqueDestruction { layer } => *layer,
-            Self::IdentityBoundRestore { table } => *table,
+            Self::IdentityBoundRestore { table } | Self::UncapturableRegions { table, .. } => {
+                *table
+            }
         }
     }
+}
+
+/// The region discipline ADR-0024's acknowledgment names share with the
+/// journal's raw-capture record: on the covered device, strictly
+/// ascending, non-overlapping, lengths nonzero, and at least one.
+fn regions_well_formed(covered: NodeId, regions: &[HostRange]) -> bool {
+    if regions.is_empty() {
+        return false;
+    }
+    let mut previous_end: Option<u64> = None;
+    for region in regions {
+        if region.host != covered || region.length == 0 {
+            return false;
+        }
+        if let Some(end) = previous_end
+            && region.start < end
+        {
+            return false;
+        }
+        previous_end = Some(region.start.saturating_add(region.length));
+    }
+    true
 }
 
 /// A step precondition (Section 6's step-preconditions item, ADR-0022's
@@ -190,19 +245,55 @@ pub struct PlanStep {
     acknowledgments: Vec<Acknowledgment>,
     risk: StepRisk,
     preconditions: Vec<Precondition>,
+    class: StepClass,
+}
+
+/// Whether one acknowledgment lawfully covers its node on a step of the
+/// given class (ADR-0018's law, extended by ADR-0024's arms): `Release`
+/// converts exactly the orphan-signature indeterminacy;
+/// `IdentityBoundRestore` and `UncapturableRegions` attach exactly to
+/// the typed table-repair family over a device whose authored table
+/// state is `Indeterminate` — with the capture-impossible entry also
+/// required to name well-formed regions on that device. No entry covers
+/// a refusal, and `OpaqueDestruction`'s arm still does not exist.
+fn acknowledgment_lawful(
+    acknowledgment: &Acknowledgment,
+    verdict: &Verdict,
+    table_state: Option<&super::identity::TableState>,
+    class: StepClass,
+) -> bool {
+    match acknowledgment {
+        Acknowledgment::Release { .. } => matches!(
+            verdict,
+            Verdict::Indeterminate {
+                cause: IndeterminateGround::OrphanSignature
+            }
+        ),
+        Acknowledgment::OpaqueDestruction { .. } => false,
+        Acknowledgment::IdentityBoundRestore { .. } => {
+            class == StepClass::TableRepair
+                && matches!(
+                    table_state,
+                    Some(super::identity::TableState::Indeterminate { .. })
+                )
+        }
+        Acknowledgment::UncapturableRegions { table, regions } => {
+            class == StepClass::TableRepair
+                && matches!(
+                    table_state,
+                    Some(super::identity::TableState::Indeterminate { .. })
+                )
+                && regions_well_formed(*table, regions)
+        }
+    }
 }
 
 impl PlanStep {
     /// The sole constructor: run the closure over the snapshot's own
     /// authenticated facts and refuse any non-permitted reach that no
-    /// acknowledgment lawfully covers.
-    ///
-    /// A `Refused` node in the affected set refuses **regardless of
-    /// acknowledgments** — no parameter of this function can express
-    /// permission for it. An `Indeterminate` node constructs only when
-    /// an acknowledgment of the matching kind names exactly that node;
-    /// in this slice only the orphan-signature arm has a matching kind
-    /// ([`Acknowledgment::Release`]).
+    /// acknowledgment lawfully covers. The step is
+    /// [`StepClass::Ordinary`]; the typed repair family constructs
+    /// through [`Self::mutating_classed`], which this delegates to.
     ///
     /// # Errors
     ///
@@ -214,21 +305,52 @@ impl PlanStep {
         acknowledgments: Vec<Acknowledgment>,
         risk: StepRisk,
     ) -> Result<Self, StepRefusal> {
+        Self::mutating_classed(
+            snapshot,
+            target,
+            ranges,
+            acknowledgments,
+            risk,
+            StepClass::Ordinary,
+        )
+    }
+
+    /// The sole constructor's classed form (ADR-0024): the same closure
+    /// and the same acknowledgment law, with the step's typed class
+    /// deciding which acknowledgment arms exist.
+    ///
+    /// A `Refused` node in the affected set refuses **regardless of
+    /// acknowledgments** — no parameter of this function can express
+    /// permission for it. An `Indeterminate` node constructs only when
+    /// an acknowledgment of the matching kind names exactly that node
+    /// (the orphan-signature arm, [`Acknowledgment::Release`]). The
+    /// table-state acknowledgments (`IdentityBoundRestore`,
+    /// `UncapturableRegions`) are lawful exactly on the typed
+    /// table-repair family over an `Indeterminate`-state device —
+    /// unconstructible outside it.
+    ///
+    /// # Errors
+    ///
+    /// [`StepRefusal`] naming the first rule violated.
+    pub fn mutating_classed(
+        snapshot: &TopologySnapshot,
+        target: NodeId,
+        ranges: StepRanges,
+        acknowledgments: Vec<Acknowledgment>,
+        risk: StepRisk,
+        class: StepClass,
+    ) -> Result<Self, StepRefusal> {
         let topology = snapshot.topology();
         let facts = snapshot.facts();
         for acknowledgment in &acknowledgments {
             let covered = acknowledgment.covers();
             let verdict = node_verdict(topology, facts, covered);
-            let lawful = matches!(
-                (acknowledgment, &verdict),
-                (
-                    Acknowledgment::Release { .. },
-                    Verdict::Indeterminate {
-                        cause: IndeterminateGround::OrphanSignature
-                    }
-                )
-            );
-            if !lawful {
+            if !acknowledgment_lawful(
+                acknowledgment,
+                &verdict,
+                facts.table_states.get(&covered),
+                class,
+            ) {
                 return Err(StepRefusal::UnlawfulAcknowledgment {
                     node: covered,
                     verdict,
@@ -267,7 +389,14 @@ impl PlanStep {
             acknowledgments,
             risk,
             preconditions: vec![],
+            class,
         })
+    }
+
+    /// The step's typed class (ADR-0024).
+    #[must_use]
+    pub const fn class(&self) -> StepClass {
+        self.class
     }
 
     /// Attach preconditions to a constructed step. Additive and
