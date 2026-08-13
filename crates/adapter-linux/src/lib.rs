@@ -13,10 +13,16 @@
 //!
 //! **What this adapter reads, and why only this.** The contract is the
 //! ordinary client's — attribute files under the sysfs block class and the
-//! udev database records — because those are the interfaces
+//! udev database records — because those are the two **interfaces**
 //! `docs/quality/observability.md` establishes as client-readable on real
 //! hardware. Both are file reads. No block device is opened and no subprocess
 //! is launched, at any privilege.
+//!
+//! The claim is about the interfaces, not about every field read through
+//! them, and the difference is load-bearing: two fields on the roster have no
+//! measured row behind them at all. `schemas/adapter-linux/fields.md` states
+//! per field which observability row supports it and which are read without
+//! one, so the gap is a recorded decision rather than an implied warrant.
 //!
 //! **Clamping is delivered here rather than deferred.** There is no
 //! privilege-conditional branch anywhere in this crate: running as root
@@ -37,11 +43,20 @@
 //!   by the privileged helper at validation (ADR-0014, ADR-0016). This crate
 //!   emits neither on any path, so the closure fails closed at exactly the
 //!   position an authored value occupies rather than reading a client's guess.
-//! - **No enumeration, no topology, no capability answer.** Whole-device
-//!   enumeration and identity material are increment 2's, the topology and
-//!   INV-004's derivations increment 3's, LIN-006's detection layer
+//! - **No topology and no capability answer.** Whole-device enumeration and
+//!   identity material are delivered (increment 2), but the topology and
+//!   INV-004's derivations are increment 3's, LIN-006's detection layer
 //!   increment 4's, and the CAP-004 runtime facts increment 5's. The engine
 //!   that judges any of it is WP-050's.
+//! - **No addressed output.** Nothing here builds a `NodeId`, a
+//!   `protection::Facts`, or a snapshot. Those are keyed by ADR-0019 derived
+//!   addresses, whose rules are increment 3's imported obligation, so an
+//!   adapter that keyed a map today would be naming without them.
+//! - **No transport this build can positively name.** ADR-0018's answer is
+//!   `Unrecognized` for every device, because its own fabric-versus-local
+//!   discrimination rows are outstanding on every platform and no Linux row
+//!   records a value that would classify one. It resolves to `Indeterminate`
+//!   at the closure — never `Permitted`.
 //! - **No sameness inference.** Two interfaces reporting one identifier
 //!   produce two attributed observations; nothing here elects one, groups two
 //!   rows under one device, or infers cross-path sameness (ADR-0011).
@@ -56,6 +71,7 @@
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub mod contract;
+pub mod devices;
 pub mod observation;
 pub mod reach;
 

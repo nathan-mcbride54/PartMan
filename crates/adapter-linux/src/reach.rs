@@ -14,21 +14,29 @@
 //!   Nothing here is derived per-device, because nothing here consults any
 //!   device at all. This module may not name the crate's own reading surface,
 //!   and a Tier-1 source-text test enforces that.
-//! - **Every answer is `no`, on the not-measured basis, and that basis is a
-//!   decision.** `docs/quality/observability.md` §Linux does hold measured
-//!   rows here — raw sector reads and direct signature probes are both denied
-//!   unprivileged, and "ADR-C3's `Present` and `Indeterminate` are not
-//!   distinguishable through either interface" measures the state collapse
-//!   over every WP-020 fixture. A measured basis is therefore *available*.
-//!   It is not claimed yet, because a measured basis must be a measurement
-//!   about **this** contract, and this contract reads no field: the same
-//!   rows record that the `udev` database does carry `ID_PART_TABLE_TYPE`,
-//!   so whether a state is reachable depends on which fields increment 2
-//!   puts in the list, not on the interfaces alone. Increment 2 fixes that
-//!   list and re-decides each cell against those rows, with the contract
-//!   statement moving to the reaches-no-table-state spelling. The cells are
-//!   expected to stay negative — ADR-0014 forbids this client emitting a
-//!   table state at all — but the basis is then earned rather than defaulted.
+//! - **Every answer is `no`, on the not-measured basis, and increment 2
+//!   re-decided that basis rather than inheriting it.** The field roster is
+//!   now fixed and contains no partition-table key at all, so the contract
+//!   statement moves to the reaches-no-table-state spelling while every cell
+//!   stays negative. The basis stays `not-measured` for a reason that is
+//!   itself measured-adjacent rather than lazy: a citation's vocabulary is
+//!   `docs/quality/observability.md` headings, and **no Linux heading exists
+//!   for `mbr` or `apple-partition-map` at all** — those answers live only in
+//!   the fixture prober — so "measured" is unexecutable for at least two of
+//!   the six, and a declaration split between two bases would say more about
+//!   this repository's records than about the contract.
+//!
+//!   **A correction, recorded rather than edited away.** Increment 1 wrote
+//!   that "the `udev` database does carry `ID_PART_TABLE_TYPE`". That was
+//!   wrong twice over: the token appears in the record under the
+//!   direct-signature-probe column, which is measured **denied** to the
+//!   unprivileged client, and those probes were run over **regular files,
+//!   not devices**. The two rows that do enumerate what the client-readable
+//!   database carries — the WSL2 identifier row and the real-hardware
+//!   client-signature row — name no table-type key. The conclusion that
+//!   sentence supported is unchanged and in fact better supported: if the
+//!   readable database carries no table-type key, this contract reaches no
+//!   table state more cleanly, not less.
 //! - **A `no` is never omitted**, and a cell no observability row establishes
 //!   is `no` by the not-measured default — never `yes` by inference from a
 //!   nearby platform, from an interface's documented enum, or from a
@@ -128,11 +136,12 @@ const fn nothing_distinguished(contract: ContractStatement) -> ReachDeclaration 
 /// Linux one and has no answer to give about any other platform. A sibling
 /// adapter publishes its own.
 pub const REACH: ReachDeclaration = nothing_distinguished(ContractStatement {
-    state: "not-implemented",
-    reference: "WP-L100 increment 2",
-    detail: "this contract touches no platform surface yet: increment 1 delivers the \
-             bounded seam and this declaration, and increment 2 lands the identity \
-             attribute lists that first consult one",
+    state: "implemented-reaches-no-table-state",
+    reference: "a partition-table key entering this contract's field roster",
+    detail: "this contract reads sysfs block-class attributes and udev database records, and \
+             its roster carries no partition-table key at all — so no state above is \
+             distinguishable through it, and the state itself is authored by the privileged \
+             helper rather than determined here",
 });
 
 /// Render the declaration as JSON.
