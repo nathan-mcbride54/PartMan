@@ -29,7 +29,7 @@
 //! cannot express — so it refuses typed instead. There is no fourth
 //! state, held by test.
 
-use partman_domain::model::naming::NodeId;
+use partman_domain::model::naming::{NamingFields, NodeEntry, NodeId, TableRole};
 use partman_domain::model::protection::HostRange;
 use partman_domain::model::snapshot::TopologySnapshot;
 
@@ -49,6 +49,13 @@ pub enum StructuralEdge {
     },
     /// The host's own extent end.
     HostEnd,
+    /// The low boundary of the region a partition table's own scheme
+    /// claims at the host's tail: pre-existing, fixed by the scheme
+    /// rather than authored by the plan.
+    ReservedTableRegion {
+        /// The table view whose scheme claims the region.
+        table: NodeId,
+    },
 }
 
 /// How an authored boundary satisfies PART-009: aligned to the default,
@@ -181,6 +188,217 @@ pub enum SolveRefusal {
         /// The requested length.
         requested: u64,
     },
+    /// The host's own extent reaches past the device its own naming
+    /// fields size, so the arithmetic's outer bound is not the device.
+    HostExtentExceedsDevice {
+        /// The host whose extent overruns it.
+        host: NodeId,
+        /// Where the host's extent ends.
+        extent_end: u64,
+        /// The total size the host's own hashed name declares.
+        total_bytes: u64,
+    },
+    /// A node the facts place on this host carries a range that leaves
+    /// the host's own extent, so the subtraction's cursor walk would
+    /// report space the host does not have.
+    ChildExtentOutsideHost {
+        /// The host whose free space was asked for.
+        host: NodeId,
+        /// The node whose range leaves it.
+        node: NodeId,
+        /// The range's start.
+        start: u64,
+        /// The range's length.
+        length: u64,
+    },
+    /// The host declares a table view in a scheme this build cannot
+    /// name, so the regions that scheme claims are not derivable and
+    /// free space is not computable.
+    UnrecognizedTableScheme {
+        /// The host whose free space was asked for.
+        host: NodeId,
+        /// The node declaring the scheme: a table view, or a
+        /// conflicting entry recording one.
+        view: NodeId,
+        /// The reporting interface's raw discriminant bytes, verbatim.
+        raw: Vec<u8>,
+    },
+    /// A partition the authenticated naming fields place on this host
+    /// is not one the subtraction removes, so the bytes its own hashed
+    /// name declares would be handed out as free.
+    UnaccountedOccupant {
+        /// The host whose free space was asked for.
+        host: NodeId,
+        /// The occupant nothing accounted for.
+        occupant: NodeId,
+        /// The start offset the occupant's own hashed name declares.
+        declared_start: u64,
+        /// What the facts carry instead.
+        ground: OccupancyGround,
+    },
+}
+
+/// Why a declared occupant is not one the subtraction removes — the
+/// value the facts carry, beside the name that declared it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OccupancyGround {
+    /// The facts place no range for it at all.
+    NoRange,
+    /// A range exists, in another host's address space.
+    RangeOnAnotherHost {
+        /// The host the range names.
+        host: NodeId,
+    },
+    /// A range exists on this host and is empty, so it removes nothing.
+    RangeIsEmpty,
+    /// A range exists on this host and does not begin where the
+    /// occupant's own hashed name declares.
+    RangeStartsElsewhere {
+        /// Where the range actually begins.
+        start: u64,
+    },
+    /// The occupant is located on this host under a table view this
+    /// host does not carry, so no scheme of this host's accounts for it.
+    TableIsNotThisHosts {
+        /// The table address the occupant's own name declares.
+        named_table: NodeId,
+    },
+}
+
+/// The regions a partition-table scheme claims in its host's address
+/// space: a **bound, never a measurement**. No sector size reaches this
+/// module and a `PartitionTable` node carries no geometry, so each
+/// figure is the smallest bound expressible in this module's only unit
+/// that covers the scheme's structures at every sector size.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SchemeReservation {
+    /// Bytes withheld at the host's low end.
+    pub head: u64,
+    /// Bytes withheld at the host's high end.
+    pub tail: u64,
+    /// The view that fixed the tail bound — least address among those
+    /// claiming the maximum — or `None` where no view claims a tail.
+    pub tail_claimed_by: Option<NodeId>,
+}
+
+fn fields_of(entry: &NodeEntry) -> &NamingFields {
+    match entry {
+        NodeEntry::Single { fields, .. } | NodeEntry::Group { fields, .. } => fields,
+    }
+}
+
+fn host_tables(snapshot: &TopologySnapshot, host: NodeId) -> Vec<NodeId> {
+    snapshot
+        .topology()
+        .entries()
+        .iter()
+        .filter(|entry| {
+            matches!(
+                fields_of(entry),
+                NamingFields::PartitionTable { parent, .. } if *parent == host
+            )
+        })
+        .map(NodeEntry::id)
+        .collect()
+}
+
+/// The union — per-end maximum — of the regions every table view the
+/// host declares claims, read from the authenticated naming fields and
+/// never from containment edges.
+///
+/// # Errors
+///
+/// [`SolveRefusal::UnrecognizedTableScheme`] where a view carries a
+/// scheme this build cannot name, so no bound over it is derivable.
+pub fn reserved_regions(
+    snapshot: &TopologySnapshot,
+    host: NodeId,
+) -> Result<SchemeReservation, SolveRefusal> {
+    let tables = host_tables(snapshot, host);
+    let mut reservation = SchemeReservation {
+        head: 0,
+        tail: 0,
+        tail_claimed_by: None,
+    };
+    for entry in snapshot.topology().entries() {
+        let (view, role) = match fields_of(entry) {
+            NamingFields::PartitionTable { parent, role } if *parent == host => (entry.id(), role),
+            NamingFields::ConflictingTableEntry {
+                table, view_role, ..
+            } if tables.contains(table) => (entry.id(), view_role),
+            _ => continue,
+        };
+        let (head, tail) = match role {
+            TableRole::Gpt | TableRole::HybridMbr => (DEFAULT_ALIGNMENT, DEFAULT_ALIGNMENT),
+            TableRole::Mbr | TableRole::Apm => (DEFAULT_ALIGNMENT, 0),
+            TableRole::Unrecognized { raw } => {
+                return Err(SolveRefusal::UnrecognizedTableScheme {
+                    host,
+                    view,
+                    raw: raw.clone(),
+                });
+            }
+        };
+        reservation.head = reservation.head.max(head);
+        if tail > reservation.tail {
+            reservation.tail = tail;
+            reservation.tail_claimed_by = Some(view);
+        }
+    }
+    Ok(reservation)
+}
+
+/// The first occupant of `host` the subtraction does not remove, as the
+/// refusal it produces.
+fn unaccounted_occupant(
+    snapshot: &TopologySnapshot,
+    host: NodeId,
+    tables: &[NodeId],
+) -> Option<SolveRefusal> {
+    for entry in snapshot.topology().entries() {
+        let NamingFields::Partition {
+            parent_table,
+            start_offset,
+        } = fields_of(entry)
+        else {
+            continue;
+        };
+        let located = snapshot.facts().extents.get(&entry.id()).copied();
+        let on_this_host = located.is_some_and(|range| range.host == host);
+        if !tables.contains(parent_table) {
+            if !on_this_host {
+                continue;
+            }
+            return Some(SolveRefusal::UnaccountedOccupant {
+                host,
+                occupant: entry.id(),
+                declared_start: *start_offset,
+                ground: OccupancyGround::TableIsNotThisHosts {
+                    named_table: *parent_table,
+                },
+            });
+        }
+        let ground = match located {
+            None => Some(OccupancyGround::NoRange),
+            Some(range) if range.host != host => {
+                Some(OccupancyGround::RangeOnAnotherHost { host: range.host })
+            }
+            Some(range) if range.length == 0 => Some(OccupancyGround::RangeIsEmpty),
+            Some(range) if range.start != *start_offset => {
+                Some(OccupancyGround::RangeStartsElsewhere { start: range.start })
+            }
+            Some(_) => None,
+        };
+        if let Some(ground) = ground {
+            return Some(SolveRefusal::UnaccountedOccupant {
+                host,
+                occupant: entry.id(),
+                declared_start: *start_offset,
+                ground,
+            });
+        }
+    }
+    None
 }
 
 fn extent_of(snapshot: &TopologySnapshot, node: NodeId) -> Option<HostRange> {
@@ -198,6 +416,7 @@ fn structural_edge_at(
     snapshot: &TopologySnapshot,
     host: NodeId,
     offset: u64,
+    ceiling: Option<(NodeId, u64)>,
 ) -> Option<StructuralEdge> {
     if let Some((neighbor, _)) = snapshot
         .facts()
@@ -208,6 +427,11 @@ fn structural_edge_at(
         return Some(StructuralEdge::NeighborStart {
             neighbor: *neighbor,
         });
+    }
+    if let Some((table, at)) = ceiling
+        && at == offset
+    {
+        return Some(StructuralEdge::ReservedTableRegion { table });
     }
     let own = extent_of(snapshot, host)?;
     (own.start + own.length == offset).then_some(StructuralEdge::HostEnd)
@@ -222,12 +446,13 @@ fn authored_end_placement(
     target: NodeId,
     end: u64,
     room_end: u64,
+    ceiling: Option<(NodeId, u64)>,
 ) -> Result<BoundaryPlacement, SolveRefusal> {
     if end.is_multiple_of(DEFAULT_ALIGNMENT) {
         return Ok(BoundaryPlacement::Aligned);
     }
     if end == room_end
-        && let Some(edge) = structural_edge_at(snapshot, host, end)
+        && let Some(edge) = structural_edge_at(snapshot, host, end, ceiling)
     {
         return Ok(BoundaryPlacement::Coincident { edge });
     }
@@ -239,17 +464,79 @@ fn authored_end_placement(
     })
 }
 
-/// The host's free ranges: its own extent minus the extents the facts
-/// place on it, ascending, coalesced by construction.
-///
-/// # Errors
-///
-/// [`SolveRefusal::HostHasNoExtent`] if the host carries no extent.
-pub fn free_extents(
+/// A host's solved geometry: the regions its declared schemes claim,
+/// and the free ranges left once those and its children are withheld.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct HostGeometry {
+    reserved: SchemeReservation,
+    ceiling: Option<(NodeId, u64)>,
+    free: Vec<HostRange>,
+}
+
+fn host_extent_exceeds_device(
     snapshot: &TopologySnapshot,
     host: NodeId,
-) -> Result<Vec<HostRange>, SolveRefusal> {
+    own: HostRange,
+) -> Option<SolveRefusal> {
+    let entry = snapshot
+        .topology()
+        .entries()
+        .iter()
+        .find(|entry| entry.id() == host)?;
+    let NamingFields::PhysicalDevice { total_bytes, .. } = fields_of(entry) else {
+        return None;
+    };
+    let extent_end = own.start.saturating_add(own.length);
+    (extent_end > *total_bytes).then_some(SolveRefusal::HostExtentExceedsDevice {
+        host,
+        extent_end,
+        total_bytes: *total_bytes,
+    })
+}
+
+fn child_extent_outside_host(
+    snapshot: &TopologySnapshot,
+    host: NodeId,
+    own: HostRange,
+) -> Option<SolveRefusal> {
+    let end = own.start.saturating_add(own.length);
+    snapshot
+        .facts()
+        .extents
+        .iter()
+        .find(|(node, range)| {
+            **node != host && range.host == host && range.start.saturating_add(range.length) > end
+        })
+        .map(|(node, range)| SolveRefusal::ChildExtentOutsideHost {
+            host,
+            node: *node,
+            start: range.start,
+            length: range.length,
+        })
+}
+
+fn host_geometry(snapshot: &TopologySnapshot, host: NodeId) -> Result<HostGeometry, SolveRefusal> {
     let own = extent_of(snapshot, host).ok_or(SolveRefusal::HostHasNoExtent { host })?;
+    if let Some(refusal) = host_extent_exceeds_device(snapshot, host, own) {
+        return Err(refusal);
+    }
+    let reserved = reserved_regions(snapshot, host)?;
+    if let Some(refusal) = child_extent_outside_host(snapshot, host, own) {
+        return Err(refusal);
+    }
+    let tables = host_tables(snapshot, host);
+    if let Some(refusal) = unaccounted_occupant(snapshot, host, &tables) {
+        return Err(refusal);
+    }
+
+    let end = own.start.saturating_add(own.length);
+    let floor = own.start.saturating_add(reserved.head).min(end);
+    let ceiling_at = end.saturating_sub(reserved.tail).max(own.start);
+    let ceiling = reserved
+        .tail_claimed_by
+        .filter(|_| reserved.tail > 0)
+        .map(|table| (table, ceiling_at));
+
     let mut children: Vec<(u64, u64)> = snapshot
         .facts()
         .extents
@@ -259,27 +546,50 @@ pub fn free_extents(
         .collect();
     children.sort_unstable();
 
-    let mut free = Vec::new();
+    let mut raw: Vec<(u64, u64)> = Vec::new();
     let mut cursor = own.start;
-    let end = own.start + own.length;
     for (start, length) in children {
         if start > cursor {
-            free.push(HostRange {
-                host,
-                start: cursor,
-                length: start - cursor,
-            });
+            raw.push((cursor, start - cursor));
         }
         cursor = cursor.max(start + length);
     }
     if cursor < end {
-        free.push(HostRange {
-            host,
-            start: cursor,
-            length: end - cursor,
-        });
+        raw.push((cursor, end - cursor));
     }
-    Ok(free)
+
+    let mut free = Vec::new();
+    for (start, length) in raw {
+        let clipped_start = start.max(floor);
+        let clipped_end = (start + length).min(ceiling_at);
+        if clipped_end > clipped_start {
+            free.push(HostRange {
+                host,
+                start: clipped_start,
+                length: clipped_end - clipped_start,
+            });
+        }
+    }
+    Ok(HostGeometry {
+        reserved,
+        ceiling,
+        free,
+    })
+}
+
+/// The host's free ranges: its own extent, minus the regions its
+/// declared table schemes claim, minus the extents the facts place on
+/// it, ascending, coalesced by construction.
+///
+/// # Errors
+///
+/// [`SolveRefusal::HostHasNoExtent`] if the host carries no extent, and
+/// every refusal [`reserved_regions`] and the occupancy check produce.
+pub fn free_extents(
+    snapshot: &TopologySnapshot,
+    host: NodeId,
+) -> Result<Vec<HostRange>, SolveRefusal> {
+    host_geometry(snapshot, host).map(|geometry| geometry.free)
 }
 
 /// First-fit placement for a create: the lowest 1 MiB-aligned start
@@ -303,7 +613,8 @@ pub fn place_create(
             requested: 0,
         });
     }
-    let free = free_extents(snapshot, host)?;
+    let geometry = host_geometry(snapshot, host)?;
+    let free = geometry.free;
     let mut largest_aligned_fit = 0_u64;
     let mut first_nonconforming: Option<SolveRefusal> = None;
     for range in &free {
@@ -315,7 +626,14 @@ pub fn place_create(
         let usable = range_end - aligned_start;
         largest_aligned_fit = largest_aligned_fit.max(usable);
         if usable >= size {
-            match authored_end_placement(snapshot, host, host, aligned_start + size, range_end) {
+            match authored_end_placement(
+                snapshot,
+                host,
+                host,
+                aligned_start + size,
+                range_end,
+                geometry.ceiling,
+            ) {
                 Ok(end_placement) => {
                     return Ok(SolvedCreate {
                         placed: HostRange {
@@ -372,8 +690,9 @@ pub fn grow_extension(
     }
     let needed = new_length - own.length;
     let tail = own.start + own.length;
-    let free = free_extents(snapshot, own.host)?;
-    let available = free
+    let geometry = host_geometry(snapshot, own.host)?;
+    let available = geometry
+        .free
         .iter()
         .find(|range| range.start == tail)
         .map_or(0, |range| range.length);
@@ -390,6 +709,7 @@ pub fn grow_extension(
         target,
         own.start + new_length,
         tail + available,
+        geometry.ceiling,
     )?;
     Ok(SolvedGrow {
         extension: HostRange {

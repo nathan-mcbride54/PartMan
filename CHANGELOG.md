@@ -5,6 +5,27 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ## Unreleased
 
+### Fixed
+
+- **WP-060 increment 10: the scheme's own regions, and located
+  occupancy (ADR-0036, spec 12.13.0, on issue #319).** `free_extents`
+  now subtracts the regions a host's declared table schemes claim at
+  each end, derived from the table node's own hashed `TableRole` and
+  bounded rather than measured, and refuses where a scheme cannot be
+  named or where a partition the authenticated names place on the host
+  is not one the subtraction removes. The filed defect is closed: a
+  create of exactly `DEFAULT_ALIGNMENT` no longer lands at offset 0
+  over the protective MBR and the GPT header. Two further §11.2
+  defects close with it — a host extent exceeding the size its own
+  naming fields declare, and a child extent leaving its host. One
+  delivered assertion is overturned:
+  `free_extents_are_the_hosts_minus_its_children`'s `(0,
+  DEFAULT_ALIGNMENT)` tuple, a committed claim that the fail-open was
+  correct; the fixture and the test name survive, and the test now
+  asserts the extent-less-ness it had been resting on silently.
+  `shrink_reduction` is unaffected. **Issue #319's authorization half
+  stays open**, blocked on issue #333.
+
 ### Added
 
 - **spec-change 12.13.0: the scheme's own regions, and located

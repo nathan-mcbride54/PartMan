@@ -494,10 +494,11 @@ fn malformed_edges_refuse_by_name() {
 }
 
 use super::solve::{
-    BoundaryPlacement, DEFAULT_ALIGNMENT, SolveRefusal, StructuralEdge, free_extents,
-    grow_extension, place_create, shrink_reduction,
+    BoundaryPlacement, DEFAULT_ALIGNMENT, OccupancyGround, SolveRefusal, StructuralEdge,
+    free_extents, grow_extension, place_create, reserved_regions, shrink_reduction,
 };
 use super::{Consequence, SizedRequest, plan_sized};
+use partman_domain::model::naming::TableRole;
 
 /// A host with one child partition-like extent at [1 MiB, 65 MiB) and a
 /// misaligned second child at [100 MiB + 512, 100 MiB + 512 + 32 MiB).
@@ -567,13 +568,30 @@ fn solver_fixture() -> (TopologySnapshot, NodeId, NodeId, NodeId) {
 }
 
 // Requirements: PLAN-001
-//   Free space is the host's extent minus its children's, ascending:
-//   the gap before the first child, the gap between children, and the
-//   tail after the last.
+//   Free space is the host's extent minus its children's and minus the
+//   regions its declared table schemes claim, ascending — so the head
+//   region the scheme withholds is not offered, the gap between
+//   children stands, and the tail stops at the reserved ceiling rather
+//   than the host's own end.
 // Evidence: free_extents_are_the_hosts_minus_its_children
 #[test]
 fn free_extents_are_the_hosts_minus_its_children() {
     let (snapshot, host, _, _) = solver_fixture();
+    // The precondition this test silently rested on, now asserted: the
+    // fixture's GPT table node carries a containment edge and no
+    // extent, so nothing but its scheme accounts for the regions it
+    // claims. Before ADR-0036 that made (0, 1 MiB) read as free, and
+    // this test asserted it.
+    let table_id = derive_id(&NamingFields::PartitionTable {
+        parent: host,
+        role: partman_domain::model::naming::TableRole::Gpt,
+    })
+    .expect("derivable");
+    assert!(
+        !snapshot.facts().extents.contains_key(&table_id),
+        "the table node is extent-less by construction"
+    );
+
     let free = free_extents(&snapshot, host).expect("computes");
     let starts: Vec<(u64, u64)> = free
         .iter()
@@ -582,11 +600,10 @@ fn free_extents_are_the_hosts_minus_its_children() {
     assert_eq!(
         starts,
         vec![
-            (0, DEFAULT_ALIGNMENT),
             (65 * DEFAULT_ALIGNMENT, 35 * DEFAULT_ALIGNMENT + 512),
             (
                 132 * DEFAULT_ALIGNMENT + 512,
-                (1 << 30) - (132 * DEFAULT_ALIGNMENT + 512)
+                (1 << 30) - DEFAULT_ALIGNMENT - (132 * DEFAULT_ALIGNMENT + 512)
             ),
         ]
     );
@@ -2273,5 +2290,849 @@ fn a_grow_simulation_updates_the_extent() {
         simulated.topology().entries().len(),
         snapshot.topology().entries().len(),
         "no node minted, none removed"
+    );
+}
+
+// ---------------------------------------------------------------------
+// ADR-0036: the scheme's own regions, and located occupancy (WP-060
+// increment 10, on issue #319).
+// ---------------------------------------------------------------------
+
+const GIB: u64 = 1 << 30;
+
+/// A device carrying exactly one table view in `role`, no partitions,
+/// and a self-extent of `total`.
+fn scheme_host(serial: &[u8], role: TableRole, total: u64) -> (TopologySnapshot, NodeId, NodeId) {
+    let host = NamingFields::PhysicalDevice {
+        serial: Some(serial.to_vec()),
+        wwn: None,
+        total_bytes: total,
+    };
+    let host_id = derive_id(&host).expect("derivable");
+    let table = NamingFields::PartitionTable {
+        parent: host_id,
+        role,
+    };
+    let table_id = derive_id(&table).expect("derivable");
+    let mut facts = Facts::default();
+    facts.transports.insert(host_id, TransportClass::Sata);
+    facts.extents.insert(
+        host_id,
+        HostRange {
+            host: host_id,
+            start: 0,
+            length: total,
+        },
+    );
+    let snapshot = TopologySnapshot::assemble(
+        SnapshotKind::Captured,
+        false,
+        vec![host, table],
+        vec![Edge {
+            kind: EdgeKind::Containment,
+            source: host_id,
+            target: table_id,
+        }],
+        facts,
+    )
+    .expect("assembles");
+    (snapshot, host_id, table_id)
+}
+
+fn free_pairs(snapshot: &TopologySnapshot, host: NodeId) -> Vec<(u64, u64)> {
+    free_extents(snapshot, host)
+        .expect("computes")
+        .iter()
+        .map(|range| (range.start, range.length))
+        .collect()
+}
+
+/// A device with one table view and one partition, the partition's
+/// extent supplied by the caller so each occupancy ground is built by
+/// varying exactly one thing.
+fn occupancy_host(
+    declared_start: u64,
+    placed: Option<HostRange>,
+) -> (TopologySnapshot, NodeId, NodeId) {
+    let host = device(b"OCCUPANT");
+    let host_id = derive_id(&host).expect("derivable");
+    let table = NamingFields::PartitionTable {
+        parent: host_id,
+        role: TableRole::Mbr,
+    };
+    let table_id = derive_id(&table).expect("derivable");
+    let part = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: declared_start,
+    };
+    let part_id = derive_id(&part).expect("derivable");
+    let mut facts = Facts::default();
+    device_facts(&mut facts, host_id);
+    if let Some(range) = placed {
+        facts.extents.insert(part_id, range);
+    }
+    let snapshot = TopologySnapshot::assemble(
+        SnapshotKind::Captured,
+        false,
+        vec![host, table, part],
+        vec![
+            Edge {
+                kind: EdgeKind::Containment,
+                source: host_id,
+                target: table_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: table_id,
+                target: part_id,
+            },
+        ],
+        facts,
+    )
+    .expect("assembles");
+    (snapshot, host_id, part_id)
+}
+
+// Requirements: PLAN-001, PART-009, INV-004
+//   ADR-0036's reservation table, asserted per role on identical
+//   geometry: every recognized scheme withholds its head, GPT and the
+//   hybrid MBR view additionally withhold a tail, and MBR and APM
+//   withhold none — a tail bound there would reserve bytes no structure
+//   claims. The filed #319 defect is gone: no accepted placement starts
+//   below the withheld head at any size that previously reached it.
+// Evidence: the_schemes_own_regions_are_withheld_at_both_ends
+#[test]
+fn the_schemes_own_regions_are_withheld_at_both_ends() {
+    for (role, ceiling) in [
+        (TableRole::Gpt, GIB - DEFAULT_ALIGNMENT),
+        (TableRole::HybridMbr, GIB - DEFAULT_ALIGNMENT),
+        (TableRole::Mbr, GIB),
+        (TableRole::Apm, GIB),
+    ] {
+        let (snapshot, host, _) = scheme_host(b"SCHEME", role.clone(), GIB);
+        assert_eq!(
+            free_pairs(&snapshot, host),
+            vec![(DEFAULT_ALIGNMENT, ceiling - DEFAULT_ALIGNMENT)],
+            "role {role:?} withholds the wrong regions"
+        );
+    }
+
+    // The filed defect on the delivered fixture: a create of exactly
+    // the default alignment used to land at offset 0, over the
+    // protective MBR and the GPT header, recorded Aligned.
+    let (snapshot, host, _, _) = solver_fixture();
+    let solved = place_create(&snapshot, host, DEFAULT_ALIGNMENT).expect("places");
+    assert!(
+        solved.placed.start >= DEFAULT_ALIGNMENT,
+        "a create was placed in the withheld head at {}",
+        solved.placed.start
+    );
+
+    // Every size that could reach a sub-1 MiB start.
+    for size in [1_u64, 512, 4096, DEFAULT_ALIGNMENT - 1, DEFAULT_ALIGNMENT] {
+        if let Ok(solved) = place_create(&snapshot, host, size) {
+            assert!(
+                solved.placed.start >= DEFAULT_ALIGNMENT,
+                "size {size} was placed at {}",
+                solved.placed.start
+            );
+        }
+    }
+
+    // The legacy MBR host's 32,256-byte create at offset 0 — recorded
+    // Coincident before ADR-0036, affirmatively conforming, on the boot
+    // sector — now has no lawful placement, while the host's last byte
+    // stays reachable because MBR withholds no tail.
+    let (legacy, legacy_host, _) = legacy_fixture();
+    assert!(
+        place_create(&legacy, legacy_host, LEGACY_START).is_err(),
+        "the boot-sector create must no longer conform"
+    );
+    assert_eq!(
+        free_pairs(&legacy, legacy_host).last().map(|(s, l)| s + l),
+        Some(GIB),
+        "an MBR host keeps its last byte reachable"
+    );
+}
+
+// Requirements: PLAN-001, INV-004
+//   A scheme the build cannot name yields no derivable bound — its
+//   metadata may sit anywhere — so the derivation is not presented at
+//   all, whether or not the facts locate the table. Granting a located
+//   unrecognized view full accounting instead reproduces the filed
+//   defect exactly.
+// Evidence: an_unrecognized_scheme_refuses_whether_or_not_it_is_located
+#[test]
+fn an_unrecognized_scheme_refuses_whether_or_not_it_is_located() {
+    let raw = b"weird-scheme".to_vec();
+    for locate in [false, true] {
+        let (base, host, table) =
+            scheme_host(b"UNREC", TableRole::Unrecognized { raw: raw.clone() }, GIB);
+        let mut facts = base.facts().clone();
+        if locate {
+            facts.extents.insert(
+                table,
+                HostRange {
+                    host,
+                    start: 0,
+                    length: DEFAULT_ALIGNMENT,
+                },
+            );
+        }
+        let snapshot = TopologySnapshot::assemble(
+            SnapshotKind::Captured,
+            false,
+            vec![
+                NamingFields::PhysicalDevice {
+                    serial: Some(b"UNREC".to_vec()),
+                    wwn: None,
+                    total_bytes: GIB,
+                },
+                NamingFields::PartitionTable {
+                    parent: host,
+                    role: TableRole::Unrecognized { raw: raw.clone() },
+                },
+            ],
+            vec![Edge {
+                kind: EdgeKind::Containment,
+                source: host,
+                target: table,
+            }],
+            facts,
+        )
+        .expect("assembles");
+
+        match free_extents(&snapshot, host) {
+            Err(SolveRefusal::UnrecognizedTableScheme {
+                host: refused,
+                view,
+                raw: carried,
+            }) => {
+                assert_eq!(refused, host);
+                assert_eq!(view, table);
+                assert_eq!(carried, raw, "the raw discriminant travels verbatim");
+            }
+            other => panic!("located={locate}: expected a scheme refusal, got {other:?}"),
+        }
+        assert!(
+            place_create(&snapshot, host, DEFAULT_ALIGNMENT).is_err(),
+            "located={locate}: no placement may exist under an unnamed scheme"
+        );
+    }
+}
+
+// Requirements: PLAN-001, INV-004
+//   Located-ness is not key presence: the guard's notion of accounted
+//   is the subtraction's own, so each ground names what the facts carry
+//   beside the offset the occupant's own hashed name declares.
+// Evidence: an_unaccounted_occupant_refuses_naming_what_the_facts_carry_instead
+#[test]
+fn an_unaccounted_occupant_refuses_naming_what_the_facts_carry_instead() {
+    let declared = 500 * DEFAULT_ALIGNMENT;
+    let elsewhere = derive_id(&device(b"ELSEWHERE")).expect("derivable");
+    let host_id = derive_id(&device(b"OCCUPANT")).expect("derivable");
+
+    let cases = [
+        (None, OccupancyGround::NoRange),
+        (
+            Some(HostRange {
+                host: elsewhere,
+                start: declared,
+                length: DEFAULT_ALIGNMENT,
+            }),
+            OccupancyGround::RangeOnAnotherHost { host: elsewhere },
+        ),
+        (
+            Some(HostRange {
+                host: host_id,
+                start: declared,
+                length: 0,
+            }),
+            OccupancyGround::RangeIsEmpty,
+        ),
+        (
+            Some(HostRange {
+                host: host_id,
+                start: 400 << 20,
+                length: DEFAULT_ALIGNMENT,
+            }),
+            OccupancyGround::RangeStartsElsewhere { start: 400 << 20 },
+        ),
+    ];
+
+    for (index, (placed, expected)) in cases.into_iter().enumerate() {
+        let (snapshot, host, part) = occupancy_host(declared, placed);
+        match free_extents(&snapshot, host) {
+            Err(SolveRefusal::UnaccountedOccupant {
+                host: refused,
+                occupant,
+                declared_start,
+                ground,
+            }) => {
+                assert_eq!(refused, host);
+                assert_eq!(occupant, part);
+                assert_eq!(declared_start, declared, "the hashed name's own offset");
+                assert_eq!(ground, expected, "case {index}");
+            }
+            other => panic!("case {index}: expected an occupancy refusal, got {other:?}"),
+        }
+    }
+
+    // The control: the same shape, correctly located, computes.
+    let (snapshot, host, _) = occupancy_host(
+        declared,
+        Some(HostRange {
+            host: host_id,
+            start: declared,
+            length: DEFAULT_ALIGNMENT,
+        }),
+    );
+    assert!(free_extents(&snapshot, host).is_ok());
+}
+
+// Requirements: PLAN-001, INV-004
+//   An occupant located on this host under a table view this host does
+//   not carry: no scheme of this host's accounts for it. This is the
+//   arm that closes the no-table-node hole positively, rather than by
+//   refusing on absence.
+// Evidence: an_occupant_under_a_table_this_host_does_not_carry_refuses
+#[test]
+fn an_occupant_under_a_table_this_host_does_not_carry_refuses() {
+    let host = device(b"HOST-A");
+    let host_id = derive_id(&host).expect("derivable");
+    let other = device(b"HOST-B");
+    let other_id = derive_id(&other).expect("derivable");
+    let foreign_table = NamingFields::PartitionTable {
+        parent: other_id,
+        role: TableRole::Mbr,
+    };
+    let foreign_table_id = derive_id(&foreign_table).expect("derivable");
+    let part = NamingFields::Partition {
+        parent_table: foreign_table_id,
+        start_offset: 300 << 20,
+    };
+    let part_id = derive_id(&part).expect("derivable");
+
+    let mut facts = Facts::default();
+    device_facts(&mut facts, host_id);
+    facts.extents.insert(
+        other_id,
+        HostRange {
+            host: other_id,
+            start: 0,
+            length: GIB,
+        },
+    );
+    // Every extent present, and the occupant IS located — on this host.
+    facts.extents.insert(
+        part_id,
+        HostRange {
+            host: host_id,
+            start: 300 << 20,
+            length: DEFAULT_ALIGNMENT,
+        },
+    );
+    let snapshot = TopologySnapshot::assemble(
+        SnapshotKind::Captured,
+        false,
+        vec![host, other, foreign_table, part],
+        vec![
+            Edge {
+                kind: EdgeKind::Containment,
+                source: other_id,
+                target: foreign_table_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: foreign_table_id,
+                target: part_id,
+            },
+        ],
+        facts,
+    )
+    .expect("assembles");
+
+    match free_extents(&snapshot, host_id) {
+        Err(SolveRefusal::UnaccountedOccupant {
+            occupant, ground, ..
+        }) => {
+            assert_eq!(occupant, part_id);
+            assert_eq!(
+                ground,
+                OccupancyGround::TableIsNotThisHosts {
+                    named_table: foreign_table_id
+                }
+            );
+        }
+        other => panic!("expected a foreign-table refusal, got {other:?}"),
+    }
+}
+
+// Requirements: PLAN-001, INV-004
+//   The roster is read from the authenticated naming fields, never from
+//   containment edges: an edge rides in no node's address preimage, so
+//   an edge-sourced roster would shrink silently when one is omitted.
+//   Held as a property, not as a promise.
+// Evidence: the_guard_stands_with_every_containment_edge_removed
+#[test]
+fn the_guard_stands_with_every_containment_edge_removed() {
+    let (with_edges, host, _, _) = solver_fixture();
+    let expected = free_pairs(&with_edges, host);
+
+    let host_fields = device(b"SLV-HOST");
+    let host_id = derive_id(&host_fields).expect("derivable");
+    let table = NamingFields::PartitionTable {
+        parent: host_id,
+        role: TableRole::Gpt,
+    };
+    let table_id = derive_id(&table).expect("derivable");
+    let aligned = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: DEFAULT_ALIGNMENT,
+    };
+    let misaligned = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: 100 * DEFAULT_ALIGNMENT + 512,
+    };
+    let mut facts = Facts::default();
+    device_facts(&mut facts, host_id);
+    facts.extents.insert(
+        derive_id(&aligned).expect("derivable"),
+        HostRange {
+            host: host_id,
+            start: DEFAULT_ALIGNMENT,
+            length: 64 * DEFAULT_ALIGNMENT,
+        },
+    );
+    facts.extents.insert(
+        derive_id(&misaligned).expect("derivable"),
+        HostRange {
+            host: host_id,
+            start: 100 * DEFAULT_ALIGNMENT + 512,
+            length: 32 * DEFAULT_ALIGNMENT,
+        },
+    );
+    let without_edges = TopologySnapshot::assemble(
+        SnapshotKind::Captured,
+        false,
+        vec![host_fields, table, aligned, misaligned],
+        vec![],
+        facts,
+    )
+    .expect("assembles");
+
+    assert_eq!(
+        free_pairs(&without_edges, host_id),
+        expected,
+        "the free list must not depend on containment edges"
+    );
+}
+
+// Requirements: PLAN-001, INV-004
+//   The guard reads the table NODE, never the table STATE stamp.
+//   WP-L100 increment 3 is chartered to emit a body with no
+//   table_states entry on any path, and a stamp-conditioned guard would
+//   refuse a chartered deliverable.
+// Evidence: the_guard_is_blind_to_table_state
+#[test]
+fn the_guard_is_blind_to_table_state() {
+    let (base, host, table) = scheme_host(b"BLIND", TableRole::Gpt, GIB);
+    let expected = free_pairs(&base, host);
+
+    for state in [
+        None,
+        Some(TableState::Present {
+            checksum: canonical::hash(&Value::Text("blind".into())).expect("hashable"),
+        }),
+        Some(TableState::Absent),
+    ] {
+        let mut facts = base.facts().clone();
+        facts.table_states.remove(&host);
+        if let Some(state) = state.clone() {
+            facts.table_states.insert(host, state);
+        }
+        let snapshot = TopologySnapshot::assemble(
+            SnapshotKind::Captured,
+            false,
+            vec![
+                NamingFields::PhysicalDevice {
+                    serial: Some(b"BLIND".to_vec()),
+                    wwn: None,
+                    total_bytes: GIB,
+                },
+                NamingFields::PartitionTable {
+                    parent: host,
+                    role: TableRole::Gpt,
+                },
+            ],
+            vec![Edge {
+                kind: EdgeKind::Containment,
+                source: host,
+                target: table,
+            }],
+            facts,
+        )
+        .expect("assembles");
+        assert_eq!(
+            free_pairs(&snapshot, host),
+            expected,
+            "table state {state:?} changed the derivation"
+        );
+    }
+}
+
+// Requirements: PLAN-001
+//   A host extent reaching past the size the host's own hashed name
+//   declares makes the arithmetic's outer bound wrong. Unguarded at
+//   HEAD: a 1 GiB device carrying a 2 GiB self-extent placed a 1.5 GiB
+//   partition at offset 0, recorded Aligned — Section 11.2's "extents
+//   remain inside the bound device", violated by the solver itself.
+// Evidence: a_host_extent_past_its_own_declared_size_refuses
+#[test]
+fn a_host_extent_past_its_own_declared_size_refuses() {
+    let host = device(b"OVERRUN");
+    let host_id = derive_id(&host).expect("derivable");
+    let mut facts = Facts::default();
+    facts.transports.insert(host_id, TransportClass::Sata);
+    facts.extents.insert(
+        host_id,
+        HostRange {
+            host: host_id,
+            start: 0,
+            length: 2 * GIB,
+        },
+    );
+    let snapshot =
+        TopologySnapshot::assemble(SnapshotKind::Captured, false, vec![host], vec![], facts)
+            .expect("assembles");
+
+    match free_extents(&snapshot, host_id) {
+        Err(SolveRefusal::HostExtentExceedsDevice {
+            host,
+            extent_end,
+            total_bytes,
+        }) => {
+            assert_eq!(host, host_id);
+            assert_eq!(extent_end, 2 * GIB);
+            assert_eq!(total_bytes, GIB);
+        }
+        other => panic!("expected a host-overrun refusal, got {other:?}"),
+    }
+    assert!(place_create(&snapshot, host_id, 1536 << 20).is_err());
+}
+
+// Requirements: PLAN-001
+//   A child range leaving its host's extent is surfaced rather than
+//   absorbed. Only the upper bound is checked: a lower bound would
+//   refuse the partition-anchored shapes issue #333 leaves undecided.
+// Evidence: a_child_extent_leaving_the_host_refuses
+#[test]
+fn a_child_extent_leaving_the_host_refuses() {
+    let (snapshot, host, part) = occupancy_host(
+        900 << 20,
+        Some(HostRange {
+            host: derive_id(&device(b"OCCUPANT")).expect("derivable"),
+            start: 900 << 20,
+            length: 200 << 20,
+        }),
+    );
+    match free_extents(&snapshot, host) {
+        Err(SolveRefusal::ChildExtentOutsideHost {
+            host: refused,
+            node,
+            start,
+            length,
+        }) => {
+            assert_eq!(refused, host);
+            assert_eq!(node, part);
+            assert_eq!(start, 900 << 20);
+            assert_eq!(length, 200 << 20);
+        }
+        other => panic!("expected a child-overrun refusal, got {other:?}"),
+    }
+}
+
+// Requirements: PLAN-001, INV-004
+//   A host declaring no table view reserves nothing and does NOT refuse
+//   on that ground — refusing on an absent node manufactures a refusal
+//   from absence, the mirror of manufacturing free space from it. The
+//   recorded residual, asserted so it cannot drift into a silent fix.
+// Evidence: a_host_with_no_table_view_reserves_nothing
+#[test]
+fn a_host_with_no_table_view_reserves_nothing() {
+    let host = device(b"NO-TABLE");
+    let host_id = derive_id(&host).expect("derivable");
+    let mut facts = Facts::default();
+    device_facts(&mut facts, host_id);
+    let snapshot =
+        TopologySnapshot::assemble(SnapshotKind::Captured, false, vec![host], vec![], facts)
+            .expect("assembles");
+
+    assert_eq!(free_pairs(&snapshot, host_id), vec![(0, GIB)]);
+    let reserved = reserved_regions(&snapshot, host_id).expect("computes");
+    assert_eq!((reserved.head, reserved.tail), (0, 0));
+    let solved = place_create(&snapshot, host_id, DEFAULT_ALIGNMENT).expect("places");
+    assert_eq!(solved.placed.start, 0);
+}
+
+// Requirements: PLAN-001, PART-009
+//   ADR-0023's coincident-edge rule stays complete once a tail is
+//   withheld. On a host whose extent is not a whole multiple of the
+//   default, the reserved ceiling is unaligned — without the new edge a
+//   create filling the last free range would refuse, or align down and
+//   mint exactly the unusable sliver 12.1.0 rejected.
+// Evidence: the_reserved_tail_is_a_coincident_edge_on_an_odd_sized_host
+#[test]
+fn the_reserved_tail_is_a_coincident_edge_on_an_odd_sized_host() {
+    let odd = GIB + 512;
+    let (snapshot, host, table) = scheme_host(b"ODD-GPT", TableRole::Gpt, odd);
+    let free = free_pairs(&snapshot, host);
+    assert_eq!(
+        free,
+        vec![(
+            DEFAULT_ALIGNMENT,
+            odd - DEFAULT_ALIGNMENT - DEFAULT_ALIGNMENT
+        )],
+        "the ceiling sits one reservation below an unaligned host end"
+    );
+
+    let (start, length) = free[0];
+    let solved = place_create(&snapshot, host, length).expect("fills to the ceiling");
+    assert_eq!(solved.placed.start, start);
+    assert_eq!(
+        solved.end_placement,
+        BoundaryPlacement::Coincident {
+            edge: StructuralEdge::ReservedTableRegion { table }
+        },
+        "filling to the reserved ceiling is coincident with the scheme's region"
+    );
+}
+
+// Requirements: PLAN-001, PART-009
+//   A GPT tail stops a grow short of the backup structures: filling to
+//   the physical end of a GPT disk overwrites the backup header. The
+//   identical device under MBR, which withholds no tail, still reaches
+//   its last byte.
+// Evidence: a_gpt_tail_stops_a_grow_short_of_the_backup
+#[test]
+fn a_gpt_tail_stops_a_grow_short_of_the_backup() {
+    for (role, reaches_the_end) in [(TableRole::Gpt, false), (TableRole::Mbr, true)] {
+        let host = NamingFields::PhysicalDevice {
+            serial: Some(b"GROW-TAIL".to_vec()),
+            wwn: None,
+            total_bytes: GIB,
+        };
+        let host_id = derive_id(&host).expect("derivable");
+        let table = NamingFields::PartitionTable {
+            parent: host_id,
+            role: role.clone(),
+        };
+        let table_id = derive_id(&table).expect("derivable");
+        let part = NamingFields::Partition {
+            parent_table: table_id,
+            start_offset: DEFAULT_ALIGNMENT,
+        };
+        let part_id = derive_id(&part).expect("derivable");
+        let mut facts = Facts::default();
+        facts.transports.insert(host_id, TransportClass::Sata);
+        facts.extents.insert(
+            host_id,
+            HostRange {
+                host: host_id,
+                start: 0,
+                length: GIB,
+            },
+        );
+        facts.extents.insert(
+            part_id,
+            HostRange {
+                host: host_id,
+                start: DEFAULT_ALIGNMENT,
+                length: 64 * DEFAULT_ALIGNMENT,
+            },
+        );
+        let snapshot = TopologySnapshot::assemble(
+            SnapshotKind::Captured,
+            false,
+            vec![host, table, part],
+            vec![
+                Edge {
+                    kind: EdgeKind::Containment,
+                    source: host_id,
+                    target: table_id,
+                },
+                Edge {
+                    kind: EdgeKind::Containment,
+                    source: table_id,
+                    target: part_id,
+                },
+            ],
+            facts,
+        )
+        .expect("assembles");
+
+        // Grow to the device's physical end.
+        let to_physical_end = GIB - DEFAULT_ALIGNMENT;
+        let outcome = grow_extension(&snapshot, part_id, to_physical_end);
+        if reaches_the_end {
+            assert!(
+                outcome.is_ok(),
+                "{role:?} withholds no tail, so the last byte stays reachable"
+            );
+        } else {
+            match outcome {
+                Err(SolveRefusal::NoAdjacentFreeSpace {
+                    target,
+                    needed,
+                    available,
+                }) => {
+                    assert_eq!(target, part_id);
+                    assert_eq!(
+                        needed - available,
+                        DEFAULT_ALIGNMENT,
+                        "the shortfall is exactly the withheld tail"
+                    );
+                }
+                other => panic!("{role:?}: expected a tail-short refusal, got {other:?}"),
+            }
+            // Growing to the ceiling instead succeeds.
+            assert!(
+                grow_extension(&snapshot, part_id, to_physical_end - DEFAULT_ALIGNMENT).is_ok()
+            );
+        }
+    }
+}
+
+// Requirements: PLAN-001, INV-004
+//   A conflicting entry records a view of its table, so its role widens
+//   the reservation — a hybrid device's GPT view withholds a tail its
+//   MBR table alone would not. And it is never an occupant: it carries
+//   no length, so no bound over it is computable, and ADR-0024's repair
+//   family stays reachable on a repairable device.
+// Evidence: a_conflicting_views_role_widens_the_reservation
+#[test]
+fn a_conflicting_views_role_widens_the_reservation() {
+    let host = device(b"HYBRID");
+    let host_id = derive_id(&host).expect("derivable");
+    let table = NamingFields::PartitionTable {
+        parent: host_id,
+        role: TableRole::Mbr,
+    };
+    let table_id = derive_id(&table).expect("derivable");
+    let conflicting = NamingFields::ConflictingTableEntry {
+        table: table_id,
+        view_role: TableRole::Gpt,
+        entry_start: 2048,
+    };
+    let conflicting_id = derive_id(&conflicting).expect("derivable");
+
+    let mut facts = Facts::default();
+    device_facts(&mut facts, host_id);
+    let snapshot = TopologySnapshot::assemble(
+        SnapshotKind::Captured,
+        false,
+        vec![host, table, conflicting],
+        vec![
+            Edge {
+                kind: EdgeKind::Containment,
+                source: host_id,
+                target: table_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: table_id,
+                target: conflicting_id,
+            },
+        ],
+        facts,
+    )
+    .expect("assembles");
+
+    let reserved = reserved_regions(&snapshot, host_id).expect("computes");
+    assert_eq!(
+        (reserved.head, reserved.tail),
+        (DEFAULT_ALIGNMENT, DEFAULT_ALIGNMENT),
+        "the GPT view's tail widens an MBR table's reservation"
+    );
+    // The extent-less conflicting entry is not an occupant: the
+    // derivation computes rather than refusing.
+    assert_eq!(
+        free_pairs(&snapshot, host_id),
+        vec![(DEFAULT_ALIGNMENT, GIB - 2 * DEFAULT_ALIGNMENT)]
+    );
+}
+
+// Requirements: PLAN-001, INV-004
+//   The ordering rule, on a body carrying two live grounds at once: a
+//   scheme this build cannot name AND an unlocated partition under it.
+//   Without both present the ordering is unobservable.
+// Evidence: the_refusal_is_the_scheme_before_the_occupant
+#[test]
+fn the_refusal_is_the_scheme_before_the_occupant() {
+    let host = device(b"BOTH-GROUNDS");
+    let host_id = derive_id(&host).expect("derivable");
+    let table = NamingFields::PartitionTable {
+        parent: host_id,
+        role: TableRole::Unrecognized {
+            raw: b"both".to_vec(),
+        },
+    };
+    let table_id = derive_id(&table).expect("derivable");
+    let part = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: 200 << 20,
+    };
+    let part_id = derive_id(&part).expect("derivable");
+
+    let mut facts = Facts::default();
+    device_facts(&mut facts, host_id);
+    // The partition is deliberately left unlocated: both grounds live.
+    let snapshot = TopologySnapshot::assemble(
+        SnapshotKind::Captured,
+        false,
+        vec![host, table, part],
+        vec![
+            Edge {
+                kind: EdgeKind::Containment,
+                source: host_id,
+                target: table_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: table_id,
+                target: part_id,
+            },
+        ],
+        facts,
+    )
+    .expect("assembles");
+
+    assert!(
+        matches!(
+            free_extents(&snapshot, host_id),
+            Err(SolveRefusal::UnrecognizedTableScheme { .. })
+        ),
+        "the scheme refusal must precede the occupancy refusal"
+    );
+}
+
+// Requirements: PLAN-001, INV-004
+//   Hosted layers are NOT required-located occupants, and the exclusion
+//   is what keeps this decision independent of issue #333: the
+//   delivered created_capture fixture anchors its file system on the
+//   partition, and requiring hosted layers located refuses it under
+//   #333's rival reading. Both a device-host call and a nested
+//   partition-host call behave exactly as they did before ADR-0036.
+// Evidence: a_partition_scoped_layer_is_not_the_devices_occupant
+#[test]
+fn a_partition_scoped_layer_is_not_the_devices_occupant() {
+    let snapshot = created_capture(true);
+    let device_id = derive_id(&device(b"SLV-HOST")).expect("derivable");
+    // The device-scoped call computes: the partition-anchored file
+    // system never enters the roster.
+    let device_free = free_extents(&snapshot, device_id);
+    assert!(
+        device_free.is_ok(),
+        "a partition-anchored layer must not refuse the device's derivation: {device_free:?}"
     );
 }
