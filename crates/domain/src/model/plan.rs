@@ -38,25 +38,19 @@ use super::step::{
 
 /// The plan body's schema identity (MODEL-003).
 pub const SCHEMA: &str = "partman.plan";
-/// The unlinked plan body schema version — the pre-ADR-0022 form with
-/// no reversal linkage and no step preconditions. Still emitted by
-/// [`OperationPlan::assemble`] and accepted at the boundary until the
-/// planner's reversal increment migrates every emitter to the linked
-/// form; its retirement is its own reviewed change (MODEL-003's
-/// explicit-migration discipline).
-pub const SCHEMA_VERSION: u64 = 1;
-/// The linked plan body schema version (ADR-0022, spec 12.0.0;
-/// ADR-0024, spec 12.2.0; and PLAN-005 under the WP-060 recorded
+/// The plan body schema version (ADR-0022, spec 12.0.0; ADR-0024,
+/// spec 12.2.0; and PLAN-005 under the WP-060 recorded
 /// cancellation-class decision, 2026-08-12): Section 6's
 /// reversal-linkage item is required, and every step carries its
 /// preconditions, its typed class, and its cancellation declaration.
-/// Versions 2 (the linked form without the class field) and 3 (the
-/// linked form without the cancellation field) each lived for exactly
-/// one change window, gained no emitter outside it and no surviving
-/// artifact — version 3's vectors were regenerated in the change that
-/// retired it — and are refused at decode with their retirements
-/// recorded in the changelog (MODEL-003's explicit-migration
-/// discipline).
+/// Every other version is retired and refuses at decode (MODEL-003's
+/// explicit-migration discipline), each retirement recorded in the
+/// changelog: version 1 — the pre-ADR-0022 unlinked form, the last
+/// version whose emitters were this crate's own tests and vectors —
+/// was retired by slice 3o once nothing else emitted it, and versions
+/// 2 (the linked form without the class field) and 3 (without the
+/// cancellation field) each lived for exactly one change window with
+/// no emitter outside it and no surviving artifact.
 pub const LINKED_SCHEMA_VERSION: u64 = 4;
 
 /// PLAN-008's per-step reversal-impossibility reason — closed, typed,
@@ -146,16 +140,17 @@ pub struct OperationPlan {
     validity: ValidityWindow,
     identities: BTreeMap<String, DeviceIdentity>,
     steps: Vec<PlanStep>,
-    /// `None` is the version-1 body; `Some` is the linked version-2
-    /// body carrying Section 6's reversal item.
-    reversal: Option<ReversalLinkage>,
+    /// Section 6's reversal item — required content since the version-1
+    /// retirement (slice 3o): a plan without a linkage is
+    /// unconstructible, not merely refused.
+    reversal: ReversalLinkage,
 }
 
-/// The ADR-0022 severity rule, shared by both assembly paths and the
-/// boundary: a Reversible claim stands only on an emitted reversal —
-/// the draft linkage, or the draft's own reapply-forward statement. No
-/// linkage (version 1) or an impossibility statement forbids it.
-fn reversible_backed(steps: &[PlanStep], reversal: Option<&ReversalLinkage>) -> bool {
+/// The ADR-0022 severity rule, shared by assembly and the boundary: a
+/// Reversible claim stands only on an emitted reversal — the draft
+/// linkage, or the draft's own reapply-forward statement. An
+/// impossibility statement forbids it.
+fn reversible_backed(steps: &[PlanStep], reversal: &ReversalLinkage) -> bool {
     let claims_reversible = steps
         .iter()
         .any(|step| step.risk().severity == Severity::Reversible);
@@ -164,56 +159,16 @@ fn reversible_backed(steps: &[PlanStep], reversal: Option<&ReversalLinkage>) -> 
     }
     matches!(
         reversal,
-        Some(ReversalLinkage::Draft { .. } | ReversalLinkage::ReapplyForward { .. })
+        ReversalLinkage::Draft { .. } | ReversalLinkage::ReapplyForward { .. }
     )
 }
 
 impl OperationPlan {
-    /// Assemble a version-1 (unlinked) plan over steps already
-    /// constructed against the given snapshot. The snapshot's body hash
-    /// is bound into the plan (PLAN-006's comparison object, as bound
-    /// at validation per 8.0.0).
-    ///
-    /// # Errors
-    ///
-    /// [`PlanError::Snapshot`] if the snapshot cannot hash;
-    /// [`PlanError::ReversibleWithoutReversal`] for a Reversible step —
-    /// severity 1 stands only on an emitted reversal (ADR-0022), which
-    /// this body form cannot carry; [`PlanError::UncarriedPreconditions`]
-    /// for a step with preconditions, which this body form would
-    /// silently drop.
-    pub fn assemble(
-        plan_id: Vec<u8>,
-        created_at: u64,
-        snapshot: &TopologySnapshot,
-        validity: ValidityWindow,
-        identities: BTreeMap<NodeId, DeviceIdentity>,
-        steps: Vec<PlanStep>,
-    ) -> Result<Self, PlanError> {
-        if !reversible_backed(&steps, None) {
-            return Err(PlanError::ReversibleWithoutReversal);
-        }
-        if steps.iter().any(|step| !step.preconditions().is_empty()) {
-            return Err(PlanError::UncarriedPreconditions);
-        }
-        let snapshot_hash = snapshot.body_hash().map_err(|_| PlanError::Snapshot)?;
-        Ok(Self {
-            plan_id,
-            created_at,
-            snapshot_hash,
-            validity,
-            identities: identities
-                .into_iter()
-                .map(|(id, identity)| (id.to_string(), identity))
-                .collect(),
-            steps,
-            reversal: None,
-        })
-    }
-
-    /// Assemble a linked (version-2) plan: Section 6's reversal item is
-    /// required content (ADR-0022), and steps carry their preconditions
-    /// in the body.
+    /// Assemble a plan: Section 6's reversal item is required content
+    /// (ADR-0022), and steps carry their preconditions in the body.
+    /// The version-1 unlinked form and its `assemble` constructor were
+    /// retired by slice 3o (MODEL-003's explicit-migration discipline);
+    /// this is the sole assembly path.
     ///
     /// # Errors
     ///
@@ -241,7 +196,7 @@ impl OperationPlan {
                 return Err(PlanError::MalformedLinkage);
             }
         }
-        if !reversible_backed(&steps, Some(&reversal)) {
+        if !reversible_backed(&steps, &reversal) {
             return Err(PlanError::ReversibleWithoutReversal);
         }
         let snapshot_hash = snapshot.body_hash().map_err(|_| PlanError::Snapshot)?;
@@ -255,7 +210,7 @@ impl OperationPlan {
                 .map(|(id, identity)| (id.to_string(), identity))
                 .collect(),
             steps,
-            reversal: Some(reversal),
+            reversal,
         })
     }
 
@@ -265,10 +220,13 @@ impl OperationPlan {
         &self.plan_id
     }
 
-    /// The reversal linkage — `None` on a version-1 body.
+    /// The reversal linkage. The `Option` is the accessor's historical
+    /// shape, kept for its consumers; since the version-1 retirement
+    /// (slice 3o) a plan without a linkage is unconstructible and this
+    /// is always `Some`.
     #[must_use]
     pub const fn reversal(&self) -> Option<&ReversalLinkage> {
-        self.reversal.as_ref()
+        Some(&self.reversal)
     }
 
     /// The bound identities, keyed by the target's address in hex
@@ -308,16 +266,11 @@ impl OperationPlan {
     /// [`PlanError::Encoding`] on an unencodable element — unreachable
     /// for a plan this module assembled.
     pub fn body_value(&self) -> Result<Value, PlanError> {
-        let linked = self.reversal.is_some();
         let mut body = BTreeMap::new();
         body.insert("schema".to_owned(), Value::Text(SCHEMA.to_owned()));
         body.insert(
             "schema_version".to_owned(),
-            Value::Unsigned(if linked {
-                LINKED_SCHEMA_VERSION
-            } else {
-                SCHEMA_VERSION
-            }),
+            Value::Unsigned(LINKED_SCHEMA_VERSION),
         );
         body.insert("plan_id".to_owned(), Value::Bytes(self.plan_id.clone()));
         body.insert("created_at".to_owned(), Value::Unsigned(self.created_at));
@@ -340,16 +293,9 @@ impl OperationPlan {
         );
         body.insert(
             "steps".to_owned(),
-            Value::Array(
-                self.steps
-                    .iter()
-                    .map(|step| step_value(step, linked))
-                    .collect(),
-            ),
+            Value::Array(self.steps.iter().map(step_value).collect()),
         );
-        if let Some(reversal) = &self.reversal {
-            body.insert("reversal".to_owned(), reversal_value(reversal));
-        }
+        body.insert("reversal".to_owned(), reversal_value(&self.reversal));
         Ok(Value::Map(body))
     }
 
@@ -392,11 +338,13 @@ impl OperationPlan {
             Some(Value::Text(text)) if text == SCHEMA => {}
             _ => return Err(PlanSchemaError::WrongSchema),
         }
-        let linked = match map.get("schema_version") {
-            Some(Value::Unsigned(version)) if *version == SCHEMA_VERSION => false,
-            Some(Value::Unsigned(version)) if *version == LINKED_SCHEMA_VERSION => true,
+        // The sole live version: every retired version — 1 (unlinked),
+        // 2, and 3 — refuses here (MODEL-003's explicit-migration
+        // discipline).
+        match map.get("schema_version") {
+            Some(Value::Unsigned(version)) if *version == LINKED_SCHEMA_VERSION => {}
             _ => return Err(PlanSchemaError::WrongSchemaVersion),
-        };
+        }
         for key in map.keys() {
             let known = matches!(
                 key.as_str(),
@@ -408,7 +356,8 @@ impl OperationPlan {
                     | "not_after"
                     | "identities"
                     | "steps"
-            ) || (linked && key.as_str() == "reversal");
+                    | "reversal"
+            );
             if !known {
                 return Err(PlanSchemaError::UnknownField { key: key.clone() });
             }
@@ -434,17 +383,13 @@ impl OperationPlan {
         };
         let mut steps = Vec::new();
         for step_value in step_values {
-            steps.push(parse_step(step_value, snapshot, linked)?);
+            steps.push(parse_step(step_value, snapshot)?);
         }
-        let reversal = if linked {
-            match map.get("reversal") {
-                Some(value) => Some(parse_reversal(value)?),
-                None => return Err(PlanSchemaError::MissingField { key: "reversal" }),
-            }
-        } else {
-            None
+        let reversal = match map.get("reversal") {
+            Some(value) => parse_reversal(value)?,
+            None => return Err(PlanSchemaError::MissingField { key: "reversal" }),
         };
-        if let Some(ReversalLinkage::Impossible { statements }) = &reversal {
+        if let ReversalLinkage::Impossible { statements } = &reversal {
             let covers_exactly = statements.len() == steps.len()
                 && statements
                     .iter()
@@ -454,7 +399,7 @@ impl OperationPlan {
                 return Err(PlanSchemaError::MalformedLinkage);
             }
         }
-        if !reversible_backed(&steps, reversal.as_ref()) {
+        if !reversible_backed(&steps, &reversal) {
             return Err(PlanSchemaError::ReversibleWithoutReversal);
         }
         // The two-time truthfulness re-check (ADR-0022): a precondition
@@ -818,26 +763,24 @@ fn parse_class(map: &BTreeMap<String, Value>) -> Result<StepClass, PlanSchemaErr
     }
 }
 
-fn step_value(step: &PlanStep, linked: bool) -> Value {
+fn step_value(step: &PlanStep) -> Value {
     let mut map = BTreeMap::new();
     map.insert(
         "target".to_owned(),
         Value::Bytes(step.target().as_bytes().to_vec()),
     );
-    if linked {
-        map.insert(
-            "preconditions".to_owned(),
-            preconditions_value(step.preconditions()),
-        );
-        map.insert(
-            "class".to_owned(),
-            Value::Text(class_wire_name(step.class()).to_owned()),
-        );
-        map.insert(
-            "cancellation".to_owned(),
-            Value::Text(cancellation_wire_name(step.cancellation()).to_owned()),
-        );
-    }
+    map.insert(
+        "preconditions".to_owned(),
+        preconditions_value(step.preconditions()),
+    );
+    map.insert(
+        "class".to_owned(),
+        Value::Text(class_wire_name(step.class()).to_owned()),
+    );
+    map.insert(
+        "cancellation".to_owned(),
+        Value::Text(cancellation_wire_name(step.cancellation()).to_owned()),
+    );
     map.insert(
         "written_table_extents".to_owned(),
         ranges_value(&step.ranges().written_table_extents),
@@ -966,11 +909,7 @@ fn acknowledgment_value(acknowledgment: &Acknowledgment) -> Value {
     Value::Map(map)
 }
 
-fn parse_step(
-    value: &Value,
-    snapshot: &TopologySnapshot,
-    linked: bool,
-) -> Result<PlanStep, PlanSchemaError> {
+fn parse_step(value: &Value, snapshot: &TopologySnapshot) -> Result<PlanStep, PlanSchemaError> {
     let Value::Map(map) = value else {
         return Err(PlanSchemaError::MalformedStep);
     };
@@ -990,28 +929,24 @@ fn parse_step(
                 | "acknowledgments"
                 | "severity"
                 | "flags"
-        ) || (linked
-            && matches!(key.as_str(), "preconditions" | "class" | "cancellation"));
+                | "preconditions"
+                | "class"
+                | "cancellation"
+        );
         if !known {
             return Err(PlanSchemaError::UnknownField { key: key.clone() });
         }
     }
     let target = parse_node(map.get("target"))?;
-    let (preconditions, class, cancellation) = if linked {
-        let Some(Value::Array(entries)) = map.get("preconditions") else {
-            return Err(PlanSchemaError::MalformedStep);
-        };
-        (
-            entries
-                .iter()
-                .map(parse_precondition)
-                .collect::<Result<Vec<_>, _>>()?,
-            parse_class(map)?,
-            parse_cancellation(map)?,
-        )
-    } else {
-        (vec![], StepClass::Ordinary, Cancellation::NonCancellable)
+    let Some(Value::Array(entries)) = map.get("preconditions") else {
+        return Err(PlanSchemaError::MalformedStep);
     };
+    let preconditions = entries
+        .iter()
+        .map(parse_precondition)
+        .collect::<Result<Vec<_>, _>>()?;
+    let class = parse_class(map)?;
+    let cancellation = parse_cancellation(map)?;
     let ranges = StepRanges {
         written_table_extents: parse_ranges(map.get("written_table_extents"))?,
         consumed: parse_ranges(map.get("consumed"))?,
@@ -1144,9 +1079,6 @@ pub enum PlanError {
     /// A Reversible step with no emitted reversal to stand on
     /// (ADR-0022: no draft, no Reversible).
     ReversibleWithoutReversal,
-    /// A step carries preconditions the unlinked body form would
-    /// silently drop; assemble the linked form instead.
-    UncarriedPreconditions,
     /// An impossibility statement set that does not cover exactly the
     /// plan's step indices in ascending order.
     MalformedLinkage,
@@ -1159,8 +1091,6 @@ impl fmt::Display for PlanError {
             Self::Encoding => formatter.write_str("plan body not encodable"),
             Self::ReversibleWithoutReversal => formatter
                 .write_str("a Reversible step stands only on an emitted reversal (ADR-0022)"),
-            Self::UncarriedPreconditions => formatter
-                .write_str("preconditions need the linked body form; the unlinked form drops them"),
             Self::MalformedLinkage => formatter
                 .write_str("impossibility statements must cover exactly the plan's steps in order"),
         }

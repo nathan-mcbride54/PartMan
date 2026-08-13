@@ -496,18 +496,9 @@ fn plan_for(name: &str) -> (OperationPlan, TopologySnapshot) {
     let (snapshot, dev_id) = plan_base();
     let step = wipe_step(&snapshot, dev_id);
     let plan = match name {
-        "plan-bare-wipe" => OperationPlan::assemble(
-            b"vec-plan-bare".to_vec(),
-            1_700_000_000,
-            &snapshot,
-            ValidityWindow {
-                not_after: 1_700_086_400,
-            },
-            BTreeMap::new(),
-            vec![step],
-        )
-        .expect("assembles"),
-        "plan-bound-identity-wipe" => {
+        // The identity-record coverage the retired version-1 vectors
+        // carried (SAFE-003, plan-body.md §2), on the live version.
+        "plan-v4-bound-identity-wipe" => {
             let mut identities = BTreeMap::new();
             identities.insert(
                 dev_id,
@@ -523,7 +514,7 @@ fn plan_for(name: &str) -> (OperationPlan, TopologySnapshot) {
                     witness: None,
                 },
             );
-            OperationPlan::assemble(
+            OperationPlan::assemble_linked(
                 b"vec-plan-bound".to_vec(),
                 1_700_000_000,
                 &snapshot,
@@ -532,6 +523,12 @@ fn plan_for(name: &str) -> (OperationPlan, TopologySnapshot) {
                 },
                 identities,
                 vec![step],
+                ReversalLinkage::Impossible {
+                    statements: vec![StepImpossibility {
+                        step: 0,
+                        reason: ImpossibilityReason::DataDestroyed,
+                    }],
+                },
             )
             .expect("assembles")
         }
@@ -677,6 +674,7 @@ fn print_new_vectors() {
     for name in [
         "plan-v4-wipe-impossible",
         "plan-v4-forward-create-draft-linked",
+        "plan-v4-bound-identity-wipe",
     ] {
         let (plan, _) = plan_for(name);
         entry(
