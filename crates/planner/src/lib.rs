@@ -316,6 +316,12 @@ impl std::fmt::Display for Consequence {
                     "{target}'s new boundary at byte {boundary} coincides with the end of its \
                      host and is recorded as coincident"
                 ),
+                StructuralEdge::ReservedTableRegion { table } => write!(
+                    formatter,
+                    "{target}'s new boundary at byte {boundary} coincides with the region \
+                     {table}'s own scheme claims at the host's tail and is recorded as \
+                     coincident"
+                ),
             },
         }
     }
