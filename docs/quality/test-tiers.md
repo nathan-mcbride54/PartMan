@@ -120,7 +120,10 @@ the arc's head, and on `b50dd19` (2026-08-13 UTC) when the WP-L100
 arc — three Rust merges, PRs #314/#316/#317 — tripped it an eighth,
 re-taken once at the arc's head (a choice made at re-take time on the
 two preceding arcs' precedent; that arc's plan recorded no sitting
-economics),
+economics), and on `1f9f2c7` (2026-08-13 UTC) when the ADR-0036
+planner-half arc — one Rust merge, PR #336 — tripped it a ninth, at
+the arc's head with the sitting recorded in that arc's plan before the
+merge,
 with identical harness values and fixture digests every time. (This sentence
 previously read "four times" while the custody table held six rows — the
 `39b59f5` re-take never updated it, the stale-count shape again, corrected
