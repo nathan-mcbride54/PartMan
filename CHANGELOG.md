@@ -5,6 +5,24 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ## Unreleased
 
+### Changed
+
+- **WP-020: the r14 re-pin.** WP-060 increment 10 (PR #336) landed Rust
+  after `b50dd19` and tripped increment 2e's stopping condition for the
+  fifteenth time — the ninth from outside the package. One sitting
+  (VMID 9437, 2026-08-13 UTC) re-took all three acceptances at the
+  arc's head on `1f9f2c7`: 2e (`configured_legs=2`,
+  `clean_observation_bytes=4096`, every confirmation true), the 2h
+  single-range suite (`ranges_written=1`, 8 bytes), and the 2j
+  two-range suite (`ranges_written=2`, 16 bytes, both GPT signatures
+  erased and restored) — identical value sets to r13, the full
+  eleven-control refusal set, fixture digests equal before and after.
+  Custody run 21, transcript digest agreeing across guest, host, and
+  workstation; teardown verified 2026-08-13T22:35:21Z with no config,
+  volume, LVM volume, or snapshot remaining. The records are re-pinned
+  at `1f9f2c7`. Unlike the r13 arc, this arc's plan recorded the
+  sitting it would owe **before the first merge**.
+
 ### Fixed
 
 - **WP-060 increment 10: the scheme's own regions, and located
