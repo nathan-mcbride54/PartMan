@@ -3985,7 +3985,7 @@ designator table without them.
 | # | Cell | Command / API | Privilege | Distinguishing condition | Invalidation conditions | Result |
 | --- | --- | --- | --- | --- | --- | --- |
 | L1 | Baseline denial, real medium | `stat`/`getfacl` on the node; `dd` one sector; `blkid -p` | client baseline | The stock-permission claim (`brw-rw---- root:disk`) holds for a real passthrough device in this VM, and the baseline truly lacks raw access | node ACL-granted or mode nonstandard without being recorded | `observed(denied)` — stock `brw-rw---- root:disk`, base ACL only; the baseline's `dd` and `blkid -p` both refused; the identical operations succeed for the `disk`-group user (L6) |
-| L2 | Real-device identity rows | `/run/udev/data/b<maj>:<min>`; `/sys/.../device/{vendor,model,wwid,serial}`; by-id symlink set | client baseline | Which identity facts (serial, WWN, bus, path) a real USB-attached device of this class actually exposes to the client — the WSL2 rows could not answer this | udev entry absent or unsettled (`udevadm settle` required); device re-enumerated mid-capture | `observed` — USB descriptor serial via sysfs, vendor/model strings, serial-derived `by-id` and path-derived `by-path` symlinks, populated udev db entries; `wwid` `observed(absent)` for this usb-storage class |
+| L2 | Real-device identity rows | `/run/udev/data/b<maj>:<min>`; `/sys/.../device/{vendor,model,wwid}` on the SCSI device node and the USB device node's `serial` via `device/../../../../serial`; by-id symlink set | client baseline | Which identity facts (serial, WWN, bus, path) a real USB-attached device of this class actually exposes to the client — the WSL2 rows could not answer this | udev entry absent or unsettled (`udevadm settle` required); device re-enumerated mid-capture | `observed` — USB descriptor serial via the USB device node (exact path in the 2026-08-13 readback below; `device/serial` on the SCSI node was never read), vendor/model strings, serial-derived `by-id` and path-derived `by-path` symlinks, populated udev db entries; `wwid`: the read failed `ENXIO` at every capture (previously stated `observed(absent)`; restated by the readback below) |
 | L3 | Kernel table view per layout | `/proc/partitions`; `/sys/.../start,size,ro,partition` for each materialized partition | client baseline | Kernel-materialized partition set for a real medium per layout L-A…L-F | partition count unstable across two captures; medium not read-only at capture | `observed` — every layout materialized its declared one-partition set with exact start/size, byte-stable across the double capture, device and partition `ro=1` at every capture |
 | L4 | Client signature view per layout (precondition 1, client half) | udev `E:` properties (`ID_FS_TYPE`, `ID_FS_UUID`, `ID_FS_USAGE`, raid metadata keys) for L-B/L-C/L-D/L-E/L-F | client baseline | What the cached, event-time udev projection says per technology — including which single answer it gives for L-F's live-plus-stale pair and whether `ID_FS_AMBIVALENT` fires on a real device | incomplete udev DB capture (absence of an entry is `observed(absent)` only when established); event after capture | `observed` per technology — mdraid: type, array UUID, member sub-UUID, host-qualified name; LUKS2: type and UUID; LVM2: type and PV UUID (`ID_FS_USAGE=raid`); ZFS: `observed(absent)` — `ID_FS_TYPE` empty in both stability captures, the event-time-cache mechanism in the sitting record; L-F: the single answer is exactly the stale `linux_raid_member`, the live ext4 absent; `ID_FS_AMBIVALENT` fired nowhere in the sitting |
 | L5 | Helper signature view per layout (precondition 1, helper half) | `blkid -p -o udev`, `wipefs -n`, `mdadm --examine`, `cryptsetup luksDump`, `pvs --readonly -o pv_uuid,vg_uuid,vg_name`, `zdb -l` — all read-only forms, fixed argv | root, VM only | The direct-probe projection per technology over the same bytes, to stand against L4 — establishing or refuting client/helper signature agreement per precondition 1's instruction to establish rather than assume | any tool invocation not on the predeclared list; output unbounded; device writable | `observed` per technology — every predeclared probe returned its structure read-only; where the client projection was empty for ZFS, `blkid -p` reports `zfs_member` with pool and vdev GUIDs and `wipefs -n` all four labels; for L-F `wipefs -n` enumerates **both** signatures (end-anchored stale raid and live ext4) while root `blkid -p` reports exactly the stale one; `pvs` carries the VG UUID no client surface has |
@@ -4089,6 +4089,97 @@ confirmed the archive's file inventory before any cell left
 `not yet taken`. The VM was destroyed with post-destroy verification
 (config, volumes, and snapshot absent); the media remain provisioned with
 the L9 pair and are re-writable fixture stock.
+
+### Readback rows, 2026-08-13 — transcribed from the archived transcript; no new sitting
+
+Issue #318 items 1 and 2 (both blocking WP-L100 increment 3) plus item 3's
+value-transcription half, closed by reading the archived 2026-08-04
+transcript back into this record. Nothing here is a new measurement: every
+value below sits in the transcript bound above, and this section names its
+exact source. Custody re-verified before transcription: the archived
+`transcript.txt` rehashed 2026-08-13 to
+`6da1db67d58fb49f47a42614d00343b60ad07b7c52493a9e198c34a57030df71` at
+164843 bytes — both matching the recorded values.
+
+**R1 — the serial's exact source.** The L2 serial was read by the client
+instrument (`l-client.sh`, its digest in the transcript header) as
+`cat /sys/block/sdb/device/../../../../serial` — a parent traversal from
+the SCSI device node four levels up to the **USB device sysfs node**, whose
+`serial` attribute is the USB descriptor's iSerialNumber. The transcript
+holds no `realpath` of that traversal, so this row names the as-executed
+path and its structural resolution, not a canonical absolute path. Value
+`A20036CA8695D921`, identical at all five full-scope captures and stable
+across the L8 replug and reboot. **`/sys/block/sdb/device/serial` — the
+SCSI-device-node attribute the earlier interface column's
+`device/{vendor,model,wwid,serial}` spelling suggested — was never read in
+this sitting**, and no qualifying record reads it on any Linux host; the
+row above is corrected to name both facts rather than license the
+misreading. The udev database carries the same value as `ID_SERIAL_SHORT`
+(every DB capture, disk and partition nodes), and the `by-id` name embeds
+it — both database-side derivations of udev's own probing, not independent
+client observations. The L9 destination unit answered the same USB-node
+interface with a distinct value (`A2003886B8F0D722`), so on this two-unit
+SanDisk pair the interface is per-unit distinguishing — the contrast case
+to the SI-28 S4 card-reader pair, whose shared-constant serial collapsed
+at every layer.
+
+**R2 — `wwid`: a failed read, not an observed absence.**
+`cat /sys/block/sdb/device/wwid` failed with `No such device or address`
+— `ENXIO` — at every capture, all five full-scope captures across layouts
+and both L8 stability legs. `ENOENT` would have printed
+`No such file or directory`: the errno shape says the attribute file
+existed and reading it failed, though the transcript holds no directory
+listing of `/sys/block/sdb/device/`, so "the file existed" is an
+errno-shape inference and is recorded as such. The L2 result cell
+previously compressed this to `observed(absent)`; restated, because the
+distinction is load-bearing: ADR-0019's naming rules currently define
+neither a failed-read outcome nor a measured-absent one, and whoever
+closes those seams needs this row at its true shape — on this hardware the
+`wwid` source produced a **read failure**, not a clean absence.
+
+**R3 — sizes, and the one unit that is measured.** The setup actor's
+provisioning guard read the whole device as
+`blockdev --getsize64 /dev/sdb` = **125162225664** bytes (printed as
+`guards passed: TRAN=usb SIZE=125162225664`, every provisioning, root
+actor). The client-readable `/proc/partitions` whole-disk row reports
+`122228736` blocks; 122228736 × 1024 = 125162225664 exactly, establishing
+`/proc/partitions`' 1 KiB block unit on a whole device against a
+byte-denominated interface. The partition node's sysfs attributes read
+`start=2048`, `size=1048576` (client baseline, byte-stable across every
+double capture); the setup actor declared that partition
+`sgdisk -n 1:2048:+512M` — 512 MiB = 536870912 bytes — and
+1048576 × 512 = 536870912 exactly, with `/proc/partitions`' `sdb1`
+row (`524288` blocks × 1024) agreeing: **the sysfs block `size`
+attribute's unit is measured as 512 bytes on the partition node**,
+against a declared byte extent and a second interface. The instrument's
+own digest arithmetic corroborates it: the head window
+`(start+size)×512 + 1048576 = 538968064` bytes was printed, read with
+`head -c`, and digest-verified before and after every layout's captures.
+**The whole-device sysfs `size` attribute (`/sys/block/sdb/size`) was
+never read in this sitting**; the unit measurement exists on the
+partition node alone. Extending the 512-byte convention to the
+whole-device node is a decision, not a measurement, and belongs to the
+record of whoever consumes it — WP-L100 increment 3's record, per the
+directed acceptance — not to this readback.
+
+**R4 — udev identifier values for this device class** (issue #318 item 3's
+transcription half; the transport-discrimination *protocol* question is
+untouched and keeps its own recorded grant question). On every database
+capture of this real USB mass-storage unit: `ID_BUS=usb`,
+`ID_USB_DRIVER=usb-storage`, `ID_USB_INTERFACES=:080650:`,
+`ID_TYPE=disk`. `ID_PATH` was observed with **two values in one sitting**:
+`pci-0000:00:1d.7-usb-0:1:1.0-scsi-0:0:0:0` before incident (4)'s
+controller reattachment and `pci-0000:01:1b.0-usb-0:1:1.0-scsi-0:0:0:0`
+after — the same physical unit, re-pathed when the passthrough moved from
+the emulated USB2 controller to XHCI. That is measured evidence that
+`ID_PATH` names attachment topology, not the unit, on exactly the
+hardware class where the distinction matters.
+
+What this closes and what it does not: #318 items 1 and 2 asked for
+transcription, and these rows are it. The ADR-0019 Linux naming-source
+designation remains **unmade** — it is a normative act landing only with a
+spec change, and nothing in this section makes it. These rows are what
+that act can now rest on.
 
 ## Reproducing this
 
