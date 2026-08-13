@@ -7,6 +7,31 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **spec-change 12.10.0: SI-14 is resolved — a derived property is a
+  derivation, not an observation (ADR-0033).** The register-residue
+  arc's one ripe issue: its "Later (WP-050)" gate had been reached and
+  passed by delivered work that embodies the answer (ADR-C4's
+  never-stored confidence, the WP-060 solver's free extents computed
+  from body-carried authenticated extents, ADR-0023's rejected
+  duplicate alignment-fact field), so the absence of a
+  derived-confidence rule is recorded as the rule itself. INV-004
+  gains the scoping clause — free extents and alignment are recomputed
+  at use from the detected inputs they name, never stored, no
+  observation set or confidence of their own — and one new
+  prohibition: a derivation over an input whose observation set
+  derives `unavailable` or `conflicting` is not presentable, the
+  input's own state surfaced instead. No fifth confidence value, no
+  composition algebra; presentation obligations for the future
+  WP-W100/WP-L100/WP-M100 inventory surfaces are recorded in the ADR
+  and land in those assignments at creation. The companion residue
+  sweep verified the other three without edits — SI-13 stays Later
+  (WP-L110: identities bind at validation; aggregates are not
+  plannable write targets, structurally), and SI-28's floor and
+  SI-37's evidence clause stand unmet by any existing measurement,
+  their relaxation campaigns deliberate future arcs rather than
+  documentation debt. Minor under §0.1; the major counter-argument is
+  recorded in the ADR.
+
 - **WP-020: the r12 sitting — all three acceptances re-taken on
   `77b0dd7`, the stopping condition re-pinned there, closing the
   PLAN-005 cancellation arc.** The seventh trip from outside the
