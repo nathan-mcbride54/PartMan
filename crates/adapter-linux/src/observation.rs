@@ -94,9 +94,9 @@ impl Interface {
 ///   about the device.
 ///
 /// Nothing maps to `unavailable` here. That outcome belongs to the interface
-/// layer — a contract that did not answer at all — and
-/// [`crate::contract::Listing::Unavailable`] is where it is produced, which is
-/// why an attribute read cannot reach it.
+/// layer — a contract that did not answer at all — and it is reached through
+/// [`observe_unavailable`], whose callers hold the interface-level evidence
+/// that no answer came, never through an attribute read.
 #[must_use]
 pub fn observe(interface: Interface, read: &AttributeRead) -> Observation {
     let outcome = match read {
@@ -122,5 +122,24 @@ pub fn observe(interface: Interface, read: &AttributeRead) -> Observation {
         adapter_version: VERSION.to_owned(),
         method: interface.method(),
         outcome,
+    }
+}
+
+/// One observation recording that an interface did not answer.
+///
+/// This is the ADR-C4 arm an attribute read can never reach, and the
+/// distinction it protects is the whole point: a key missing from a record
+/// that exists is a positively determined **absence**, while every key of a
+/// record that does not exist is **unavailable**, because calling those
+/// absent would claim the interface answered and said nothing.
+#[must_use]
+pub fn observe_unavailable(interface: Interface, reason: &str) -> Observation {
+    Observation {
+        adapter: interface.adapter(),
+        adapter_version: VERSION.to_owned(),
+        method: interface.method(),
+        outcome: Outcome::Unavailable {
+            reason: reason.to_owned(),
+        },
     }
 }

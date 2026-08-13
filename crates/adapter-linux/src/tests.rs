@@ -366,15 +366,43 @@ fn the_linux_reach_declaration_claims_no_state_and_cites_nothing_yet() {
             cell.state
         );
     }
-    assert_eq!(crate::reach::REACH.contract.state, "not-implemented");
+    assert_eq!(
+        crate::reach::REACH.contract.state,
+        "implemented-reaches-no-table-state",
+        "a contract that reads a roster is implemented; describing it as absent would make \
+         the declaration underived from the contract, which INV-003 forbids"
+    );
     assert!(
-        crate::reach::REACH
-            .contract
-            .reference
-            .contains("increment 2"),
+        crate::reach::REACH.contract.reference.contains("roster"),
         "the statement must name what changes it"
     );
     assert!(crate::reach::reach_json().contains(crate::reach::REACH_SCHEMA));
+}
+
+// Requirements: INV-003
+//   The declaration stays derived from the contract: the roster this crate
+//   actually reads carries no partition-table key, which is why every cell
+//   is negative. A key entering the roster without the declaration being
+//   re-decided is the drift this pins — the reach would then describe a
+//   contract that no longer exists.
+// Evidence: no_partition_table_key_is_in_the_roster_the_reach_describes
+#[test]
+fn no_partition_table_key_is_in_the_roster_the_reach_describes() {
+    for (property, relative) in crate::devices::SYSFS_FIELDS {
+        for spelling in ["part", "table"] {
+            assert!(
+                !property.contains(spelling) && !relative.contains(spelling),
+                "{property}: a partition-table surface in the roster contradicts the \
+                 published reach, which says the contract carries none"
+            );
+        }
+    }
+    for wanted in crate::devices::UDEV_KEYS {
+        assert!(
+            !wanted.contains("PART_TABLE"),
+            "{wanted}: a partition-table key in the roster contradicts the published reach"
+        );
+    }
 }
 
 // Requirements: INV-003
@@ -488,11 +516,276 @@ fn the_adapter_opens_no_device_node_and_launches_no_process() {
 
 /// Every shipped module, by name, so a new one must enter this list before a
 /// structural guard can silently stop covering the crate.
-fn shipped_sources() -> [(&'static str, &'static str); 4] {
+///
+/// The array is fixed-size and its length is pinned by
+/// `every_shipped_module_is_covered_by_the_structural_guards`, because both
+/// SAFE-002 scans iterate it: a module added without an entry here would be
+/// exempt from both while leaving both tests green.
+fn shipped_sources() -> [(&'static str, &'static str); 5] {
     [
         ("lib.rs", include_str!("lib.rs")),
         ("contract.rs", include_str!("contract.rs")),
+        ("devices.rs", include_str!("devices.rs")),
         ("observation.rs", include_str!("observation.rs")),
         ("reach.rs", include_str!("reach.rs")),
     ]
+}
+
+/// A tree with one whole device, one partition child, one node whose
+/// `partition` attribute is unreadable, and a database record for the device.
+fn one_device_tree() -> FakeSource {
+    let mut dirs = BTreeMap::new();
+    dirs.insert(
+        "/sys/class/block".to_owned(),
+        Ok(vec![
+            "sda".to_owned(),
+            "sda1".to_owned(),
+            "masked".to_owned(),
+        ]),
+    );
+    let mut files = BTreeMap::new();
+    // sda: no `partition` attribute at all — a whole device.
+    files.insert("/sys/class/block/sda/dev".to_owned(), Ok(b"8:0\n".to_vec()));
+    files.insert(
+        "/sys/class/block/sda/size".to_owned(),
+        Ok(b"1000215216\n".to_vec()),
+    );
+    files.insert(
+        "/sys/class/block/sda/device/serial".to_owned(),
+        Ok(b"S3Z9NB0K\n".to_vec()),
+    );
+    // sda1: carries `partition`, so it is not a whole device.
+    files.insert(
+        "/sys/class/block/sda1/partition".to_owned(),
+        Ok(b"1\n".to_vec()),
+    );
+    // masked: the attribute cannot be read, so admission must fail closed.
+    files.insert(
+        "/sys/class/block/masked/partition".to_owned(),
+        Err(std::io::ErrorKind::PermissionDenied),
+    );
+    files.insert(
+        "/run/udev/data/b8:0".to_owned(),
+        Ok(b"S:disk/by-id/ata-X\nE:ID_SERIAL=ata-Samsung_S3Z9NB0K\nE:ID_BUS=ata\n".to_vec()),
+    );
+    FakeSource { dirs, files }
+}
+
+fn enumerate_fake(source: &FakeSource) -> crate::devices::Enumeration {
+    crate::devices::enumerate(
+        source,
+        &PathBuf::from("/sys"),
+        &PathBuf::from("/run/udev/data"),
+    )
+}
+
+fn devices_of(source: &FakeSource) -> Vec<crate::devices::Device> {
+    match enumerate_fake(source) {
+        crate::devices::Enumeration::Listed { devices } => devices,
+        _ => panic!("the fake's block class must answer"),
+    }
+}
+
+fn outcome_of<'a>(
+    device: &'a crate::devices::Device,
+    key: &str,
+) -> &'a partman_domain::model::provenance::Outcome {
+    &device
+        .properties
+        .iter()
+        .find(|(name, _)| name == key)
+        .unwrap_or_else(|| panic!("{key} must be reported"))
+        .1
+        .observations[0]
+        .outcome
+}
+
+// Requirements: INV-001
+//   A node is admitted as a whole device only on a positively determined
+//   absence of the partition attribute. A partition carries it and is
+//   excluded; a node whose attribute cannot be read is excluded too, which
+//   is the fail-closed direction — a successful-read test would promote a
+//   partition into the device list on any read error, and its sector count
+//   would then be reported as a device capacity.
+// Evidence: whole_devices_are_admitted_only_on_a_positively_absent_partition_attribute
+#[test]
+fn whole_devices_are_admitted_only_on_a_positively_absent_partition_attribute() {
+    let devices = devices_of(&one_device_tree());
+    assert_eq!(
+        devices.len(),
+        1,
+        "exactly the one node without a readable partition attribute is a whole device"
+    );
+    assert_eq!(devices[0].selector, "device:0");
+}
+
+// Requirements: SAFE-005
+//   An absent block class answers unavailable, never an empty device list.
+// Evidence: an_absent_block_class_is_unavailable_never_an_empty_device_list
+#[test]
+fn an_absent_block_class_is_unavailable_never_an_empty_device_list() {
+    assert!(
+        matches!(
+            enumerate_fake(&FakeSource::empty()),
+            crate::devices::Enumeration::Unavailable { .. }
+        ),
+        "an absent interface is unavailable, never an empty device list"
+    );
+}
+
+// Requirements: MODEL-004
+//   ADR-C4's separation across the database half: a key missing from a
+//   record that exists is a positively determined absence, while every key
+//   of a device whose record does not exist is unavailable — calling those
+//   absent would claim the database answered and said nothing.
+// Evidence: a_missing_record_is_unavailable_while_a_missing_key_within_one_is_absent
+#[test]
+fn a_missing_record_is_unavailable_while_a_missing_key_within_one_is_absent() {
+    use partman_domain::model::provenance::Outcome;
+
+    let with_record = devices_of(&one_device_tree());
+    assert!(
+        matches!(
+            outcome_of(&with_record[0], "linux-udev-db:ID_WWN"),
+            Outcome::ObservedAbsent
+        ),
+        "a key missing from a record that exists is an absence"
+    );
+
+    let mut without = one_device_tree();
+    without.files.remove("/run/udev/data/b8:0");
+    let devices = devices_of(&without);
+    for wanted in crate::devices::UDEV_KEYS {
+        assert!(
+            matches!(
+                outcome_of(&devices[0], &format!("linux-udev-db:{wanted}")),
+                Outcome::Unavailable { .. }
+            ),
+            "{wanted}: with no record, every key is unavailable and none is absent"
+        );
+    }
+}
+
+// Requirements: MODEL-004, INV-002
+//   Nothing elects an identifier: the attribute layer's serial and the
+//   database's serial-shaped key are two properties under two native names,
+//   because they are two interfaces' different answers rather than one
+//   fact — merging them would manufacture a conflicting confidence out of
+//   values that were never in conflict.
+// Evidence: two_interfaces_reporting_a_serial_produce_two_properties_and_elect_neither
+#[test]
+fn two_interfaces_reporting_a_serial_produce_two_properties_and_elect_neither() {
+    use partman_domain::canonical::Value;
+    use partman_domain::model::provenance::Outcome;
+
+    let devices = devices_of(&one_device_tree());
+    let attribute = outcome_of(&devices[0], "linux-sysfs:device/serial");
+    let database = outcome_of(&devices[0], "linux-udev-db:ID_SERIAL");
+    assert!(
+        matches!(attribute, Outcome::Observed { value: Value::Text(text) } if text == "S3Z9NB0K")
+    );
+    assert!(
+        matches!(database, Outcome::Observed { value: Value::Text(text) } if text == "ata-Samsung_S3Z9NB0K")
+    );
+    assert!(
+        !devices[0]
+            .properties
+            .iter()
+            .any(|(name, _)| name == "serial"),
+        "no unqualified serial property exists: electing one is not this layer's act"
+    );
+}
+
+// Requirements: INV-002
+//   ADR-0018's transport answer is Unrecognized for every device, and no
+//   other variant is constructible in this crate: its own discrimination
+//   rows are outstanding on every platform and no Linux row records a value
+//   that would classify one, so a positive class could come only from
+//   vendor documentation. Unrecognized resolves to Indeterminate at the
+//   closure, never Permitted, which is the fail-closed direction.
+// Evidence: every_device_answers_unrecognized_and_no_positive_class_is_constructible
+#[test]
+fn every_device_answers_unrecognized_and_no_positive_class_is_constructible() {
+    use partman_domain::model::protection::TransportClass;
+
+    for device in devices_of(&one_device_tree()) {
+        assert_eq!(device.transport, TransportClass::Unrecognized);
+    }
+    let source = include_str!("devices.rs");
+    for named in [
+        "TransportClass::NvmePcie",
+        "TransportClass::Sata",
+        "TransportClass::SasDirect",
+        "TransportClass::Usb",
+        "TransportClass::SdMmc",
+        "TransportClass::ParavirtualLocal",
+        "TransportClass::RecognizedRemote",
+    ] {
+        assert!(
+            !source.contains(named),
+            "devices.rs names `{named}`: no positive transport class may be constructible \
+             while the discrimination rows ADR-0018 owes remain outstanding"
+        );
+    }
+}
+
+// Requirements: INV-002, MODEL-004
+//   The published roster and this crate's constants are one roster, not
+//   two: every sysfs path and every database key this crate reads appears
+//   in `schemas/adapter-linux/fields.md` verbatim, so a field cannot enter
+//   the code without entering the document that records whether any
+//   measurement supports reading it.
+// Evidence: the_published_field_roster_matches_this_crates_constants
+#[test]
+fn the_published_field_roster_matches_this_crates_constants() {
+    const DOC: &str = include_str!("../../../schemas/adapter-linux/fields.md");
+
+    for (property, relative) in crate::devices::SYSFS_FIELDS {
+        assert!(
+            DOC.contains(&format!("`{relative}`")),
+            "{property}: the document must carry this path and say what supports reading it"
+        );
+    }
+    for wanted in crate::devices::UDEV_KEYS {
+        assert!(
+            DOC.contains(&format!("`{wanted}`")),
+            "{wanted}: the document must carry this key and say what supports reading it"
+        );
+    }
+    assert!(
+        DOC.contains("**none**"),
+        "the document must state plainly where a field has no measured row, or the roster \
+         reads as though every field were evidenced"
+    );
+}
+
+// Requirements: SAFE-002
+//   Both structural guards iterate one fixed roster of shipped modules, so
+//   a module added without an entry would be exempt from both while leaving
+//   both tests green — two passing tests asserting nothing about the new
+//   code. This pins the roster against the crate's own module declarations,
+//   making that omission a failure rather than a silent hole.
+// Evidence: every_shipped_module_is_covered_by_the_structural_guards
+#[test]
+fn every_shipped_module_is_covered_by_the_structural_guards() {
+    let declared: Vec<String> = include_str!("lib.rs")
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("pub mod "))
+        .filter_map(|rest| rest.strip_suffix(';'))
+        .map(|name| format!("{name}.rs"))
+        .collect();
+    let covered: Vec<&str> = shipped_sources().iter().map(|(name, _)| *name).collect();
+
+    for name in &declared {
+        assert!(
+            covered.contains(&name.as_str()),
+            "{name} is a shipped module the structural guards do not scan"
+        );
+    }
+    assert_eq!(
+        covered.len(),
+        declared.len() + 1,
+        "the guarded roster is the declared modules plus lib.rs itself; a stale extra entry \
+         hides a deleted module and a missing one hides a new module"
+    );
 }

@@ -107,8 +107,10 @@ impl ContractSource for SystemContractSource {
 /// same missing attribute under an interface that never answered is an
 /// unavailability, because absence there would claim the interface spoke.
 ///
-/// So the token is the evidence, and it is unforgeable: only
-/// [`list_bounded`] returning [`Listing::Listed`] produces one.
+/// So the token is the evidence, and it is unforgeable. Exactly two
+/// operations produce one, and both are operations that *establish* an
+/// interface answered: [`list_bounded`] returning [`Listing::Listed`], and
+/// [`read_record`] returning [`RecordRead::Present`].
 ///
 /// ```compile_fail
 /// // The field is private and no function returns the type into existence,
@@ -234,4 +236,71 @@ pub fn read_attribute(
         return AttributeRead::Empty;
     }
     AttributeRead::Text(text)
+}
+
+/// The outcome of reading one record file.
+///
+/// A record file is not an attribute: its absence means the interface holds
+/// nothing for this subject, which is an unavailability, never a value's
+/// absence. That is why [`RecordRead::NoRecord`] is a distinct variant from
+/// [`AttributeRead::NotPresent`] and why this operation, rather than
+/// consuming an [`InterfaceAnswered`], **produces** one.
+pub enum RecordRead {
+    /// The interface holds a record, with the evidence that it answered.
+    Present {
+        /// The record's text, with exactly one trailing newline stripped.
+        text: String,
+        /// Evidence for ADR-C4's absence arm over this record's keys.
+        answered: InterfaceAnswered,
+    },
+    /// The interface holds no record for this subject. Every value the
+    /// record would have carried is `unavailable`, never absent: absence
+    /// would claim the interface answered and said nothing.
+    NoRecord,
+    /// The record exceeded [`RECORD_LIMIT`] and was **not** truncated.
+    OverLimit {
+        /// How many bytes were seen.
+        seen: usize,
+    },
+    /// The bytes are not UTF-8.
+    NotText,
+    /// The read itself failed.
+    Failed {
+        /// The error, as the operating system reported it.
+        error: String,
+    },
+}
+
+/// Fail-closed bound on one record read, in bytes.
+///
+/// A record holds many keys where an attribute holds one, so it has its own
+/// bound rather than borrowing [`VALUE_LIMIT`]. Exceeding it refuses: a
+/// truncated record would drop keys silently, and a dropped key is
+/// indistinguishable from one the interface never carried.
+pub const RECORD_LIMIT: usize = 65_536;
+
+/// Read one record file under [`RECORD_LIMIT`].
+#[must_use]
+pub fn read_record(source: &dyn ContractSource, path: &Path) -> RecordRead {
+    let raw = match source.read_bytes(path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return RecordRead::NoRecord;
+        }
+        Err(error) => {
+            return RecordRead::Failed {
+                error: error.to_string(),
+            };
+        }
+    };
+    if raw.len() > RECORD_LIMIT {
+        return RecordRead::OverLimit { seen: raw.len() };
+    }
+    let Ok(text) = String::from_utf8(raw) else {
+        return RecordRead::NotText;
+    };
+    RecordRead::Present {
+        text: text.strip_suffix('\n').unwrap_or(&text).to_owned(),
+        answered: InterfaceAnswered(()),
+    }
 }

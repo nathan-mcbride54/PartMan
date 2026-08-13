@@ -79,27 +79,41 @@ The coupling in the last row runs both ways and is held by test: a citation
 beside a not-measured basis, or a measured basis with no citation, is a
 malformed cell rather than a lenient one.
 
-## 5. What increment 1 publishes, and why the basis is what it is
+## 5. What is published, and why the basis is what it is
 
 Every cell is `distinguished: false`, `basis: not-measured`,
-`citation: null`.
+`citation: null`, and the contract statement is
+`implemented-reaches-no-table-state`.
 
-The not-measured basis is a decision, not an absence of evidence.
-`docs/quality/observability.md` §Linux holds measured rows that bear
-directly on these answers: raw sector reads and direct signature probes are
-both denied unprivileged, and its subsection "ADR-C3's `Present` and
-`Indeterminate` are not distinguishable through either interface" measures
-the state collapse across every WP-020 fixture. A measured basis is
-therefore available.
+**Why every cell is negative.** The contract's field roster is fixed and
+published in `schemas/adapter-linux/fields.md`, and it carries no
+partition-table key of any kind — no table type, no table identifier.
+Nothing this contract reads could distinguish one table state from
+another, so the answer is `no` for all six, and a test pins the roster
+against that claim: a partition-table key entering the roster fails it.
 
-It is not claimed yet because a measured basis must be a measurement about
-*this* contract, and this contract reads no field. The same rows record
-that the `udev` database does carry `ID_PART_TABLE_TYPE`, so whether a
-state is reachable depends on which fields increment 2 puts in its lists,
-not on the interfaces alone. Increment 2 fixes those lists and re-decides
-each cell against those rows. The cells are expected to stay negative —
-ADR-0014 forbids this client emitting a table state at all — but the basis
-will then be earned rather than defaulted.
+**Why the basis stays not-measured, decided rather than inherited.**
+Increment 1 recorded that increment 2 would re-decide each cell against
+the measured rows once the roster was fixed. That re-decision has been
+made, and it keeps `not-measured` for a reason of the record's own
+shape: a citation's vocabulary is `docs/quality/observability.md`
+headings, and **no Linux heading exists for `mbr` or
+`apple-partition-map`** — those answers live only in the fixture prober.
+A `measured` basis is therefore unexecutable for at least two of the six
+cells, and a declaration split across two bases would report more about
+this repository's record-keeping than about the contract. The honest
+uniform answer is the conservative one.
+
+**A correction, recorded rather than edited away.** Increment 1's text
+here said that "the `udev` database does carry `ID_PART_TABLE_TYPE`".
+That was wrong twice over. The token appears in the record under the
+direct-signature-probe column, an interface measured **denied** to the
+unprivileged client; and those probes were run over **regular files, not
+devices**. The two rows that do enumerate what the client-readable
+database carries name no table-type key at all. The conclusion the
+sentence supported is unchanged, and better supported without it: if the
+readable database carries no table-type key, this contract reaches no
+table state more cleanly, not less.
 
 ## 6. What this schema deliberately does not carry
 

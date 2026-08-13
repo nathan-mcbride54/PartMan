@@ -7,6 +7,72 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-L100 increment 2: devices and their identity material.**
+  `crates/adapter-linux`'s `devices` module: whole-device enumeration
+  admitted **only** on a positively determined absence of the
+  `partition` attribute, so an unreadable attribute admits nothing —
+  the successful-read reading fails open, and a read error would then
+  promote a partition into the device list where its sector count
+  would be reported as a device capacity. Nine sysfs fields and six
+  database keys, each an attributed observation under its own
+  `interface:native-property` key, electing nothing: the attribute
+  layer's serial and the database's serial-shaped key are two
+  properties because they are two interfaces' different answers — the
+  record shows one device reporting `S3Z9NB0K` through the first and
+  `ata-Samsung_S3Z9NB0K` through the second — and merging them would
+  manufacture a `conflicting` confidence out of values never in
+  conflict. ADR-C4's separation now extends across the database half
+  through a second evidence-token producer: a record that does not
+  exist makes every key `unavailable`, while a key missing from a
+  record that does exist is a positively determined absence, because
+  calling the first absent would claim the database answered and said
+  nothing.
+  **The ADR-0018 transport answer is `Unrecognized` for every device,
+  and that is imported obligation 6's own terms rather than a
+  shortfall.** That ADR's evidence obligation — "fabric-versus-local
+  transport discrimination rows per platform for each listed local
+  transport" — is outstanding on every platform; no value of any
+  classifying key is recorded anywhere in this repository for any
+  Linux host; and five of the six positive-local classes have no Linux
+  measurement of any kind. A table mapping interface strings to
+  classes could come only from vendor documentation, the one thing
+  this package's evidence rule forbids. ADR-0018 prices exactly this
+  availability cost under "Negative, accepted knowingly", and the
+  answer resolves to `Indeterminate` at the protection closure, never
+  `Permitted`; a source-text guard holds that no positive class is
+  constructible in the module at all.
+  Nothing here builds a `NodeId`, a `protection::Facts`, or a
+  snapshot: those are keyed by ADR-0019 derived addresses, whose rules
+  are increment 3's imported obligation, so keying a map today would
+  be naming without them. The published reach moves to
+  `implemented-reaches-no-table-state` — the roster carries no
+  partition-table key, pinned by test — with every cell still negative
+  on a **re-decided** not-measured basis: a citation's vocabulary is
+  observability headings and no Linux heading exists for `mbr` or
+  `apple-partition-map`, so `measured` is unexecutable for two of the
+  six. **Correcting increment 1**, whose reach text said the `udev`
+  database carries `ID_PART_TABLE_TYPE`: that token appears under the
+  direct-signature-probe column, an interface measured *denied* to the
+  unprivileged client, and those probes ran over regular files rather
+  than devices — the conclusion it supported is unchanged and better
+  supported without it. `schemas/adapter-linux/fields.md` publishes
+  the roster with, per field, the observability row that supports
+  reading it or an explicit none; `removable` has no row on any Linux
+  host and `queue/physical_block_size` none on real hardware, so both
+  are read with nothing derived from them and both rows are filed as
+  obligations on WP-035, along with the transport-discriminating row,
+  the whole-device discriminator, and the `size` unit convention that
+  blocks increment 3. Twenty-two tests and one compile-fail proof,
+  none platform-gated. Seven mutants (fail-open admission, a missing
+  record reported as absence, a positive transport class, the
+  interface qualifier dropped from property keys, a shipped module
+  dropped from the structural guards, a partition-table key entering
+  the roster, the contract word left stale) were each killed by a
+  named test before proposal, two of them by two tests each. This is a
+  Rust merge: the WP-020 2e stopping condition pinned at `77b0dd7`
+  trips, and the re-pin sitting is run and recorded separately under
+  WP-020's ownership.
+
 - **WP-L100 increment 1: the contract, its seam, and its published
   reach.** `crates/adapter-linux` joins the workspace (workspace lints,
   `unsafe_code` denied by inheritance — this adapter takes the denial
