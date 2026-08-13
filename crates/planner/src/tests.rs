@@ -1437,6 +1437,324 @@ fn unreversible_operations_state_why_per_step() {
     );
 }
 
+use super::{ProtectionObligation, RepairRequest, plan_repair};
+use partman_domain::model::identity::IndeterminateCause;
+use partman_domain::model::step::{Acknowledgment, StepClass};
+
+/// A device with the given authored table state, its table located as
+/// a child extent when asked — the worlds ADR-0024's arms select over.
+fn stateful_device(
+    serial: &[u8],
+    state: TableState,
+    with_table: bool,
+) -> (TopologySnapshot, NodeId, HostRange) {
+    let dev = device(serial);
+    let dev_id = derive_id(&dev).expect("derivable");
+    let table = NamingFields::PartitionTable {
+        parent: dev_id,
+        role: partman_domain::model::naming::TableRole::Gpt,
+    };
+    let table_id = derive_id(&table).expect("derivable");
+    let table_region = HostRange {
+        host: dev_id,
+        start: 0,
+        length: 17_408,
+    };
+    let mut facts = Facts::default();
+    facts.transports.insert(dev_id, TransportClass::Sata);
+    facts.extents.insert(
+        dev_id,
+        HostRange {
+            host: dev_id,
+            start: 0,
+            length: 1 << 30,
+        },
+    );
+    facts.table_states.insert(dev_id, state);
+    let (nodes, edges) = if with_table {
+        facts.extents.insert(table_id, table_region);
+        (
+            vec![dev, table],
+            vec![Edge {
+                kind: EdgeKind::Containment,
+                source: dev_id,
+                target: table_id,
+            }],
+        )
+    } else {
+        (vec![dev], vec![])
+    };
+    let snapshot = TopologySnapshot::assemble(SnapshotKind::Captured, false, nodes, edges, facts)
+        .expect("assembles");
+    (snapshot, dev_id, table_region)
+}
+
+// Requirements: PART-013, PLAN-001
+//   ADR-0024's positively determined arms at the planner: a Present
+//   table's plan carries the parse-backup obligation, and a blank
+//   device's plan discharges as the journaled determination — a value,
+//   not a skip, and no user acknowledgement is demanded or carried.
+// Evidence: each_positively_determined_state_selects_its_protection_arm
+#[test]
+fn each_positively_determined_state_selects_its_protection_arm() {
+    let (snapshot, clean, _) = fixture();
+    let planned = plan(
+        PlanRequest {
+            operation: Operation::Wipe,
+            target: clean,
+        },
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect("plans");
+    assert_eq!(
+        planned.protection,
+        vec![ProtectionObligation::ParseBackup { device: clean }],
+        "Present: the parse-level backup stands untouched"
+    );
+
+    let (blank, blank_dev, _) = stateful_device(b"PRT-BLANK", TableState::Absent, false);
+    let planned = plan(
+        PlanRequest {
+            operation: Operation::Wipe,
+            target: blank_dev,
+        },
+        &blank,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect("a blank device plans");
+    assert_eq!(
+        planned.protection,
+        vec![ProtectionObligation::JournaledDetermination { device: blank_dev }],
+        "Absent: the record is the determination itself"
+    );
+    assert!(
+        planned.plan.steps()[0].acknowledgments().is_empty(),
+        "no user acknowledgement is demanded on a fact the user cannot inform"
+    );
+}
+
+// Requirements: PART-013
+//   ADR-0024's ordinary arm: an ordinary operation against
+//   Indeterminate media refuses before any protection obligation is
+//   computed — SAFE-005's planner half, with PART-013 never reached —
+//   on the canonical path and the sized path alike.
+// Evidence: an_ordinary_operation_on_indeterminate_media_refuses_before_protection
+#[test]
+fn an_ordinary_operation_on_indeterminate_media_refuses_before_protection() {
+    let (snapshot, dev, _) = stateful_device(
+        b"PRT-BAD",
+        TableState::Indeterminate {
+            cause: IndeterminateCause::Ambiguous,
+        },
+        true,
+    );
+    let refused = plan(
+        PlanRequest {
+            operation: Operation::Wipe,
+            target: dev,
+        },
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect_err("SAFE-005 disables the write");
+    assert_eq!(
+        refused,
+        PlanRefusal::TableStateIndeterminate { device: dev }
+    );
+
+    let refused = plan_sized(
+        SizedRequest::Create {
+            host: dev,
+            size: 10 * DEFAULT_ALIGNMENT,
+        },
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect_err("the sized path refuses the same way");
+    assert_eq!(
+        refused,
+        PlanRefusal::TableStateIndeterminate { device: dev }
+    );
+}
+
+// Requirements: PART-013, PLAN-001
+//   ADR-0024's repair arm: the typed table-repair family plans over
+//   Indeterminate media, its write targets are exactly the located
+//   table regions and the raw-capture obligation names exactly them,
+//   the simulation drops the stamp (post-repair state unestablished
+//   until a real capture), the reversal is the pre-state-preserved
+//   statement, and the linked body revalidates. Fail-closed edges: no
+//   located table refuses, and a positively determined state refuses —
+//   the family exists for Indeterminate tables.
+// Evidence: the_repair_family_captures_exactly_its_write_targets
+#[test]
+fn the_repair_family_captures_exactly_its_write_targets() {
+    let (snapshot, dev, table_region) = stateful_device(
+        b"PRT-RPR",
+        TableState::Indeterminate {
+            cause: IndeterminateCause::Ambiguous,
+        },
+        true,
+    );
+    let request = RepairRequest {
+        target: dev,
+        acknowledged_uncapturable: None,
+    };
+    let planned = plan_repair(
+        &request,
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect("the repair family plans over the unsound source");
+    assert_eq!(planned.plan.steps()[0].class(), StepClass::TableRepair);
+    assert_eq!(
+        planned.plan.steps()[0].ranges().written_table_extents,
+        vec![table_region],
+        "the write targets are exactly the located table regions"
+    );
+    assert_eq!(
+        planned.protection,
+        vec![ProtectionObligation::RawCapture {
+            device: dev,
+            regions: vec![table_region],
+        }],
+        "the raw capture preserves exactly what the plan will write"
+    );
+    assert!(
+        !planned.simulated.facts().table_states.contains_key(&dev),
+        "the stamp drops: the post-repair state is not established until a capture"
+    );
+    let EmittedReversal::Impossible(statements) = &planned.reversal else {
+        panic!("the repair's reversal is a statement");
+    };
+    assert_eq!(
+        statements[0].reason,
+        ImpossibilityReason::PreStatePreservedForRecovery
+    );
+    let rebuilt = OperationPlan::from_canonical_body(&body_bytes(&planned.plan), &snapshot)
+        .expect("the classed body revalidates");
+    assert_eq!(
+        rebuilt.body_hash().expect("hash"),
+        planned.plan.body_hash().expect("hash")
+    );
+
+    let (tableless, tableless_dev, _) = stateful_device(
+        b"PRT-LOST",
+        TableState::Indeterminate {
+            cause: IndeterminateCause::Ambiguous,
+        },
+        false,
+    );
+    let refused = plan_repair(
+        &RepairRequest {
+            target: tableless_dev,
+            acknowledged_uncapturable: None,
+        },
+        &tableless,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect_err("no located table, no invented regions");
+    assert_eq!(
+        refused,
+        PlanRefusal::RepairWithoutLocatedTable {
+            device: tableless_dev
+        }
+    );
+
+    let (present, present_dev, _) = fixture_present_device();
+    let refused = plan_repair(
+        &RepairRequest {
+            target: present_dev,
+            acknowledged_uncapturable: None,
+        },
+        &present,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect_err("the family exists for Indeterminate tables");
+    assert_eq!(
+        refused,
+        PlanRefusal::RepairNeedsAnIndeterminateTable {
+            device: present_dev
+        }
+    );
+}
+
+/// A Present-state device with a located table, for the repair family's
+/// wrong-state refusal.
+fn fixture_present_device() -> (TopologySnapshot, NodeId, HostRange) {
+    stateful_device(
+        b"PRT-OK",
+        TableState::Present {
+            checksum: canonical::hash(&Value::Text("present twin".into())).expect("hashable"),
+        },
+        true,
+    )
+}
+
+// Requirements: PART-013
+//   ADR-0024's capture-impossible arm: the plan proceeds only under the
+//   plan-creation acknowledgement naming the exact uncapturable
+//   regions; the acknowledgement rides the hashed body and the
+//   obligation becomes acknowledged-unpreserved naming exactly those
+//   regions — never a mid-flight prompt, never available outside the
+//   typed family (the constructor law, held in the domain suite).
+// Evidence: capture_impossible_proceeds_only_under_the_named_acknowledgement
+#[test]
+fn capture_impossible_proceeds_only_under_the_named_acknowledgement() {
+    let (snapshot, dev, table_region) = stateful_device(
+        b"PRT-ACK",
+        TableState::Indeterminate {
+            cause: IndeterminateCause::Ambiguous,
+        },
+        true,
+    );
+    let planned = plan_repair(
+        &RepairRequest {
+            target: dev,
+            acknowledged_uncapturable: Some(vec![table_region]),
+        },
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect("the acknowledged plan proceeds");
+    assert_eq!(
+        planned.protection,
+        vec![ProtectionObligation::AcknowledgedUnpreserved {
+            device: dev,
+            regions: vec![table_region],
+        }],
+        "the obligation names exactly the acknowledged regions"
+    );
+    assert_eq!(
+        planned.plan.steps()[0].acknowledgments(),
+        &[Acknowledgment::UncapturableRegions {
+            table: dev,
+            regions: vec![table_region],
+        }],
+        "the acknowledgement rides the hashed body"
+    );
+    let rebuilt = OperationPlan::from_canonical_body(&body_bytes(&planned.plan), &snapshot)
+        .expect("revalidates with the acknowledgement intact");
+    assert_eq!(rebuilt.steps()[0].acknowledgments().len(), 1);
+}
+
 // Requirements: PLAN-002
 //   The wipe simulation removes everything the facts place on the wiped
 //   bytes, transitively with everything named relative to it, and drops
