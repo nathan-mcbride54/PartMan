@@ -7,6 +7,30 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **spec-change 12.13.0: the scheme's own regions, and located
+  occupancy (ADR-0036, on issue #319).** A measured fail-open in the
+  delivered free-extent derivation: at `ecb3dc6` a `place_create` of
+  exactly the 1 MiB default against the delivered solver fixture
+  returned `start=0 … Aligned`, placing a partition over the
+  protective MBR and the GPT header, because that fixture's
+  partition-table node carries a containment edge and no extent.
+  INV-004's derivation now withholds the regions a host's declared
+  table schemes claim at each end — a **bound, never a measurement**,
+  since sector size, entry count, and entry size do not reach it — and
+  is not presented at all where the scheme cannot be named or where an
+  authenticated partition of the address space is not one the
+  derivation subtracts. PART-009 gains a third named structural edge,
+  the low boundary of a scheme-claimed tail region. The claim derives
+  from the table node's own hashed `TableRole`; occupancy is read from
+  the authenticated names, never from containment edges. Rejected on
+  measured fatals and recorded in the ADR: keying the guard on extent
+  presence, and refusing outright on an unlocated table. Two further
+  §11.2 defects close with it — a host extent exceeding its own
+  declared size, and a child extent leaving its host. Minor under
+  §0.1, with the 13.0.0 counter-argument recorded and declined.
+  **Issue #319's authorization half stays open**, blocked on #333;
+  the `crates/planner` implementation is WP-060 increment 10, landing
+  after.
 - **spec-change 12.12.0: the Linux mmc-class designation extension
   (ADR-0035).** ADR-0034's revisit condition fired in its sanctioned
   direction the same day: the S5 sitting measured a serial source for
