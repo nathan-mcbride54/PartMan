@@ -86,11 +86,11 @@ increment 3 as a property test. SI-36 is withdrawn and gates nothing.
 
 | Class | Meaning | Issues |
 | --- | --- | --- |
-| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-11, SI-12, SI-15, SI-16, SI-17, SI-18, SI-19, SI-20, SI-21, SI-22, SI-23, SI-24, SI-25, SI-26, SI-27, SI-29, SI-30, SI-31, SI-32, SI-33, SI-34, SI-35, SI-38, SI-39, SI-40 (by ADR-0020 with no spec change — the decision amends no normative text, recorded in its banner so the absent spec change reads as deliberate, not forgotten) |
+| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-11, SI-12, SI-14, SI-15, SI-16, SI-17, SI-18, SI-19, SI-20, SI-21, SI-22, SI-23, SI-24, SI-25, SI-26, SI-27, SI-29, SI-30, SI-31, SI-32, SI-33, SI-34, SI-35, SI-38, SI-39, SI-40 (by ADR-0020 with no spec change — the decision amends no normative text, recorded in its banner so the absent spec change reads as deliberate, not forgotten) |
 | **Direct blocker** | Must be decided before increment 3 writes a type | *(none — SI-28 reclassified below, 2026-08-09)* |
 | **Transitive blocker** | A separately sequenced prerequisite decision that must resolve before a direct blocker can be decided | *(none)* |
 | **Input** | A subquestion or evidence case resolved within the consuming direct blocker's decision | *(none — SI-29 and SI-30 resolved within SI-11's decision; SI-37 reclassified below)* |
-| **Later** | Decidable before the named work package, not before increment 3 | SI-13, SI-14, SI-37 (before the spec change that first moves a closure-blocked multipath-capable population to `Permitted`; ADR-0018), SI-28 (**Mitigated-open**, floor in force; before the round that either relaxes the floor under ADR-0017's revisit condition or lands a discriminating mechanism; reclassified off the increment-3 gate 2026-08-09) |
+| **Later** | Decidable before the named work package, not before increment 3 | SI-13 (before WP-L110's validate-plan surface — the gate verified accurate by the 2026-08-12 residue sweep: identities bind at validation, and aggregates are not plannable write targets), SI-37 (before the spec change that first moves a closure-blocked multipath-capable population to `Permitted`; ADR-0018), SI-28 (**Mitigated-open**, floor in force; before the round that either relaxes the floor under ADR-0017's revisit condition or lands a discriminating mechanism; reclassified off the increment-3 gate 2026-08-09) |
 | **Withdrawn** | Retained as history after the filing was shown not to be a conflict | SI-36 |
 
 No direct blockers remain. SI-28's Mitigated-open state — the interim
@@ -1530,7 +1530,37 @@ the weak-identity path applies to an mdraid grow.
 
 ## SI-14 Derived properties have no confidence rule
 
-**Requirements:** MODEL-004, INV-004 · **Later (WP-050)**
+> **Resolved 2026-08-12 in spec 12.10.0 by ADR-0033.** A derived
+> property is a **derivation, not an observation**: MODEL-004's
+> "discovered property" means an observed one, and a property computed
+> from other properties — INV-004's free extents and alignment are the
+> two — is recomputed at use from the detected inputs it names, never
+> stored, carrying no observation set or confidence of its own; its
+> trustworthiness is its inputs', which carry the observation sets.
+> One new prohibition landed with the reading: a derivation over an
+> input whose observation set derives `unavailable` or `conflicting`
+> is not presentable — the input's own state is surfaced instead. No
+> fifth confidence value and no composition algebra: confidence
+> describes observation trust, not computational correctness, and a
+> composed or tagged value would let a record assert what its
+> observations do not carry (the stored-confidence shape ADR-C4 made
+> unconstructible). The delivered architecture already embodied the
+> rule — ADR-C4's constructor-absence proof, WP-060's solver computing
+> free extents from body-carried authenticated extents, ADR-0023's
+> rejected duplicate alignment-fact field — so the issue's "Later
+> (WP-050)" gate had been reached and passed without a rule appearing:
+> the absence *is* the rule, recorded before a discovery package could
+> implement the literal reading and mint observation sets for computed
+> values (the gate misnomer is acknowledged in the ADR — WP-050
+> consumes extents but reports no inventory; the reporting consumers
+> are WP-W100/WP-L100/WP-M100, whose presentation obligations land in
+> their assignments at creation, recorded in the ADR so the creation
+> cannot omit them). Rejected and recorded: a composition algebra, a
+> fifth `derived` value, a synthetic computation-adapter observation.
+> The filing below is retained as history.
+
+**Requirements:** MODEL-004, INV-004 · **Was: Later (WP-050) · Resolved
+12.10.0**
 
 INV-004 lists free extents and alignment among properties to detect, bringing
 them under MODEL-004's provenance requirement, but both are computed from other
