@@ -35,14 +35,16 @@
 use partman_capability::engine::{RuntimeFacts, TechnologyLimits, UnknownTarget, capability};
 use partman_capability::{Capability, Status};
 use partman_domain::model::capability::{Operation, OperationClass, canonical_ranges};
+use partman_domain::model::identity::TableState;
 use partman_domain::model::naming::NodeId;
+use partman_domain::model::naming::{NamingFields, NodeEntry};
 use partman_domain::model::plan::{
     DraftPrecondition, DraftRefusal, DraftStep, DraftTarget, ImpossibilityReason, OperationPlan,
     PlanError, ReversalDraft, ReversalLinkage, StepImpossibility, ValidityWindow,
 };
 use partman_domain::model::snapshot::TopologySnapshot;
 use partman_domain::model::step::{
-    PlanStep, Precondition, Severity, StepFlags, StepRefusal, StepRisk,
+    Acknowledgment, PlanStep, Precondition, Severity, StepClass, StepFlags, StepRefusal, StepRisk,
 };
 
 use crate::graph::{Dependency, GraphRefusal, execution_order};
@@ -149,6 +151,75 @@ pub enum PlanRefusal {
         /// The draft's verbatim refusal.
         refusal: DraftRefusal,
     },
+    /// SAFE-005's planner half (ADR-0024's ordinary arm): a device this
+    /// ordinary request would write carries an `Indeterminate` authored
+    /// table state, so the affected write operation is disabled before
+    /// PART-013's protection obligation is ever computed. The typed
+    /// repair family is the one path that plans over such media, via
+    /// [`plan_repair`].
+    TableStateIndeterminate {
+        /// The device whose table state disables the write.
+        device: NodeId,
+    },
+    /// A repair needs a located table: the facts carry no
+    /// partition-table child extent for the target, and the planner
+    /// invents no regions (fail-closed — the write targets must be the
+    /// authenticated table regions, exactly).
+    RepairWithoutLocatedTable {
+        /// The target with no located table region.
+        device: NodeId,
+    },
+    /// The typed repair family exists for `Indeterminate` tables
+    /// (REC-001, ADR-0024); a repair over a positively determined
+    /// state is a future reviewed extension, not a default.
+    RepairNeedsAnIndeterminateTable {
+        /// The target whose state is positively determined or absent
+        /// from the facts.
+        device: NodeId,
+    },
+}
+
+/// PART-013's planning-half output (ADR-0024): the protection
+/// obligation each table-bearing device the plan touches will
+/// discharge at Protecting — derived from the authored table states at
+/// every computation, never stored (the journal's three-variant
+/// protection record is the durable artifact, WP-070's). No arm is
+/// silent.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ProtectionObligation {
+    /// `Present`: the parse-level backup, verified before the first
+    /// table write; failure routes to Failed with no writes.
+    ParseBackup {
+        /// The device backed up.
+        device: NodeId,
+    },
+    /// `Absent`: the obligation discharges as the helper's journaled
+    /// fresh positive determination — a value, not a skip, and no user
+    /// acknowledgement (ADR-C4 reaching the journal).
+    JournaledDetermination {
+        /// The device whose absence is the record.
+        device: NodeId,
+    },
+    /// `Indeterminate`, the typed repair family: a raw capture of
+    /// exactly the regions the plan will write, verified by re-read —
+    /// the only truthful backup of an unsound source.
+    RawCapture {
+        /// The device captured.
+        device: NodeId,
+        /// Exactly the write-target regions.
+        regions: Vec<HostRange>,
+    },
+    /// `Indeterminate`, capture impossible: the plan proceeds only
+    /// under the plan-creation acknowledgement naming these exact
+    /// regions (Section 12's separately supported recovery strategy);
+    /// the pre-state is unpreserved by the user's recorded,
+    /// region-naming choice.
+    AcknowledgedUnpreserved {
+        /// The device whose pre-state is acknowledged unpreservable.
+        device: NodeId,
+        /// The exact acknowledged regions.
+        regions: Vec<HostRange>,
+    },
 }
 
 /// PLAN-008's emitted reversal output: a truthful draft, or the
@@ -189,6 +260,10 @@ pub struct Planned {
     /// text vocabulary is a later jointly-sequenced body change, and
     /// ADR-0023 rejected typed hashed carriage of these facts.
     pub consequences: Vec<Consequence>,
+    /// PART-013's planning-half output (ADR-0024): the protection
+    /// obligation per table-bearing device the plan touches, in device
+    /// order — derived, never body content.
+    pub protection: Vec<ProtectionObligation>,
 }
 
 /// One typed consequence fact, with its user-facing sentence.
@@ -380,6 +455,96 @@ fn canonical_risk(operation: Operation) -> StepRisk {
     }
 }
 
+/// The devices a step's declared ranges and target reach, ascending —
+/// the population whose table states select PART-013's arms.
+fn touched_devices(target: NodeId, ranges: &StepRanges) -> Vec<NodeId> {
+    let mut devices: Vec<NodeId> = ranges
+        .written_table_extents
+        .iter()
+        .chain(&ranges.consumed)
+        .chain(&ranges.destroyed)
+        .map(|range| range.host)
+        .chain(std::iter::once(target))
+        .collect();
+    devices.sort_unstable();
+    devices.dedup();
+    devices
+}
+
+/// SAFE-005's planner half (ADR-0024's ordinary arm): an ordinary
+/// request that would write a device whose authored table state is
+/// `Indeterminate` refuses before any protection obligation is
+/// computed. The typed repair family is exempt — it is the one path
+/// that exists for such media.
+fn indeterminate_table_guard(
+    snapshot: &TopologySnapshot,
+    target: NodeId,
+    ranges: &StepRanges,
+) -> Result<(), PlanRefusal> {
+    for device in touched_devices(target, ranges) {
+        if matches!(
+            snapshot.facts().table_states.get(&device),
+            Some(TableState::Indeterminate { .. })
+        ) {
+            return Err(PlanRefusal::TableStateIndeterminate { device });
+        }
+    }
+    Ok(())
+}
+
+/// PART-013's planning-half derivation (ADR-0024): one obligation per
+/// table-bearing touched device, arm-selected by the authored state.
+/// The `Indeterminate` arm is reachable only from the typed repair
+/// family (the guard refuses it everywhere else), where the obligation
+/// is the raw capture of exactly the write-target regions — or the
+/// acknowledged-unpreserved arm where the plan carries the
+/// capture-impossible acknowledgement for that device.
+fn protection_obligations(
+    snapshot: &TopologySnapshot,
+    steps: &[PlanStep],
+) -> Vec<ProtectionObligation> {
+    let mut obligations: Vec<ProtectionObligation> = Vec::new();
+    let mut seen: Vec<NodeId> = Vec::new();
+    for step in steps {
+        for device in touched_devices(step.target(), step.ranges()) {
+            if seen.contains(&device) {
+                continue;
+            }
+            let Some(state) = snapshot.facts().table_states.get(&device) else {
+                continue;
+            };
+            seen.push(device);
+            obligations.push(match state {
+                TableState::Present { .. } => ProtectionObligation::ParseBackup { device },
+                TableState::Absent => ProtectionObligation::JournaledDetermination { device },
+                TableState::Indeterminate { .. } => {
+                    let acknowledged =
+                        step.acknowledgments().iter().find_map(
+                            |acknowledgment| match acknowledgment {
+                                Acknowledgment::UncapturableRegions { table, regions }
+                                    if *table == device =>
+                                {
+                                    Some(regions.clone())
+                                }
+                                _ => None,
+                            },
+                        );
+                    match acknowledged {
+                        Some(regions) => {
+                            ProtectionObligation::AcknowledgedUnpreserved { device, regions }
+                        }
+                        None => ProtectionObligation::RawCapture {
+                            device,
+                            regions: step.ranges().written_table_extents.clone(),
+                        },
+                    }
+                }
+            });
+        }
+    }
+    obligations
+}
+
 /// PLAN-008's per-operation impossibility reason for the operations the
 /// planner can plan today but cannot truthfully reverse. Total over
 /// exactly the operations that reach reversal emission; the
@@ -428,10 +593,12 @@ pub fn plan(
         Status::Preview | Status::Supported => {}
     }
 
+    let ranges = canonical_ranges(request.operation, request.target, snapshot.facts());
+    indeterminate_table_guard(snapshot, request.target, &ranges)?;
     let step = PlanStep::mutating(
         snapshot,
         request.target,
-        canonical_ranges(request.operation, request.target, snapshot.facts()),
+        ranges,
         vec![],
         canonical_risk(request.operation),
     )
@@ -446,6 +613,7 @@ pub fn plan(
         step: 0,
         reason: impossibility(request.operation),
     }];
+    let protection = protection_obligations(snapshot, std::slice::from_ref(&step));
     OperationPlan::assemble_linked(
         identity.plan_id.clone(),
         identity.created_at,
@@ -462,6 +630,7 @@ pub fn plan(
         simulated,
         reversal: EmittedReversal::Impossible(statements),
         consequences: vec![],
+        protection,
     })
     .map_err(|error| PlanRefusal::PlanRefused { error })
 }
@@ -512,6 +681,7 @@ pub fn plan_sized(
     } else {
         canonical_risk(operation)
     };
+    indeterminate_table_guard(snapshot, target, &ranges)?;
     let step = PlanStep::mutating(snapshot, target, ranges, vec![], risk)
         .map_err(|refusal| PlanRefusal::StepRefused { refusal })?;
 
@@ -531,6 +701,7 @@ pub fn plan_sized(
         },
     };
 
+    let protection = protection_obligations(snapshot, std::slice::from_ref(&step));
     OperationPlan::assemble_linked(
         identity.plan_id.clone(),
         identity.created_at,
@@ -545,6 +716,7 @@ pub fn plan_sized(
         simulated,
         reversal,
         consequences,
+        protection,
     })
     .map_err(|error| PlanRefusal::PlanRefused { error })
 }
@@ -798,11 +970,9 @@ pub fn plan_set(
             return Err(PlanRefusal::CapabilityRefused { answer });
         }
         keys.push((operation_index(request.operation), request.target));
-        ranges.push(canonical_ranges(
-            request.operation,
-            request.target,
-            snapshot.facts(),
-        ));
+        let request_ranges = canonical_ranges(request.operation, request.target, snapshot.facts());
+        indeterminate_table_guard(snapshot, request.target, &request_ranges)?;
+        ranges.push(request_ranges);
     }
 
     let order = execution_order(&keys, &ranges, &set.dependencies)
@@ -841,6 +1011,7 @@ pub fn plan_set(
     let simulated = simulate(snapshot, &combined)
         .map_err(|refusal| PlanRefusal::SimulateRefused { refusal })?;
 
+    let protection = protection_obligations(snapshot, &steps);
     OperationPlan::assemble_linked(
         identity.plan_id.clone(),
         identity.created_at,
@@ -857,6 +1028,140 @@ pub fn plan_set(
         simulated,
         reversal: EmittedReversal::Impossible(statements),
         consequences: vec![],
+        protection,
+    })
+    .map_err(|error| PlanRefusal::PlanRefused { error })
+}
+
+/// One typed repair-family request (ADR-0024, REC-001's class): repair
+/// the named device's located table. The capture-impossible
+/// acknowledgement, where the user chose Section 12's separately
+/// supported recovery strategy at plan creation, names the exact
+/// uncapturable regions.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RepairRequest {
+    /// The device whose table is repaired.
+    pub target: NodeId,
+    /// The plan-creation acknowledgement's regions, where capture is
+    /// known impossible — `None` plans the ordinary raw-capture arm.
+    pub acknowledged_uncapturable: Option<Vec<HostRange>>,
+}
+
+/// The located table regions for a repair: the authenticated extents of
+/// the target's partition-table children — never invented (fail-closed
+/// where the facts locate no table).
+fn located_table_regions(snapshot: &TopologySnapshot, target: NodeId) -> Vec<HostRange> {
+    snapshot
+        .topology()
+        .entries()
+        .iter()
+        .filter_map(|entry| {
+            let fields = match entry {
+                NodeEntry::Single { fields, .. } | NodeEntry::Group { fields, .. } => fields,
+            };
+            matches!(fields, NamingFields::PartitionTable { parent, .. } if *parent == target)
+                .then(|| snapshot.facts().extents.get(&entry.id()).copied())
+                .flatten()
+        })
+        .collect()
+}
+
+/// PLAN-001's computation for the typed repair family (ADR-0024): the
+/// step is `table-repair` class over the located table regions —
+/// exactly the regions the plan will write, which is exactly what the
+/// raw-capture obligation preserves — the simulation drops the target's
+/// stamp (the post-repair state is unestablished until a real capture,
+/// the wipe precedent), and the reversal is the pre-state-preserved
+/// statement: the capture is the substrate, and restoring it is
+/// REC-001's recovery plan.
+///
+/// # Errors
+///
+/// [`PlanRefusal`], each variant carrying its ground verbatim.
+pub fn plan_repair(
+    request: &RepairRequest,
+    snapshot: &TopologySnapshot,
+    limits: &TechnologyLimits,
+    runtime: &RuntimeFacts,
+    identity: &PlanIdentity,
+) -> Result<Planned, PlanRefusal> {
+    let answer = capability(Operation::Repair, request.target, snapshot, limits, runtime)
+        .map_err(|UnknownTarget { target }| PlanRefusal::UnknownTarget { target })?;
+    if matches!(answer.status(), Status::Unsupported | Status::Blocked) {
+        return Err(PlanRefusal::CapabilityRefused { answer });
+    }
+    if !matches!(
+        snapshot.facts().table_states.get(&request.target),
+        Some(TableState::Indeterminate { .. })
+    ) {
+        return Err(PlanRefusal::RepairNeedsAnIndeterminateTable {
+            device: request.target,
+        });
+    }
+    let regions = located_table_regions(snapshot, request.target);
+    if regions.is_empty() {
+        return Err(PlanRefusal::RepairWithoutLocatedTable {
+            device: request.target,
+        });
+    }
+    let acknowledgments = match &request.acknowledged_uncapturable {
+        Some(acknowledged) => vec![Acknowledgment::UncapturableRegions {
+            table: request.target,
+            regions: acknowledged.clone(),
+        }],
+        None => vec![],
+    };
+    let step = PlanStep::mutating_classed(
+        snapshot,
+        request.target,
+        StepRanges {
+            written_table_extents: regions,
+            consumed: vec![],
+            destroyed: vec![],
+        },
+        acknowledgments,
+        StepRisk {
+            // Table metadata is rewritten in place over an unsound
+            // source; loss is possible on failure — conservative-up,
+            // stated.
+            severity: Severity::DataMoving,
+            flags: StepFlags::default(),
+        },
+        StepClass::TableRepair,
+    )
+    .map_err(|refusal| PlanRefusal::StepRefused { refusal })?;
+
+    let simulated = simulate(
+        snapshot,
+        &Effects {
+            stamp_dropped: vec![request.target],
+            ..Effects::default()
+        },
+    )
+    .map_err(|refusal| PlanRefusal::SimulateRefused { refusal })?;
+
+    let statements = vec![StepImpossibility {
+        step: 0,
+        reason: ImpossibilityReason::PreStatePreservedForRecovery,
+    }];
+    let protection = protection_obligations(snapshot, std::slice::from_ref(&step));
+    OperationPlan::assemble_linked(
+        identity.plan_id.clone(),
+        identity.created_at,
+        snapshot,
+        identity.validity,
+        std::collections::BTreeMap::new(),
+        vec![step],
+        ReversalLinkage::Impossible {
+            statements: statements.clone(),
+        },
+    )
+    .map(|plan| Planned {
+        plan,
+        simulated,
+        reversal: EmittedReversal::Impossible(statements),
+        consequences: vec![],
+        protection,
     })
     .map_err(|error| PlanRefusal::PlanRefused { error })
 }

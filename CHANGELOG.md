@@ -7,6 +7,32 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-060 increment 7: the backup family — PART-013's planning half,
+  state-selected per ADR-0024.** Every plan now carries its derived
+  protection obligations, one per table-bearing device it touches, arm
+  selected by the helper's authored table state: `Present` → the
+  parse-backup obligation; `Absent` → the journaled determination, a
+  value not a skip, with no user acknowledgement demanded or carried;
+  `Indeterminate` → an ordinary operation refuses typed **before any
+  obligation is computed** (SAFE-005's planner half — PART-013 never
+  reached), while the typed table-repair family plans over exactly
+  that media through its own entry point. `plan_repair`'s step is
+  `table-repair` class, its write targets exactly the located table
+  regions (fail-closed both ways: no located table refuses with no
+  invented regions, and a positively determined state refuses — the
+  family exists for `Indeterminate` tables), its raw-capture
+  obligation names exactly those regions, its simulation drops the
+  stamp, and its reversal is the pre-state-preserved statement. The
+  capture-impossible arm proceeds only under the plan-creation
+  acknowledgement naming the exact uncapturable regions — riding the
+  hashed body, flipping the obligation to acknowledged-unpreserved,
+  and unconstructible outside the family by slice 3m's constructor
+  law. Obligations are derived at every computation, never stored; the
+  journal's protection record is the durable artifact and the REC-001
+  byte round-trip stays WP-R100's, both recorded as boundaries. Four
+  mutants (disabled guard, swapped Present arm, dropped raw-capture
+  exactness, dropped acknowledgement path) each failed a named test.
+
 - **WP-010 slice 3m: plan body version 3 — the ADR-0024
   protection-family schema change, jointly sequenced with WP-060's
   backup-family increment.** Every linked step now carries its typed
