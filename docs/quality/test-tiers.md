@@ -100,7 +100,7 @@ external tool is invoked, and on INV-006's no-repair/no-auto-mount discipline.
 Issue #94 is closed: the full acceptance, including its adversarial rebind leg,
 succeeded in a disposable Proxmox-hosted non-WSL Linux VM on 2026-08-03 — on the
 implementation commit `2dbf601`, and again on the merged commit `c75b340` that
-lands on main — and was re-taken fifteen times, each in a fresh
+lands on main — and was re-taken sixteen times, each in a fresh
 disposable VM after the record's stopping condition tripped: on `582e6d1`
 (issue #175), on `4fbb2f9` when increments 2g/2h landed, on `68298f2` when
 the #248/#249/#250 review-finding fixes landed, on `0625b07` when
@@ -125,7 +125,9 @@ planner-half arc — one Rust merge, PR #336 — tripped it a ninth, at
 the arc's head with the sitting recorded in that arc's plan before the
 merge, and on `f463d58` (2026-08-14 UTC) when the issue-341 panic fix
 — one Rust merge, PR #342 — tripped it a tenth, its sitting named in
-that PR's own body before the merge,
+that PR's own body before the merge, and on `901c7d2` (2026-08-14 UTC)
+when ADR-0038 — one Rust merge, PR #345 — tripped it an eleventh,
+likewise named before the merge,
 with identical harness values and fixture digests every time. (This sentence
 previously read "four times" while the custody table held six rows — the
 `39b59f5` re-take never updated it, the stale-count shape again, corrected
