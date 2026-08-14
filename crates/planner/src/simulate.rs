@@ -82,24 +82,6 @@ pub struct Effects {
     pub resized: Vec<(NodeId, u64)>,
 }
 
-fn fields_references(fields: &NamingFields) -> Vec<NodeId> {
-    match fields {
-        NamingFields::PhysicalDevice { .. }
-        | NamingFields::Aggregate { .. }
-        | NamingFields::MultipathNode { .. } => vec![],
-        NamingFields::PartitionTable { parent, .. } => vec![*parent],
-        NamingFields::Partition { parent_table, .. } => vec![*parent_table],
-        NamingFields::BackingSignature { host, .. }
-        | NamingFields::FileSystem { host, .. }
-        | NamingFields::BackingExtent { host, .. } => vec![*host],
-        NamingFields::EncryptionLayer { backing_signature } => vec![*backing_signature],
-        NamingFields::Volume { producer, .. } => vec![*producer],
-        NamingFields::ConflictingTableEntry { table, .. } => vec![*table],
-        // The naming enum is closed today; a variant added later fails
-        // this match at compile time, which is the intended review point.
-    }
-}
-
 fn overlaps(range: &HostRange, other: &HostRange) -> bool {
     range.host == other.host
         && range.start < other.start + other.length
@@ -107,8 +89,14 @@ fn overlaps(range: &HostRange, other: &HostRange) -> bool {
 }
 
 /// Destruction to a fixed point: everything the facts place on a
-/// destroyed range, then everything named relative to a removed node. A
-/// node whose own self-extent hosts the destroyed range survives —
+/// destroyed range, then everything named relative to a removed node —
+/// read from `NamingFields::naming_referents`, the same roster
+/// `Topology::build`'s naming sweep refuses a dangling referent from
+/// (issue #354). Sharing the list is what makes "a swept capture stays
+/// swept across a simulated rebuild" a theorem rather than a
+/// coincidence: a referent kind this closure failed to follow would
+/// survive here and then be refused by the rebuild it feeds. A node
+/// whose own self-extent hosts the destroyed range survives —
 /// wiping a device destroys its contents, not the device: the wiped
 /// container remains, empty, which is exactly what the prediction
 /// should say.
@@ -134,9 +122,10 @@ fn destroyed_closure(
         let before = removed.len();
         for (id, fields) in nodes {
             if !removed.contains(id)
-                && fields_references(fields)
+                && fields
+                    .naming_referents()
                     .iter()
-                    .any(|reference| removed.contains(reference))
+                    .any(|(_, reference)| removed.contains(reference))
             {
                 removed.push(*id);
             }
