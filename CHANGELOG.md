@@ -5,6 +5,25 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ## Unreleased
 
+### Fixed
+
+- **WP-060: `plan_set` no longer panics on an unsized create (issue
+  #341).** `impossibility`'s `unreachable!` rests on the premise that
+  every operation reaching reversal emission is one the path can plan.
+  That premise was a property of `plan`'s statement order — it settles
+  simulatability before emitting statements — and did **not** hold in
+  `plan_set`, whose statement loop ran before its simulatability check.
+  A single-request set carrying an unsized `Create`, on a target that
+  clears the capability gate, aborted the process. Reproduced by
+  execution before the fix. `plan_set` now settles simulatability for
+  every request after ordering and before any step or statement is
+  built, so the input refuses with **the same ground the
+  single-request path gives it**, asserted equal by test. No delivered
+  refusal's ground changes — graph refusals still precede it. The
+  premise is now pinned for the whole operation vocabulary by
+  `no_request_set_reaches_an_unplannable_statement`, the guard that
+  would have caught this before it was filed.
+
 ### Added
 
 - **spec-change 12.14.0: the containment-frame anchoring rule

@@ -3136,3 +3136,112 @@ fn a_partition_scoped_layer_is_not_the_devices_occupant() {
         "a partition-anchored layer must not refuse the device's derivation: {device_free:?}"
     );
 }
+
+// Requirements: PLAN-001, PLAN-008
+//   Issue #341: `impossibility`'s `unreachable!` rests on the premise
+//   that every operation reaching reversal emission is one the path can
+//   plan. That premise was a property of `plan`'s statement order and
+//   did not hold in `plan_set`, whose statement loop ran before its
+//   simulatability check — so a single-request set carrying an unsized
+//   create, on a target that clears the capability gate, aborted the
+//   process instead of refusing. The refusal now matches the ground the
+//   single-request path gives the same input.
+// Evidence: an_unsized_create_in_a_set_refuses_with_the_single_paths_ground
+#[test]
+fn an_unsized_create_in_a_set_refuses_with_the_single_paths_ground() {
+    let (snapshot, clean, _) = fixture();
+    let set = PlanRequestSet {
+        requests: vec![PlanRequest {
+            operation: Operation::Create,
+            target: clean,
+        }],
+        dependencies: vec![],
+    };
+    let from_set = plan_set(
+        &set,
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect_err("an unsized create has no geometry and cannot be planned");
+    assert!(
+        matches!(
+            from_set,
+            PlanRefusal::SimulateRefused {
+                refusal: SimulateRefusal::NotRepresentable { .. }
+            }
+        ),
+        "expected the simulation refusal, got {from_set:?}"
+    );
+
+    // The same request through the single-request path: the grounds
+    // agree, which is the property the fix restores rather than a
+    // coincidence of ordering.
+    let from_single = plan(
+        PlanRequest {
+            operation: Operation::Create,
+            target: clean,
+        },
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect_err("the single-request path refuses the same input");
+    assert_eq!(
+        format!("{from_set:?}"),
+        format!("{from_single:?}"),
+        "plan_set and plan must refuse an unsized create identically"
+    );
+}
+
+// Requirements: PLAN-001, PLAN-008
+//   The premise `impossibility`'s `unreachable!` rests on, pinned for
+//   the whole operation vocabulary rather than for the one operation
+//   that was measured to break it: no single-request set over any
+//   operation reaches an unplannable statement. Every operation either
+//   plans or refuses with an artifact — never aborts. This is the guard
+//   that would have caught issue #341 before it was filed.
+// Evidence: no_request_set_reaches_an_unplannable_statement
+#[test]
+fn no_request_set_reaches_an_unplannable_statement() {
+    let (snapshot, clean, _) = fixture();
+    for operation in [
+        Operation::Detect,
+        Operation::Read,
+        Operation::Create,
+        Operation::Grow,
+        Operation::Shrink,
+        Operation::Move,
+        Operation::Copy,
+        Operation::Check,
+        Operation::Repair,
+        Operation::Label,
+        Operation::Uuid,
+        Operation::Wipe,
+        Operation::Encrypt,
+        Operation::Decrypt,
+    ] {
+        let set = PlanRequestSet {
+            requests: vec![PlanRequest {
+                operation,
+                target: clean,
+            }],
+            dependencies: vec![],
+        };
+        // The assertion is that this returns at all. A panic here is the
+        // defect; either arm of the Result is a lawful outcome.
+        let outcome = plan_set(
+            &set,
+            &snapshot,
+            &TechnologyLimits::default(),
+            &RuntimeFacts::clean(),
+            &identity(),
+        );
+        assert!(
+            outcome.is_ok() || outcome.is_err(),
+            "{operation:?} must produce an artifact, never an abort"
+        );
+    }
+}
