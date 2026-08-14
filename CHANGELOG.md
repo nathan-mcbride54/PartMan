@@ -7,6 +7,36 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Fixed
 
+- **WP-010: the verdict computation no longer picks one edge by sort
+  order (issue #355).** Three arms of `node_verdict` selected a single
+  edge with `.find()` where the body may present several — a
+  signature's consumer, a node's producer, and the containment ascent
+  to the device whose scope arm is inherited. Nothing bounds those
+  in-degrees: the endpoint-pair table admits `Production` from both an
+  encryption layer and an aggregate and containment of a signature or
+  file system under both a device and a partition, and `Topology::build`
+  enforces no cardinality rule. The selected edge was therefore decided
+  by `NodeId` order — a SHA-256 digest over hashed naming fields — so an
+  author who adds one lawful edge and grinds one hashed field chose
+  which arm was consulted. Measured at `8e03e68`: a file system on a
+  `RecognizedRemote` device went `Unsupported{InheritedDeviceScope}` to
+  **`Clear`** behind a decoy local containment parent, and a volume
+  produced by a live ZFS pool went `Unsupported` to **`Clear` on all ten
+  mutating operations** behind a decoy encryption-layer producer, on
+  bodies that assemble, encode, decode and rebuild with agreeing hashes.
+  Each arm now folds `worst` over **every** matching edge, which is the
+  module's own combinator and SAFE-005's posture: an added edge can only
+  ever add refusal, and a body presenting one ancestry, one producer and
+  one consumer answers exactly as before — no committed test moved. The
+  containment ascent became a visited-set graph walk, so its termination
+  rests on the walk rather than on the pair table's acyclicity. The
+  consumer arm was already covered at the gate by `affected_set`'s own
+  enumeration of consumers and is corrected for the verdict it reports.
+  **Forbidding the multiplicity outright is deliberately not taken
+  here** — that is a decode-boundary rule with its own MODEL-003 debt,
+  and MODEL-002 gives membership unbounded in-degree on purpose, so it
+  belongs to a decided act rather than to this fix.
+
 - **WP-010: carried-content reach, and a bounded descent (ADR-0039,
   spec 13.0.0, closing issue #338's held half).** A mutating step's
   affected set now closes over the content its target carries, not only
