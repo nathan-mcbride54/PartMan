@@ -2235,6 +2235,109 @@ fn a_wipe_simulation_removes_the_chain_and_the_stamp() {
 }
 
 // Requirements: PLAN-002
+//   A swept capture stays swept across a simulated rebuild, and this is
+//   the theorem rather than a coincidence. `Topology::build` refuses a
+//   naming referent that resolves to nothing (issue #354); the
+//   destruction closure removes everything named relative to a removed
+//   node. Both read `NamingFields::naming_referents`, so a survivor can
+//   never name a casualty — and the rebuild the closure feeds cannot
+//   refuse for that reason. The failure this pins is specific and was
+//   measured: with the `Volume` arm dropped from the shared roster, the
+//   whole planner suite stayed green while the domain sweep turned this
+//   plan into a hard `SimulateRefusal::Assembly`. A closure gap does not
+//   produce a slightly wrong prediction now; it refuses the plan
+//   outright. The volume is reached only through the referent walk, its
+//   kind being one of the four that may carry no extent.
+// Evidence: a_produced_volume_is_removed_with_its_producer_and_the_rebuild_stands
+#[test]
+fn a_produced_volume_is_removed_with_its_producer_and_the_rebuild_stands() {
+    let dev = device(b"PLN-VOL");
+    let dev_id = derive_id(&dev).expect("derivable");
+    let luks = NamingFields::BackingSignature {
+        host: dev_id,
+        family: SignatureFamily::Luks2,
+        primary_offset: 0,
+    };
+    let luks_id = derive_id(&luks).expect("derivable");
+    let layer = NamingFields::EncryptionLayer {
+        backing_signature: luks_id,
+    };
+    let layer_id = derive_id(&layer).expect("derivable");
+    let volume = NamingFields::Volume {
+        producer: layer_id,
+        name: b"cryptroot".to_vec(),
+        role: None,
+    };
+    let volume_id = derive_id(&volume).expect("derivable");
+
+    let mut facts = Facts::default();
+    device_facts(&mut facts, dev_id);
+    // Only the signature is placed. The layer and the volume carry no
+    // extent — their kinds may not — so the closure is the only thing
+    // that can reach them.
+    facts.extents.insert(
+        luks_id,
+        HostRange {
+            host: dev_id,
+            start: 0,
+            length: 1 << 16,
+        },
+    );
+    let snapshot = TopologySnapshot::assemble(
+        SnapshotKind::Captured,
+        false,
+        vec![dev, luks, layer, volume],
+        vec![
+            Edge {
+                kind: EdgeKind::Containment,
+                source: dev_id,
+                target: luks_id,
+            },
+            Edge {
+                kind: EdgeKind::Backing,
+                source: luks_id,
+                target: layer_id,
+            },
+            Edge {
+                kind: EdgeKind::Production,
+                source: layer_id,
+                target: volume_id,
+            },
+        ],
+        facts,
+    )
+    .expect("assembles");
+
+    let Planned { simulated, .. } = plan(
+        PlanRequest {
+            operation: Operation::Wipe,
+            target: dev_id,
+        },
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect("the rebuild must stand, not refuse: no survivor names a casualty");
+
+    let survivors: Vec<NodeId> = simulated
+        .topology()
+        .entries()
+        .iter()
+        .map(super::NodeEntry::id)
+        .collect();
+    assert_eq!(
+        survivors,
+        vec![dev_id],
+        "the wiped device remains; signature, layer and volume are all gone"
+    );
+    assert!(
+        !survivors.contains(&volume_id),
+        "the volume is reachable only through its producer referent"
+    );
+}
+
+// Requirements: PLAN-002
 //   An effect this model cannot represent produces no valid plan at
 //   all: simulation is mandatory, so the encrypt request refuses as
 //   not representable rather than emitting a prediction that lies.
