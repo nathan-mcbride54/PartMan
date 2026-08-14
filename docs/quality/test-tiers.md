@@ -127,7 +127,10 @@ merge, and on `f463d58` (2026-08-14 UTC) when the issue-341 panic fix
 — one Rust merge, PR #342 — tripped it a tenth, its sitting named in
 that PR's own body before the merge, and on `901c7d2` (2026-08-14 UTC)
 when ADR-0038 — one Rust merge, PR #345 — tripped it an eleventh,
-likewise named before the merge,
+likewise named before the merge, and on `b9d1ba2` (2026-08-14 UTC)
+when ADR-0039 — one Rust merge, PR #351, carried-content reach and a
+bounded descent at spec 13.0.0 — tripped it a twelfth, named the same
+way,
 with identical harness values and fixture digests every time. (This sentence
 previously read "four times" while the custody table held six rows — the
 `39b59f5` re-take never updated it, the stale-count shape again, corrected
