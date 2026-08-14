@@ -1139,7 +1139,16 @@ fn a_wrong_token_is_refused() {
 #[test]
 fn a_file_outside_the_fixture_root_is_refused() {
     let sandbox = Sandbox::new("outside");
-    let outside = std::env::temp_dir().join("partman-interlock-outside-file.img");
+    // Pid- and counter-qualified, for the reason `Sandbox::new` gives about the
+    // roots themselves. This decoy sits in a directory every concurrent run
+    // shares, so under a fixed name the `remove_file` at the end of one process
+    // deletes the file another is mid-authorization on — and the refusal that
+    // arrives is the missing-target one, not the out-of-root one asserted here.
+    let outside = std::env::temp_dir().join(format!(
+        "partman-interlock-outside-file-{}-{}.img",
+        std::process::id(),
+        crate::test_support::next_sandbox_id()
+    ));
     // Give it the exact bytes of a real fixture, so only the location differs.
     let bytes = fs::read(sandbox.target("blank-512.img")).expect("fixture must be readable");
     fs::write(&outside, &bytes).expect("writing the decoy must succeed");
@@ -1158,7 +1167,16 @@ fn a_file_outside_the_fixture_root_is_refused() {
 #[test]
 fn traversal_out_of_the_fixture_root_is_refused() {
     let sandbox = Sandbox::new("traversal");
-    let escaped = sandbox.root.join("..").join("partman-interlock-escape.img");
+    // Same uniquifying as its sibling above, with one constraint: the `..`
+    // component is the whole point of this test and must survive it. Qualify
+    // the *file name*, never the path spelling — resolving the `..` here to
+    // `sandbox_base()` would leave a path that no longer traverses anything,
+    // and this would silently become a second copy of the test above.
+    let escaped = sandbox.root.join("..").join(format!(
+        "partman-interlock-escape-{}-{}.img",
+        std::process::id(),
+        crate::test_support::next_sandbox_id()
+    ));
     let bytes = fs::read(sandbox.target("blank-512.img")).expect("fixture must be readable");
     fs::write(&escaped, &bytes).expect("writing the decoy must succeed");
 
