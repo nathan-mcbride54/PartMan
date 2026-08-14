@@ -92,11 +92,19 @@ pub const BLOCK_CLASS: &str = "class/block";
 /// device, because no input could change it. ADR-0018's own evidence
 /// obligation, "fabric-versus-local transport discrimination rows per
 /// platform for each listed local transport", is outstanding on every
-/// platform; no value of any classifying key is recorded anywhere in this
-/// repository for any Linux host; and five of the six positive-local classes
-/// have no Linux measurement of any kind. A table mapping interface strings
-/// to classes could therefore come only from vendor documentation, which is
-/// the one thing this package's evidence rule forbids.
+/// platform, and a table mapping interface strings to classes could
+/// therefore come only from vendor documentation, which is the one thing
+/// this package's evidence rule forbids.
+///
+/// What is missing is the **protocol**, not the values. This comment used to
+/// say that no value of any classifying key was recorded for any Linux host;
+/// the 2026-08-13 readback made that false — `ID_BUS=usb` and two `ID_PATH`
+/// values are recorded for real USB mass storage — without changing the
+/// answer, because a recorded value still names no class until a
+/// discrimination protocol says which classes are local. Two of the six
+/// positive-local classes now have a real-hardware Linux measurement (USB
+/// mass storage, and SD/MMC since the S5 sitting); neither classifies
+/// anything.
 ///
 /// This is the discharge of the assignment's obligation, not a shortfall:
 /// `Unrecognized` is "the only answer for a class this build cannot
