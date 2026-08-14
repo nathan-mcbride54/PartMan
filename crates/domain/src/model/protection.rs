@@ -26,7 +26,9 @@ use super::naming::{AggregateTechnology, NamingFields, NodeEntry, NodeId};
 use super::topology::{EdgeKind, Topology};
 
 /// A host-qualified byte range: one address space per containment root
-/// (ADR-0018 2.11).
+/// — [`EdgeKind::Containment`](super::topology::EdgeKind::Containment)'s
+/// "positional nesting inside one addressable byte space", and ADR-0037's
+/// anchoring rule expressed in that forest's root address space.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HostRange {
     /// The node whose address space the range lives in.
