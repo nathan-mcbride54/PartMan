@@ -5,6 +5,27 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ## Unreleased
 
+### Added
+
+- **spec-change 12.14.0: the containment-frame anchoring rule
+  (ADR-0037, on issue #333).** A range in a containment forest is
+  expressed in that forest's root address space, and `HostRange.host`
+  names that root. The anchoring was never validated while
+  `HostRange::intersects` opens on it, and three committed fixtures
+  disagreed — including the cross-language golden vector. Measured:
+  re-anchoring one signature, every extent still present, left a ZFS
+  pool unreached and a whole-device wipe constructing. Two rival
+  readings and two enforcement designs were rejected on measured
+  fatals and recorded in the ADR. **Enforcement is deliberately
+  held** — none has been measured green, and the naming-field-derived
+  front-runner is recorded as a candidate in derive-and-**compare**
+  form only. Priced knowingly: the rule makes coordinates uniform but
+  **does not make the reach sound**, and the golden vector plus
+  `plan_tests.rs` stay unlawful under it until the enforcement PR
+  regenerates them. **Issue #319's authorization half is blocked on
+  issue #338**, not on #333 — correcting what ADR-0036 recorded. No
+  code changes.
+
 ### Changed
 
 - **WP-020: the r14 re-pin.** WP-060 increment 10 (PR #336) landed Rust
