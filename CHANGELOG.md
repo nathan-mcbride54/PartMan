@@ -7,6 +7,61 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Fixed
 
+- **WP-010/WP-060: a node's own name may no longer reference an address
+  nothing carries (issue #354, partially — the kind half is held).**
+  Eight node kinds embed a `NodeId` in their hashed name, and no layer
+  required any of them to resolve. `absorb` never looks inside a field;
+  `Topology::build` validated edge endpoints only, its doc comment about
+  rejecting unknown referents being about edges; and
+  `TopologySnapshot::from_canonical_body` re-runs that same construction,
+  so the decode boundary inherited the blindness. A body whose partition
+  named a derived-but-never-absorbed table assembled, encoded, decoded
+  and rebuilt with agreeing hashes, with lawful containment edges under
+  the real table — the name saying one thing, the edges another, and no
+  layer comparing them. `Topology::build` now sweeps the absorbed set
+  before reading any edge and refuses with `UnresolvedNamingReferent`,
+  naming the node, its kind, the field and the address that did not
+  resolve.
+
+  **The sweep is resolve-only, and this does not close #354.**
+  ADR-0037:146-150's stated harm is the forbidden *pairing*, which
+  resolve-only leaves open. The panel's winning design derived the kind
+  check from `endpoint_pair_allowed` — genuinely the right shape, since
+  it is the delivered pair table rather than a second authored list — but
+  that table lists the pairs the *edge* validator needs and was never a
+  catalogue of what a naming field may reference. Deriving a mandatory
+  check from it promotes its omissions into refusals: measured against
+  current main, it refused a GPT inside a LUKS volume, a partitioned
+  mdraid array, and an xfs on a dm-multipath node, all of which build.
+  The kind half is held behind **#360**, the pair-table gap itself, and
+  three standing controls now fail if it leaks in.
+
+  **The planner's duplicate referent roster is deleted**, both readings
+  now sharing `NamingFields::naming_referents`. This is load-bearing
+  rather than tidying, and the direction of the risk is the reverse of
+  the obvious one: the destruction closure removes everything named
+  relative to a removed node, so a referent kind it failed to follow
+  would leave a survivor naming a casualty — which this change turns
+  from a slightly wrong prediction into a hard `SimulateRefusal`. With
+  the `Volume` arm dropped from the roster, the entire planner suite
+  stayed green while the domain sweep refused the plan outright; that
+  gap is now covered by a test asserting the rebuild *stands*.
+
+  **MODEL-003 discharge, recorded rather than assumed.** The issue names
+  this a versioned behaviour change at the decode boundary, and it is:
+  bodies that decoded now refuse. It is taken under MODEL-003's
+  **explicit-rejection** limb, with `SCHEMA_VERSION` deliberately left at
+  1 and no spec bump. The byte format, field shapes and parse rules are
+  untouched — `fields_from_map` accepts exactly what it accepted — and
+  the refused population is bodies that were never lawful under
+  MODEL-002, only unvalidated. Bumping the schema version would instead
+  make every existing v1 body undecodable, including the cross-language
+  golden vector, which is a migration cost with nothing to migrate.
+  Evidence that no conforming artifact changes meaning: the golden vector
+  and all 639 previously committed tests are unmoved. No spec text
+  changes, because ADR-0037 already records this sweep as owed; §0.1
+  bumps for requirement changes, and this adds no requirement.
+
 - **WP-010: the verdict computation no longer picks one edge by sort
   order (issue #355).** Three arms of `node_verdict` selected a single
   edge with `.find()` where the body may present several — a
