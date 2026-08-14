@@ -457,24 +457,34 @@ fn own_arm(topology: &Topology, facts: &Facts, id: NodeId, fields: &NamingFields
                     cause: IndeterminateGround::Unrecognized,
                 };
             }
-            // A signature's own arm follows its observed consumer; no
+            // A signature's own arm follows its observed consumers; no
             // consumer is the orphan arm (Indeterminate, remediable).
-            let consumer = topology
+            // Membership carries unbounded in-degree (MODEL-002), so the
+            // arm folds `worst` over every consumer rather than taking
+            // whichever edge sorts first: the sort key is a derived
+            // address over hashed naming fields, so a first-match choice
+            // is one an author selects (issue #355).
+            let mut consumers = topology
                 .edges()
                 .iter()
-                .find(|edge| edge.kind == EdgeKind::Backing && edge.source == id);
-            match consumer {
-                Some(edge) => match node_own_only(topology, facts, edge.target) {
-                    Verdict::Refused { .. } => Verdict::Refused {
-                        ground: RefusalGround::InheritedFromConsumerOrProducer,
-                    },
-                    Verdict::Indeterminate { cause } => Verdict::Indeterminate { cause },
-                    Verdict::Permitted => Verdict::Permitted,
-                },
-                None => Verdict::Indeterminate {
+                .filter(|edge| edge.kind == EdgeKind::Backing && edge.source == id)
+                .peekable();
+            if consumers.peek().is_none() {
+                return Verdict::Indeterminate {
                     cause: IndeterminateGround::OrphanSignature,
-                },
+                };
             }
+            consumers.fold(Verdict::Permitted, |carried, edge| {
+                worst(
+                    carried,
+                    match node_own_only(topology, facts, edge.target) {
+                        Verdict::Refused { .. } => Verdict::Refused {
+                            ground: RefusalGround::InheritedFromConsumerOrProducer,
+                        },
+                        other => other,
+                    },
+                )
+            })
         }
         NamingFields::PartitionTable { .. }
         | NamingFields::Partition { .. }
@@ -509,48 +519,89 @@ fn node_own_only(topology: &Topology, facts: &Facts, id: NodeId) -> Verdict {
     own_arm(topology, facts, id, fields)
 }
 
+/// A produced node's inherited verdict: the worst of every producer the
+/// body declares.
+///
+/// Nothing bounds how many producers a node presents — the endpoint-pair
+/// table admits `Production` from both an encryption layer and an
+/// aggregate, `Topology::build` enforces no in-degree rule, and a node's
+/// naming fields name at most one producer while the edges are authored
+/// separately. Taking whichever edge sorts first therefore lets an
+/// author choose the inherited verdict, because the sort key is a
+/// derived address over hashed fields (issue #355). Folding admits no
+/// such choice: with one producer it is that producer's verdict, and
+/// with none it is `Permitted`, exactly as before.
 fn producer_verdict(topology: &Topology, facts: &Facts, id: NodeId) -> Verdict {
-    let producer = topology.edges().iter().find(|edge| {
-        matches!(edge.kind, EdgeKind::Production | EdgeKind::HostBacking) && edge.target == id
-    });
-    match producer {
-        Some(edge) => match node_own_only(topology, facts, edge.source) {
-            Verdict::Refused { .. } => Verdict::Refused {
-                ground: RefusalGround::InheritedFromConsumerOrProducer,
-            },
-            other => other,
-        },
-        None => Verdict::Permitted,
-    }
+    topology
+        .edges()
+        .iter()
+        .filter(|edge| {
+            matches!(edge.kind, EdgeKind::Production | EdgeKind::HostBacking) && edge.target == id
+        })
+        .fold(Verdict::Permitted, |carried, edge| {
+            worst(
+                carried,
+                match node_own_only(topology, facts, edge.source) {
+                    Verdict::Refused { .. } => Verdict::Refused {
+                        ground: RefusalGround::InheritedFromConsumerOrProducer,
+                    },
+                    other => other,
+                },
+            )
+        })
 }
 
+/// A node's inherited device-scope verdict: the worst over every
+/// containment root above it.
+///
+/// Only a physical device's device-scope arm is inherited (never a
+/// sibling's anything). The ascent is a graph walk rather than a line
+/// because nothing bounds a node's containment in-degree: the pair
+/// table admits a `BackingSignature` or `FileSystem` under both a
+/// physical device and a partition, and `Topology::build` enforces no
+/// cardinality rule. Following whichever parent sorted first let an
+/// author move a node under a decoy device and inherit that device's
+/// arm instead of its real host's — a refusal turned into `Permitted`
+/// by one added edge (issue #355). Every root is visited and folded
+/// with `worst`, so an added parent can only ever add refusal, and a
+/// node with a single ancestry answers exactly as before. Termination
+/// rests on the visited set, not on the pair table's acyclicity.
 fn device_scope_verdict(topology: &Topology, facts: &Facts, id: NodeId) -> Verdict {
-    // Walk reverse containment to the root; only a physical device's
-    // device-scope arm is inherited (never a sibling's anything).
-    let mut current = id;
-    loop {
-        let parent = topology
-            .edges()
-            .iter()
-            .find(|edge| edge.kind == EdgeKind::Containment && edge.target == current)
-            .map(|edge| edge.source);
-        match parent {
-            Some(parent) => current = parent,
-            None => break,
+    let mut roots = BTreeSet::new();
+    let mut seen = BTreeSet::new();
+    let mut pending = vec![id];
+    while let Some(current) = pending.pop() {
+        if !seen.insert(current) {
+            continue;
+        }
+        let mut ascended = false;
+        for edge in topology.edges() {
+            if edge.kind == EdgeKind::Containment && edge.target == current {
+                ascended = true;
+                pending.push(edge.source);
+            }
+        }
+        if !ascended {
+            roots.insert(current);
         }
     }
-    if current == id {
-        return Verdict::Permitted;
-    }
-    match node_own_only(topology, facts, current) {
-        Verdict::Refused { .. } => Verdict::Refused {
-            ground: RefusalGround::InheritedDeviceScope,
-        },
-        Verdict::Indeterminate { .. } => Verdict::Indeterminate {
-            cause: IndeterminateGround::InheritedDeviceScope,
-        },
-        Verdict::Permitted => Verdict::Permitted,
-    }
+    roots
+        .into_iter()
+        .filter(|root| *root != id)
+        .fold(Verdict::Permitted, |carried, root| {
+            worst(
+                carried,
+                match node_own_only(topology, facts, root) {
+                    Verdict::Refused { .. } => Verdict::Refused {
+                        ground: RefusalGround::InheritedDeviceScope,
+                    },
+                    Verdict::Indeterminate { .. } => Verdict::Indeterminate {
+                        cause: IndeterminateGround::InheritedDeviceScope,
+                    },
+                    Verdict::Permitted => Verdict::Permitted,
+                },
+            )
+        })
 }
 
 fn worst(left: Verdict, right: Verdict) -> Verdict {

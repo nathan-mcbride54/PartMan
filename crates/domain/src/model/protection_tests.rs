@@ -1012,3 +1012,377 @@ fn a_signature_reached_without_destruction_brings_its_consumer() {
     assert_eq!(refusal.node, layout.pool);
     assert!(matches!(refusal.verdict, Verdict::Refused { .. }));
 }
+
+/// A device whose serial is ground until its derived address sorts below
+/// `ceiling` — the attacker's own move, since `derive_id` hashes the
+/// serial and the edge order the walks followed is that address's order.
+fn device_sorting_below(ceiling: NodeId) -> (NamingFields, NodeId) {
+    for attempt in 0..200_000_u32 {
+        let candidate = device(format!("GROUND-{attempt}").as_bytes());
+        let id = derive_id(&candidate).expect("derivable");
+        if id < ceiling {
+            return (candidate, id);
+        }
+    }
+    panic!("no ground serial sorted below the ceiling");
+}
+
+// Requirements: MODEL-002, SAFE-005
+//   Issue #355's device-scope vector: a node's inherited device-scope
+//   verdict is the worst over every containment root above it, never
+//   whichever parent's derived address sorts first. A file system on a
+//   recognized-remote device keeps that device's refusal when a second,
+//   lawful containment edge from a local decoy device is added — the
+//   edge the first-match walk would have followed, since the decoy's
+//   serial is ground until its address sorts below the remote's.
+// Evidence: a_decoy_containment_parent_never_displaces_a_device_refusal
+#[test]
+fn a_decoy_containment_parent_never_displaces_a_device_refusal() {
+    let remote = device(b"REMOTE-HOST");
+    let remote_id = derive_id(&remote).expect("derivable");
+    let (local, local_id) = device_sorting_below(remote_id);
+    assert!(local_id < remote_id, "the decoy wins the first-match walk");
+    let file_system = NamingFields::FileSystem {
+        host: remote_id,
+        kind: super::naming::FileSystemKind::Ext4,
+        superblock_offset: 0,
+    };
+    let file_system_id = derive_id(&file_system).expect("derivable");
+    let mut transports = BTreeMap::new();
+    transports.insert(remote_id, TransportClass::RecognizedRemote);
+    transports.insert(local_id, TransportClass::Sata);
+    let facts = Facts {
+        extents: BTreeMap::new(),
+        transports,
+        member_counts: BTreeMap::new(),
+        table_states: BTreeMap::new(),
+    };
+
+    let honest = Topology::build(
+        vec![remote.clone(), local.clone(), file_system.clone()],
+        vec![Edge {
+            kind: EdgeKind::Containment,
+            source: remote_id,
+            target: file_system_id,
+        }],
+    )
+    .expect("builds");
+    assert_eq!(
+        node_verdict(&honest, &facts, file_system_id),
+        Verdict::Refused {
+            ground: RefusalGround::InheritedDeviceScope
+        },
+        "the honest body inherits the remote device's refusal"
+    );
+
+    let with_decoy = Topology::build(
+        vec![remote, local, file_system],
+        vec![
+            Edge {
+                kind: EdgeKind::Containment,
+                source: remote_id,
+                target: file_system_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: local_id,
+                target: file_system_id,
+            },
+        ],
+    )
+    .expect("the two-parent body builds");
+    assert_eq!(
+        node_verdict(&with_decoy, &facts, file_system_id),
+        Verdict::Refused {
+            ground: RefusalGround::InheritedDeviceScope
+        },
+        "an added parent may add refusal, never remove one"
+    );
+}
+
+// Requirements: CAP-003, SAFE-005
+//   Issue #355 at the surface the clients read: the decoy containment
+//   parent leaves every mutating gate unsupported. The gate is where the
+//   bypass paid out — ten Clear answers over a remote-transport host —
+//   so the property is pinned at the gate and not only at the verdict.
+// Evidence: a_decoy_containment_parent_never_clears_a_gate
+#[test]
+fn a_decoy_containment_parent_never_clears_a_gate() {
+    use super::capability::{Operation, OperationClass, ProtectionGate, protection_gate};
+
+    let remote = device(b"REMOTE-HOST");
+    let remote_id = derive_id(&remote).expect("derivable");
+    let (local, local_id) = device_sorting_below(remote_id);
+    let file_system = NamingFields::FileSystem {
+        host: remote_id,
+        kind: super::naming::FileSystemKind::Ext4,
+        superblock_offset: 0,
+    };
+    let file_system_id = derive_id(&file_system).expect("derivable");
+    let mut transports = BTreeMap::new();
+    transports.insert(remote_id, TransportClass::RecognizedRemote);
+    transports.insert(local_id, TransportClass::Sata);
+    let facts = Facts {
+        extents: BTreeMap::new(),
+        transports,
+        member_counts: BTreeMap::new(),
+        table_states: BTreeMap::new(),
+    };
+    let with_decoy = Topology::build(
+        vec![remote, local, file_system],
+        vec![
+            Edge {
+                kind: EdgeKind::Containment,
+                source: remote_id,
+                target: file_system_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: local_id,
+                target: file_system_id,
+            },
+        ],
+    )
+    .expect("builds");
+    for operation in Operation::all() {
+        if operation.class() != OperationClass::Mutating {
+            continue;
+        }
+        assert_eq!(
+            protection_gate(&with_decoy, &facts, file_system_id, *operation),
+            ProtectionGate::Unsupported {
+                ground: RefusalGround::InheritedDeviceScope
+            },
+            "{operation:?} stays unsupported behind a decoy parent"
+        );
+    }
+}
+
+// Requirements: MODEL-002, SAFE-005
+//   Issue #355's producer vector: a produced node inherits the worst of
+//   every producer the body declares. A volume produced by a live ZFS
+//   pool keeps that refusal when a lawful Production edge from a benign
+//   encryption layer is added — the pool's designator being ground so
+//   the layer wins the first-match choice. This is the vector that
+//   flipped all ten gates.
+// Evidence: a_decoy_producer_never_displaces_a_pools_refusal
+#[test]
+#[allow(clippy::too_many_lines)]
+fn a_decoy_producer_never_displaces_a_pools_refusal() {
+    use super::capability::{Operation, OperationClass, ProtectionGate, protection_gate};
+
+    let host = device(b"PRODUCER-HOST");
+    let host_id = derive_id(&host).expect("derivable");
+    let luks = NamingFields::BackingSignature {
+        host: host_id,
+        family: SignatureFamily::Luks2,
+        primary_offset: 0,
+    };
+    let luks_id = derive_id(&luks).expect("derivable");
+    let layer = NamingFields::EncryptionLayer {
+        backing_signature: luks_id,
+    };
+    let layer_id = derive_id(&layer).expect("derivable");
+    // Grind the pool's designator until it sorts after the benign layer,
+    // so a first-match producer choice would follow the layer.
+    let mut ground = None;
+    for attempt in 0..200_000_u32 {
+        let candidate = NamingFields::Aggregate {
+            technology: AggregateTechnology::Zfs,
+            designator: Some(format!("tank-{attempt}").into_bytes()),
+        };
+        let id = derive_id(&candidate).expect("derivable");
+        if id > layer_id {
+            ground = Some((candidate, id));
+            break;
+        }
+    }
+    let (pool, pool_id) = ground.expect("a pool sorting after the layer exists");
+    let volume = NamingFields::Volume {
+        producer: pool_id,
+        name: b"vol0".to_vec(),
+        role: None,
+    };
+    let volume_id = derive_id(&volume).expect("derivable");
+    let mut transports = BTreeMap::new();
+    transports.insert(host_id, TransportClass::Sata);
+    let facts = Facts {
+        extents: BTreeMap::new(),
+        transports,
+        member_counts: BTreeMap::new(),
+        table_states: BTreeMap::new(),
+    };
+    let edges = vec![
+        Edge {
+            kind: EdgeKind::Containment,
+            source: host_id,
+            target: luks_id,
+        },
+        Edge {
+            kind: EdgeKind::Backing,
+            source: luks_id,
+            target: layer_id,
+        },
+        Edge {
+            kind: EdgeKind::Production,
+            source: pool_id,
+            target: volume_id,
+        },
+    ];
+    let honest = Topology::build(
+        vec![
+            host.clone(),
+            luks.clone(),
+            layer.clone(),
+            pool.clone(),
+            volume.clone(),
+        ],
+        edges.clone(),
+    )
+    .expect("builds");
+    assert_eq!(
+        node_verdict(&honest, &facts, volume_id),
+        Verdict::Refused {
+            ground: RefusalGround::InheritedFromConsumerOrProducer
+        },
+        "the honest volume inherits the pool's refusal"
+    );
+
+    let mut decoyed = edges;
+    decoyed.push(Edge {
+        kind: EdgeKind::Production,
+        source: layer_id,
+        target: volume_id,
+    });
+    let with_decoy = Topology::build(vec![host, luks, layer, pool, volume], decoyed)
+        .expect("the two-producer body builds");
+    assert_eq!(
+        node_verdict(&with_decoy, &facts, volume_id),
+        Verdict::Refused {
+            ground: RefusalGround::InheritedFromConsumerOrProducer
+        },
+        "an added producer may add refusal, never remove one"
+    );
+    for operation in Operation::all() {
+        if operation.class() != OperationClass::Mutating {
+            continue;
+        }
+        assert_eq!(
+            protection_gate(&with_decoy, &facts, volume_id, *operation),
+            ProtectionGate::Unsupported {
+                ground: RefusalGround::InheritedFromConsumerOrProducer
+            },
+            "{operation:?} stays unsupported behind a decoy producer"
+        );
+    }
+}
+
+// Requirements: MODEL-002, SAFE-005
+//   Issue #355's consumer vector, and the one the closure already
+//   covered: a signature's own arm follows the worst of its consumers.
+//   Membership carries unbounded in-degree (MODEL-002), so a second
+//   consumer is lawful rather than adversarial by construction — a
+//   signature backing both an aggregate and an encryption layer is a
+//   representable observation, and the arm must not read only whichever
+//   consumer sorts first.
+// Evidence: a_signatures_arm_follows_the_worst_of_its_consumers
+#[test]
+fn a_signatures_arm_follows_the_worst_of_its_consumers() {
+    let host = device(b"CONSUMER-HOST");
+    let host_id = derive_id(&host).expect("derivable");
+    let signature = NamingFields::BackingSignature {
+        host: host_id,
+        family: SignatureFamily::Zfs,
+        primary_offset: 0,
+    };
+    let signature_id = derive_id(&signature).expect("derivable");
+    let layer = NamingFields::EncryptionLayer {
+        backing_signature: signature_id,
+    };
+    let layer_id = derive_id(&layer).expect("derivable");
+    let mut ground = None;
+    for attempt in 0..200_000_u32 {
+        let candidate = NamingFields::Aggregate {
+            technology: AggregateTechnology::Zfs,
+            designator: Some(format!("pool-{attempt}").into_bytes()),
+        };
+        let id = derive_id(&candidate).expect("derivable");
+        if id > layer_id {
+            ground = Some((candidate, id));
+            break;
+        }
+    }
+    let (pool, pool_id) = ground.expect("a pool sorting after the layer exists");
+    let mut transports = BTreeMap::new();
+    transports.insert(host_id, TransportClass::Sata);
+    let facts = Facts {
+        extents: BTreeMap::new(),
+        transports,
+        member_counts: BTreeMap::new(),
+        table_states: BTreeMap::new(),
+    };
+    let topology = Topology::build(
+        vec![host, signature, layer, pool],
+        vec![
+            Edge {
+                kind: EdgeKind::Containment,
+                source: host_id,
+                target: signature_id,
+            },
+            Edge {
+                kind: EdgeKind::Backing,
+                source: signature_id,
+                target: pool_id,
+            },
+            Edge {
+                kind: EdgeKind::Backing,
+                source: signature_id,
+                target: layer_id,
+            },
+        ],
+    )
+    .expect("the two-consumer body builds");
+    assert_eq!(
+        node_verdict(&topology, &facts, signature_id),
+        Verdict::Refused {
+            ground: RefusalGround::InheritedFromConsumerOrProducer
+        },
+        "the ZFS consumer decides the arm, whichever consumer sorts first"
+    );
+}
+
+// Requirements: MODEL-002
+//   The multiplicity fold is conservative in one direction only: a body
+//   presenting one ancestry, one producer and one consumer answers
+//   exactly as it did before the fold, which is what keeps the change a
+//   defect fix rather than a policy change. Held over the committed
+//   root-on-ZFS layout, node by node.
+// Evidence: single_ancestry_bodies_answer_exactly_as_before
+#[test]
+fn single_ancestry_bodies_answer_exactly_as_before() {
+    let layout = root_on_zfs();
+    for (node, expected) in [
+        (layout.sda, Verdict::Permitted),
+        (layout.table, Verdict::Permitted),
+        (layout.esp, Verdict::Permitted),
+        (layout.member, Verdict::Permitted),
+        (
+            layout.signature,
+            Verdict::Refused {
+                ground: RefusalGround::InheritedFromConsumerOrProducer,
+            },
+        ),
+        (
+            layout.pool,
+            Verdict::Refused {
+                ground: RefusalGround::Zfs,
+            },
+        ),
+    ] {
+        assert_eq!(
+            node_verdict(&layout.topology, &layout.facts, node),
+            expected,
+            "single-ancestry verdicts are unmoved by the fold"
+        );
+    }
+}
