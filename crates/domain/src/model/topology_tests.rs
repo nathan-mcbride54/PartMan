@@ -351,3 +351,242 @@ fn membership_targets_the_grouped_member_entry() {
     .expect("builds");
     assert_eq!(topology.entries().len(), 2, "two entries: group + node");
 }
+
+// Requirements: MODEL-002
+//   Issue #354, and the capture-side half of ADR-0037:146-150's owed
+//   sweep: a node's own naming field may not name an address no absorbed
+//   entry carries. Enumerated over every referent in `one_of_each`
+//   rather than sampled, so a referent-bearing field added later without
+//   a sweep entry fails here.
+// Evidence: every_naming_referent_must_resolve
+#[test]
+fn every_naming_referent_must_resolve() {
+    let all = one_of_each();
+    // Every distinct address some node's *name* embeds.
+    let mut referents: Vec<super::naming::NodeId> = all
+        .iter()
+        .flat_map(super::naming::NamingFields::naming_referents)
+        .map(|(_, referent)| referent)
+        .collect();
+    referents.sort_unstable();
+    referents.dedup();
+    assert_eq!(
+        referents.len(),
+        5,
+        "device, table, partition, signature and encryption layer are named by others; \
+         a change here means the basis moved and the coverage claim needs re-reading"
+    );
+
+    for missing in referents {
+        // Drop exactly the node that address names, keep everything else.
+        let kept: Vec<NamingFields> = all
+            .iter()
+            .filter(|fields| id_of(fields) != missing)
+            .cloned()
+            .collect();
+        assert_eq!(kept.len(), all.len() - 1, "exactly one node removed");
+        let result = Topology::build(kept, vec![]);
+        let Err(TopologyError::UnresolvedNamingReferent { referent, .. }) = result else {
+            panic!("dropping {missing} must refuse construction, got {result:?}");
+        };
+        assert_eq!(
+            referent, missing,
+            "the refusal must name the address that no longer resolves"
+        );
+    }
+}
+
+// Requirements: MODEL-002
+//   The roster itself, pinned per kind. `every_naming_referent_must_resolve`
+//   enumerates the five distinct *addresses* `one_of_each` names, but two
+//   fields name the table, so dropping one of those two from the roster
+//   would survive that test alone. This pins all eleven kinds by field, so
+//   no single arm can be weakened silently. It is the list the planner's
+//   destruction closure walks as well, which is why an omission here is a
+//   protection question and not a diagnostics one.
+// Evidence: the_naming_referent_roster_is_pinned_per_kind
+#[test]
+fn the_naming_referent_roster_is_pinned_per_kind() {
+    let all = one_of_each();
+    let by_kind = |name: &str| -> Vec<&'static str> {
+        all.iter()
+            .find(|fields| fields.kind_name() == name)
+            .unwrap_or_else(|| panic!("{name} must be in one_of_each"))
+            .naming_referents()
+            .into_iter()
+            .map(|(field, _)| field)
+            .collect()
+    };
+    let expected: Vec<(&str, Vec<&str>)> = vec![
+        ("physical-device", vec![]),
+        ("partition-table", vec!["parent"]),
+        ("partition", vec!["parent_table"]),
+        ("backing-signature", vec!["host"]),
+        ("file-system", vec!["host"]),
+        ("encryption-layer", vec!["backing_signature"]),
+        ("aggregate", vec![]),
+        ("volume", vec!["producer"]),
+        ("backing-extent", vec!["host"]),
+        ("multipath-node", vec![]),
+        ("conflicting-table-entry", vec!["table"]),
+    ];
+    assert_eq!(
+        expected.len(),
+        all.len(),
+        "one_of_each must still carry one node of every kind"
+    );
+    for (kind, fields) in expected {
+        assert_eq!(by_kind(kind), fields, "{kind}'s naming referents");
+    }
+}
+
+// Requirements: MODEL-002
+//   The refusal is an artifact that locates itself: the node, its kind,
+//   the field, and the address that did not resolve.
+// Evidence: an_unresolved_naming_referent_names_its_field
+#[test]
+fn an_unresolved_naming_referent_names_its_field() {
+    // The issue's first probe: a partition whose `parent_table` names a
+    // derived-but-never-absorbed address — a ghost GPT view.
+    let dev = device(b"D0");
+    let dev_id = id_of(&dev);
+    let real_table = NamingFields::PartitionTable {
+        parent: dev_id,
+        role: TableRole::Gpt,
+    };
+    let ghost_table = NamingFields::PartitionTable {
+        parent: dev_id,
+        role: TableRole::Mbr,
+    };
+    let ghost_id = id_of(&ghost_table);
+    let partition = NamingFields::Partition {
+        parent_table: ghost_id,
+        start_offset: 1 << 20,
+    };
+    let partition_id = id_of(&partition);
+
+    // Lawful containment edges under the *real* table, exactly as the
+    // issue measured it: the edge set says one thing, the name another.
+    let result = Topology::build(
+        vec![dev, real_table.clone(), partition],
+        vec![Edge {
+            kind: EdgeKind::Containment,
+            source: id_of(&real_table),
+            target: partition_id,
+        }],
+    );
+    assert_eq!(
+        result,
+        Err(TopologyError::UnresolvedNamingReferent {
+            node: partition_id,
+            kind: "partition",
+            field: "parent_table",
+            referent: ghost_id,
+        })
+    );
+}
+
+// Requirements: MODEL-002
+//   The sweep is resolve-only by decision, and this pins the boundary.
+//   A referent that resolves to the *wrong kind* still builds: deriving
+//   that check from `endpoint_pair_allowed` is held behind issue #360,
+//   because that table is the edge validator's and is not a complete
+//   catalogue of what a naming field may reference. When #360 lands,
+//   this test is the one that must be deliberately changed.
+// Evidence: a_wrong_kind_referent_still_builds_and_that_is_the_held_half
+#[test]
+fn a_wrong_kind_referent_still_builds_and_that_is_the_held_half() {
+    // The issue's second probe: `parent_table` names the physical device
+    // — a real node, absorbed, of a kind no table view could be.
+    let dev = device(b"D0");
+    let dev_id = id_of(&dev);
+    let partition = NamingFields::Partition {
+        parent_table: dev_id,
+        start_offset: 1 << 20,
+    };
+    Topology::build(vec![dev, partition], vec![])
+        .expect("resolve-only admits a wrong-kind referent; #360 holds the kind half");
+}
+
+// Requirements: MODEL-002
+//   The three honest layouts the #354 panel measured as false-refused by
+//   the pair-table-derived kind check. Each builds here, which is what
+//   distinguishes the landed resolve-only sweep from the rejected
+//   design; if any of these ever refuses, the kind half has leaked in.
+// Evidence: honest_layouts_the_kind_check_would_have_refused_still_build
+#[test]
+fn honest_layouts_the_kind_check_would_have_refused_still_build() {
+    // a. A GPT inside a LUKS volume: PartitionTable.parent names a Volume.
+    let dev = device(b"D0");
+    let dev_id = id_of(&dev);
+    let luks = NamingFields::BackingSignature {
+        host: dev_id,
+        family: SignatureFamily::Luks2,
+        primary_offset: 0,
+    };
+    let luks_id = id_of(&luks);
+    let layer = NamingFields::EncryptionLayer {
+        backing_signature: luks_id,
+    };
+    let layer_id = id_of(&layer);
+    let volume = NamingFields::Volume {
+        producer: layer_id,
+        name: b"cryptroot".to_vec(),
+        role: None,
+    };
+    let volume_id = id_of(&volume);
+    let inner_table = NamingFields::PartitionTable {
+        parent: volume_id,
+        role: TableRole::Gpt,
+    };
+    Topology::build(vec![dev, luks, layer, volume, inner_table], vec![])
+        .expect("a GPT inside a LUKS volume must build");
+
+    // b. A partitioned mdraid array: PartitionTable.parent names an Aggregate.
+    let array = NamingFields::Aggregate {
+        technology: AggregateTechnology::Mdraid,
+        designator: Some(b"md0".to_vec()),
+    };
+    let array_id = id_of(&array);
+    let array_table = NamingFields::PartitionTable {
+        parent: array_id,
+        role: TableRole::Gpt,
+    };
+    let array_table_id = id_of(&array_table);
+    let md0p1 = NamingFields::Partition {
+        parent_table: array_table_id,
+        start_offset: 1 << 20,
+    };
+    Topology::build(vec![array, array_table, md0p1], vec![])
+        .expect("a partitioned mdraid array must build");
+
+    // c. An xfs on a dm-multipath node: FileSystem.host names a MultipathNode.
+    let multipath = NamingFields::MultipathNode {
+        lun_designator: b"naa.60014".to_vec(),
+    };
+    let multipath_id = id_of(&multipath);
+    let xfs = NamingFields::FileSystem {
+        host: multipath_id,
+        kind: super::naming::FileSystemKind::Xfs,
+        superblock_offset: 0,
+    };
+    Topology::build(vec![multipath, xfs], vec![])
+        .expect("an xfs on a dm-multipath node must build");
+}
+
+// Requirements: MODEL-002
+//   The sweep reads the absorbed set, not the input order: a node may be
+//   named by an entry that precedes it. Absorption sorts by address, so
+//   an order-sensitive sweep would refuse on an authored permutation —
+//   input order is exactly the kind of authored field that must not be
+//   able to move a refusal.
+// Evidence: the_naming_sweep_does_not_depend_on_input_order
+#[test]
+fn the_naming_sweep_does_not_depend_on_input_order() {
+    let all = one_of_each();
+    let forward = Topology::build(all.clone(), vec![]).expect("builds");
+    let mut reversed = all;
+    reversed.reverse();
+    let backward = Topology::build(reversed, vec![]).expect("builds in either order");
+    assert_eq!(forward, backward, "construction is order-independent");
+}

@@ -738,6 +738,40 @@ impl NamingFields {
         }
     }
 
+    /// The addresses this node's own name embeds, each paired with the
+    /// field that carries it.
+    ///
+    /// Eight kinds name themselves relative to another node, so their
+    /// address is a function of that node's address. This is the one
+    /// roster of those fields: `Topology::build` sweeps it to refuse a
+    /// referent no absorbed entry carries, and the planner's destruction
+    /// closure walks it to remove everything named relative to a removed
+    /// node. Those two readings are a matched pair — "a swept capture
+    /// stays swept across a simulated rebuild" is a theorem only while
+    /// both read the same list, and it stops being one the moment a
+    /// second copy drifts.
+    ///
+    /// The naming enum is closed today; a variant added later fails this
+    /// match at compile time, which is the intended review point.
+    #[must_use]
+    pub fn naming_referents(&self) -> Vec<(&'static str, NodeId)> {
+        match self {
+            Self::PhysicalDevice { .. } | Self::Aggregate { .. } | Self::MultipathNode { .. } => {
+                vec![]
+            }
+            Self::PartitionTable { parent, .. } => vec![("parent", *parent)],
+            Self::Partition { parent_table, .. } => vec![("parent_table", *parent_table)],
+            Self::BackingSignature { host, .. }
+            | Self::FileSystem { host, .. }
+            | Self::BackingExtent { host, .. } => vec![("host", *host)],
+            Self::EncryptionLayer { backing_signature } => {
+                vec![("backing_signature", *backing_signature)]
+            }
+            Self::Volume { producer, .. } => vec![("producer", *producer)],
+            Self::ConflictingTableEntry { table, .. } => vec![("table", *table)],
+        }
+    }
+
     /// Whether a node of this kind may carry an extent fact.
     ///
     /// A produced node has no position in anyone's address space: an

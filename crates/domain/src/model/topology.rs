@@ -121,12 +121,27 @@ impl Topology {
 
     /// Build a topology from observed nodes and edges (ADR-0019).
     ///
-    /// Nodes are absorbed per the collision rule; edges are then checked:
-    /// both endpoints must resolve to absorbed addresses (a decoder
-    /// recomputes and rejects unknown referents — this is that rule at
-    /// construction), self-edges and duplicates are refused, and each
-    /// edge's endpoint kinds must appear in its kind's pair table. The
-    /// result is a deterministic function of the observed sets.
+    /// Nodes are absorbed per the collision rule; every address an
+    /// absorbed node's own *name* embeds must then resolve to an absorbed
+    /// entry (issue #354); edges are then checked: both endpoints must
+    /// resolve to absorbed addresses (a decoder recomputes and rejects
+    /// unknown referents — this is that rule at construction), self-edges
+    /// and duplicates are refused, and each edge's endpoint kinds must
+    /// appear in its kind's pair table. The result is a deterministic
+    /// function of the observed sets.
+    ///
+    /// The naming sweep is **resolve-only** and deliberately so. It
+    /// refuses a referent that resolves to nothing; it does not ask what
+    /// *kind* the referent resolves to. Deriving that kind check from
+    /// [`endpoint_pair_allowed`] is the right shape and is held behind
+    /// issue #360: that table lists the pairs the *edge* validator needs
+    /// and is not a complete catalogue of what a naming field may
+    /// legitimately reference, so deriving a mandatory check from it
+    /// today promotes its omissions into refusals — measured to refuse a
+    /// GPT inside a LUKS volume, a partitioned mdraid array, and an xfs
+    /// on a dm-multipath node, all of which build. **This is therefore a
+    /// partial discharge of ADR-0037:146-150 and does not close #354**,
+    /// whose stated harm is the forbidden *pairing*.
     ///
     /// # Errors
     ///
@@ -140,6 +155,24 @@ impl Topology {
                 NodeEntry::Single { fields, .. } | NodeEntry::Group { fields, .. } => fields,
             };
             kind_of.insert(entry.id(), fields.kind_name());
+        }
+        // The naming sweep, before any edge is read: a name that points at
+        // nothing is nonsense under every reading of every pair table, and
+        // the edge set has no say in it either way.
+        for entry in &entries {
+            let fields = match entry {
+                NodeEntry::Single { fields, .. } | NodeEntry::Group { fields, .. } => fields,
+            };
+            for (field, referent) in fields.naming_referents() {
+                if !kind_of.contains_key(&referent) {
+                    return Err(TopologyError::UnresolvedNamingReferent {
+                        node: entry.id(),
+                        kind: fields.kind_name(),
+                        field,
+                        referent,
+                    });
+                }
+            }
         }
         let mut seen = BTreeSet::new();
         let mut validated = edges;
@@ -183,6 +216,19 @@ pub enum TopologyError {
         /// The unresolved address.
         id: NodeId,
     },
+    /// A node's own naming field references an address no absorbed entry
+    /// carries (issue #354). Resolve-only: the referent's *kind* is not
+    /// examined here — see [`Topology::build`].
+    UnresolvedNamingReferent {
+        /// The node whose name carries the dangling referent.
+        node: NodeId,
+        /// That node's kind name.
+        kind: &'static str,
+        /// The naming field carrying it.
+        field: &'static str,
+        /// The unresolved address.
+        referent: NodeId,
+    },
     /// An edge's endpoints are one node.
     SelfEdge {
         /// The address on both ends.
@@ -211,6 +257,15 @@ impl fmt::Display for TopologyError {
             Self::UnknownReferent { id } => {
                 write!(formatter, "edge references unknown address {id}")
             }
+            Self::UnresolvedNamingReferent {
+                node,
+                kind,
+                field,
+                referent,
+            } => write!(
+                formatter,
+                "{kind} {node} names unknown address {referent} in `{field}`"
+            ),
             Self::SelfEdge { id } => write!(formatter, "self-edge at {id}"),
             Self::DuplicateEdge { edge } => write!(formatter, "duplicate edge {edge:?}"),
             Self::ForbiddenEndpoint {
