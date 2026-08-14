@@ -155,10 +155,22 @@ pub fn canonical_ranges(operation: Operation, target: NodeId, facts: &Facts) -> 
         destroyed: extent.into_iter().collect(),
     };
     match operation {
-        Operation::Wipe | Operation::Encrypt => destroyed_target(extent),
-        Operation::Move
-        | Operation::Shrink
-        | Operation::Grow
+        // ADR-0038: the release operations seed the closure. ADR-0018
+        // defines the destroyed class as releases — "a deleted
+        // partition's extent, a shrink's truncated tail, a move's
+        // source extent at commit" — and of the mutating operations
+        // only Shrink and Move are named there beside the two that
+        // destroy outright. The entry is the whole target extent, not
+        // the range actually freed: this function takes no request
+        // parameters and so cannot know a shrink's new length, and the
+        // truthful entry was measured to be a safety regression — it
+        // leaves a pool unreached where the conservative one refuses.
+        // The plan layer, which does know its geometry, still computes
+        // the real freed range.
+        Operation::Wipe | Operation::Encrypt | Operation::Move | Operation::Shrink => {
+            destroyed_target(extent)
+        }
+        Operation::Grow
         | Operation::Create
         | Operation::Repair
         | Operation::Label

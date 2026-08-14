@@ -264,18 +264,26 @@ pub fn affected_set(
                         changed = true;
                     }
                 }
-                // Upward backing: a destroyed signature's consumer is
-                // affected, and its substrate died with the evidence.
+                // Upward backing, in ADR-0018's own two halves. Rule 3
+                // is route-agnostic — "a BackingSignature IN THE SET
+                // brings its consumer" — and the ADR contrasts it in
+                // the same paragraph with rule 4's "in the set THROUGH
+                // A DESTROYED RANGE". The delivered code gated both on
+                // destruction; ADR-0038 frees the membership half and
+                // leaves the substrate half gated, so a signature
+                // reached by any route brings its consumer while only
+                // a destroyed one takes its substrate down.
                 EdgeKind::Backing => {
-                    if source_destroyed {
-                        if affected.insert(edge.target) {
-                            changed = true;
-                        }
-                        if !range_destroyed.contains(&edge.target)
-                            && cascade_destroyed.insert(edge.target)
-                        {
-                            changed = true;
-                        }
+                    if (affected.contains(&edge.source) || source_destroyed)
+                        && affected.insert(edge.target)
+                    {
+                        changed = true;
+                    }
+                    if source_destroyed
+                        && !range_destroyed.contains(&edge.target)
+                        && cascade_destroyed.insert(edge.target)
+                    {
+                        changed = true;
                     }
                 }
                 // Downward production restricted to destroyed substrate.

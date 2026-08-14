@@ -7,6 +7,26 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Fixed
 
+- **WP-010: release operations seed the protection closure (ADR-0038,
+  on issue #338).** `affected_set`'s two entry routes are not
+  equivalent — a node intersecting `destroyed` enters
+  `range_destroyed` and propagates; one intersecting
+  `written_table_extents` or `consumed` enters `affected` and reaches
+  nothing further. Two corrections bring the code to ADR-0018's own
+  text. **`Shrink` and `Move` now take the conservative entry** (the
+  whole target extent in `destroyed`), because ADR-0018 names a
+  shrink's truncated tail and a move's source extent as releases and
+  only those two of the eight qualify; the entry is conservative
+  rather than truthful because `canonical_ranges` takes no request
+  parameters, and the truthful range was **measured** to leave a pool
+  unreached where the whole-extent entry refuses. **Rule 3's
+  membership half is ungated**, since ADR-0018 states it
+  route-agnostically. Measured on the LUKS chain: Shrink and Move move
+  from `Clear` to a refusal over a live ZFS pool; the six operations
+  that destroy nothing stay `Clear`, pinned so the held half cannot
+  drift. **Issue #338 stays open** on defect (b) and on those six; no
+  spec version changes, since ADR-0018's text is untouched.
+
 - **WP-060: `plan_set` no longer panics on an unsized create (issue
   #341).** `impossibility`'s `unreachable!` rests on the premise that
   every operation reaching reversal emission is one the path can plan.
