@@ -248,6 +248,40 @@ fn no_backing_production_or_host_backing_pair_targets_a_device() {
     }
 }
 
+// Requirements: MODEL-002, SAFE-005
+//   The no-sibling-capture premise, generalized past the name
+//   `physical-device` and enumerated over the table. ADR-0039's closure
+//   descends out of a destroyed node without a geometric bound on the
+//   three propagating arms, which is safe exactly while none of their
+//   pairs can target a node that declares bytes of its own: a node with
+//   no extent has no siblings to be confused with. The extent-bearing
+//   set is read off `NamingFields::may_carry_extent` — the same
+//   predicate the decode path enforces — so this cannot drift from the
+//   rule it depends on, and a pair added to the table without a matching
+//   decision reds here rather than silently widening the closure.
+// Evidence: no_propagating_pair_targets_a_kind_that_declares_bytes
+#[test]
+fn no_propagating_pair_targets_a_kind_that_declares_bytes() {
+    let nodes = one_of_each();
+    for kind in [
+        EdgeKind::Backing,
+        EdgeKind::Production,
+        EdgeKind::HostBacking,
+    ] {
+        for source in &nodes {
+            for target in &nodes {
+                if endpoint_pair_allowed(kind, source.kind_name(), target.kind_name()) {
+                    assert!(
+                        !target.may_carry_extent(),
+                        "{kind:?} propagates without a geometric bound, so it may not target                          {}, which may declare an extent",
+                        target.kind_name()
+                    );
+                }
+            }
+        }
+    }
+}
+
 // Requirements: MODEL-002
 //   Every (kind, source, target) triple outside the pair table is refused
 //   at construction — enumerated, not sampled.

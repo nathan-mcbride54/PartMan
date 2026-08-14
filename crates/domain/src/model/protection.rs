@@ -26,7 +26,9 @@ use super::naming::{AggregateTechnology, NamingFields, NodeEntry, NodeId};
 use super::topology::{EdgeKind, Topology};
 
 /// A host-qualified byte range: one address space per containment root
-/// (ADR-0018 2.11).
+/// — [`EdgeKind::Containment`](super::topology::EdgeKind::Containment)'s
+/// "positional nesting inside one addressable byte space", and ADR-0037's
+/// anchoring rule expressed in that forest's root address space.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HostRange {
     /// The node whose address space the range lives in.
@@ -42,6 +44,13 @@ impl HostRange {
         self.host == other.host
             && self.start < other.start.saturating_add(other.length)
             && other.start < self.start.saturating_add(self.length)
+    }
+
+    /// Whether `other` lies wholly within `self`, in the same frame.
+    fn contains(&self, other: &Self) -> bool {
+        self.host == other.host
+            && other.start >= self.start
+            && other.start.saturating_add(other.length) <= self.start.saturating_add(self.length)
     }
 }
 
@@ -214,15 +223,17 @@ pub fn affected_set(
     ranges: &StepRanges,
 ) -> BTreeSet<NodeId> {
     let mut affected: BTreeSet<NodeId> = BTreeSet::new();
-    // Two destruction classes, deliberately. Range-destroyed nodes are
-    // reached by the declared ranges themselves — containment reach IS
-    // that intersection, and cascading a range-destroyed node into its
-    // containment children would re-derive round two's sibling capture
-    // through a device's own self-extent (this module's first draft did
-    // exactly that, and the committed regression caught it).
-    // Cascade-destroyed nodes — a consumer whose evidence died, a product
-    // whose producer died — have no declared range in their own address
-    // space, so containment descent applies to them alone.
+    // Two destruction classes, still — a node reached by a declared range
+    // and a node whose evidence or producer died answer differently at
+    // the arms that ask about substrate. What separated them until
+    // ADR-0039 was descent: only the cascade class descended, because
+    // cascading a range-destroyed node into its containment children
+    // would re-derive round two's sibling capture through a device's own
+    // self-extent (this module's first draft did exactly that, and the
+    // committed regression caught it). Both classes descend now, and it
+    // is `descends_into` that refuses that self-extent hop — which is
+    // what let the containment bound become a statement about geometry
+    // rather than about which class a node landed in.
     let mut range_destroyed: BTreeSet<NodeId> = BTreeSet::new();
     let mut cascade_destroyed: BTreeSet<NodeId> = BTreeSet::new();
     affected.insert(target);
@@ -251,14 +262,25 @@ pub fn affected_set(
     loop {
         let mut changed = false;
         for edge in topology.edges() {
-            let source_destroyed =
-                range_destroyed.contains(&edge.source) || cascade_destroyed.contains(&edge.source);
+            // ADR-0039's carried-content reach: every node in the set
+            // propagates to the content it carries, not only the
+            // destroyed ones. That is what gives the six operations
+            // which destroy nothing a reach at all.
+            let source_destroyed = range_destroyed.contains(&edge.source)
+                || cascade_destroyed.contains(&edge.source)
+                || affected.contains(&edge.source);
             match edge.kind {
-                // Containment descent only from cascade-destroyed nodes:
-                // a destroyed product's hosted content dies with it.
-                EdgeKind::Containment => {
-                    if cascade_destroyed.contains(&edge.source)
-                        && !range_destroyed.contains(&edge.target)
+                // Containment descent into carried content, and downward
+                // production into a destroyed producer's products: one
+                // arm since ADR-0039, because the difference between them
+                // is now a clause of `descends_into` rather than a
+                // different rule. Production and host-backing targets are
+                // products, which carry no extent of their own; a
+                // containment target may, and is compared against its
+                // source's.
+                EdgeKind::Containment | EdgeKind::Production | EdgeKind::HostBacking => {
+                    if source_destroyed
+                        && descends_into(topology, facts, edge.kind, edge.source, edge.target)
                         && cascade_destroyed.insert(edge.target)
                     {
                         changed = true;
@@ -280,16 +302,7 @@ pub fn affected_set(
                         changed = true;
                     }
                     if source_destroyed
-                        && !range_destroyed.contains(&edge.target)
-                        && cascade_destroyed.insert(edge.target)
-                    {
-                        changed = true;
-                    }
-                }
-                // Downward production restricted to destroyed substrate.
-                EdgeKind::Production | EdgeKind::HostBacking => {
-                    if source_destroyed
-                        && !range_destroyed.contains(&edge.target)
+                        && descends_into(topology, facts, edge.kind, edge.source, edge.target)
                         && cascade_destroyed.insert(edge.target)
                     {
                         changed = true;
@@ -307,6 +320,69 @@ pub fn affected_set(
     affected.extend(range_destroyed.iter().copied());
     affected.extend(cascade_destroyed.iter().copied());
     affected
+}
+
+fn kind_of(topology: &Topology, id: NodeId) -> Option<&NamingFields> {
+    topology
+        .entries()
+        .iter()
+        .find(|entry| entry.id() == id)
+        .map(|entry| match entry {
+            NodeEntry::Single { fields, .. } | NodeEntry::Group { fields, .. } => fields,
+        })
+}
+
+/// Whether descent may cross this edge (issue #338's held half).
+///
+/// The bound refuses a hop only where the declared geometry positively
+/// contradicts containment. Every absence, mismatch or ambiguity admits,
+/// so the closure can never reach less than the committed one does — the
+/// extents it reads are authored body content, and a predicate that can
+/// subtract reach hands that content a lever.
+fn descends_into(
+    topology: &Topology,
+    facts: &Facts,
+    kind: EdgeKind,
+    source: NodeId,
+    target: NodeId,
+) -> bool {
+    // An extent on a kind the body format forbids one on is not evidence
+    // of anything: the closure reads the same predicate the decode path
+    // does, so an unlawful fact can never steer reach.
+    let parent = facts
+        .extents
+        .get(&source)
+        .filter(|_| kind_of(topology, source).is_none_or(NamingFields::may_carry_extent));
+    // A node whose extent is expressed in its own address space declares a
+    // frame, not a claim to have been destroyed: every range on the disk
+    // lies inside a device's self-extent, so descending out of one would
+    // re-derive round two's sibling capture. The committed code says the
+    // same thing by never descending from a range-destroyed node at all.
+    if parent.is_some_and(|extent| extent.host == source) {
+        return false;
+    }
+    match (parent, facts.extents.get(&target)) {
+        // The source declares no bytes at all. Every such node is a
+        // product — the decode rule forbids an extent on an aggregate,
+        // volume, encryption layer or multipath node — and the committed
+        // closure descends out of them unconditionally. So does this one.
+        (None, _) => true,
+        // Both sides declare bytes. Descend into content that lies within
+        // the source, into content framed by the source, and into anything
+        // expressed in a frame this one cannot be compared against.
+        (Some(extent), Some(child)) => {
+            child.host == source || child.host != extent.host || extent.contains(child)
+        }
+        // The source declares bytes and the child does not. On the
+        // propagating arms that is the ordinary shape — a product carries
+        // no extent by construction — and the committed closure descends.
+        // Under containment it is a node positioned inside a known frame
+        // whose position is unstated, and the committed closure never
+        // descends out of an extent-bearing containment source at all;
+        // admitting it here would capture a sibling that merely lacks a
+        // fact.
+        (Some(_), None) => kind != EdgeKind::Containment,
+    }
 }
 
 /// Whether a step constructs (ADR-0018 2.3): every affected node must be

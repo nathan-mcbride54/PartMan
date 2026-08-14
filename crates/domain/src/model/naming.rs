@@ -737,6 +737,25 @@ impl NamingFields {
             Self::ConflictingTableEntry { .. } => "conflicting-table-entry",
         }
     }
+
+    /// Whether a node of this kind may carry an extent fact.
+    ///
+    /// A produced node has no position in anyone's address space: an
+    /// aggregate, a volume, an encryption layer and a multipath node are
+    /// named by what produces them, not by where they sit. The decode
+    /// path refuses an extent on these kinds, and the protection closure
+    /// reads the same predicate rather than a second copy of the list —
+    /// a fact the body format rejects must not be able to steer reach.
+    #[must_use]
+    pub const fn may_carry_extent(&self) -> bool {
+        !matches!(
+            self,
+            Self::Aggregate { .. }
+                | Self::MultipathNode { .. }
+                | Self::EncryptionLayer { .. }
+                | Self::Volume { .. }
+        )
+    }
 }
 
 const fn kind_tag(fields: &NamingFields) -> &'static str {
