@@ -133,7 +133,12 @@ bounded descent at spec 13.0.0 — tripped it a twelfth, named the same
 way, and on `c9cd4bb` (2026-08-14 UTC) when the verdict-multiplicity
 fix — one Rust merge, PR #357 on issue #355, `node_verdict` folding over
 every matching edge — tripped it a thirteenth, its sitting run the same
-day but **not** named in that PR's body beforehand,
+day but **not** named in that PR's body beforehand, and on `86db930`
+(2026-08-14 UTC) when the issue-354 referent-sweep arc — three Rust
+merges, PRs #361, #362 and #363: a fixtures test-determinism fix, the
+naming-referent resolve sweep, and the shared referent roster — tripped
+it a fourteenth, taken once at the arc's head and named in all three PR
+bodies before their merges,
 with identical harness values and fixture digests every time. (This sentence
 previously read "four times" while the custody table held six rows — the
 `39b59f5` re-take never updated it, the stale-count shape again, corrected
