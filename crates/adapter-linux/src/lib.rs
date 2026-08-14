@@ -19,8 +19,11 @@
 //! is launched, at any privilege.
 //!
 //! The claim is about the interfaces, not about every field read through
-//! them, and the difference is load-bearing: two fields on the roster have no
-//! measured row behind them at all. `schemas/adapter-linux/fields.md` states
+//! them, and the difference is load-bearing: a field can be read through a
+//! measured interface at a path no row measures. One is —
+//! `device/serial`, whose path the 2026-08-04 sitting never read and which
+//! ADR-0034 does not designate, the serial that sitting observed having come
+//! from the USB device node instead. `schemas/adapter-linux/fields.md` states
 //! per field which observability row supports it and which are read without
 //! one, so the gap is a recorded decision rather than an implied warrant.
 //!
@@ -54,9 +57,10 @@
 //!   adapter that keyed a map today would be naming without them.
 //! - **No transport this build can positively name.** ADR-0018's answer is
 //!   `Unrecognized` for every device, because its own fabric-versus-local
-//!   discrimination rows are outstanding on every platform and no Linux row
-//!   records a value that would classify one. It resolves to `Indeterminate`
-//!   at the closure — never `Permitted`.
+//!   discrimination rows are outstanding on every platform. Classifying
+//!   values are recorded on Linux now (`ID_BUS=usb`), but a value names no
+//!   class until those rows say which classes are local. It resolves to
+//!   `Indeterminate` at the closure — never `Permitted`.
 //! - **No sameness inference.** Two interfaces reporting one identifier
 //!   produce two attributed observations; nothing here elects one, groups two
 //!   rows under one device, or infers cross-path sameness (ADR-0011).
