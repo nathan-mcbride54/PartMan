@@ -2,7 +2,9 @@
 
 use std::collections::BTreeMap;
 
-use super::naming::{AggregateTechnology, NamingFields, SignatureFamily, TableRole, derive_id};
+use super::naming::{
+    AggregateTechnology, NamingFields, NodeId, SignatureFamily, TableRole, derive_id,
+};
 use super::protection::{
     Facts, HostRange, IndeterminateGround, RefusalGround, StepRanges, TransportClass, Verdict,
     affected_set, node_verdict, step_constructs,
@@ -229,15 +231,19 @@ fn a_sibling_esp_is_never_captured() {
     );
 }
 
-// Requirements: MODEL-002, SAFE-005
-//   The round-three killer: deleting a partition hosting LUKS reaches
-//   the pool below through production over destroyed substrate —
-//   partition, signature, encryption layer, mapper volume, member
-//   signature, pool.
-// Evidence: the_luks_descent_reaches_the_pool_below
-#[test]
+/// The LUKS chain the round-three regression uses, and the fixture that
+/// exposes ADR-0038's defect: reaching the pool needs propagation, so a
+/// seed that lands only in `affected` never gets there.
+struct LuksChain {
+    topology: Topology,
+    facts: Facts,
+    sdb: NodeId,
+    part: NodeId,
+    pool: NodeId,
+}
+
 #[allow(clippy::too_many_lines)]
-fn the_luks_descent_reaches_the_pool_below() {
+fn luks_chain() -> LuksChain {
     let sdb = device(b"SDB");
     let sdb_id = derive_id(&sdb).expect("derivable");
     let table = NamingFields::PartitionTable {
@@ -352,12 +358,40 @@ fn the_luks_descent_reaches_the_pool_below() {
             length: 512 << 20,
         }],
     };
-    let refusal = step_constructs(&topology, &facts, part_id, &delete)
+    let _ = delete;
+    LuksChain {
+        topology,
+        facts,
+        sdb: sdb_id,
+        part: part_id,
+        pool: pool_id,
+    }
+}
+
+// Requirements: MODEL-002, SAFE-005
+//   The round-three killer: deleting a partition hosting LUKS reaches
+//   the pool below through production over destroyed substrate —
+//   partition, signature, encryption layer, mapper volume, member
+//   signature, pool.
+// Evidence: the_luks_descent_reaches_the_pool_below
+#[test]
+fn the_luks_descent_reaches_the_pool_below() {
+    let chain = luks_chain();
+    let delete = StepRanges {
+        written_table_extents: vec![],
+        consumed: vec![],
+        destroyed: vec![HostRange {
+            host: chain.sdb,
+            start: 1 << 20,
+            length: 512 << 20,
+        }],
+    };
+    let refusal = step_constructs(&chain.topology, &chain.facts, chain.part, &delete)
         .expect_err("the pool below the encryption layer must refuse the delete");
     assert!(matches!(refusal.verdict, Verdict::Refused { .. }));
-    let affected = affected_set(&topology, &facts, part_id, &delete);
+    let affected = affected_set(&chain.topology, &chain.facts, chain.part, &delete);
     assert!(
-        affected.contains(&pool_id),
+        affected.contains(&chain.pool),
         "the pool is reached through the production descent"
     );
 }
@@ -523,4 +557,163 @@ fn signature_arms_follow_the_consumer() {
         node_verdict(&topology, &facts, lvm_sig_id),
         Verdict::Permitted
     );
+}
+
+// Requirements: MODEL-002, SAFE-005
+//   ADR-0038's first correction, measured per operation on the fixture
+//   that needs propagation to reach the pool. Shrink and Move are the
+//   two operations ADR-0018 names as releases beside the two that
+//   destroy outright, and only they move — from Clear to a refusal over
+//   a live ZFS pool below a LUKS chain. The six that destroy nothing
+//   stay Clear, which is the held half of issue #338 shown rather than
+//   asserted; conservatism is argued per operation because the
+//   propagating arms carry negative range_destroyed guards and
+//   monotonicity is therefore false.
+// Evidence: release_operations_seed_the_closure_and_the_others_do_not
+#[test]
+fn release_operations_seed_the_closure_and_the_others_do_not() {
+    use super::capability::{Operation, ProtectionGate, protection_gate};
+    let chain = luks_chain();
+    let refuses = |op| {
+        matches!(
+            protection_gate(&chain.topology, &chain.facts, chain.part, op),
+            ProtectionGate::Unsupported { .. } | ProtectionGate::Blocked { .. }
+        )
+    };
+
+    // The two ADR-0018 names as releases, plus the two that destroy
+    // outright: all refuse through the chain.
+    for op in [
+        Operation::Wipe,
+        Operation::Encrypt,
+        Operation::Shrink,
+        Operation::Move,
+    ] {
+        assert!(refuses(op), "{op:?} must reach the pool and refuse");
+    }
+
+    // The six that destroy nothing: ADR-0018 licenses no destroyed
+    // entry for them, so their reach still needs the propagation
+    // widening issue #338 holds. Pinned so the held half cannot drift
+    // shut silently or open further without a decision.
+    for op in [
+        Operation::Grow,
+        Operation::Create,
+        Operation::Repair,
+        Operation::Label,
+        Operation::Uuid,
+        Operation::Decrypt,
+    ] {
+        assert!(
+            !refuses(op),
+            "{op:?} destroys nothing; #338 holds its reach and this pin records that"
+        );
+    }
+}
+
+// Requirements: MODEL-002, SAFE-005
+//   The false-refusal control on the corrected operations: a shrink or
+//   move over a device carrying no protected chain still constructs.
+//   The correction over-reaches by declaring the whole target extent
+//   destroyed, and this bounds that over-reach to bodies that actually
+//   carry something to reach.
+// Evidence: a_release_over_an_unprotected_target_still_constructs
+#[test]
+fn a_release_over_an_unprotected_target_still_constructs() {
+    use super::capability::{Operation, ProtectionGate, protection_gate};
+    let layout = root_on_zfs();
+    for op in [Operation::Shrink, Operation::Move] {
+        let gate = protection_gate(&layout.topology, &layout.facts, layout.esp, op);
+        assert!(
+            matches!(gate, ProtectionGate::Clear),
+            "{op:?} over the unprotected ESP must stay Clear, got {gate:?}"
+        );
+    }
+}
+
+// Requirements: MODEL-002
+//   ADR-0038's second correction, and the committed sibling guard
+//   re-measured on MEMBERSHIP rather than merely re-run green. Rule 3
+//   is route-agnostic in ADR-0018 — a signature in the set brings its
+//   consumer — so ungating its membership half must not also drag a
+//   disjoint sibling in. The ESP stays out of the set; the pool stays
+//   in it.
+// Evidence: ungating_rule_three_membership_never_captures_a_sibling
+#[test]
+fn ungating_rule_three_membership_never_captures_a_sibling() {
+    let layout = root_on_zfs();
+    let delete_member = StepRanges {
+        written_table_extents: vec![HostRange {
+            host: layout.sda,
+            start: 0,
+            length: 1 << 20,
+        }],
+        consumed: vec![],
+        destroyed: vec![HostRange {
+            host: layout.sda,
+            start: 512 << 20,
+            length: 256 << 20,
+        }],
+    };
+    let affected = affected_set(
+        &layout.topology,
+        &layout.facts,
+        layout.table,
+        &delete_member,
+    );
+    assert!(
+        !affected.contains(&layout.esp),
+        "the ESP is disjoint and must not be captured by the ungated membership half"
+    );
+    assert!(
+        affected.contains(&layout.pool),
+        "the pool is still reached through its destroyed member signature"
+    );
+}
+
+// Requirements: MODEL-002, SAFE-005
+//   ADR-0038's second correction, and the only fixture that observes
+//   it. ADR-0018's rule 3 is route-agnostic — "a BackingSignature IN
+//   THE SET brings its consumer" — contrasted in the same paragraph
+//   with rule 4's "in the set THROUGH A DESTROYED RANGE". A step that
+//   writes over a ZFS label's bytes without destroying them puts the
+//   signature in the affected set by the written-extent route; the
+//   ungated membership half must then bring the pool, whose own arm
+//   refuses. Gate that half back on destruction and this body
+//   constructs over a live vdev — which is what it did before ADR-0038.
+// Evidence: a_signature_reached_without_destruction_brings_its_consumer
+#[test]
+fn a_signature_reached_without_destruction_brings_its_consumer() {
+    let layout = root_on_zfs();
+    // The ZFS label sits at [512 MiB, 513 MiB). Write over it, destroy
+    // nothing: the signature enters the set by written-extent
+    // intersection alone.
+    let write_over_label = StepRanges {
+        written_table_extents: vec![HostRange {
+            host: layout.sda,
+            start: 512 << 20,
+            length: 1 << 20,
+        }],
+        consumed: vec![],
+        destroyed: vec![],
+    };
+    let affected = affected_set(
+        &layout.topology,
+        &layout.facts,
+        layout.sda,
+        &write_over_label,
+    );
+    assert!(
+        affected.contains(&layout.pool),
+        "rule 3 is route-agnostic: a signature in the set brings its consumer"
+    );
+    let refusal = step_constructs(
+        &layout.topology,
+        &layout.facts,
+        layout.sda,
+        &write_over_label,
+    )
+    .expect_err("the pool's own arm refuses once it is reached");
+    assert_eq!(refusal.node, layout.pool);
+    assert!(matches!(refusal.verdict, Verdict::Refused { .. }));
 }
