@@ -98,6 +98,159 @@ fn signature_snapshot(
     (snapshot, dev_id, signature_id)
 }
 
+// Requirements: SAFE-005, MODEL-002, MODEL-003
+//   ADR-0039's headline, at the boundary that has no capability gate in
+//   front of it. `parse_step` re-validates a recorded plan body through
+//   this constructor, so what it accepts is what a signed body means.
+//   Before ADR-0039 it accepted a declared partial shrink truncating
+//   128 MiB off a live ZFS vdev: the freed tail misses the label's own
+//   bytes, and the old closure could not reach past them. The
+//   acknowledgment parameter cannot express permission for it either —
+//   the pool is Refused, not Indeterminate.
+// Evidence: a_declared_partial_shrink_over_a_live_vdev_is_unconstructible
+#[test]
+#[allow(clippy::too_many_lines)]
+fn a_declared_partial_shrink_over_a_live_vdev_is_unconstructible() {
+    let dev = device(b"D9");
+    let dev_id = derive_id(&dev).expect("derivable");
+    let table = NamingFields::PartitionTable {
+        parent: dev_id,
+        role: super::naming::TableRole::Gpt,
+    };
+    let table_id = derive_id(&table).expect("derivable");
+    let member = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: 512 << 20,
+    };
+    let member_id = derive_id(&member).expect("derivable");
+    let label = NamingFields::BackingSignature {
+        host: member_id,
+        family: SignatureFamily::Zfs,
+        primary_offset: 0,
+    };
+    let label_id = derive_id(&label).expect("derivable");
+    let pool = NamingFields::Aggregate {
+        technology: AggregateTechnology::Zfs,
+        designator: Some(b"tank".to_vec()),
+    };
+    let pool_id = derive_id(&pool).expect("derivable");
+    let mut facts = device_facts(dev_id);
+    facts.extents.insert(
+        table_id,
+        HostRange {
+            host: dev_id,
+            start: 0,
+            length: 1 << 20,
+        },
+    );
+    facts.extents.insert(
+        member_id,
+        HostRange {
+            host: dev_id,
+            start: 512 << 20,
+            length: 256 << 20,
+        },
+    );
+    // The label sits at the member's head, outside the freed tail below.
+    facts.extents.insert(
+        label_id,
+        HostRange {
+            host: dev_id,
+            start: 512 << 20,
+            length: 1 << 20,
+        },
+    );
+    let snapshot = TopologySnapshot::assemble(
+        SnapshotKind::Captured,
+        false,
+        vec![dev, table.clone(), member.clone(), label, pool],
+        vec![
+            Edge {
+                kind: EdgeKind::Containment,
+                source: dev_id,
+                target: table_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: table_id,
+                target: member_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: member_id,
+                target: label_id,
+            },
+            Edge {
+                kind: EdgeKind::Backing,
+                source: label_id,
+                target: pool_id,
+            },
+        ],
+        facts,
+    )
+    .expect("assembles");
+
+    // The solver's real freed tail for a 256 -> 128 MiB shrink.
+    let freed_tail = StepRanges {
+        written_table_extents: vec![],
+        consumed: vec![],
+        destroyed: vec![HostRange {
+            host: dev_id,
+            start: 640 << 20,
+            length: 128 << 20,
+        }],
+    };
+    let refusal = PlanStep::mutating(
+        &snapshot,
+        member_id,
+        freed_tail.clone(),
+        vec![],
+        destructive(),
+    )
+    .expect_err("a declared partial shrink over a live vdev must not construct");
+    assert!(matches!(
+        refusal,
+        StepRefusal::Reached {
+            node,
+            verdict: Verdict::Refused { .. }
+        } if node == pool_id
+    ));
+
+    // The control: the same body over the same geometry with the pool
+    // absent still constructs, so the refusal is the reach and not the
+    // shape of the ranges.
+    let mut unprotected_facts = device_facts(dev_id);
+    unprotected_facts.extents.insert(
+        member_id,
+        HostRange {
+            host: dev_id,
+            start: 512 << 20,
+            length: 256 << 20,
+        },
+    );
+    let unprotected = TopologySnapshot::assemble(
+        SnapshotKind::Captured,
+        false,
+        vec![device(b"D9"), table, member],
+        vec![
+            Edge {
+                kind: EdgeKind::Containment,
+                source: dev_id,
+                target: table_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: table_id,
+                target: member_id,
+            },
+        ],
+        unprotected_facts,
+    )
+    .expect("assembles");
+    PlanStep::mutating(&unprotected, member_id, freed_tail, vec![], destructive())
+        .expect("the same shrink over an unprotected member still constructs");
+}
+
 // Requirements: SAFE-005, MODEL-002
 //   ADR-0012's axis at the constructor: a step whose closure reaches a
 //   consumed member's pool returns a typed refusal, not a value — and no

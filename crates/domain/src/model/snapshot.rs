@@ -418,15 +418,7 @@ fn parse_nodes(
         if table_state.is_some() && !matches!(fields, NamingFields::PhysicalDevice { .. }) {
             return Err(SnapshotSchemaError::MisplacedFact { key: "table_state" });
         }
-        if extent.is_some()
-            && matches!(
-                fields,
-                NamingFields::Aggregate { .. }
-                    | NamingFields::MultipathNode { .. }
-                    | NamingFields::EncryptionLayer { .. }
-                    | NamingFields::Volume { .. }
-            )
-        {
+        if extent.is_some() && !fields.may_carry_extent() {
             return Err(SnapshotSchemaError::MisplacedFact { key: "extent_host" });
         }
         let id = naming::derive_id(&fields).map_err(|_| SnapshotSchemaError::NotAnEntryMap)?;

@@ -7,6 +7,35 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Fixed
 
+- **WP-010: carried-content reach, and a bounded descent (ADR-0039,
+  spec 13.0.0, closing issue #338's held half).** A mutating step's
+  affected set now closes over the content its target carries, not only
+  over the substrate it destroys, and containment descent is bounded per
+  edge target by declared geometry rather than by the destroyed ranges.
+  The measurement that ended the hold: `PlanStep::mutating_declared` —
+  the constructor `parse_step` calls when a recorded plan body is
+  re-validated, with no capability gate in that path — accepted a
+  declared partial shrink truncating 128 MiB off a live ZFS vdev,
+  because the freed tail missed the label's own bytes. The six
+  operations that destroy nothing (`Grow`, `Create`, `Repair`, `Label`,
+  `Uuid`, `Decrypt`) seeded no propagating class and gated `Clear` over
+  a live pool; they refuse now by carrying reach from the target.
+  **The bound can never remove reach** — it refuses only on a positive
+  geometric contradiction and admits on every absence, mismatch or
+  ambiguity — because extents are authored body content that nothing
+  authenticates. Four earlier predicates were rejected on measured
+  fatals: two could subtract reach on the strength of `extent_host`
+  (one turned a live-pool refusal into `Clear` on a body whose node ids
+  and hash are unchanged), and two false-refused ordinary disks, on a
+  stale end-anchored mdraid superblock and on a sibling that merely
+  lacks an extent fact. ADR-0018's theorem premise is generalized past
+  the name `physical-device` and enumerated over the endpoint-pair
+  table, discharging MODEL-002's standing obligation that it be
+  re-proved as a property. Monotonicity in the declared ranges is
+  restored, so ADR-0038's per-operation conservatism argument is
+  superseded. Issue #338 closes; #347, #348 and #349 record what does
+  not.
+
 - **WP-010: release operations seed the protection closure (ADR-0038,
   on issue #338).** `affected_set`'s two entry routes are not
   equivalent — a node intersecting `destroyed` enters

@@ -150,6 +150,13 @@ explicitly in the plan.
    ranges.
 2. **Downward containment, range-bounded:** every node whose
    host-qualified extent intersects a destroyed range joins the set.
+   *(Amended in 13.0.0 by ADR-0039: the range bound is the seed, not the
+   whole rule. Descent also runs from a node already in the set into the
+   content it carries, bounded per edge target by declared geometry —
+   refused only on a positive contradiction, and never out of a node's
+   own address space. The range bound alone left a partial destruction
+   unable to reach the content it truncates, which is issue #338's
+   defect (b).)*
 3. **Upward backing:** a `BackingSignature` in the set brings its
    consumer.
 4. **Downward production, restricted to destroyed substrate:** a
@@ -176,7 +183,14 @@ carrying a pool close the same way.
 
 **Claim:** a step's affected set contains no node whose extent is
 disjoint from the step's destroyed, consumed, and table ranges, unless
-reached through backing or production from a node inside them. The
+reached through backing or production from a node inside them.
+*(Amended in 13.0.0 by ADR-0039, which re-proves it in the stronger and
+self-contained form its own premise was reaching for: no node whose
+declared extent is comparable with its reacher's and lies outside it is
+ever in the set. Containment descent now reaches nodes this claim
+excluded — that is the fix — while the consequence the claim was written
+for, that a sibling is never captured, holds by geometry rather than by
+the edge taxonomy alone.)* The
 premise, stated as a named property of the edge taxonomy: **no backing
 or production edge targets a physical device** — products are virtual
 devices, volumes, or file systems; containment descent is strictly
@@ -480,7 +494,10 @@ total, and fail-closed with an `Indeterminate` residual, computed from
 the named two-layer helper evidence contract under the protective join
 rule. A mutating step's affected set closes over destroyed substrate —
 downward containment range-bounded, upward backing, downward
-production — with release counted as destruction; a step whose
+production — with release counted as destruction *(amended in 13.0.0 by
+ADR-0039: it closes over the content the target carries as well, and
+containment descent is bounded per edge target rather than by the
+destroyed ranges)*; a step whose
 affected set reaches a `Refused` node is unrepresentable, and
 `Indeterminate` refuses construction with a typed artifact. Device-
 scope refusals inherit node-locally; the transport arm is a closed

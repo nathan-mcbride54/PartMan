@@ -28,6 +28,8 @@ struct RootOnZfs {
     sda: super::naming::NodeId,
     table: super::naming::NodeId,
     esp: super::naming::NodeId,
+    member: super::naming::NodeId,
+    signature: super::naming::NodeId,
     pool: super::naming::NodeId,
 }
 
@@ -147,6 +149,8 @@ fn root_on_zfs() -> RootOnZfs {
         sda: sda_id,
         table: table_id,
         esp: esp_id,
+        member: member_id,
+        signature: signature_id,
         pool: pool_id,
     }
 }
@@ -239,6 +243,7 @@ struct LuksChain {
     facts: Facts,
     sdb: NodeId,
     part: NodeId,
+    mapper: NodeId,
     pool: NodeId,
 }
 
@@ -364,6 +369,7 @@ fn luks_chain() -> LuksChain {
         facts,
         sdb: sdb_id,
         part: part_id,
+        mapper: mapper_id,
         pool: pool_id,
     }
 }
@@ -560,18 +566,18 @@ fn signature_arms_follow_the_consumer() {
 }
 
 // Requirements: MODEL-002, SAFE-005
-//   ADR-0038's first correction, measured per operation on the fixture
-//   that needs propagation to reach the pool. Shrink and Move are the
-//   two operations ADR-0018 names as releases beside the two that
-//   destroy outright, and only they move — from Clear to a refusal over
-//   a live ZFS pool below a LUKS chain. The six that destroy nothing
-//   stay Clear, which is the held half of issue #338 shown rather than
-//   asserted; conservatism is argued per operation because the
-//   propagating arms carry negative range_destroyed guards and
-//   monotonicity is therefore false.
-// Evidence: release_operations_seed_the_closure_and_the_others_do_not
+//   ADR-0038's per-operation table, re-measured under ADR-0039's reach.
+//   The four operations that destroy or release still refuse. The six
+//   that destroy nothing refuse now too, and by a different route: they
+//   declare no destroyed range, so nothing seeds the destruction
+//   classes, and they reach the pool because a mutating step reaches
+//   the content its target carries. ADR-0038 pinned those six as Clear
+//   to keep the held half of issue #338 visible; the hold is over, and
+//   the pin is inverted rather than deleted, so the change of answer is
+//   itself the thing under test.
+// Evidence: every_mutating_operation_reaches_the_content_its_target_carries
 #[test]
-fn release_operations_seed_the_closure_and_the_others_do_not() {
+fn every_mutating_operation_reaches_the_content_its_target_carries() {
     use super::capability::{Operation, ProtectionGate, protection_gate};
     let chain = luks_chain();
     let refuses = |op| {
@@ -580,23 +586,11 @@ fn release_operations_seed_the_closure_and_the_others_do_not() {
             ProtectionGate::Unsupported { .. } | ProtectionGate::Blocked { .. }
         )
     };
-
-    // The two ADR-0018 names as releases, plus the two that destroy
-    // outright: all refuse through the chain.
     for op in [
         Operation::Wipe,
         Operation::Encrypt,
         Operation::Shrink,
         Operation::Move,
-    ] {
-        assert!(refuses(op), "{op:?} must reach the pool and refuse");
-    }
-
-    // The six that destroy nothing: ADR-0018 licenses no destroyed
-    // entry for them, so their reach still needs the propagation
-    // widening issue #338 holds. Pinned so the held half cannot drift
-    // shut silently or open further without a decision.
-    for op in [
         Operation::Grow,
         Operation::Create,
         Operation::Repair,
@@ -605,10 +599,311 @@ fn release_operations_seed_the_closure_and_the_others_do_not() {
         Operation::Decrypt,
     ] {
         assert!(
-            !refuses(op),
-            "{op:?} destroys nothing; #338 holds its reach and this pin records that"
+            refuses(op),
+            "{op:?} over a partition carrying a LUKS-wrapped ZFS vdev must reach the pool"
         );
     }
+
+    // Source-class operations are never suppressed by a verdict, reach
+    // or no reach (ADR-0018's operation classes).
+    for op in [
+        Operation::Detect,
+        Operation::Read,
+        Operation::Check,
+        Operation::Copy,
+    ] {
+        assert_eq!(
+            protection_gate(&chain.topology, &chain.facts, chain.part, op),
+            ProtectionGate::Clear,
+            "{op:?} is source class and must stay Clear"
+        );
+    }
+}
+
+// Requirements: MODEL-002, SAFE-005
+//   An extent on a kind the body format forbids one on must not steer
+//   reach. `snapshot.rs` refuses an `extent_host` on an aggregate,
+//   volume, encryption layer or multipath node, but `assemble` applies
+//   no such rule, so an in-process caller — which is what the planner
+//   and the capability engine are — can hold a snapshot that could never
+//   round-trip. Here the mapper volume carries a device-framed extent it
+//   may not have, while the ZFS member signature it hosts carries none.
+//   Weigh the unlawful fact and the containment arm stops at the mapper,
+//   leaving a live pool unconsulted; ignore it, as the closure and the
+//   decode path now do through one shared predicate, and the descent
+//   runs. The asymmetry itself is issue #349.
+// Evidence: an_extent_the_format_forbids_never_steers_reach
+#[test]
+fn an_extent_the_format_forbids_never_steers_reach() {
+    let chain = luks_chain();
+    let mut facts = chain.facts.clone();
+    facts.extents.insert(
+        chain.mapper,
+        HostRange {
+            host: chain.sdb,
+            start: 17 << 20,
+            length: 400 << 20,
+        },
+    );
+    let erase_the_header = StepRanges {
+        written_table_extents: vec![],
+        consumed: vec![],
+        destroyed: vec![HostRange {
+            host: chain.sdb,
+            start: 1 << 20,
+            length: 16 << 10,
+        }],
+    };
+    let affected = affected_set(&chain.topology, &facts, chain.part, &erase_the_header);
+    assert!(
+        affected.contains(&chain.pool),
+        "an extent the body format forbids must not stop the descent"
+    );
+    let refusal = step_constructs(&chain.topology, &facts, chain.part, &erase_the_header)
+        .expect_err("erasing the LUKS header over a live pool must refuse");
+    assert!(matches!(refusal.verdict, Verdict::Refused { .. }));
+}
+
+// Requirements: MODEL-002, SAFE-005
+//   Defect (b) of issue #338, at the closure. A shrink destroys a
+//   sub-range of its target, and the ZFS label at the target's head lies
+//   outside that sub-range: the label's bytes survive, the vdev they
+//   describe does not. Before ADR-0039 the affected set was the target
+//   and its device, the pool was unreached, and the step constructed
+//   over 128 MiB of a live vdev.
+// Evidence: a_partial_destruction_reaches_the_content_it_truncates
+#[test]
+fn a_partial_destruction_reaches_the_content_it_truncates() {
+    let layout = root_on_zfs();
+    let freed_tail = StepRanges {
+        written_table_extents: vec![],
+        consumed: vec![],
+        destroyed: vec![HostRange {
+            host: layout.sda,
+            start: 640 << 20,
+            length: 128 << 20,
+        }],
+    };
+    let affected = affected_set(&layout.topology, &layout.facts, layout.member, &freed_tail);
+    assert!(
+        affected.contains(&layout.pool),
+        "the pool is reached through the label its truncated member carries"
+    );
+    assert!(
+        !affected.contains(&layout.esp),
+        "the disjoint sibling is still not captured"
+    );
+    let refusal = step_constructs(&layout.topology, &layout.facts, layout.member, &freed_tail)
+        .expect_err("a partial shrink over a live vdev must refuse");
+    assert_eq!(refusal.node, layout.pool);
+    assert!(matches!(refusal.verdict, Verdict::Refused { .. }));
+}
+
+// Requirements: MODEL-002, SAFE-005
+//   The bound reads declared extents, and declared extents are authored
+//   body content, so it must never be able to REMOVE reach. A moved
+//   frame, a ghost host, a zero length and a saturating length all still
+//   reach the pool. None of these values changes a node id — a
+//   BackingSignature hashes its own `host` field, which is not the
+//   extent's frame — so nothing upstream can tell these bodies apart.
+// Evidence: a_forged_extent_can_never_shrink_the_closure
+#[test]
+fn a_forged_extent_can_never_shrink_the_closure() {
+    let honest = root_on_zfs();
+    let destroyed = StepRanges {
+        written_table_extents: vec![],
+        consumed: vec![],
+        destroyed: vec![HostRange {
+            host: honest.sda,
+            start: 640 << 20,
+            length: 128 << 20,
+        }],
+    };
+    let label = *honest
+        .facts
+        .extents
+        .get(&honest.signature)
+        .expect("the fixture declares the label's extent");
+    let forgeries = [
+        (
+            "framed on a sibling it does not sit in",
+            HostRange {
+                host: honest.esp,
+                ..label
+            },
+        ),
+        (
+            "framed on a node that carries no bytes",
+            HostRange {
+                host: honest.pool,
+                ..label
+            },
+        ),
+        ("zero length", HostRange { length: 0, ..label }),
+        (
+            "saturating length",
+            HostRange {
+                length: u64::MAX,
+                ..label
+            },
+        ),
+    ];
+    for (name, forged) in forgeries {
+        let mut facts = honest.facts.clone();
+        facts.extents.insert(honest.signature, forged);
+        let affected = affected_set(&honest.topology, &facts, honest.member, &destroyed);
+        assert!(
+            affected.contains(&honest.pool),
+            "a forged extent must not remove reach: {name}"
+        );
+    }
+}
+
+// Requirements: MODEL-002, SAFE-005
+//   The false-refusal controls for the widened reach, on a disk carrying
+//   nothing protected. A device's extent is its own address space, so
+//   every range on the disk lies inside it and descent out of one would
+//   capture every sibling. Two shapes caught exactly that during the
+//   round: an end-anchored stale mdraid superblock hosted by the device,
+//   and a sibling partition carrying no extent fact at all. Deleting or
+//   shrinking one partition must reach neither.
+// Evidence: an_ordinary_disk_keeps_its_siblings_out_of_the_set
+#[test]
+#[allow(clippy::too_many_lines)]
+fn an_ordinary_disk_keeps_its_siblings_out_of_the_set() {
+    let sdz = device(b"SDZ");
+    let sdz_id = derive_id(&sdz).expect("derivable");
+    let table = NamingFields::PartitionTable {
+        parent: sdz_id,
+        role: TableRole::Gpt,
+    };
+    let table_id = derive_id(&table).expect("derivable");
+    let esp = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: 1 << 20,
+    };
+    let esp_id = derive_id(&esp).expect("derivable");
+    let data = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: 512 << 20,
+    };
+    let data_id = derive_id(&data).expect("derivable");
+    // An unassembled mdraid superblock at the very end of the disk,
+    // hosted by the device itself: the shape `mdadm --zero-superblock`
+    // exists for, and an orphan signature, so its arm is Indeterminate.
+    let stale = NamingFields::BackingSignature {
+        host: sdz_id,
+        family: SignatureFamily::Mdraid09,
+        primary_offset: 0,
+    };
+    let stale_id = derive_id(&stale).expect("derivable");
+    let topology = Topology::build(
+        vec![sdz, table, esp, data, stale],
+        vec![
+            Edge {
+                kind: EdgeKind::Containment,
+                source: sdz_id,
+                target: table_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: table_id,
+                target: esp_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: table_id,
+                target: data_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: sdz_id,
+                target: stale_id,
+            },
+        ],
+    )
+    .expect("builds");
+    let mut extents = BTreeMap::new();
+    extents.insert(
+        sdz_id,
+        HostRange {
+            host: sdz_id,
+            start: 0,
+            length: 1 << 30,
+        },
+    );
+    extents.insert(
+        table_id,
+        HostRange {
+            host: sdz_id,
+            start: 0,
+            length: 1 << 20,
+        },
+    );
+    // The ESP carries no extent fact: the byte scan cannot judge it, and
+    // the closure must not capture it on that account.
+    extents.insert(
+        data_id,
+        HostRange {
+            host: sdz_id,
+            start: 512 << 20,
+            length: 256 << 20,
+        },
+    );
+    extents.insert(
+        stale_id,
+        HostRange {
+            host: sdz_id,
+            start: (1 << 30) - (64 << 10),
+            length: 64 << 10,
+        },
+    );
+    let mut transports = BTreeMap::new();
+    transports.insert(sdz_id, TransportClass::Sata);
+    let facts = Facts {
+        extents,
+        transports,
+        member_counts: BTreeMap::new(),
+        table_states: BTreeMap::new(),
+    };
+
+    let delete_data = StepRanges {
+        written_table_extents: vec![HostRange {
+            host: sdz_id,
+            start: 0,
+            length: 1 << 20,
+        }],
+        consumed: vec![],
+        destroyed: vec![HostRange {
+            host: sdz_id,
+            start: 512 << 20,
+            length: 256 << 20,
+        }],
+    };
+    let affected = step_constructs(&topology, &facts, table_id, &delete_data)
+        .expect("deleting a partition on an ordinary disk constructs");
+    assert!(
+        !affected.contains(&stale_id),
+        "a device's self-extent must not carry descent into a stale superblock at the far end"
+    );
+    assert!(
+        !affected.contains(&esp_id),
+        "a sibling that merely lacks an extent fact must not be captured"
+    );
+
+    let shrink_data = StepRanges {
+        written_table_extents: vec![],
+        consumed: vec![],
+        destroyed: vec![HostRange {
+            host: sdz_id,
+            start: 640 << 20,
+            length: 128 << 20,
+        }],
+    };
+    let affected = step_constructs(&topology, &facts, data_id, &shrink_data)
+        .expect("shrinking a partition on an ordinary disk constructs");
+    assert!(!affected.contains(&stale_id));
+    assert!(!affected.contains(&esp_id));
 }
 
 // Requirements: MODEL-002, SAFE-005
