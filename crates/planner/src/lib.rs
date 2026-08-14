@@ -712,6 +712,14 @@ fn impossibility(operation: Operation) -> ImpossibilityReason {
         // other operation refuses before reversal emission (source
         // class, or unrepresentable simulation). A new operation
         // reaching here is a review point, not a default.
+        //
+        // The premise is a property of both callers' statement order and
+        // is enforced, not assumed: `plan` settles simulatability before
+        // this call, and `plan_set` does the same for every request in
+        // the set before its statement loop runs. Issue #341 was that
+        // premise holding in one caller and not the other, and
+        // `no_request_set_reaches_an_unplannable_statement` pins it for
+        // every operation the vocabulary carries.
         _ => unreachable!("refused before reversal emission"),
     }
 }
@@ -1139,6 +1147,22 @@ pub fn plan_set(
     let order = execution_order(&keys, &ranges, &set.dependencies)
         .map_err(|refusal| PlanRefusal::GraphRefused { refusal })?;
 
+    // Simulatability is settled before any step or statement is built,
+    // so that `impossibility`'s premise — every operation reaching
+    // reversal emission is one this path can plan — is enforced here as
+    // it already is in `plan`, rather than assumed. An unsized create or
+    // resize has no geometry and refuses with the same ground the
+    // single-request path gives it, instead of walking into the
+    // statement loop and aborting there (issue #341).
+    let mut combined = Effects::default();
+    for request in &set.requests {
+        let effects = canonical_effects(request.operation, request.target, snapshot)
+            .map_err(|refusal| PlanRefusal::SimulateRefused { refusal })?;
+        combined.destroyed.extend(effects.destroyed);
+        combined.stamp_dropped.extend(effects.stamp_dropped);
+        combined.resized.extend(effects.resized);
+    }
+
     let mut steps = Vec::with_capacity(set.requests.len());
     let mut statements = Vec::with_capacity(set.requests.len());
     for (position, index) in order.order.iter().enumerate() {
@@ -1163,14 +1187,6 @@ pub fn plan_set(
         });
     }
 
-    let mut combined = Effects::default();
-    for request in &set.requests {
-        let effects = canonical_effects(request.operation, request.target, snapshot)
-            .map_err(|refusal| PlanRefusal::SimulateRefused { refusal })?;
-        combined.destroyed.extend(effects.destroyed);
-        combined.stamp_dropped.extend(effects.stamp_dropped);
-        combined.resized.extend(effects.resized);
-    }
     let simulated = simulate(snapshot, &combined)
         .map_err(|refusal| PlanRefusal::SimulateRefused { refusal })?;
 
