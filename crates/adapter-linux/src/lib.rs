@@ -20,10 +20,11 @@
 //!
 //! The claim is about the interfaces, not about every field read through
 //! them, and the difference is load-bearing: a field can be read through a
-//! measured interface at a path no row measures. One is —
-//! `device/serial`, whose path the 2026-08-04 sitting never read and which
-//! ADR-0034 does not designate, the serial that sitting observed having come
-//! from the USB device node instead. `schemas/adapter-linux/fields.md` states
+//! measured interface at a path no row measures. Exactly one is in that
+//! position today — `device/serial`, whose path the 2026-08-04 sitting never
+//! read and which ADR-0034 does not designate, the serial that sitting
+//! observed having come from the USB device node instead by parent
+//! traversal. `schemas/adapter-linux/fields.md` states
 //! per field which observability row supports it and which are read without
 //! one, so the gap is a recorded decision rather than an implied warrant.
 //!
