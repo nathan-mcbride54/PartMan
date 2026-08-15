@@ -141,7 +141,11 @@ it a fourteenth, taken once at the arc's head and named in all three PR
 bodies before their merges, and on `6d4a8fc` (2026-08-15 UTC) when the
 issue-318 record sweep — two merges, PRs #368 and #367, whose three
 non-Markdown paths are **comment-only** — tripped it a fifteenth, named
-in #367's body before the merge,
+in #367's body before the merge, and on `b8d6a90` (2026-08-15 UTC)
+when ADR-0040 — one Rust merge, PR #372, whose sole non-Markdown path is
+the test file `protection_tests.rs` — tripped it a sixteenth, named in
+that PR's body before the merge but against a pin the r20 sitting had
+already moved past, and found by checking the condition against `HEAD`,
 with identical harness values and fixture digests every time. (This sentence
 previously read "four times" while the custody table held six rows — the
 `39b59f5` re-take never updated it, the stale-count shape again, corrected
