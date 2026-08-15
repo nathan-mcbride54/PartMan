@@ -378,18 +378,7 @@ fn unaccounted_occupant(
                 },
             });
         }
-        let ground = match located {
-            None => Some(OccupancyGround::NoRange),
-            Some(range) if range.host != host => {
-                Some(OccupancyGround::RangeOnAnotherHost { host: range.host })
-            }
-            Some(range) if range.length == 0 => Some(OccupancyGround::RangeIsEmpty),
-            Some(range) if range.start != *start_offset => {
-                Some(OccupancyGround::RangeStartsElsewhere { start: range.start })
-            }
-            Some(_) => None,
-        };
-        if let Some(ground) = ground {
+        if let Some(ground) = occupancy_ground(located, host, *start_offset) {
             return Some(SolveRefusal::UnaccountedOccupant {
                 host,
                 occupant: entry.id(),
@@ -399,6 +388,30 @@ fn unaccounted_occupant(
         }
     }
     None
+}
+
+/// Why a located range does not account for the occupant whose hashed
+/// name declares `declared_start` on `host` — or `None` where it does.
+/// A function of the range alone, so each ground is testable without a
+/// snapshot: the body boundary refuses some of these shapes before a
+/// snapshot can carry them (ADR-0041), and the solver's own reading of a
+/// range must not depend on which shapes reach it.
+pub(crate) fn occupancy_ground(
+    located: Option<HostRange>,
+    host: NodeId,
+    declared_start: u64,
+) -> Option<OccupancyGround> {
+    match located {
+        None => Some(OccupancyGround::NoRange),
+        Some(range) if range.host != host => {
+            Some(OccupancyGround::RangeOnAnotherHost { host: range.host })
+        }
+        Some(range) if range.length == 0 => Some(OccupancyGround::RangeIsEmpty),
+        Some(range) if range.start != declared_start => {
+            Some(OccupancyGround::RangeStartsElsewhere { start: range.start })
+        }
+        Some(_) => None,
+    }
 }
 
 fn extent_of(snapshot: &TopologySnapshot, node: NodeId) -> Option<HostRange> {
