@@ -926,6 +926,54 @@ fn a_release_over_an_unprotected_target_still_constructs() {
     }
 }
 
+// Requirements: MODEL-002, SAFE-005
+//   Issue #348's measured hole, and why ADR-0038's release entry is
+//   load-bearing after ADR-0039 rather than superseded by it. On a
+//   partition target carried-content reach alone refuses: the target
+//   seeds the set and descent runs from it. On a whole-disk target it
+//   does not — `descends_into` refuses a self-framed extent as a
+//   descent source, which is what stops a disk's own extent capturing
+//   its siblings — so reach there is entirely range-driven and the
+//   release entry is the only thing refusing. Nothing committed said
+//   so: deleting `Move`'s canonical entry left the whole domain suite
+//   green while `gate(Move, sda)` fell from `Unsupported{Zfs}` to
+//   `Clear` over a live pool, the false-`Clear` direction that
+//   `a_release_over_an_unprotected_target_still_constructs` does not
+//   cover. Both halves are asserted deliberately: the gate outcome
+//   alone survives moving `Move` into the written-extents arm, which
+//   changes the entry's class without changing any verdict, while the
+//   range-class assertion pins `Move` as a release under ADR-0018's
+//   own effect table — the classification issue #348 questioned.
+// Evidence: a_release_over_a_whole_disk_reaches_the_aggregate_it_carries
+#[test]
+fn a_release_over_a_whole_disk_reaches_the_aggregate_it_carries() {
+    use super::capability::{Operation, ProtectionGate, canonical_ranges, protection_gate};
+    let layout = root_on_zfs();
+    for op in [Operation::Move, Operation::Shrink] {
+        let ranges = canonical_ranges(op, layout.sda, &layout.facts);
+        assert!(
+            ranges.destroyed.len() == 1 && ranges.written_table_extents.is_empty(),
+            "{op:?} is a release under ADR-0018's effect table and must seed the \
+             destroyed class, got {ranges:?}"
+        );
+        assert!(
+            affected_set(&layout.topology, &layout.facts, layout.sda, &ranges)
+                .contains(&layout.pool),
+            "{op:?}'s canonical entry must reach the pool the whole disk carries"
+        );
+        let gate = protection_gate(&layout.topology, &layout.facts, layout.sda, op);
+        assert!(
+            matches!(
+                gate,
+                ProtectionGate::Unsupported {
+                    ground: RefusalGround::Zfs
+                }
+            ),
+            "{op:?} over a whole disk carrying a live pool must refuse, got {gate:?}"
+        );
+    }
+}
+
 // Requirements: MODEL-002
 //   ADR-0038's second correction, and the committed sibling guard
 //   re-measured on MEMBERSHIP rather than merely re-run green. Rule 3

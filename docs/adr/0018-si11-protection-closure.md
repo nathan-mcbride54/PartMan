@@ -139,10 +139,20 @@ destruction**: a range freed from its owner — a deleted partition's
 extent, a shrink's truncated tail, a move's source extent at commit —
 is destroyed even though no byte is overwritten, because its content
 ceases to be referenced. Relocation classes (move, copy-then-commit)
-exempt the relocated target's own subtree from destruction descent —
-its content is preserved by contract (PART-005) — and MUST either
-preserve hosted signatures byte-wise or enumerate their loss
-explicitly in the plan.
+MUST either preserve hosted signatures byte-wise or enumerate their
+loss explicitly in the plan.
+
+*(Retired in 13.0.1 by ADR-0040, resolving issue #348: this paragraph
+also exempted "the relocated target's own subtree from destruction
+descent — its content is preserved by contract (PART-005)". That
+clause was **void where it stood** under §0.2's rule 4 — an ADR MUST
+NOT weaken a spec MUST, and §2.1's enforcement paragraph is a MUST NOT
+— and it was never delivered, never cited by any requirement, and not
+expressible in the delivered closure, which takes no `Operation`. The
+byte-wise-preservation duty above is the half that survives; it is
+delivered nowhere and is tracked as its own issue. The availability
+gap the exemption was written to name is real and stays open: see
+ADR-0040's residuals.)*
 
 **The affected set is a fixpoint over those ranges:**
 
