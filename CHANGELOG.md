@@ -255,6 +255,24 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **WP-060: the occupancy ground is a function of the located range.**
+  `occupancy_ground(located, host, declared_start)` is extracted from
+  `unaccounted_occupant` and every `OccupancyGround` arm is asserted on
+  it directly, `RangeIsEmpty` included. The behaviour is unchanged; the
+  reason is sequencing. The body-validity act on issues #349 and #356
+  (ADR-0041, WP-010, the next PR) refuses at assembly two shapes this
+  package's occupancy test built through `TopologySnapshot::assemble` —
+  a zero-length extent and an extent framed on an address the snapshot
+  does not absorb — so those grounds could no longer be reached through
+  a snapshot, and the test would have gone red under the change it does
+  not own. The empty-range ground now lives where it can be measured
+  regardless of which shapes a snapshot lets through, and the other-host
+  case names a device the snapshot absorbs, which is a valid body under
+  both regimes. Green at HEAD and green with the act applied, measured
+  on a throwaway merge of the two before either landed. The solver's own
+  defensive reading of an empty range is kept, deliberately: a
+  consumer's guard should not depend on a producer's promise.
+
 - **WP-020: the r14 re-pin.** WP-060 increment 10 (PR #336) landed Rust
   after `b50dd19` and tripped increment 2e's stopping condition for the
   fifteenth time — the ninth from outside the package. One sitting

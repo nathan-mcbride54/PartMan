@@ -2457,6 +2457,24 @@ fn occupancy_host(
     declared_start: u64,
     placed: Option<HostRange>,
 ) -> (TopologySnapshot, NodeId, NodeId) {
+    occupancy_host_with(declared_start, placed, None)
+}
+
+/// [`occupancy_host`] with a second, unrelated device absorbed beside
+/// it, so a range framed on that device is a valid body.
+fn occupancy_host_beside(
+    declared_start: u64,
+    placed: Option<HostRange>,
+    beside: &NamingFields,
+) -> (TopologySnapshot, NodeId, NodeId) {
+    occupancy_host_with(declared_start, placed, Some(beside.clone()))
+}
+
+fn occupancy_host_with(
+    declared_start: u64,
+    placed: Option<HostRange>,
+    beside: Option<NamingFields>,
+) -> (TopologySnapshot, NodeId, NodeId) {
     let host = device(b"OCCUPANT");
     let host_id = derive_id(&host).expect("derivable");
     let table = NamingFields::PartitionTable {
@@ -2474,10 +2492,16 @@ fn occupancy_host(
     if let Some(range) = placed {
         facts.extents.insert(part_id, range);
     }
+    let mut nodes = vec![host, table, part];
+    if let Some(beside) = beside {
+        let beside_id = derive_id(&beside).expect("derivable");
+        device_facts(&mut facts, beside_id);
+        nodes.push(beside);
+    }
     let snapshot = TopologySnapshot::assemble(
         SnapshotKind::Captured,
         false,
-        vec![host, table, part],
+        nodes,
         vec![
             Edge {
                 kind: EdgeKind::Containment,
@@ -2627,14 +2651,67 @@ fn an_unrecognized_scheme_refuses_whether_or_not_it_is_located() {
 // Requirements: PLAN-001, INV-004
 //   Located-ness is not key presence: the guard's notion of accounted
 //   is the subtraction's own, so each ground names what the facts carry
-//   beside the offset the occupant's own hashed name declares.
+//   beside the offset the occupant's own hashed name declares. The
+//   ground is a function of the located range alone and every arm is
+//   asserted there, empty range included: the body boundary refuses a
+//   zero-length extent before a snapshot can carry one (ADR-0041), and
+//   the solver's reading of a range must not depend on which shapes a
+//   snapshot lets through. Through a snapshot, every ground a valid body
+//   can carry is then asserted end to end.
 // Evidence: an_unaccounted_occupant_refuses_naming_what_the_facts_carry_instead
 #[test]
 fn an_unaccounted_occupant_refuses_naming_what_the_facts_carry_instead() {
     let declared = 500 * DEFAULT_ALIGNMENT;
-    let elsewhere = derive_id(&device(b"ELSEWHERE")).expect("derivable");
     let host_id = derive_id(&device(b"OCCUPANT")).expect("derivable");
+    let elsewhere_dev = device(b"ELSEWHERE");
+    let elsewhere = derive_id(&elsewhere_dev).expect("derivable");
 
+    // The ground, read off the range alone.
+    for (located, expected) in [
+        (None, Some(OccupancyGround::NoRange)),
+        (
+            Some(HostRange {
+                host: elsewhere,
+                start: declared,
+                length: DEFAULT_ALIGNMENT,
+            }),
+            Some(OccupancyGround::RangeOnAnotherHost { host: elsewhere }),
+        ),
+        (
+            Some(HostRange {
+                host: host_id,
+                start: declared,
+                length: 0,
+            }),
+            Some(OccupancyGround::RangeIsEmpty),
+        ),
+        (
+            Some(HostRange {
+                host: host_id,
+                start: 400 << 20,
+                length: DEFAULT_ALIGNMENT,
+            }),
+            Some(OccupancyGround::RangeStartsElsewhere { start: 400 << 20 }),
+        ),
+        (
+            Some(HostRange {
+                host: host_id,
+                start: declared,
+                length: DEFAULT_ALIGNMENT,
+            }),
+            None,
+        ),
+    ] {
+        assert_eq!(
+            crate::solve::occupancy_ground(located, host_id, declared),
+            expected,
+            "{located:?}"
+        );
+    }
+
+    // Through a snapshot. The other-host case names a device the snapshot
+    // absorbs, because a range framed on an address no entry carries is
+    // not a valid body.
     let cases = [
         (None, OccupancyGround::NoRange),
         (
@@ -2648,14 +2725,6 @@ fn an_unaccounted_occupant_refuses_naming_what_the_facts_carry_instead() {
         (
             Some(HostRange {
                 host: host_id,
-                start: declared,
-                length: 0,
-            }),
-            OccupancyGround::RangeIsEmpty,
-        ),
-        (
-            Some(HostRange {
-                host: host_id,
                 start: 400 << 20,
                 length: DEFAULT_ALIGNMENT,
             }),
@@ -2664,7 +2733,7 @@ fn an_unaccounted_occupant_refuses_naming_what_the_facts_carry_instead() {
     ];
 
     for (index, (placed, expected)) in cases.into_iter().enumerate() {
-        let (snapshot, host, part) = occupancy_host(declared, placed);
+        let (snapshot, host, part) = occupancy_host_beside(declared, placed, &elsewhere_dev);
         match free_extents(&snapshot, host) {
             Err(SolveRefusal::UnaccountedOccupant {
                 host: refused,
