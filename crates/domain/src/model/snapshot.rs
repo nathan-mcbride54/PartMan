@@ -28,7 +28,9 @@ use crate::canonical::{self, Hash, Value};
 
 use super::identity::{table_from_map, table_value};
 use super::naming::{self, FieldParseError, NamingFields, NodeEntry};
-use super::protection::{Facts, HostRange, ProtectionRefusal, StepRanges, TransportClass};
+use super::protection::{
+    FactError, Facts, HostRange, ProtectionRefusal, StepRanges, TransportClass, validate_facts,
+};
 use super::provenance::PropertyObservations;
 use super::topology::{Edge, EdgeKind, Topology, TopologyError};
 
@@ -83,11 +85,15 @@ impl TopologySnapshot {
     ///
     /// The facts are body content (increment 3f): they are verdict
     /// inputs, and ADR-0016's logic extends to them — what the verdict
-    /// reads, the authorization must commit to.
+    /// reads, the authorization must commit to. They are validated
+    /// against the topology here (ADR-0041): this constructor is the one
+    /// path both in-process callers and the decode boundary run through,
+    /// so a snapshot that could not round-trip cannot be assembled.
     ///
     /// # Errors
     ///
-    /// [`SnapshotError::Topology`] if the topology refuses construction.
+    /// [`SnapshotError::Topology`] if the topology refuses construction;
+    /// [`SnapshotError::Facts`] if the facts are refused against it.
     pub fn assemble(
         kind: SnapshotKind,
         transitional: bool,
@@ -96,6 +102,7 @@ impl TopologySnapshot {
         facts: Facts,
     ) -> Result<Self, SnapshotError> {
         let topology = Topology::build(nodes, edges).map_err(SnapshotError::Topology)?;
+        validate_facts(&topology, &facts).map_err(SnapshotError::Facts)?;
         Ok(Self {
             kind,
             transitional,
@@ -406,21 +413,10 @@ fn parse_nodes(
             ),
             Some(_) => return Err(SnapshotSchemaError::BadFact { key: "table_state" }),
         };
+        // Fact placement is not checked here: `assemble` refuses a
+        // misplaced fact for every path (ADR-0041), and this one reaches
+        // it through the rebuild below.
         let fields = naming::fields_from_map(&fields_only).map_err(SnapshotSchemaError::Field)?;
-        if transport.is_some() && !matches!(fields, NamingFields::PhysicalDevice { .. }) {
-            return Err(SnapshotSchemaError::MisplacedFact { key: "transport" });
-        }
-        if member_count.is_some() && !matches!(fields, NamingFields::Aggregate { .. }) {
-            return Err(SnapshotSchemaError::MisplacedFact {
-                key: "member_count",
-            });
-        }
-        if table_state.is_some() && !matches!(fields, NamingFields::PhysicalDevice { .. }) {
-            return Err(SnapshotSchemaError::MisplacedFact { key: "table_state" });
-        }
-        if extent.is_some() && !fields.may_carry_extent() {
-            return Err(SnapshotSchemaError::MisplacedFact { key: "extent_host" });
-        }
         let id = naming::derive_id(&fields).map_err(|_| SnapshotSchemaError::NotAnEntryMap)?;
         if let Some(extent) = extent {
             facts.extents.insert(id, extent);
@@ -512,6 +508,8 @@ fn parse_edge_id(value: Option<&Value>) -> Result<super::naming::NodeId, Snapsho
 pub enum SnapshotError {
     /// Topology construction refused (see [`TopologyError`]).
     Topology(TopologyError),
+    /// The facts are refused against the topology (see [`FactError`]).
+    Facts(FactError),
     /// The canonical encoder refused body content — unreachable for a
     /// snapshot this module assembled; surfaced rather than panicked.
     Encoding(canonical::Error),
@@ -521,6 +519,7 @@ impl fmt::Display for SnapshotError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Topology(error) => write!(formatter, "topology refused: {error}"),
+            Self::Facts(error) => write!(formatter, "facts refused: {error}"),
             Self::Encoding(error) => write!(formatter, "body not encodable: {error}"),
         }
     }
@@ -561,13 +560,6 @@ pub enum SnapshotSchemaError {
         /// The fact's key.
         key: &'static str,
     },
-    /// A fact on a kind that does not carry it (a transport on a
-    /// partition, a member count on a device, an extent on an
-    /// aggregate).
-    MisplacedFact {
-        /// The fact's key.
-        key: &'static str,
-    },
     /// A node entry does not parse as naming fields.
     Field(FieldParseError),
     /// An edge kind tag this build does not know.
@@ -593,9 +585,6 @@ impl fmt::Display for SnapshotSchemaError {
             Self::NotAnEntryMap => formatter.write_str("malformed entry"),
             Self::BadCollisionCount => formatter.write_str("invalid collision-group fields"),
             Self::BadFact { key } => write!(formatter, "malformed fact `{key}`"),
-            Self::MisplacedFact { key } => {
-                write!(formatter, "fact `{key}` on a kind that does not carry it")
-            }
             Self::Field(error) => write!(formatter, "node entry: {error}"),
             Self::UnknownEdgeKind => formatter.write_str("unknown edge kind"),
             Self::BadEdgeEndpoint => formatter.write_str("edge endpoint is not an address"),

@@ -211,7 +211,7 @@ Run `cargo xtask help` for the full command list.
 
 ## Open issues
 
-Twelve are open as of `b8d6a90` (2026-08-15). This section reports status
+Ten are open after ADR-0041 (2026-08-15). This section reports status
 only; each issue's own thread is the record, and the review rounds under
 `docs/reviews/` carry the measurements. The current handoff,
 `docs/reviews/HANDOFF_2026-08-15_OPUS_CLEANUP_TO_NEXT.md`, states the
@@ -237,8 +237,6 @@ measurement — **#347 → #360 → #354's kind half → #333's enforcement** �
 | **#354** | WP-010 | Naming-field referents validated by nobody. **Partially discharged** — resolve-only landed (#362); the kind half is open and blocked on #360. |
 | **#333** | WP-010 | The reach closure misses children anchored outside the device's address space. Rule **decided**, enforcement **held**, gated on #360. |
 | **#319** | WP-060/WP-010 | Absent child extents fail open. The occupancy half landed under ADR-0036; the **authorization half** remains. Its recorded blocker (#338) has since closed, so whether it is still blocked is **unverified**. |
-| **#356** | WP-010 | Nothing cross-validates a containment edge against the extent facts, and the contradiction approves destroying a live pool. |
-| **#349** | WP-010 | The body boundary accepts zero-length, ghost-hosted and overflowing extents; `assemble` skips its checks entirely. |
 | **#353** | WP-010 | `canonical_ranges` writes the target's whole extent, which §2.1:110 forbids, and the whole-disk gates depend on it. |
 | **#365** | WP-010 | The host-backed producing relation is under-represented outside the pair table: a wrong doc comment, no committed fixture, and a blind suite. |
 | **#366** | WP-035 | The transport-discrimination protocol's deferral addresses the IPC route decision, so its real consumer will never pick it up. |
@@ -246,7 +244,10 @@ measurement — **#347 → #360 → #354's kind half → #333's enforcement** �
 | **#371** | WP-010 | PART-005's hosted-signature duty is undelivered and has no plan vehicle — an exhaustive grep returns only the spec sentence stating it. Split from #348 by ADR-0040. |
 
 Issues **#318**, **#338**, **#348** and **#355** closed on or before
-`6d743a3`.
+`6d743a3`; **#349** and **#356** closed with ADR-0041 (the body's facts
+are validated against its topology at assembly), whose record names what
+each leaves open — #356's absent-extent spelling is #319's class and
+still constructs.
 
 ## Roadmap
 
