@@ -7,6 +7,41 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Fixed
 
+- **WP-010: the relocation exemption is retired, and the release entry
+  stands (issue #348, ADR-0040, spec 13.0.1).** ADR-0018:141-145
+  exempted "the relocated target's own subtree from destruction
+  descent"; ADR-0038 gave `Move` the whole-target-extent `destroyed`
+  entry that captures exactly that subtree. The exemption is retired as
+  **void where it stood** — §0.2's rule 4 forbids an ADR weakening a
+  spec MUST, and §2.1's enforcement paragraph is a MUST NOT — and it was
+  additionally never delivered, never cited by any requirement, and not
+  expressible in the delivered closure, which takes no `Operation` at
+  either call site.
+
+  **No production line changes.** The issue's own proposed fix —
+  reverting ADR-0038's `Move` entry — was rejected on measurement.
+  Moving `Move` between range arms changes no verdict on six targets
+  with the suite green; deleting its entry outright changes none on a
+  partition target and turns a whole-disk `Move` from
+  `Unsupported{Zfs}` into **`Clear` over a live ZFS pool**. On a disk
+  target a self-framed extent is never a descent source, so
+  carried-content reach cannot propagate and reach is entirely
+  range-driven — which makes ADR-0038's release entry load-bearing
+  after ADR-0039 rather than superseded by it.
+
+  That mutation survived the entire committed suite, so the one
+  regression this adds
+  (`a_release_over_a_whole_disk_reaches_the_aggregate_it_carries`) is
+  the coverage that was missing, and it is **proven to bite**: under
+  each mutation it is the only red, once on the gate assertion and once
+  on the range-class assertion.
+
+  **The availability gap the exemption named stays open and is filed,
+  not settled** — a length-preserving relocation of a protected
+  partition refuses although copy-then-commit would preserve every byte.
+  The byte-wise-preservation half of ADR-0018's paragraph survives as a
+  plan-layer duty and is delivered nowhere; it is filed too.
+
 - **WP-L100: the Linux field record swept onto the rows that answered it,
   and two claims that stood above their evidence corrected (issue #318).**
   Issue #318 filed six unmeasured Linux observability rows; WP-035 took all
