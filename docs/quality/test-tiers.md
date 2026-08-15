@@ -138,7 +138,10 @@ day but **not** named in that PR's body beforehand, and on `86db930`
 merges, PRs #361, #362 and #363: a fixtures test-determinism fix, the
 naming-referent resolve sweep, and the shared referent roster — tripped
 it a fourteenth, taken once at the arc's head and named in all three PR
-bodies before their merges,
+bodies before their merges, and on `6d4a8fc` (2026-08-15 UTC) when the
+issue-318 record sweep — two merges, PRs #368 and #367, whose three
+non-Markdown paths are **comment-only** — tripped it a fifteenth, named
+in #367's body before the merge,
 with identical harness values and fixture digests every time. (This sentence
 previously read "four times" while the custody table held six rows — the
 `39b59f5` re-take never updated it, the stale-count shape again, corrected
