@@ -7,6 +7,45 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Fixed
 
+- **WP-L100: the Linux field record swept onto the rows that answered it,
+  and two claims that stood above their evidence corrected (issue #318).**
+  Issue #318 filed six unmeasured Linux observability rows; WP-035 took all
+  six on 2026-08-13, as the readback rows R1–R4 and the floor-rows sitting
+  FR1–FR5. Both records landed in `docs/quality/observability.md` and
+  nowhere else, so every consumer still described the rows as missing —
+  the stale-record shape a sitting produces by construction, one document
+  updated and the rest left behind. `schemas/adapter-linux/fields.md`,
+  `docs/work-packages/WP-L100.md` and two comments in
+  `crates/adapter-linux` now cite the rows.
+
+  **Two entries were not merely stale but wrong, and both are the same
+  defect this roster exists to catch — a claim stated above its evidence.**
+  `device/wwid` was recorded as **positively absent** on real usb-storage
+  with the strength "real-hardware (as an absence)"; R2 establishes that
+  the read failed `ENXIO` at every capture, which is a failed read and not
+  ADR-C4's `ObservedAbsent`. The delivered code was already right — only
+  `ErrorKind::NotFound` reaches `AttributeRead::NotPresent`, every other
+  error becoming `AttributeRead::Failed` — so this was a defect in the
+  record alone. And `device/serial` carried a real-hardware serial that R1
+  shows was read from a **different node**: the observed value came from the
+  USB device node reached by parent traversal, while `device/serial` on the
+  SCSI node — the path this roster reads — was never read in the sitting and
+  is unobserved on every Linux host. Its evidence is now **none**, which is
+  also what ADR-0034 implies: the designated Linux serial source is the
+  traversal, not this path. Reconciling the two is increment 3's work.
+
+  **The transport answer is unchanged and its reason is not.** `ID_BUS=usb`
+  and two `ID_PATH` values are now recorded (R4), so "no Linux row records a
+  classifying value" — which stood in the assignment, in `fields.md`, in a
+  shipped doc comment on `transport_class`, and in a test's requirement
+  comment — is false. `Unrecognized` still holds for every device because no
+  **discrimination protocol** maps a value to a class: ADR-0018's evidence
+  obligation 2 is outstanding on every platform, and it is the one item of
+  the six that measurement did not close. Its home was decided on
+  2026-08-13 and its addressee is filed as **#366** — "whichever package
+  first records a transport route decision" denotes WP-040's IPC transports
+  everywhere else in this repository, and WP-040 never consumes this row.
+
 - **WP-010/WP-060: a node's own name may no longer reference an address
   nothing carries (issue #354, partially — the kind half is held).**
   Eight node kinds embed a `NodeId` in their hashed name, and no layer

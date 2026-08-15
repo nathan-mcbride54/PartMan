@@ -698,11 +698,14 @@ fn two_interfaces_reporting_a_serial_produce_two_properties_and_elect_neither() 
 
 // Requirements: INV-002
 //   ADR-0018's transport answer is Unrecognized for every device, and no
-//   other variant is constructible in this crate: its own discrimination
-//   rows are outstanding on every platform and no Linux row records a value
-//   that would classify one, so a positive class could come only from
-//   vendor documentation. Unrecognized resolves to Indeterminate at the
-//   closure, never Permitted, which is the fail-closed direction.
+//   other variant is constructible in this crate. What is missing is the
+//   discrimination protocol, not the values: classifying values are now
+//   recorded on Linux (ID_BUS=usb, two ID_PATH values), but a value names
+//   no class until ADR-0018's fabric-versus-local rows say which classes
+//   are local, and those are outstanding on every platform. A mapping from
+//   interface strings to classes could therefore come only from vendor
+//   documentation. Unrecognized resolves to Indeterminate at the closure,
+//   never Permitted, which is the fail-closed direction.
 // Evidence: every_device_answers_unrecognized_and_no_positive_class_is_constructible
 #[test]
 fn every_device_answers_unrecognized_and_no_positive_class_is_constructible() {
