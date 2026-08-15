@@ -1434,3 +1434,256 @@ fn single_ancestry_bodies_answer_exactly_as_before() {
         );
     }
 }
+
+// ---------------------------------------------------------------------
+// The overlapping-geometry fixture the issue-347 round-2 panel asked to
+// be committed before any candidate in that family is measured again:
+// a BIOS-booting GPT disk whose bios_grub entry sits at LBA 34, *inside*
+// the first MiB the table's own extent declares. Every other committed
+// fixture has `table.start + table.length == p1.start` exactly, so
+// nothing in the population could see the sibling-capture shape that
+// killed that round's candidate. Root on ZFS beside an ESP, as before.
+// ---------------------------------------------------------------------
+
+const MIB: u64 = 1 << 20;
+
+struct BiosBootGpt {
+    topology: Topology,
+    facts: Facts,
+    nodes: Vec<NamingFields>,
+    edges: Vec<Edge>,
+    sda: NodeId,
+    table: NodeId,
+    boot: NodeId,
+    esp: NodeId,
+    member: NodeId,
+    signature: NodeId,
+    pool: NodeId,
+}
+
+#[allow(clippy::too_many_lines)]
+fn bios_boot_gpt() -> BiosBootGpt {
+    let sda = device(b"SDA");
+    let sda_id = derive_id(&sda).expect("derivable");
+    let table = NamingFields::PartitionTable {
+        parent: sda_id,
+        role: TableRole::Gpt,
+    };
+    let table_id = derive_id(&table).expect("derivable");
+    // Sectors 34..2047: [17408, 1 MiB).
+    let boot = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: 17408,
+    };
+    let boot_id = derive_id(&boot).expect("derivable");
+    let esp = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: MIB,
+    };
+    let esp_id = derive_id(&esp).expect("derivable");
+    let member = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: 512 * MIB,
+    };
+    let member_id = derive_id(&member).expect("derivable");
+    let signature = NamingFields::BackingSignature {
+        host: member_id,
+        family: SignatureFamily::Zfs,
+        primary_offset: 0,
+    };
+    let signature_id = derive_id(&signature).expect("derivable");
+    let pool = NamingFields::Aggregate {
+        technology: AggregateTechnology::Zfs,
+        designator: Some(b"pool-guid".to_vec()),
+    };
+    let pool_id = derive_id(&pool).expect("derivable");
+    let nodes = vec![sda, table, boot, esp, member, signature, pool];
+    let edges = vec![
+        Edge {
+            kind: EdgeKind::Containment,
+            source: sda_id,
+            target: table_id,
+        },
+        Edge {
+            kind: EdgeKind::Containment,
+            source: table_id,
+            target: boot_id,
+        },
+        Edge {
+            kind: EdgeKind::Containment,
+            source: table_id,
+            target: esp_id,
+        },
+        Edge {
+            kind: EdgeKind::Containment,
+            source: table_id,
+            target: member_id,
+        },
+        Edge {
+            kind: EdgeKind::Containment,
+            source: member_id,
+            target: signature_id,
+        },
+        Edge {
+            kind: EdgeKind::Backing,
+            source: signature_id,
+            target: pool_id,
+        },
+    ];
+    let topology = Topology::build(nodes.clone(), edges.clone()).expect("builds");
+    let mut extents = BTreeMap::new();
+    let host = |start, length| HostRange {
+        host: sda_id,
+        start,
+        length,
+    };
+    extents.insert(sda_id, host(0, 1 << 30));
+    extents.insert(table_id, host(0, MIB));
+    extents.insert(boot_id, host(17408, MIB - 17408));
+    extents.insert(esp_id, host(MIB, 256 * MIB));
+    extents.insert(member_id, host(512 * MIB, 256 * MIB));
+    extents.insert(signature_id, host(512 * MIB, MIB));
+    let mut transports = BTreeMap::new();
+    transports.insert(sda_id, TransportClass::Sata);
+    BiosBootGpt {
+        topology,
+        facts: Facts {
+            extents,
+            transports,
+            member_counts: BTreeMap::new(),
+            table_states: BTreeMap::new(),
+        },
+        nodes,
+        edges,
+        sda: sda_id,
+        table: table_id,
+        boot: boot_id,
+        esp: esp_id,
+        member: member_id,
+        signature: signature_id,
+        pool: pool_id,
+    }
+}
+
+// Requirements: MODEL-002, MODEL-005, SAFE-005
+//   The overlapping geometry is lawful under the body's validity rules
+//   (ADR-0041): one entry inside the table's own first MiB and two beyond
+//   it all assemble, because `partition-table` → `partition` is a
+//   structural pair carrying no span claim. Had the containment check
+//   been written as a blanket "child within parent", this honest disk —
+//   and every committed GPT fixture with it — would refuse; this test is
+//   what pins the pair-specific reading against that regression.
+// Evidence: a_bios_boot_gpt_disk_assembles_under_the_validity_rules
+#[test]
+fn a_bios_boot_gpt_disk_assembles_under_the_validity_rules() {
+    let f = bios_boot_gpt();
+    let snapshot = super::snapshot::TopologySnapshot::assemble(
+        super::snapshot::SnapshotKind::Captured,
+        false,
+        f.nodes.clone(),
+        f.edges.clone(),
+        f.facts.clone(),
+    )
+    .expect("the honest overlapping layout assembles");
+    assert_eq!(snapshot.facts(), &f.facts);
+    assert_eq!(snapshot.topology().entries().len(), 7);
+    // The same fixture with its ZFS label pushed past its partition is the
+    // issue-356 shape, and refuses.
+    let mut forged = f.facts.clone();
+    forged.extents.insert(
+        f.signature,
+        HostRange {
+            host: f.sda,
+            start: 900 * MIB,
+            length: MIB,
+        },
+    );
+    assert!(matches!(
+        super::snapshot::TopologySnapshot::assemble(
+            super::snapshot::SnapshotKind::Captured,
+            false,
+            f.nodes,
+            f.edges,
+            forged,
+        ),
+        Err(super::snapshot::SnapshotError::Facts(
+            super::protection::FactError::ExtentOutsideContainmentParent { .. }
+        ))
+    ));
+    let _ = (f.boot, f.esp, f.member, f.pool, f.table);
+}
+
+// Requirements: MODEL-002, SAFE-005
+//   Deleting the bios_grub entry — the table's extent written, the
+//   entry's own bytes destroyed — must reach neither the ESP nor the pool:
+//   both are disjoint from the destroyed range. This is the property the
+//   committed sibling guard states, on the one layout where the deleted
+//   partition nests inside the table's own extent. It passed at HEAD and
+//   failed under the issue-347 round-2 candidate, which is why it is
+//   committed: any release predicate proposed in that family is measured
+//   against this shape first.
+// Evidence: a_sibling_esp_is_never_captured_when_the_deleted_partition_nests_in_the_table
+#[test]
+fn a_sibling_esp_is_never_captured_when_the_deleted_partition_nests_in_the_table() {
+    let f = bios_boot_gpt();
+    let delete_bios_grub = StepRanges {
+        written_table_extents: vec![HostRange {
+            host: f.sda,
+            start: 0,
+            length: MIB,
+        }],
+        consumed: vec![],
+        destroyed: vec![HostRange {
+            host: f.sda,
+            start: 17408,
+            length: MIB - 17408,
+        }],
+    };
+    let affected = affected_set(&f.topology, &f.facts, f.table, &delete_bios_grub);
+    assert!(
+        affected.contains(&f.boot),
+        "the destroyed entry itself is reached"
+    );
+    assert!(
+        !affected.contains(&f.esp),
+        "the ESP is disjoint from the destroyed range and must stay unreached"
+    );
+    assert!(
+        !affected.contains(&f.pool),
+        "the pool is disjoint from the destroyed range and must stay unreached"
+    );
+    let _ = (f.member, f.signature);
+}
+
+// Requirements: MODEL-002, SAFE-005
+//   The destroyed range provably misses every GPT structure — LBA 0 is
+//   [0, 512), the header LBA 1 is [512, 1024), the entry array LBA 2..33
+//   is [1024, 17408) — and destroys [17408, 1 MiB) alone. Such a range
+//   must not release the table's partitions: the pool stays unreached and
+//   the step constructs. Committed beside the test above for the same
+//   reason: it separates "the table's declared extent was touched" from
+//   "a GPT structure was destroyed", which the rejected round-2 candidate
+//   conflated.
+// Evidence: a_range_that_touches_no_gpt_structure_does_not_release_the_disk
+#[test]
+fn a_range_that_touches_no_gpt_structure_does_not_release_the_disk() {
+    let f = bios_boot_gpt();
+    let ranges = StepRanges {
+        written_table_extents: vec![],
+        consumed: vec![],
+        destroyed: vec![HostRange {
+            host: f.sda,
+            start: 17408,
+            length: MIB - 17408,
+        }],
+    };
+    let affected = affected_set(&f.topology, &f.facts, f.table, &ranges);
+    assert!(
+        !affected.contains(&f.pool),
+        "a range containing no GPT structure must not release the table's partitions"
+    );
+    assert!(
+        step_constructs(&f.topology, &f.facts, f.table, &ranges).is_ok(),
+        "nothing protected is reached, so the step constructs"
+    );
+}

@@ -98,6 +98,248 @@ pub struct Facts {
     pub table_states: BTreeMap<NodeId, TableState>,
 }
 
+/// Why a fact set is refused against its topology (issues #349 and
+/// #356; ADR-0041). Every arm names the node it is about, so a refused
+/// capture can be answered rather than merely rejected.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FactError {
+    /// A fact is keyed by an address no absorbed entry carries. Such a
+    /// fact would never enter the body bytes, so an in-process snapshot
+    /// holding it and its own encoding would disagree about what facts
+    /// exist.
+    OrphanFact {
+        /// The fact's key, as the body spells it.
+        fact: &'static str,
+        /// The address that resolves to nothing.
+        node: NodeId,
+    },
+    /// A fact on a kind that does not carry it — a transport on a
+    /// partition, a member count on a device, a table state on a
+    /// volume, an extent on an aggregate. The predicate is the one the
+    /// decode path reads, applied at construction so an in-process
+    /// snapshot can never hold what its own bytes would refuse.
+    MisplacedFact {
+        /// The fact's key, as the body spells it.
+        fact: &'static str,
+        /// The node carrying it.
+        node: NodeId,
+        /// That node's kind name.
+        kind: &'static str,
+    },
+    /// An extent's `host` is an address no absorbed entry carries. Edge
+    /// endpoints and naming referents already had to resolve; a frame
+    /// that resolves to nothing is a range in no address space.
+    UnresolvedExtentHost {
+        /// The node whose extent is framed on the missing host.
+        node: NodeId,
+        /// The address that resolves to nothing.
+        host: NodeId,
+    },
+    /// An extent of zero bytes. An extent is a positional claim about
+    /// bytes; a claim about no bytes is not one — `intersects` can never
+    /// be true of it, so a signature declared this way is invisible to
+    /// the byte scan. A structure whose bytes are unknown omits the fact
+    /// (honest absence, failing closed) rather than declaring nothing.
+    ZeroLengthExtent {
+        /// The node.
+        node: NodeId,
+    },
+    /// `start + length` exceeds `u64::MAX`; the declared range has no
+    /// end and is not a range.
+    ExtentOverflows {
+        /// The node.
+        node: NodeId,
+    },
+    /// A containment child's extent lies outside the extent of the parent
+    /// the edge nests it in, in a frame the two can be compared in. The
+    /// edge and the fact are both positional claims about the same bytes
+    /// and they contradict; the body is refused rather than either being
+    /// preferred.
+    ExtentOutsideContainmentParent {
+        /// The child.
+        child: NodeId,
+        /// The parent named by the containment edge.
+        parent: NodeId,
+    },
+}
+
+impl fmt::Display for FactError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::OrphanFact { fact, node } => {
+                write!(formatter, "fact `{fact}` keyed by unknown address {node}")
+            }
+            Self::MisplacedFact { fact, node, kind } => {
+                write!(
+                    formatter,
+                    "fact `{fact}` on {kind} {node}, which does not carry it"
+                )
+            }
+            Self::UnresolvedExtentHost { node, host } => {
+                write!(
+                    formatter,
+                    "extent of {node} is framed on unknown address {host}"
+                )
+            }
+            Self::ZeroLengthExtent { node } => {
+                write!(formatter, "extent of {node} declares zero bytes")
+            }
+            Self::ExtentOverflows { node } => {
+                write!(formatter, "extent of {node} has no end below u64::MAX")
+            }
+            Self::ExtentOutsideContainmentParent { child, parent } => write!(
+                formatter,
+                "extent of {child} lies outside its containment parent {parent}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for FactError {}
+
+/// Whether a containment pair is *geometric* — the parent's extent is the
+/// region its children lie in — as opposed to *structural*, where the
+/// parent's extent is its own bytes and the children lie beside them.
+///
+/// A partition table's extent is the table structure — protective MBR,
+/// header, entry array — not the region it governs: every committed GPT
+/// fixture puts `p1` at `table.start + table.length` exactly, and a
+/// BIOS-boot layout puts one entry *inside* the first MiB and the rest
+/// beyond it. So `partition-table` → `partition` and
+/// `partition-table` → `conflicting-table-entry` carry no span claim.
+/// The other seven pairs do: a table, signature or file system inside a
+/// device, and a signature or file system inside a partition or a
+/// volume, all lie within their parent's bytes.
+fn containment_pair_is_geometric(source_kind: &str) -> bool {
+    !matches!(source_kind, "partition-table")
+}
+
+/// Refuse a fact set that its topology cannot carry (issues #349, #356;
+/// ADR-0041). Applied by [`TopologySnapshot::assemble`], which both the
+/// in-process constructors and the decode boundary run through, so no
+/// snapshot can exist whose facts would be refused on the other path.
+///
+/// Every rule refuses only what is positively unlawful. Absence of a fact
+/// is never refused here — it is honest absence and fails closed at the
+/// arm that needs it — and a child extent expressed in a frame its parent
+/// cannot be compared against is left alone (that is ADR-0037's held
+/// enforcement, issue #333, and not this function's to decide).
+///
+/// # Errors
+///
+/// [`FactError`] naming the first offending fact.
+pub fn validate_facts(topology: &Topology, facts: &Facts) -> Result<(), FactError> {
+    // Every fact key names an absorbed entry, and that entry's kind
+    // carries the fact.
+    placed(topology, "transport", facts.transports.keys(), |fields| {
+        matches!(fields, NamingFields::PhysicalDevice { .. })
+    })?;
+    placed(
+        topology,
+        "member_count",
+        facts.member_counts.keys(),
+        |fields| matches!(fields, NamingFields::Aggregate { .. }),
+    )?;
+    placed(
+        topology,
+        "table_state",
+        facts.table_states.keys(),
+        |fields| matches!(fields, NamingFields::PhysicalDevice { .. }),
+    )?;
+    placed(
+        topology,
+        "extent_host",
+        facts.extents.keys(),
+        NamingFields::may_carry_extent,
+    )?;
+
+    // Every extent is a range: framed on an entry, of at least one byte,
+    // with an end below `u64::MAX`.
+    for (node, extent) in &facts.extents {
+        if kind_of(topology, extent.host).is_none() {
+            return Err(FactError::UnresolvedExtentHost {
+                node: *node,
+                host: extent.host,
+            });
+        }
+        if extent.length == 0 {
+            return Err(FactError::ZeroLengthExtent { node: *node });
+        }
+        if extent.start.checked_add(extent.length).is_none() {
+            return Err(FactError::ExtentOverflows { node: *node });
+        }
+    }
+
+    containment_agrees_with_extents(topology, facts)
+}
+
+/// Every key in `nodes` names an absorbed entry whose kind `carries` the
+/// fact called `fact`.
+fn placed<'a>(
+    topology: &Topology,
+    fact: &'static str,
+    nodes: impl Iterator<Item = &'a NodeId>,
+    carries: impl Fn(&NamingFields) -> bool,
+) -> Result<(), FactError> {
+    for node in nodes {
+        match kind_of(topology, *node) {
+            None => return Err(FactError::OrphanFact { fact, node: *node }),
+            Some(fields) if !carries(fields) => {
+                return Err(FactError::MisplacedFact {
+                    fact,
+                    node: *node,
+                    kind: fields.kind_name(),
+                });
+            }
+            Some(_) => {}
+        }
+    }
+    Ok(())
+}
+
+/// A containment edge and the two extents at its ends are three claims
+/// about the same bytes. Where the pair is geometric and the frames are
+/// comparable, the child lies within the parent or the body is refused.
+fn containment_agrees_with_extents(topology: &Topology, facts: &Facts) -> Result<(), FactError> {
+    for edge in topology.edges() {
+        if edge.kind != EdgeKind::Containment {
+            continue;
+        }
+        let Some(source_kind) = kind_of(topology, edge.source).map(NamingFields::kind_name) else {
+            continue;
+        };
+        if !containment_pair_is_geometric(source_kind) {
+            continue;
+        }
+        let (Some(parent), Some(child)) = (
+            facts.extents.get(&edge.source),
+            facts.extents.get(&edge.target),
+        ) else {
+            continue;
+        };
+        let inside = if child.host == parent.host {
+            // Both in one frame: the child's bytes lie within the parent's.
+            parent.contains(child)
+        } else if child.host == edge.source {
+            // The child is expressed in the parent's own address space:
+            // its end lies within the parent's length. (Checked arithmetic
+            // holds by the rule above; saturating is belt and braces.)
+            child.start.saturating_add(child.length) <= parent.length
+        } else {
+            // A frame this parent cannot be compared against — ADR-0037's
+            // held enforcement, not a contradiction this rule can see.
+            true
+        };
+        if !inside {
+            return Err(FactError::ExtentOutsideContainmentParent {
+                child: edge.target,
+                parent: edge.source,
+            });
+        }
+    }
+    Ok(())
+}
+
 /// The three-valued protection verdict (ADR-0018 2.1).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Verdict {

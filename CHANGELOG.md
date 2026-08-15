@@ -234,6 +234,45 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **spec-change 13.1.0: the body's facts are validated against its
+  topology at assembly (ADR-0041, resolving issues #349 and #356 as
+  filed).** `TopologySnapshot::assemble` — the one path both the
+  in-process constructors and the decode boundary run through — now
+  refuses, with the node named: a fact keyed by an address no entry
+  carries (`OrphanFact`); a fact on a kind that does not carry it
+  (`MisplacedFact`, the decode path's four placement checks moved here
+  so `assemble` can no longer accept what `from_canonical_body`
+  refuses); an extent framed on an unabsorbed address
+  (`UnresolvedExtentHost`); a zero-length extent (`ZeroLengthExtent` —
+  it can intersect nothing, so a label declared this way was invisible
+  to the byte scan); an extent whose `start + length` overflows
+  (`ExtentOverflows`); and a containment child lying outside its parent
+  where the pair is geometric and the frames are comparable
+  (`ExtentOutsideContainmentParent` — issue #356's measured escape, a
+  signature the edge nests in `[0, 100 MiB)` and the fact puts at
+  500 MiB, is refused at assembly instead of approving the deletion of
+  the partition carrying a live pool's label). `partition-table` →
+  `partition` and → `conflicting-table-entry` are structural: the
+  table's extent is its own header bytes, not the region it governs, and
+  a blanket child-within-parent rule was measured to refuse every
+  committed GPT disk and a pre-existing step test. Left alone by design:
+  an incomparable frame (ADR-0037's held enforcement), a parent with no
+  extent (the golden vector's shape), an absent extent (#356's
+  absent-extent spelling was re-measured under the act and **still
+  constructs** — issue #319's class, not claimed here), sibling overlap,
+  and a device's extent against its own `total_bytes`. Under MODEL-003's
+  explicit-rejection limb with `SCHEMA_VERSION` left at 1 (PR #362's
+  precedent); `SnapshotSchemaError::MisplacedFact` is retired, the
+  boundary's refusal now carrying the constructor's own error, equal by
+  value — a committed test. Twelve mutations, each proven applied by
+  `git diff`, each killed. The `bios_boot_gpt` overlapping-geometry
+  fixture the issue-347 round-2 panel required is committed with its
+  `f11`/`f12` assertions lifted as tests. WP-060's occupancy test was
+  adjusted first under its own grant (PR #377) so this lands green.
+  **The reach is not made sound by this**: validation buys
+  self-consistency, and #319, #333 and #347 stay open as recorded in the
+  ADR.
+
 - **spec-change 12.14.0: the containment-frame anchoring rule
   (ADR-0037, on issue #333).** A range in a containment forest is
   expressed in that forest's root address space, and `HostRange.host`
