@@ -24,13 +24,16 @@ use super::naming::{NamingError, NamingFields, NodeEntry, NodeId, absorb};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EdgeKind {
     /// Positional nesting inside one addressable byte space
-    /// (device → table → partition; a host carrying a signature or file
-    /// system). "Inside one byte space" is a claim about the *frame*, not
-    /// about the parent's span: a table's own extent is its header
-    /// bytes, and the partitions it describes lie beside them, so the two
-    /// `partition-table`-sourced pairs carry no span claim (ADR-0041) and
-    /// what a destroyed table releases is decided by the naming relation,
-    /// not by this edge (ADR-0043). The other seven pairs are geometric.
+    /// (device → table → partition; a host carrying a signature, a file
+    /// system, or — for a volume — a partition table of its own, so a
+    /// partitioned mdraid array or a GPT inside a mapped volume is
+    /// `producer → volume → table → partition`; ADR-0044). "Inside one
+    /// byte space" is a claim about the *frame*, not about the parent's
+    /// span: a table's own extent is its header bytes, and the partitions
+    /// it describes lie beside them, so the two `partition-table`-sourced
+    /// pairs carry no span claim (ADR-0041) and what a destroyed table
+    /// releases is decided by the naming relation, not by this edge
+    /// (ADR-0043). The other eight pairs are geometric.
     Containment,
     /// Evidence to consumer: a backing signature backing its aggregate or
     /// encryption layer.
@@ -138,15 +141,18 @@ impl Topology {
     /// The naming sweep is **resolve-only** and deliberately so. It
     /// refuses a referent that resolves to nothing; it does not ask what
     /// *kind* the referent resolves to. Deriving that kind check from
-    /// [`endpoint_pair_allowed`] is the right shape and is held behind
-    /// issue #360: that table lists the pairs the *edge* validator needs
-    /// and is not a complete catalogue of what a naming field may
-    /// legitimately reference, so deriving a mandatory check from it
-    /// today promotes its omissions into refusals — measured to refuse a
-    /// GPT inside a LUKS volume, a partitioned mdraid array, and an xfs
-    /// on a dm-multipath node, all of which build. **This is therefore a
-    /// partial discharge of ADR-0037:146-150 and does not close #354**,
-    /// whose stated harm is the forbidden *pairing*.
+    /// [`endpoint_pair_allowed`] is the right shape and is issue #354's
+    /// held half. It was held first behind issue #360, because that table
+    /// lists the pairs the *edge* validator needs and was measured to
+    /// refuse honest layouts a naming field may reference: a GPT inside a
+    /// LUKS volume and a partitioned mdraid array, both of which ADR-0044
+    /// admits through `volume → partition-table`; and an xfs on a
+    /// dm-multipath node, which no row admits and ADR-0011's
+    /// detection-only decision leaves unexamined. That last population
+    /// is what #354's kind half must decide before it derives anything
+    /// from this table. **This is therefore a partial discharge of
+    /// ADR-0037:146-150 and does not close #354**, whose stated harm is
+    /// the forbidden *pairing*.
     ///
     /// # Errors
     ///
@@ -311,6 +317,7 @@ pub fn endpoint_pair_allowed(
             ("partition", "file-system"),
             ("volume", "backing-signature"),
             ("volume", "file-system"),
+            ("volume", "partition-table"),
         ],
         EdgeKind::Backing => &[
             ("backing-signature", "aggregate"),

@@ -264,6 +264,44 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **spec-change 15.0.0: destruction carries through the cascade, and a
+  volume carries a partition table (ADR-0044, resolving issue #360).**
+  The endpoint-pair table gains `volume → partition-table` — the missing
+  third of a set two-thirds present beside `volume → backing-signature`
+  and `volume → file-system` — so a partitioned mdraid array
+  (`aggregate → volume → table → md0p1`, over the existing production
+  hop; aggregates stay out of the containment forest) and a GPT inside a
+  LUKS-mapped volume are representable. ADR-0043 measured what the row
+  alone would ship: wiping the array's member disk descended four hops
+  and stopped at the table, because reach is not destruction and only a
+  step's own target released. **Destruction now carries**: a step whose
+  own destroyed ranges reach its target destroys it; destruction is
+  carried from there along the same four arms, under the same geometric
+  bound, as reach (`destroy`, `carry`); every destroyed node releases
+  what its name-roster says it describes — a table its partitions,
+  every other kind nothing — and a released partition is destroyed in
+  turn, so a table below it releases too. Seeded by the target alone:
+  never by a range that merely touches some other node (round 2's L1/L2
+  guards hold unmoved), never by reach (`Label` on the member reaches
+  the table and releases nothing). Measured: the chain refuses
+  `Wipe(member)` through the pool, `CCCCCCCCCC` → `CCRRCCCRCR` on the
+  member disk, the array's superblock and the table; the GPT-in-LUKS
+  layout refuses the LUKS partition's wipe and keeps the ESP beside it
+  10/10 `Clear`; a partitioned array carrying a plain ext4 constructs;
+  every existing layout byte-identical; seven mutations, each proven
+  applied, each killed. One named limit, pinned as a committed row: an
+  extentless target — a volume, an aggregate — declares no destroyed
+  range, so its own wipe is not seen destroyed and reaches the table it
+  carries as content only; the whole-frame canonical entry that would
+  close it was measured green across the workspace and **held**, filed,
+  because it moves `canonical_ranges` and the planner's simulation on a
+  population no planner test covers. **Major**: §2.1:113's release clause
+  and ADR-0018's theorem both said the release follows the step's
+  *target*; both now say the target and the destruction carried from it;
+  MODEL-002's chain gains the volume-carries-a-table sentence. #354's
+  kind half stays held (now on the multipath population alone), the
+  `honest_layouts` test re-spelled through the volume with edges.
+
 - **spec-change 14.0.0: a destroyed partition table releases the
   partitions it describes (ADR-0043, resolving issue #347 on its third
   round).** ADR-0018 defines the destroyed class as releases — content

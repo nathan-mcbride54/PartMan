@@ -2516,3 +2516,508 @@ fn the_release_roster_is_pinned_per_kind() {
     assert_eq!(released_kinds, vec!["partition"]);
     let _ = layer_id;
 }
+
+/// The #360 chain (issue #360, ADR-0044): a whole-disk mdraid member
+/// whose array produces `md0`, which carries its own GPT; `md0p1` hosts a
+/// ZFS vdev. `disk → mdraid signature → array → volume → table → md0p1
+/// → zfs signature → pool`. Every extent below the array is framed on the
+/// volume, so no range declared on the disk ever intersects one: the pool
+/// is reachable only if destruction propagates from the disk through the
+/// array to the table, and the table then releases.
+struct PartitionedMdraid {
+    topology: Topology,
+    facts: Facts,
+    sda: NodeId,
+    md_signature: NodeId,
+    array: NodeId,
+    md0: NodeId,
+    table: NodeId,
+    md0p1: NodeId,
+    zfs_signature: NodeId,
+    pool: NodeId,
+}
+
+#[allow(clippy::too_many_lines)]
+fn partitioned_mdraid() -> PartitionedMdraid {
+    let sda = device(b"MD-MEMBER");
+    let sda_id = derive_id(&sda).expect("derivable");
+    let md_signature = NamingFields::BackingSignature {
+        host: sda_id,
+        family: SignatureFamily::Mdraid1x,
+        primary_offset: 4096,
+    };
+    let md_signature_id = derive_id(&md_signature).expect("derivable");
+    let array = NamingFields::Aggregate {
+        technology: AggregateTechnology::Mdraid,
+        designator: Some(b"md0-uuid".to_vec()),
+    };
+    let array_id = derive_id(&array).expect("derivable");
+    let md0 = NamingFields::Volume {
+        producer: array_id,
+        name: b"md0".to_vec(),
+        role: None,
+    };
+    let md0_id = derive_id(&md0).expect("derivable");
+    let table = NamingFields::PartitionTable {
+        parent: md0_id,
+        role: TableRole::Gpt,
+    };
+    let table_id = derive_id(&table).expect("derivable");
+    let md0p1 = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: MIB,
+    };
+    let md0p1_id = derive_id(&md0p1).expect("derivable");
+    let zfs_signature = NamingFields::BackingSignature {
+        host: md0p1_id,
+        family: SignatureFamily::Zfs,
+        primary_offset: 0,
+    };
+    let zfs_signature_id = derive_id(&zfs_signature).expect("derivable");
+    let pool = NamingFields::Aggregate {
+        technology: AggregateTechnology::Zfs,
+        designator: Some(b"mdpool".to_vec()),
+    };
+    let pool_id = derive_id(&pool).expect("derivable");
+    let topology = Topology::build(
+        vec![
+            sda,
+            md_signature,
+            array,
+            md0,
+            table,
+            md0p1,
+            zfs_signature,
+            pool,
+        ],
+        vec![
+            Edge {
+                kind: EdgeKind::Containment,
+                source: sda_id,
+                target: md_signature_id,
+            },
+            Edge {
+                kind: EdgeKind::Backing,
+                source: md_signature_id,
+                target: array_id,
+            },
+            Edge {
+                kind: EdgeKind::Production,
+                source: array_id,
+                target: md0_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: md0_id,
+                target: table_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: table_id,
+                target: md0p1_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: md0p1_id,
+                target: zfs_signature_id,
+            },
+            Edge {
+                kind: EdgeKind::Backing,
+                source: zfs_signature_id,
+                target: pool_id,
+            },
+        ],
+    )
+    .expect("a partitioned mdraid array builds (issue #360)");
+    let mut extents = BTreeMap::new();
+    let on_disk = |start, length| HostRange {
+        host: sda_id,
+        start,
+        length,
+    };
+    let on_md0 = |start, length| HostRange {
+        host: md0_id,
+        start,
+        length,
+    };
+    extents.insert(sda_id, on_disk(0, 1 << 30));
+    extents.insert(md_signature_id, on_disk(4096, 4096));
+    extents.insert(table_id, on_md0(0, MIB));
+    extents.insert(md0p1_id, on_md0(MIB, 512 * MIB));
+    extents.insert(zfs_signature_id, on_md0(MIB, MIB));
+    let mut transports = BTreeMap::new();
+    transports.insert(sda_id, TransportClass::Sata);
+    PartitionedMdraid {
+        topology,
+        facts: Facts {
+            extents,
+            transports,
+            member_counts: BTreeMap::new(),
+            table_states: BTreeMap::new(),
+        },
+        sda: sda_id,
+        md_signature: md_signature_id,
+        array: array_id,
+        md0: md0_id,
+        table: table_id,
+        md0p1: md0p1_id,
+        zfs_signature: zfs_signature_id,
+        pool: pool_id,
+    }
+}
+
+// Requirements: MODEL-002, SAFE-005, CAP-003
+//   Issue #360's chain, closed. A whole-disk mdraid member whose array
+//   produces a volume carrying its own GPT, with a ZFS vdev on `md0p1`:
+//   every extent below the array is framed on the volume, so no range on
+//   the disk intersects one and reach alone stopped at the table (ADR-0043
+//   measured it: four hops down and the partition survived). Destruction
+//   now carries from the wiped member through the signature, the array
+//   and the volume to the table, and the table releases: the pool is
+//   reached, the step refuses, and the four release operations on the
+//   member disk and on the array's own superblock go `Unsupported{Zfs}`
+//   while the six that destroy nothing stay `Clear`. The table on the
+//   volume, taken as a target, releases exactly as a table on a disk does.
+// Evidence: destroying_a_partitioned_arrays_member_reaches_what_its_partitions_carry
+#[test]
+fn destroying_a_partitioned_arrays_member_reaches_what_its_partitions_carry() {
+    use super::capability::{Operation, ProtectionGate, protection_gate};
+    let m = partitioned_mdraid();
+    let affected = affected_set(&m.topology, &m.facts, m.sda, &wipe_of(&m.facts, m.sda));
+    for (name, node) in [
+        ("md signature", m.md_signature),
+        ("array", m.array),
+        ("md0", m.md0),
+        ("table", m.table),
+        ("md0p1", m.md0p1),
+        ("zfs signature", m.zfs_signature),
+        ("pool", m.pool),
+    ] {
+        assert!(affected.contains(&node), "wiping the member reaches {name}");
+    }
+    let refusal = step_constructs(&m.topology, &m.facts, m.sda, &wipe_of(&m.facts, m.sda))
+        .expect_err("the pool on the array's partition refuses the member wipe");
+    assert!(matches!(refusal.verdict, Verdict::Refused { .. }));
+    for target in [m.sda, m.md_signature, m.table] {
+        for op in mutating_operations() {
+            let gate = protection_gate(&m.topology, &m.facts, target, op);
+            if matches!(
+                op,
+                Operation::Wipe | Operation::Shrink | Operation::Move | Operation::Encrypt
+            ) {
+                // The pool itself or the vdev signature that inherits its
+                // refusal, whichever the closure visits first.
+                assert!(
+                    matches!(
+                        gate,
+                        ProtectionGate::Unsupported {
+                            ground: RefusalGround::Zfs
+                                | RefusalGround::InheritedFromConsumerOrProducer
+                        }
+                    ),
+                    "{op:?} destroys its target and must refuse through the pool, got {gate:?}"
+                );
+            } else {
+                assert_eq!(gate, ProtectionGate::Clear, "{op:?} destroys nothing");
+            }
+        }
+    }
+}
+
+// Requirements: MODEL-002, SAFE-005, CAP-003
+//   What carries destruction, and what does not. Only the step's own
+//   destruction of its target seeds it: the six operations that destroy
+//   nothing reach the table on the volume (ADR-0039's carried content)
+//   and release nothing — a table reached is not a table destroyed. A
+//   range that merely touches a table never seeds it either: round 2's L1
+//   and L2 guards hold unmoved and are not re-asserted here. And an
+//   extentless target — the volume, the array — declares no destroyed
+//   range at all, so its own wipe cannot be seen destroyed and reaches
+//   the table it carries as content only. That last row is the named
+//   limit ADR-0044 leaves open, pinned so that closing it is a deliberate
+//   change and never a drift.
+// Evidence: destruction_carries_only_from_the_target_and_reach_never_releases
+#[test]
+fn destruction_carries_only_from_the_target_and_reach_never_releases() {
+    use super::capability::{Operation, ProtectionGate, protection_gate};
+    let m = partitioned_mdraid();
+    let ranges = super::capability::canonical_ranges(Operation::Label, m.sda, &m.facts);
+    let affected = affected_set(&m.topology, &m.facts, m.sda, &ranges);
+    assert!(
+        affected.contains(&m.table),
+        "a label on the member reaches the table the array's volume carries"
+    );
+    assert!(
+        !affected.contains(&m.md0p1) && !affected.contains(&m.pool),
+        "and releases nothing: reach is not destruction"
+    );
+    // The named limit: an extentless target.
+    for target in [m.md0, m.array] {
+        for op in mutating_operations() {
+            assert_eq!(
+                protection_gate(&m.topology, &m.facts, target, op),
+                ProtectionGate::Clear,
+                "{op:?} on an extentless target declares no destroyed range (ADR-0044's named limit)"
+            );
+        }
+        let affected = affected_set(&m.topology, &m.facts, target, &StepRanges::default());
+        assert!(affected.contains(&m.table) && !affected.contains(&m.pool));
+    }
+}
+
+// Requirements: MODEL-002, SAFE-005, CAP-003
+//   The other population the row admits, and the false-refusal control.
+//   A GPT inside a LUKS-mapped volume on the second partition of an
+//   ordinary disk, a pool under the inner table's partition: wiping the
+//   LUKS partition destroys it, destruction carries through its signature,
+//   the layer and the mapper to the inner table, which releases, and the
+//   pool refuses; wiping the ESP beside it stays 10/10 Clear — nothing on
+//   the disk's own frame connects the two — and a label on the LUKS
+//   partition reaches the inner table without releasing it. And the
+//   control: a partitioned array whose partition carries a plain ext4
+//   releases and reaches, both Permitted, and the member wipe constructs.
+// Evidence: a_table_inside_a_mapped_volume_releases_and_a_plain_one_constructs
+#[test]
+#[allow(clippy::too_many_lines)]
+fn a_table_inside_a_mapped_volume_releases_and_a_plain_one_constructs() {
+    use super::capability::{Operation, ProtectionGate, protection_gate};
+    use super::naming::FileSystemKind;
+
+    // GPT inside LUKS.
+    let disk = device(b"LUKS-GPT");
+    let disk_id = derive_id(&disk).expect("derivable");
+    let gpt = NamingFields::PartitionTable {
+        parent: disk_id,
+        role: TableRole::Gpt,
+    };
+    let gpt_id = derive_id(&gpt).expect("derivable");
+    let esp = NamingFields::Partition {
+        parent_table: gpt_id,
+        start_offset: MIB,
+    };
+    let esp_id = derive_id(&esp).expect("derivable");
+    let crypt = NamingFields::Partition {
+        parent_table: gpt_id,
+        start_offset: 512 * MIB,
+    };
+    let crypt_id = derive_id(&crypt).expect("derivable");
+    let luks = NamingFields::BackingSignature {
+        host: crypt_id,
+        family: SignatureFamily::Luks2,
+        primary_offset: 0,
+    };
+    let luks_id = derive_id(&luks).expect("derivable");
+    let layer = NamingFields::EncryptionLayer {
+        backing_signature: luks_id,
+    };
+    let layer_id = derive_id(&layer).expect("derivable");
+    let mapper = NamingFields::Volume {
+        producer: layer_id,
+        name: b"cryptdisk".to_vec(),
+        role: None,
+    };
+    let mapper_id = derive_id(&mapper).expect("derivable");
+    let inner = NamingFields::PartitionTable {
+        parent: mapper_id,
+        role: TableRole::Gpt,
+    };
+    let inner_id = derive_id(&inner).expect("derivable");
+    let inner_p1 = NamingFields::Partition {
+        parent_table: inner_id,
+        start_offset: MIB,
+    };
+    let inner_p1_id = derive_id(&inner_p1).expect("derivable");
+    let zfs = NamingFields::BackingSignature {
+        host: inner_p1_id,
+        family: SignatureFamily::Zfs,
+        primary_offset: 0,
+    };
+    let zfs_id = derive_id(&zfs).expect("derivable");
+    let pool = NamingFields::Aggregate {
+        technology: AggregateTechnology::Zfs,
+        designator: Some(b"cryptpool".to_vec()),
+    };
+    let pool_id = derive_id(&pool).expect("derivable");
+    let containment = |source, target| Edge {
+        kind: EdgeKind::Containment,
+        source,
+        target,
+    };
+    let topology = Topology::build(
+        vec![
+            disk, gpt, esp, crypt, luks, layer, mapper, inner, inner_p1, zfs, pool,
+        ],
+        vec![
+            containment(disk_id, gpt_id),
+            containment(gpt_id, esp_id),
+            containment(gpt_id, crypt_id),
+            containment(crypt_id, luks_id),
+            Edge {
+                kind: EdgeKind::Backing,
+                source: luks_id,
+                target: layer_id,
+            },
+            Edge {
+                kind: EdgeKind::Production,
+                source: layer_id,
+                target: mapper_id,
+            },
+            containment(mapper_id, inner_id),
+            containment(inner_id, inner_p1_id),
+            containment(inner_p1_id, zfs_id),
+            Edge {
+                kind: EdgeKind::Backing,
+                source: zfs_id,
+                target: pool_id,
+            },
+        ],
+    )
+    .expect("a GPT inside a LUKS-mapped volume builds (issue #360)");
+    let mut extents = BTreeMap::new();
+    let on_disk = |start, length| HostRange {
+        host: disk_id,
+        start,
+        length,
+    };
+    let on_mapper = |start, length| HostRange {
+        host: mapper_id,
+        start,
+        length,
+    };
+    extents.insert(disk_id, on_disk(0, 1 << 30));
+    extents.insert(gpt_id, on_disk(0, MIB));
+    extents.insert(esp_id, on_disk(MIB, 256 * MIB));
+    extents.insert(crypt_id, on_disk(512 * MIB, 512 * MIB));
+    extents.insert(luks_id, on_disk(512 * MIB, 16 << 10));
+    extents.insert(inner_id, on_mapper(0, MIB));
+    extents.insert(inner_p1_id, on_mapper(MIB, 256 * MIB));
+    extents.insert(zfs_id, on_mapper(MIB, MIB));
+    let mut transports = BTreeMap::new();
+    transports.insert(disk_id, TransportClass::Sata);
+    let facts = Facts {
+        extents,
+        transports,
+        member_counts: BTreeMap::new(),
+        table_states: BTreeMap::new(),
+    };
+    let affected = affected_set(&topology, &facts, crypt_id, &wipe_of(&facts, crypt_id));
+    assert!(
+        affected.contains(&inner_p1_id) && affected.contains(&pool_id),
+        "wiping the LUKS partition releases the inner table's partition and reaches the pool"
+    );
+    assert!(step_constructs(&topology, &facts, crypt_id, &wipe_of(&facts, crypt_id)).is_err());
+    for op in mutating_operations() {
+        assert_eq!(
+            protection_gate(&topology, &facts, esp_id, op),
+            ProtectionGate::Clear,
+            "{op:?} on the ESP beside the LUKS partition must not refuse"
+        );
+    }
+    let label = super::capability::canonical_ranges(Operation::Label, crypt_id, &facts);
+    let affected = affected_set(&topology, &facts, crypt_id, &label);
+    assert!(
+        affected.contains(&inner_id) && !affected.contains(&inner_p1_id),
+        "a label on the LUKS partition reaches the inner table and releases nothing"
+    );
+    // A released partition is destroyed, not merely reached: wiping the
+    // outer table releases the LUKS partition, whose destruction carries
+    // to the inner table, which releases in turn.
+    let affected = affected_set(&topology, &facts, gpt_id, &wipe_of(&facts, gpt_id));
+    assert!(
+        affected.contains(&inner_p1_id) && affected.contains(&pool_id),
+        "the outer table's release carries through the mapped volume to the inner table's release"
+    );
+
+    // The control: a partitioned array carrying a plain ext4.
+    let sda = device(b"MD-PLAIN");
+    let sda_id = derive_id(&sda).expect("derivable");
+    let md_signature = NamingFields::BackingSignature {
+        host: sda_id,
+        family: SignatureFamily::Mdraid1x,
+        primary_offset: 4096,
+    };
+    let md_signature_id = derive_id(&md_signature).expect("derivable");
+    let array = NamingFields::Aggregate {
+        technology: AggregateTechnology::Mdraid,
+        designator: Some(b"md1-uuid".to_vec()),
+    };
+    let array_id = derive_id(&array).expect("derivable");
+    let md1 = NamingFields::Volume {
+        producer: array_id,
+        name: b"md1".to_vec(),
+        role: None,
+    };
+    let md1_id = derive_id(&md1).expect("derivable");
+    let table = NamingFields::PartitionTable {
+        parent: md1_id,
+        role: TableRole::Gpt,
+    };
+    let table_id = derive_id(&table).expect("derivable");
+    let md1p1 = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: MIB,
+    };
+    let md1p1_id = derive_id(&md1p1).expect("derivable");
+    let fs = NamingFields::FileSystem {
+        host: md1p1_id,
+        kind: FileSystemKind::Ext4,
+        superblock_offset: 1024,
+    };
+    let fs_id = derive_id(&fs).expect("derivable");
+    let topology = Topology::build(
+        vec![sda, md_signature, array, md1, table, md1p1, fs],
+        vec![
+            containment(sda_id, md_signature_id),
+            Edge {
+                kind: EdgeKind::Backing,
+                source: md_signature_id,
+                target: array_id,
+            },
+            Edge {
+                kind: EdgeKind::Production,
+                source: array_id,
+                target: md1_id,
+            },
+            containment(md1_id, table_id),
+            containment(table_id, md1p1_id),
+            containment(md1p1_id, fs_id),
+        ],
+    )
+    .expect("builds");
+    let mut extents = BTreeMap::new();
+    let on_disk = |start, length| HostRange {
+        host: sda_id,
+        start,
+        length,
+    };
+    let on_md1 = |start, length| HostRange {
+        host: md1_id,
+        start,
+        length,
+    };
+    extents.insert(sda_id, on_disk(0, 1 << 30));
+    extents.insert(md_signature_id, on_disk(4096, 4096));
+    extents.insert(table_id, on_md1(0, MIB));
+    extents.insert(md1p1_id, on_md1(MIB, 512 * MIB));
+    extents.insert(fs_id, on_md1(MIB, 512 * MIB));
+    let mut transports = BTreeMap::new();
+    transports.insert(sda_id, TransportClass::Sata);
+    let facts = Facts {
+        extents,
+        transports,
+        member_counts: BTreeMap::new(),
+        table_states: BTreeMap::new(),
+    };
+    let affected = step_constructs(&topology, &facts, sda_id, &wipe_of(&facts, sda_id))
+        .expect("nothing released is protected, so the member wipe constructs");
+    assert!(
+        affected.contains(&md1p1_id) && affected.contains(&fs_id),
+        "the release reaches the partition and its file system"
+    );
+    for op in mutating_operations() {
+        assert_eq!(
+            protection_gate(&topology, &facts, sda_id, op),
+            ProtectionGate::Clear
+        );
+    }
+}

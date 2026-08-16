@@ -211,31 +211,33 @@ Run `cargo xtask help` for the full command list.
 
 ## Open issues
 
-Eight are open after ADR-0043 (2026-08-16). This section reports status
-only; each issue's own thread is the record, and the review rounds under
-`docs/reviews/` carry the measurements. The current handoff,
-`docs/reviews/HANDOFF_2026-08-15_OPUS_CLEANUP_TO_NEXT.md`, states the
+Eight are open after ADR-0044 (2026-08-16): #360 closed and #392 was
+filed from its round. This section reports status only; each issue's own
+thread is the record, and the review rounds under `docs/reviews/` carry
+the measurements. The current handoff,
+`docs/reviews/HANDOFF_2026-08-16_FABLE_ISSUE_347_TO_NEXT.md`, states the
 reasoning behind the ordering below.
 
-**No sitting is owed at the time of writing.** Issue #347's round-3 act
-(PR #388, ADR-0043) shipped Rust after WP-020's r23 pin at `53c90f1`; the
-r24 sitting (VMID 9448, 2026-08-16 UTC) discharged it, and WP-020 is
-re-pinned at `c83d9f1`. The check is
-`git diff --name-only c83d9f1 HEAD | grep -v '\.md$'`, and it must be run
-against `HEAD` rather than against whichever pin a pull request body cited;
-any non-Markdown path it lists re-opens the three acceptances.
+**A sitting is owed at the time of writing.** Issue #360's act (ADR-0044)
+ships Rust after WP-020's r24 pin at `c83d9f1`, and the r25 sitting that
+discharges it is named in that pull request's body; until WP-020 is
+re-pinned the check `git diff --name-only c83d9f1 HEAD | grep -v '\.md$'`
+lists this act's paths, which is the condition doing its job. It must be
+run against `HEAD` rather than against whichever pin a pull request body
+cited; any non-Markdown path it lists re-opens the three acceptances.
 
 Most of the domain issues were ordered by a dependency chain established by
 measurement — **#347 → #360 → #354's kind half → #333's enforcement**.
-#347 closed with ADR-0043 (2026-08-16); #360 is now the head of that chain,
-and ADR-0043 names what its act must add (the release propagating through
-the cascade, with its own row and fixture).
+#347 closed with ADR-0043 and #360 with ADR-0044 (both 2026-08-16); #354's
+kind half is now the head, held on one population only — a file system or
+table hosted on a multipath node, which no pair-table row admits and which
+ADR-0011's detection-only decision may intend.
 
 | Issue | Package | Standing |
 | --- | --- | --- |
-| **#360** | WP-010 | A partitioned mdraid array has no containment expression. One pair-table row suffices and the workspace is green with it. **Head of the chain now**: ADR-0043 measured that with the row the member-disk wipe reaches the pool only if the release propagates through the cascade, and cut that clause as uncovered — #360's act adds the row, the fixture and the propagation together, and `Wipe(volume)` besides. |
-| **#354** | WP-010 | Naming-field referents validated by nobody. **Partially discharged** — resolve-only landed (#362); the kind half is open and blocked on #360. |
-| **#333** | WP-010 | The reach closure misses children anchored outside the device's address space. Rule **decided**, enforcement **held**, gated on #360. |
+| **#354** | WP-010 | Naming-field referents validated by nobody. **Partially discharged** — resolve-only landed (#362); the kind half is open. **Head of the chain now**: #360's row is landed, and what remains before a pair-table-derived kind check is the multipath population. |
+| **#333** | WP-010 | The reach closure misses children anchored outside the device's address space. Rule **decided**, enforcement **held**, gated on #354's kind half. |
+| **#392** | WP-010 | An extentless target's own wipe is never seen destroyed: `Wipe(volume)` reaches a table it carries as content only. ADR-0044's named limit, pinned as a committed row; the whole-frame canonical entry that closes it was measured green and **held**, because it moves `canonical_ranges` and the planner's simulation on an uncovered population. |
 | **#319** | WP-060/WP-010 | Absent child extents fail open. The occupancy half landed under ADR-0036; the **authorization half** remains. Its recorded blocker (#338) has since closed, so whether it is still blocked is **unverified**. |
 | **#365** | WP-010 | The host-backed producing relation is under-represented outside the pair table: a wrong doc comment, no committed fixture, and a blind suite. |
 | **#366** | WP-035 | The transport-discrimination protocol's deferral addresses the IPC route decision, so its real consumer will never pick it up. |
@@ -250,7 +252,9 @@ still constructs; **#353** closed with ADR-0042 (a frame root is never
 written wholesale, and a target frame root reaches what it carries),
 which leaves the per-kind truthful entry open as a cross-package act;
 **#347** closed with ADR-0043 (a destroyed partition table releases the
-partitions it describes) on its third round, spec 14.0.0.
+partitions it describes) on its third round, spec 14.0.0; **#360** closed
+with ADR-0044 (destruction carries through the cascade, and a volume
+carries a partition table), spec 15.0.0.
 
 ## Roadmap
 

@@ -207,9 +207,11 @@ impl std::error::Error for FactError {}
 /// BIOS-boot layout puts one entry *inside* the first MiB and the rest
 /// beyond it. So `partition-table` → `partition` and
 /// `partition-table` → `conflicting-table-entry` carry no span claim.
-/// The other seven pairs do: a table, signature or file system inside a
-/// device, and a signature or file system inside a partition or a
-/// volume, all lie within their parent's bytes.
+/// The other eight pairs do: a table, signature or file system inside a
+/// device, a signature or file system inside a partition, and a
+/// signature, file system or table inside a volume (ADR-0044), all lie
+/// within their parent's bytes — a volume declares no extent of its
+/// own, so its three pairs are geometric in kind and never compared.
 fn containment_pair_is_geometric(source_kind: &str) -> bool {
     !matches!(source_kind, "partition-table")
 }
@@ -453,10 +455,13 @@ pub fn node_verdict(topology: &Topology, facts: &Facts, id: NodeId) -> Verdict {
 }
 
 /// The affected set of a step (ADR-0018 2.3): a fixpoint over the
-/// declared ranges — containment descent bounded by destroyed ranges,
-/// upward backing from destroyed signatures, downward production from
+/// declared ranges — containment descent bounded by declared geometry,
+/// upward backing from signatures in the set, downward production from
 /// destroyed substrate — seeded by the target and the declared table and
-/// consumed extents.
+/// consumed extents; and, inside it, the destroyed class proper, seeded
+/// by the target when the step's own ranges reach it, carried along the
+/// same arms, and releasing what its members' names describe
+/// (ADR-0043, ADR-0044).
 #[must_use]
 pub fn affected_set(
     topology: &Topology,
@@ -478,6 +483,17 @@ pub fn affected_set(
     // rather than about which class a node landed in.
     let mut range_destroyed: BTreeSet<NodeId> = BTreeSet::new();
     let mut cascade_destroyed: BTreeSet<NodeId> = BTreeSet::new();
+    // The destroyed class proper (ADR-0043, generalized by ADR-0044): what
+    // the step's own destruction of its target takes down. Seeded by the
+    // target alone, when the step's declared destroyed ranges reach it,
+    // and carried from there along the same four arms under the same
+    // geometric bound as reach — never seeded by a range that merely
+    // touches some other node, which is round 2's sibling capture, and
+    // never by reach alone, which is what the six non-destroying
+    // operations carry. Every node that enters it releases what its
+    // name-roster says it describes: a table's partitions, and nothing
+    // for every other kind. A subset of `cascade_destroyed`.
+    let mut destroyed: BTreeSet<NodeId> = BTreeSet::new();
     affected.insert(target);
 
     for entry in topology.entries() {
@@ -500,21 +516,23 @@ pub fn affected_set(
             }
         }
     }
-    // Release (issue #347, ADR-0043). A step whose target is a partition
-    // table and whose own destroyed ranges reach that table destroys the
-    // table, and a destroyed table releases every partition whose name
-    // says it describes it — ADR-0018's own definition of the destroyed
-    // class, "content that ceases to be referenced". Decided by the
-    // step's target and the naming relation, and by nothing else: never
-    // by whether a range from some other step's target happens to touch
-    // the table's declared extent (round 2's sibling capture, from a
-    // partition-target step), never by whether the destroyed ranges cover
-    // that extent (round 1's one-byte fail-open), and never by the edge
-    // set (an omitted edge is not an escape). The released partitions
-    // enter the cascade class and descend into what they carry by the
-    // ordinary geometry; a signature they carry brings its consumer.
+    // Release (issue #347, ADR-0043; propagated by ADR-0044 on issue
+    // #360). A step whose own destroyed ranges reach its target destroys
+    // the target; destruction carries from there through the cascade;
+    // and a destroyed partition table releases every partition whose
+    // name says it describes it — ADR-0018's own definition of the
+    // destroyed class, "content that ceases to be referenced". Decided by
+    // the step's target, the cascade from it, and the naming relation,
+    // and by nothing else: never by whether a range from some other
+    // step's target happens to touch the table's declared extent (round
+    // 2's sibling capture, from a partition-target step), never by
+    // whether the destroyed ranges cover that extent (round 1's one-byte
+    // fail-open), and never by the edge set (an omitted edge is not an
+    // escape). The released partitions are destroyed too: they descend
+    // into what they carry by the ordinary geometry, a signature they
+    // carry brings its consumer, and a table below them releases in turn.
     if range_destroyed.contains(&target) {
-        release_described_partitions(topology, target, &mut cascade_destroyed);
+        destroy(topology, target, &mut destroyed, &mut cascade_destroyed);
     }
 
     loop {
@@ -524,9 +542,16 @@ pub fn affected_set(
             // propagates to the content it carries, not only the
             // destroyed ones. That is what gives the six operations
             // which destroy nothing a reach at all.
-            let source_destroyed = range_destroyed.contains(&edge.source)
+            let source_in_set = range_destroyed.contains(&edge.source)
                 || cascade_destroyed.contains(&edge.source)
                 || affected.contains(&edge.source);
+            // Destruction carries only from a destroyed source: the
+            // target when the step destroys it, and whatever that has
+            // already taken down. A range-destroyed node that is not the
+            // target is reached, and descends, but establishes no
+            // destruction of its own — its extent is authored content a
+            // sibling's range can be made to touch.
+            let source_destroyed = destroyed.contains(&edge.source);
             match edge.kind {
                 // Containment descent into carried content, and downward
                 // production into a destroyed producer's products: one
@@ -537,7 +562,7 @@ pub fn affected_set(
                 // containment target may, and is compared against its
                 // source's.
                 EdgeKind::Containment | EdgeKind::Production | EdgeKind::HostBacking => {
-                    if source_destroyed
+                    if source_in_set
                         && descends_into(
                             topology,
                             facts,
@@ -546,7 +571,13 @@ pub fn affected_set(
                             edge.source,
                             edge.target,
                         )
-                        && cascade_destroyed.insert(edge.target)
+                        && carry(
+                            topology,
+                            edge.target,
+                            source_destroyed,
+                            &mut destroyed,
+                            &mut cascade_destroyed,
+                        )
                     {
                         changed = true;
                     }
@@ -561,12 +592,10 @@ pub fn affected_set(
                 // reached by any route brings its consumer while only
                 // a destroyed one takes its substrate down.
                 EdgeKind::Backing => {
-                    if (affected.contains(&edge.source) || source_destroyed)
-                        && affected.insert(edge.target)
-                    {
+                    if source_in_set && affected.insert(edge.target) {
                         changed = true;
                     }
-                    if source_destroyed
+                    if source_in_set
                         && descends_into(
                             topology,
                             facts,
@@ -575,7 +604,13 @@ pub fn affected_set(
                             edge.source,
                             edge.target,
                         )
-                        && cascade_destroyed.insert(edge.target)
+                        && carry(
+                            topology,
+                            edge.target,
+                            source_destroyed,
+                            &mut destroyed,
+                            &mut cascade_destroyed,
+                        )
                     {
                         changed = true;
                     }
@@ -594,26 +629,57 @@ pub fn affected_set(
     affected
 }
 
-/// Release (issue #347, ADR-0043): every partition whose own name says
-/// `table` describes it enters the cascade class. Read off the naming
-/// relation — `Partition.parent_table`, which a partition cannot be
-/// represented without — never off a containment edge, which a body may
-/// omit; and quantified over the roster by
-/// [`NamingFields::released_by_table`], so a kind that comes to name a
-/// table lands in one place.
-fn release_described_partitions(
+/// One hop of the cascade: `node` is reached, and — when its source is
+/// destroyed — destroyed too. Returns whether either set grew.
+fn carry(
     topology: &Topology,
-    table: NodeId,
+    node: NodeId,
+    source_destroyed: bool,
+    destroyed: &mut BTreeSet<NodeId>,
     cascade_destroyed: &mut BTreeSet<NodeId>,
-) {
-    for entry in topology.entries() {
-        let fields = match entry {
-            NodeEntry::Single { fields, .. } | NodeEntry::Group { fields, .. } => fields,
-        };
-        if fields.released_by_table() == Some(table) {
-            cascade_destroyed.insert(entry.id());
-        }
+) -> bool {
+    let reached = cascade_destroyed.insert(node);
+    let taken = source_destroyed && destroy(topology, node, destroyed, cascade_destroyed);
+    reached || taken
+}
+
+/// Mark `node` destroyed and release what its destruction releases
+/// (issue #347, ADR-0043; issue #360, ADR-0044). Returns whether
+/// anything new entered the destroyed class.
+///
+/// A destroyed partition table releases every partition whose own name
+/// says the table describes it, and a released partition is destroyed in
+/// turn. Read off the naming relation — `Partition.parent_table`, which a
+/// partition cannot be represented without — never off a containment
+/// edge, which a body may omit; and quantified over the roster by
+/// [`NamingFields::released_by_table`], so a kind that comes to name a
+/// table lands in one place. For every other kind the roster names
+/// nothing and the node is simply destroyed.
+fn destroy(
+    topology: &Topology,
+    node: NodeId,
+    destroyed: &mut BTreeSet<NodeId>,
+    cascade_destroyed: &mut BTreeSet<NodeId>,
+) -> bool {
+    if !destroyed.insert(node) {
+        return false;
     }
+    cascade_destroyed.insert(node);
+    let released: Vec<NodeId> = topology
+        .entries()
+        .iter()
+        .filter(|entry| {
+            let fields = match entry {
+                NodeEntry::Single { fields, .. } | NodeEntry::Group { fields, .. } => fields,
+            };
+            fields.released_by_table() == Some(node)
+        })
+        .map(NodeEntry::id)
+        .collect();
+    for partition in released {
+        destroy(topology, partition, destroyed, cascade_destroyed);
+    }
+    true
 }
 
 fn kind_of(topology: &Topology, id: NodeId) -> Option<&NamingFields> {

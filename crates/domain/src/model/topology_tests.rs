@@ -489,10 +489,12 @@ fn an_unresolved_naming_referent_names_its_field() {
 // Requirements: MODEL-002
 //   The sweep is resolve-only by decision, and this pins the boundary.
 //   A referent that resolves to the *wrong kind* still builds: deriving
-//   that check from `endpoint_pair_allowed` is held behind issue #360,
-//   because that table is the edge validator's and is not a complete
-//   catalogue of what a naming field may reference. When #360 lands,
-//   this test is the one that must be deliberately changed.
+//   that check from `endpoint_pair_allowed` is issue #354's held half.
+//   It was held behind issue #360 while the table could not express a
+//   partitioned mdraid array or a GPT inside a mapped volume; ADR-0044
+//   landed that row, and what remains before the kind half is the
+//   multipath population below. When #354 lands, this test is the one
+//   that must be deliberately changed.
 // Evidence: a_wrong_kind_referent_still_builds_and_that_is_the_held_half
 #[test]
 fn a_wrong_kind_referent_still_builds_and_that_is_the_held_half() {
@@ -505,18 +507,32 @@ fn a_wrong_kind_referent_still_builds_and_that_is_the_held_half() {
         start_offset: 1 << 20,
     };
     Topology::build(vec![dev, partition], vec![])
-        .expect("resolve-only admits a wrong-kind referent; #360 holds the kind half");
+        .expect("resolve-only admits a wrong-kind referent; #354 holds the kind half");
 }
 
 // Requirements: MODEL-002
-//   The three honest layouts the #354 panel measured as false-refused by
-//   the pair-table-derived kind check. Each builds here, which is what
-//   distinguishes the landed resolve-only sweep from the rejected
-//   design; if any of these ever refuses, the kind half has leaked in.
+//   The three layouts the #354 panel measured as false-refused by the
+//   pair-table-derived kind check, re-read under ADR-0044. Two of them
+//   were the pair table's own omission and are now admitted rows: a GPT
+//   inside a LUKS-mapped volume names a `Volume` in `PartitionTable.parent`
+//   and builds *with* its `volume → partition-table` edge; a partitioned
+//   mdraid array is `aggregate → volume → partition-table` over the
+//   production hop, and builds with its edges too — the table's parent is
+//   the array's produced volume, never the aggregate, which stays out of
+//   the containment forest. The third — an xfs whose `host` names a
+//   `MultipathNode` — no row admits, and it still builds under the
+//   resolve-only sweep; that population is what #354's kind half must
+//   decide. If any of these ever refuses, the kind half has leaked in.
 // Evidence: honest_layouts_the_kind_check_would_have_refused_still_build
 #[test]
 fn honest_layouts_the_kind_check_would_have_refused_still_build() {
-    // a. A GPT inside a LUKS volume: PartitionTable.parent names a Volume.
+    let containment = |source, target| Edge {
+        kind: EdgeKind::Containment,
+        source,
+        target,
+    };
+    // a. A GPT inside a LUKS volume: PartitionTable.parent names a Volume,
+    //    and the row admits the edge.
     let dev = device(b"D0");
     let dev_id = id_of(&dev);
     let luks = NamingFields::BackingSignature {
@@ -539,17 +555,41 @@ fn honest_layouts_the_kind_check_would_have_refused_still_build() {
         parent: volume_id,
         role: TableRole::Gpt,
     };
-    Topology::build(vec![dev, luks, layer, volume, inner_table], vec![])
-        .expect("a GPT inside a LUKS volume must build");
+    let inner_table_id = id_of(&inner_table);
+    Topology::build(
+        vec![dev, luks, layer, volume, inner_table],
+        vec![
+            containment(dev_id, luks_id),
+            Edge {
+                kind: EdgeKind::Backing,
+                source: luks_id,
+                target: layer_id,
+            },
+            Edge {
+                kind: EdgeKind::Production,
+                source: layer_id,
+                target: volume_id,
+            },
+            containment(volume_id, inner_table_id),
+        ],
+    )
+    .expect("a GPT inside a LUKS volume must build, edges and all (ADR-0044)");
 
-    // b. A partitioned mdraid array: PartitionTable.parent names an Aggregate.
+    // b. A partitioned mdraid array: the table's parent is the volume the
+    //    array produces, and every edge is in the table.
     let array = NamingFields::Aggregate {
         technology: AggregateTechnology::Mdraid,
         designator: Some(b"md0".to_vec()),
     };
     let array_id = id_of(&array);
+    let md0 = NamingFields::Volume {
+        producer: array_id,
+        name: b"md0".to_vec(),
+        role: None,
+    };
+    let md0_id = id_of(&md0);
     let array_table = NamingFields::PartitionTable {
-        parent: array_id,
+        parent: md0_id,
         role: TableRole::Gpt,
     };
     let array_table_id = id_of(&array_table);
@@ -557,8 +597,24 @@ fn honest_layouts_the_kind_check_would_have_refused_still_build() {
         parent_table: array_table_id,
         start_offset: 1 << 20,
     };
-    Topology::build(vec![array, array_table, md0p1], vec![])
-        .expect("a partitioned mdraid array must build");
+    let md0p1_id = id_of(&md0p1);
+    Topology::build(
+        vec![array, md0, array_table, md0p1],
+        vec![
+            Edge {
+                kind: EdgeKind::Production,
+                source: array_id,
+                target: md0_id,
+            },
+            containment(md0_id, array_table_id),
+            containment(array_table_id, md0p1_id),
+        ],
+    )
+    .expect("a partitioned mdraid array must build, edges and all (ADR-0044)");
+    assert!(
+        !endpoint_pair_allowed(EdgeKind::Containment, "aggregate", "partition-table"),
+        "an aggregate carries no table of its own; its produced volume does"
+    );
 
     // c. An xfs on a dm-multipath node: FileSystem.host names a MultipathNode.
     let multipath = NamingFields::MultipathNode {
