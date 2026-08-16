@@ -155,7 +155,9 @@ the same practice, and on `c83d9f1` (2026-08-16 UTC) when issue #347's
 round-3 act — one Rust merge, PR #388, ADR-0043 — tripped it a
 nineteenth, named in the PR body before the merge, and on `91cd1c9`
 (2026-08-16 UTC) when issue #360's act — one Rust merge, PR #393,
-ADR-0044 — tripped it a twentieth, likewise named before the merge,
+ADR-0044 — tripped it a twentieth, likewise named before the merge, and
+on `ee12af2` (2026-08-16 UTC) when issue #354's kind-half act — one Rust
+merge, PR #398, ADR-0045 — tripped it a twenty-first, likewise named,
 with identical harness values and fixture digests every time. (This sentence
 previously read "four times" while the custody table held six rows — the
 `39b59f5` re-take never updated it, the stale-count shape again, corrected
