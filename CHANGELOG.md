@@ -264,6 +264,52 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **spec-change 15.1.0: names are admitted where edges are (ADR-0045,
+  resolving issue #354's kind half).** Eight node kinds embed a `NodeId`
+  in their hashed name; PR #362 made every such referent resolve, and a
+  referent that resolved to the *wrong kind* — `Partition.parent_table`
+  naming the physical device, `Volume.producer` naming a partition —
+  still built at assembly, at encode→decode→rebuild and in the planner's
+  simulated rebuild. That is ADR-0037:146-150's stated harm, and the
+  precondition (`:217`) #333's frame enforcement is held on. **Every
+  naming referent must now resolve to an entry whose kind
+  `endpoint_pair_allowed` admits as the source of the relation the field
+  names** — `naming_referent_rule` maps each field to a *relation*
+  (containment for a table's `parent`, a partition's `parent_table`, a
+  signature's or file system's `host`, a conflicting entry's `table`;
+  backing for an encryption layer's `backing_signature`; production or
+  host-backing for a volume's `producer`), never to a list of kinds, so a
+  row added to the table admits the name in the same act and there is
+  no second authored list to drift; a backing extent's `host` is the one
+  open field (no edge kind targets a backing extent) and must only
+  resolve; an unclassified field admits nothing. `Topology::build`
+  refuses with `ForbiddenNamingReferent` naming the node, kind, field,
+  referent and the kind it resolved to, and the decode boundary inherits
+  it. What held this after ADR-0044 was one population — content hosted
+  on a multipath node, which no row admitted — measured to be an
+  omission and a fail-open: an xfs naming `/dev/mapper/mpatha` as `host`
+  built, no edge could carry it, its device-scope ascent found itself its
+  own root, and all ten mutating gates were `Clear` over a device §2.1
+  says never to mutate. **The pair table gains `multipath-node →
+  {backing-signature, file-system, partition-table}`**, and content on a
+  multipath node inherits its detection-only refusal, `Unsupported` ten
+  times over. Measured: the workspace green with the check on (the golden
+  vector and every planner rebuild included), the only red the test that
+  pinned the held half, deliberately replaced; the naming enumeration
+  admits 17 pairings and refuses 60; five honest layouts earlier
+  candidates false-refused — a GPT in LUKS, a partitioned mdraid array,
+  an xfs on multipath, a partitioned multipath node, a loop-backed volume
+  — all build with their edges; seven mutations, each proven applied,
+  each killed. MODEL-003 under the explicit-rejection limb, schema version
+  unchanged, on #362's own reasoning. **Minor**: additions to MODEL-002,
+  Section 5 and the §2.1 multipath entry. Two limits pinned and filed:
+  device scope ascends the edge set, so a body omitting the multipath
+  edge still gates its content `Clear` (the naming relation carries no
+  scope — the escape ADR-0043 closed for release, open for scope); and a
+  table inside a partition is expressible by no row and refused as a
+  name — unrepresentable, not fail-open. ADR-0037:217's precondition is
+  now satisfied; #333's enforcement is unblocked and is its own round.
+
 - **spec-change 15.0.0: destruction carries through the cascade, and a
   volume carries a partition table (ADR-0044, resolving issue #360).**
   The endpoint-pair table gains `volume → partition-table` — the missing

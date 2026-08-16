@@ -27,13 +27,15 @@ pub enum EdgeKind {
     /// (device → table → partition; a host carrying a signature, a file
     /// system, or — for a volume — a partition table of its own, so a
     /// partitioned mdraid array or a GPT inside a mapped volume is
-    /// `producer → volume → table → partition`; ADR-0044). "Inside one
+    /// `producer → volume → table → partition`, ADR-0044; a multipath
+    /// node carries the same three, so content on `/dev/mapper/mpatha`
+    /// inherits the node's detection-only refusal, ADR-0045). "Inside one
     /// byte space" is a claim about the *frame*, not about the parent's
     /// span: a table's own extent is its header bytes, and the partitions
     /// it describes lie beside them, so the two `partition-table`-sourced
     /// pairs carry no span claim (ADR-0041) and what a destroyed table
     /// releases is decided by the naming relation, not by this edge
-    /// (ADR-0043). The other eight pairs are geometric.
+    /// (ADR-0043). The other eleven pairs are geometric.
     Containment,
     /// Evidence to consumer: a backing signature backing its aggregate or
     /// encryption layer.
@@ -138,21 +140,23 @@ impl Topology {
     /// appear in its kind's pair table. The result is a deterministic
     /// function of the observed sets.
     ///
-    /// The naming sweep is **resolve-only** and deliberately so. It
-    /// refuses a referent that resolves to nothing; it does not ask what
-    /// *kind* the referent resolves to. Deriving that kind check from
-    /// [`endpoint_pair_allowed`] is the right shape and is issue #354's
-    /// held half. It was held first behind issue #360, because that table
-    /// lists the pairs the *edge* validator needs and was measured to
-    /// refuse honest layouts a naming field may reference: a GPT inside a
-    /// LUKS volume and a partitioned mdraid array, both of which ADR-0044
-    /// admits through `volume → partition-table`; and an xfs on a
-    /// dm-multipath node, which no row admits and ADR-0011's
-    /// detection-only decision leaves unexamined. That last population
-    /// is what #354's kind half must decide before it derives anything
-    /// from this table. **This is therefore a partial discharge of
-    /// ADR-0037:146-150 and does not close #354**, whose stated harm is
-    /// the forbidden *pairing*.
+    /// The naming sweep asks two things of every referent (issue #354,
+    /// both halves; ADR-0045). It must **resolve** to an absorbed entry,
+    /// and that entry's **kind** must be one the endpoint-pair table
+    /// admits as the source of the relation the field names — read off
+    /// [`endpoint_pair_allowed`] through [`naming_referent_rule`], the
+    /// same table the edge check below reads, so there is no second
+    /// authored list to drift from the first. A partition's `parent_table`
+    /// must be a partition table; a table's `parent`, a signature's or
+    /// file system's `host`, is a kind that may carry one — a device, a
+    /// partition, a volume, a multipath node — exactly as the containment
+    /// pairs say; a volume's `producer` is whatever `Production` or
+    /// `HostBacking` admits. A backing extent's `host` is the one open
+    /// field: no edge kind targets a backing extent, so the table has no
+    /// opinion and the field must only resolve. Whether a *containment
+    /// edge* agrees with the name is not asked here — that is ADR-0037's
+    /// held enforcement (issue #333), which this sweep is the stated
+    /// precondition of (ADR-0037:146-150, :217).
     ///
     /// # Errors
     ///
@@ -175,12 +179,21 @@ impl Topology {
                 NodeEntry::Single { fields, .. } | NodeEntry::Group { fields, .. } => fields,
             };
             for (field, referent) in fields.naming_referents() {
-                if !kind_of.contains_key(&referent) {
+                let Some(referent_kind) = kind_of.get(&referent).copied() else {
                     return Err(TopologyError::UnresolvedNamingReferent {
                         node: entry.id(),
                         kind: fields.kind_name(),
                         field,
                         referent,
+                    });
+                };
+                if !naming_referent_kind_allowed(fields.kind_name(), field, referent_kind) {
+                    return Err(TopologyError::ForbiddenNamingReferent {
+                        node: entry.id(),
+                        kind: fields.kind_name(),
+                        field,
+                        referent,
+                        referent_kind,
                     });
                 }
             }
@@ -240,6 +253,25 @@ pub enum TopologyError {
         /// The unresolved address.
         referent: NodeId,
     },
+    /// A node's own naming field references an absorbed entry of a kind
+    /// the endpoint-pair table does not admit as the source of the
+    /// relation the field names (issue #354's kind half; ADR-0045): a
+    /// partition whose `parent_table` is the physical device, a volume
+    /// whose `producer` is a partition. The pairing the name asserts is
+    /// one no edge could carry, so no frame may be derived from it
+    /// (ADR-0037:146-150).
+    ForbiddenNamingReferent {
+        /// The node whose name carries the referent.
+        node: NodeId,
+        /// That node's kind name.
+        kind: &'static str,
+        /// The naming field carrying it.
+        field: &'static str,
+        /// The referent's address.
+        referent: NodeId,
+        /// The kind the referent resolved to.
+        referent_kind: &'static str,
+    },
     /// An edge's endpoints are one node.
     SelfEdge {
         /// The address on both ends.
@@ -276,6 +308,16 @@ impl fmt::Display for TopologyError {
             } => write!(
                 formatter,
                 "{kind} {node} names unknown address {referent} in `{field}`"
+            ),
+            Self::ForbiddenNamingReferent {
+                node,
+                kind,
+                field,
+                referent,
+                referent_kind,
+            } => write!(
+                formatter,
+                "{kind} {node} names {referent_kind} {referent} in `{field}`, which no relation admits"
             ),
             Self::SelfEdge { id } => write!(formatter, "self-edge at {id}"),
             Self::DuplicateEdge { edge } => write!(formatter, "duplicate edge {edge:?}"),
@@ -318,6 +360,9 @@ pub fn endpoint_pair_allowed(
             ("volume", "backing-signature"),
             ("volume", "file-system"),
             ("volume", "partition-table"),
+            ("multipath-node", "backing-signature"),
+            ("multipath-node", "file-system"),
+            ("multipath-node", "partition-table"),
         ],
         EdgeKind::Backing => &[
             ("backing-signature", "aggregate"),
@@ -328,4 +373,63 @@ pub fn endpoint_pair_allowed(
         EdgeKind::PlatformMembership => &[("multipath-node", "physical-device")],
     };
     pairs.contains(&(source_kind, target_kind))
+}
+
+/// What a naming field's referent may be, read off the endpoint-pair table
+/// (issue #354's kind half; ADR-0045).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReferentRule {
+    /// The referent names the *source* of an incoming edge of one of these
+    /// kinds, with the field's owner as target; the admissible referent
+    /// kinds are exactly the sources [`endpoint_pair_allowed`] pairs with
+    /// the owner's kind under those edge kinds.
+    Sources(&'static [EdgeKind]),
+    /// No edge kind targets the owner from its referent, so the table has
+    /// no opinion: the referent must resolve, and nothing more is asked.
+    Open,
+}
+
+/// The rule for one naming field, keyed by the owner's kind name and the
+/// field name [`NamingFields::naming_referents`] reports.
+///
+/// This is a map from field to *relation*, never a list of kinds: the
+/// kinds come from the pair table at the moment of the check, so a row
+/// added there admits the naming here in the same act, and a row absent
+/// there refuses it. Every field the naming roster carries is classified;
+/// the roster is a closed enum and
+/// `the_naming_referent_rule_is_pinned_per_field` reds if a field arrives
+/// unclassified — and an unclassified field admits **nothing** rather than
+/// everything, so the failure is a refusal in the suite, not a silent gap.
+#[must_use]
+pub fn naming_referent_rule(owner_kind: &str, field: &str) -> ReferentRule {
+    const CONTAINMENT: &[EdgeKind] = &[EdgeKind::Containment];
+    const BACKING: &[EdgeKind] = &[EdgeKind::Backing];
+    const PRODUCING: &[EdgeKind] = &[EdgeKind::Production, EdgeKind::HostBacking];
+    const NONE: &[EdgeKind] = &[];
+    match (owner_kind, field) {
+        ("backing-extent", "host") => ReferentRule::Open,
+        ("partition-table", "parent")
+        | ("partition", "parent_table")
+        | ("backing-signature" | "file-system", "host")
+        | ("conflicting-table-entry", "table") => ReferentRule::Sources(CONTAINMENT),
+        ("encryption-layer", "backing_signature") => ReferentRule::Sources(BACKING),
+        ("volume", "producer") => ReferentRule::Sources(PRODUCING),
+        _ => ReferentRule::Sources(NONE),
+    }
+}
+
+/// Whether a naming field may reference a node of `referent_kind`: the
+/// pair table's answer for the relation the field names.
+#[must_use]
+pub fn naming_referent_kind_allowed(
+    owner_kind: &'static str,
+    field: &'static str,
+    referent_kind: &'static str,
+) -> bool {
+    match naming_referent_rule(owner_kind, field) {
+        ReferentRule::Open => true,
+        ReferentRule::Sources(kinds) => kinds
+            .iter()
+            .any(|kind| endpoint_pair_allowed(*kind, referent_kind, owner_kind)),
+    }
 }

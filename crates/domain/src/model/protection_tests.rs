@@ -3021,3 +3021,80 @@ fn a_table_inside_a_mapped_volume_releases_and_a_plain_one_constructs() {
         );
     }
 }
+
+// Requirements: MODEL-002, SAFE-005, CAP-003
+//   Content on a multipath node inherits its detection-only refusal
+//   (ADR-0045; ADR-0011). Before the `multipath-node → …` containment rows
+//   an xfs on `/dev/mapper/mpatha` could name the node in `host` and build,
+//   but no edge could carry it, so its device-scope ascent found itself as
+//   its own root and every one of its ten mutating gates was `Clear` over
+//   a device §2.1 says never to mutate. With the row and the edge the node
+//   is a containment root like a device, its own arm is inherited, and
+//   the gate is `Unsupported` ten times over. The omitted-edge spelling is
+//   pinned beside it as the named limit: it still gates `Clear`, because
+//   device scope ascends the edge set and not the name — the escape ADR-0043
+//   closed for release and this act leaves open for scope, filed.
+// Evidence: content_on_a_multipath_node_inherits_its_detection_only_refusal
+#[test]
+fn content_on_a_multipath_node_inherits_its_detection_only_refusal() {
+    use super::capability::{ProtectionGate, protection_gate};
+    use super::naming::FileSystemKind;
+    let mpatha = NamingFields::MultipathNode {
+        lun_designator: b"naa.60014".to_vec(),
+    };
+    let mpatha_id = derive_id(&mpatha).expect("derivable");
+    let xfs = NamingFields::FileSystem {
+        host: mpatha_id,
+        kind: FileSystemKind::Xfs,
+        superblock_offset: 0,
+    };
+    let xfs_id = derive_id(&xfs).expect("derivable");
+    let mut extents = BTreeMap::new();
+    extents.insert(
+        xfs_id,
+        HostRange {
+            host: mpatha_id,
+            start: 0,
+            length: 512 * MIB,
+        },
+    );
+    let facts = Facts {
+        extents,
+        ..Facts::default()
+    };
+
+    let with_edge = Topology::build(
+        vec![mpatha.clone(), xfs.clone()],
+        vec![Edge {
+            kind: EdgeKind::Containment,
+            source: mpatha_id,
+            target: xfs_id,
+        }],
+    )
+    .expect("an xfs on a multipath node builds (ADR-0045)");
+    for op in mutating_operations() {
+        assert_eq!(
+            protection_gate(&with_edge, &facts, xfs_id, op),
+            ProtectionGate::Unsupported {
+                ground: RefusalGround::InheritedDeviceScope
+            },
+            "{op:?} on content of a multipath node inherits the node's refusal"
+        );
+    }
+    assert!(matches!(
+        node_verdict(&with_edge, &facts, xfs_id),
+        Verdict::Refused {
+            ground: RefusalGround::InheritedDeviceScope
+        }
+    ));
+
+    // The named limit: the edge omitted, the name alone carries no scope.
+    let without_edge = Topology::build(vec![mpatha, xfs], vec![]).expect("builds");
+    for op in mutating_operations() {
+        assert_eq!(
+            protection_gate(&without_edge, &facts, xfs_id, op),
+            ProtectionGate::Clear,
+            "{op:?}: device scope ascends edges, not names (the named limit)"
+        );
+    }
+}

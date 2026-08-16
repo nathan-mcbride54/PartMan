@@ -5,7 +5,8 @@ use super::naming::{
     AggregateTechnology, ExtentLocator, NamingFields, SignatureFamily, TableRole, derive_id,
 };
 use super::topology::{
-    Edge, EdgeKind, SemanticsClass, Topology, TopologyError, endpoint_pair_allowed,
+    Edge, EdgeKind, ReferentRule, SemanticsClass, Topology, TopologyError, endpoint_pair_allowed,
+    naming_referent_kind_allowed, naming_referent_rule,
 };
 
 fn device(serial: &[u8]) -> NamingFields {
@@ -487,44 +488,307 @@ fn an_unresolved_naming_referent_names_its_field() {
 }
 
 // Requirements: MODEL-002
-//   The sweep is resolve-only by decision, and this pins the boundary.
-//   A referent that resolves to the *wrong kind* still builds: deriving
-//   that check from `endpoint_pair_allowed` is issue #354's held half.
-//   It was held behind issue #360 while the table could not express a
-//   partitioned mdraid array or a GPT inside a mapped volume; ADR-0044
-//   landed that row, and what remains before the kind half is the
-//   multipath population below. When #354 lands, this test is the one
-//   that must be deliberately changed.
-// Evidence: a_wrong_kind_referent_still_builds_and_that_is_the_held_half
+//   Issue #354's kind half, landed (ADR-0045): a referent that resolves to
+//   the *wrong kind* refuses at construction, and the refusal names the
+//   node, its kind, the field, the referent, and the kind it resolved to.
+//   The issue's second probe — `parent_table` naming the physical device —
+//   is the first row; a volume produced by a partition and an encryption
+//   layer evidenced by a file system are the other two relations. This
+//   test replaced `a_wrong_kind_referent_still_builds_and_that_is_the_held_half`,
+//   which pinned the boundary while the pair table could not express the
+//   honest population; the pairing the name asserts is now one no edge
+//   could carry, and no frame may be derived from it (ADR-0037:146-150).
+// Evidence: a_wrong_kind_referent_refuses_naming_the_pairing
 #[test]
-fn a_wrong_kind_referent_still_builds_and_that_is_the_held_half() {
-    // The issue's second probe: `parent_table` names the physical device
-    // — a real node, absorbed, of a kind no table view could be.
+fn a_wrong_kind_referent_refuses_naming_the_pairing() {
     let dev = device(b"D0");
     let dev_id = id_of(&dev);
     let partition = NamingFields::Partition {
         parent_table: dev_id,
         start_offset: 1 << 20,
     };
-    Topology::build(vec![dev, partition], vec![])
-        .expect("resolve-only admits a wrong-kind referent; #354 holds the kind half");
+    let partition_id = id_of(&partition);
+    assert_eq!(
+        Topology::build(vec![dev.clone(), partition], vec![]),
+        Err(TopologyError::ForbiddenNamingReferent {
+            node: partition_id,
+            kind: "partition",
+            field: "parent_table",
+            referent: dev_id,
+            referent_kind: "physical-device",
+        })
+    );
+
+    let table = NamingFields::PartitionTable {
+        parent: dev_id,
+        role: TableRole::Gpt,
+    };
+    let table_id = id_of(&table);
+    let honest = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: 1 << 20,
+    };
+    let honest_id = id_of(&honest);
+    let volume = NamingFields::Volume {
+        producer: honest_id,
+        name: b"lv".to_vec(),
+        role: None,
+    };
+    let volume_id = id_of(&volume);
+    assert_eq!(
+        Topology::build(
+            vec![dev.clone(), table.clone(), honest.clone(), volume],
+            vec![]
+        ),
+        Err(TopologyError::ForbiddenNamingReferent {
+            node: volume_id,
+            kind: "volume",
+            field: "producer",
+            referent: honest_id,
+            referent_kind: "partition",
+        })
+    );
+
+    let fs = NamingFields::FileSystem {
+        host: honest_id,
+        kind: super::naming::FileSystemKind::Ext4,
+        superblock_offset: 1024,
+    };
+    let fs_id = id_of(&fs);
+    let layer = NamingFields::EncryptionLayer {
+        backing_signature: fs_id,
+    };
+    let layer_id = id_of(&layer);
+    assert_eq!(
+        Topology::build(vec![dev, table, honest, fs, layer], vec![]),
+        Err(TopologyError::ForbiddenNamingReferent {
+            node: layer_id,
+            kind: "encryption-layer",
+            field: "backing_signature",
+            referent: fs_id,
+            referent_kind: "file-system",
+        })
+    );
+}
+
+// Requirements: MODEL-002
+//   The referent rule, pinned per field (ADR-0045). Every naming field on
+//   the closed roster is classified — seven name the source of an incoming
+//   edge of a stated kind, and one, a backing extent's `host`, is open
+//   because no edge kind targets a backing extent — and an unclassified
+//   field admits nothing, so a field added without a rule reds here and
+//   refuses in the suite rather than admitting silently. The rule is a map
+//   from field to relation: the admissible kinds are read off the pair
+//   table when the check runs, never listed here.
+// Evidence: the_naming_referent_rule_is_pinned_per_field
+#[test]
+fn the_naming_referent_rule_is_pinned_per_field() {
+    let expected: &[(&str, &str, ReferentRule)] = &[
+        (
+            "partition-table",
+            "parent",
+            ReferentRule::Sources(&[EdgeKind::Containment]),
+        ),
+        (
+            "partition",
+            "parent_table",
+            ReferentRule::Sources(&[EdgeKind::Containment]),
+        ),
+        (
+            "backing-signature",
+            "host",
+            ReferentRule::Sources(&[EdgeKind::Containment]),
+        ),
+        (
+            "file-system",
+            "host",
+            ReferentRule::Sources(&[EdgeKind::Containment]),
+        ),
+        (
+            "encryption-layer",
+            "backing_signature",
+            ReferentRule::Sources(&[EdgeKind::Backing]),
+        ),
+        (
+            "volume",
+            "producer",
+            ReferentRule::Sources(&[EdgeKind::Production, EdgeKind::HostBacking]),
+        ),
+        ("backing-extent", "host", ReferentRule::Open),
+        (
+            "conflicting-table-entry",
+            "table",
+            ReferentRule::Sources(&[EdgeKind::Containment]),
+        ),
+    ];
+    let mut seen = Vec::new();
+    for fields in one_of_each() {
+        for (field, _) in fields.naming_referents() {
+            let rule = naming_referent_rule(fields.kind_name(), field);
+            let pinned = expected
+                .iter()
+                .find(|(kind, name, _)| *kind == fields.kind_name() && *name == field)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "{}.{field} is on the roster but not pinned",
+                        fields.kind_name()
+                    )
+                });
+            assert_eq!(rule, pinned.2, "{}.{field}", fields.kind_name());
+            seen.push((fields.kind_name(), field));
+        }
+    }
+    assert_eq!(
+        seen.len(),
+        expected.len(),
+        "every pinned rule is a roster field"
+    );
+    assert_eq!(
+        naming_referent_rule("partition", "no-such-field"),
+        ReferentRule::Sources(&[]),
+        "an unclassified field admits nothing"
+    );
+    assert!(!naming_referent_kind_allowed(
+        "partition",
+        "no-such-field",
+        "partition-table"
+    ));
+}
+
+// Requirements: MODEL-002
+//   The name is admitted exactly where the edge would be (ADR-0045). For
+//   every naming field and every kind on the roster, a body whose owner
+//   names a node of that kind builds if and only if the pair table admits
+//   the pairing under the field's relation — enumerated, not sampled, the
+//   naming analogue of `every_triple_outside_the_pair_table_is_refused`.
+//   A backing extent's `host` admits every kind, being open. Both sides of
+//   the partition are populated, so a table that admitted everything or
+//   nothing would fail here.
+// Evidence: naming_admits_exactly_what_the_pair_table_admits
+#[test]
+#[allow(clippy::too_many_lines)]
+fn naming_admits_exactly_what_the_pair_table_admits() {
+    let roster = one_of_each();
+    let ids: Vec<_> = roster.iter().map(id_of).collect();
+    // A fresh owner of `owner_kind` whose named field is `referent`; the
+    // other fields are fixed and distinct from the roster's own so the
+    // owner never collides with it.
+    let owner_naming =
+        |owner_kind: &str, field: &str, referent: super::naming::NodeId| -> NamingFields {
+            match (owner_kind, field) {
+                ("partition-table", "parent") => NamingFields::PartitionTable {
+                    parent: referent,
+                    role: TableRole::Mbr,
+                },
+                ("partition", "parent_table") => NamingFields::Partition {
+                    parent_table: referent,
+                    start_offset: 3 << 20,
+                },
+                ("backing-signature", "host") => NamingFields::BackingSignature {
+                    host: referent,
+                    family: SignatureFamily::Lvm2,
+                    primary_offset: 512,
+                },
+                ("file-system", "host") => NamingFields::FileSystem {
+                    host: referent,
+                    kind: super::naming::FileSystemKind::Xfs,
+                    superblock_offset: 0,
+                },
+                ("encryption-layer", "backing_signature") => NamingFields::EncryptionLayer {
+                    backing_signature: referent,
+                },
+                ("volume", "producer") => NamingFields::Volume {
+                    producer: referent,
+                    name: b"probe".to_vec(),
+                    role: Some(b"data".to_vec()),
+                },
+                ("backing-extent", "host") => NamingFields::BackingExtent {
+                    host: referent,
+                    locator: ExtentLocator::Range {
+                        start: 0,
+                        length: 1 << 20,
+                    },
+                },
+                ("conflicting-table-entry", "table") => NamingFields::ConflictingTableEntry {
+                    table: referent,
+                    view_role: TableRole::Mbr,
+                    entry_start: 3 << 20,
+                },
+                other => panic!("unpinned field {other:?}"),
+            }
+        };
+    let mut admitted = 0_u32;
+    let mut refused = 0_u32;
+    let mut open_admitted = 0_u32;
+    for owner in &roster {
+        for (field, _) in owner.naming_referents() {
+            for (referent, referent_id) in roster.iter().zip(&ids) {
+                let probe = owner_naming(owner.kind_name(), field, *referent_id);
+                let probe_id = id_of(&probe);
+                let mut nodes = roster.clone();
+                nodes.push(probe);
+                let result = Topology::build(nodes, vec![]);
+                let allowed =
+                    naming_referent_kind_allowed(owner.kind_name(), field, referent.kind_name());
+                if allowed {
+                    assert!(
+                        result.is_ok(),
+                        "{}.{field} -> {} must build: {result:?}",
+                        owner.kind_name(),
+                        referent.kind_name()
+                    );
+                    if naming_referent_rule(owner.kind_name(), field) == ReferentRule::Open {
+                        open_admitted += 1;
+                    } else {
+                        admitted += 1;
+                    }
+                } else {
+                    assert_eq!(
+                        result,
+                        Err(TopologyError::ForbiddenNamingReferent {
+                            node: probe_id,
+                            kind: owner.kind_name(),
+                            field,
+                            referent: *referent_id,
+                            referent_kind: referent.kind_name(),
+                        }),
+                        "{}.{field} -> {} must refuse",
+                        owner.kind_name(),
+                        referent.kind_name()
+                    );
+                    refused += 1;
+                }
+            }
+        }
+    }
+    // Seven relation-bound fields over eleven kinds, plus one open field.
+    assert_eq!(open_admitted, 11, "the open field admits every kind");
+    assert!(
+        admitted >= 14,
+        "the admitted pairings all built ({admitted})"
+    );
+    assert!(refused >= 60, "the complement was enumerated ({refused})");
+    assert_eq!(admitted + refused, 7 * 11);
 }
 
 // Requirements: MODEL-002
 //   The three layouts the #354 panel measured as false-refused by the
-//   pair-table-derived kind check, re-read under ADR-0044. Two of them
-//   were the pair table's own omission and are now admitted rows: a GPT
-//   inside a LUKS-mapped volume names a `Volume` in `PartitionTable.parent`
-//   and builds *with* its `volume → partition-table` edge; a partitioned
-//   mdraid array is `aggregate → volume → partition-table` over the
-//   production hop, and builds with its edges too — the table's parent is
-//   the array's produced volume, never the aggregate, which stays out of
-//   the containment forest. The third — an xfs whose `host` names a
-//   `MultipathNode` — no row admits, and it still builds under the
-//   resolve-only sweep; that population is what #354's kind half must
-//   decide. If any of these ever refuses, the kind half has leaked in.
+//   pair-table-derived kind check, and two the fixed-kind round found,
+//   all building under the landed check because the table now expresses
+//   them (ADR-0044, ADR-0045). A GPT inside a LUKS-mapped volume names a
+//   `Volume` in `PartitionTable.parent` and builds *with* its `volume →
+//   partition-table` edge; a partitioned mdraid array is `aggregate →
+//   volume → partition-table` over the production hop — the table's
+//   parent is the produced volume, never the aggregate, which stays out
+//   of the containment forest; an xfs whose `host` names a `MultipathNode`
+//   builds with its `multipath-node → file-system` edge, and a table on
+//   the multipath node (kpartx) with its own; a loop-backed volume names
+//   its `BackingExtent` as producer (the #365 population). Every one of
+//   these was, on some earlier candidate, a false refusal; if any refuses
+//   again, the check has outrun the table.
 // Evidence: honest_layouts_the_kind_check_would_have_refused_still_build
 #[test]
+#[allow(clippy::too_many_lines)]
 fn honest_layouts_the_kind_check_would_have_refused_still_build() {
     let containment = |source, target| Edge {
         kind: EdgeKind::Containment,
@@ -616,7 +880,9 @@ fn honest_layouts_the_kind_check_would_have_refused_still_build() {
         "an aggregate carries no table of its own; its produced volume does"
     );
 
-    // c. An xfs on a dm-multipath node: FileSystem.host names a MultipathNode.
+    // c. An xfs on a dm-multipath node, and a table on it (kpartx):
+    //    FileSystem.host and PartitionTable.parent name a MultipathNode,
+    //    and the rows admit the edges (ADR-0045).
     let multipath = NamingFields::MultipathNode {
         lun_designator: b"naa.60014".to_vec(),
     };
@@ -626,8 +892,67 @@ fn honest_layouts_the_kind_check_would_have_refused_still_build() {
         kind: super::naming::FileSystemKind::Xfs,
         superblock_offset: 0,
     };
-    Topology::build(vec![multipath, xfs], vec![])
-        .expect("an xfs on a dm-multipath node must build");
+    let xfs_id = id_of(&xfs);
+    Topology::build(
+        vec![multipath.clone(), xfs],
+        vec![containment(multipath_id, xfs_id)],
+    )
+    .expect("an xfs on a dm-multipath node must build, edge and all (ADR-0045)");
+    let mp_table = NamingFields::PartitionTable {
+        parent: multipath_id,
+        role: TableRole::Gpt,
+    };
+    let mp_table_id = id_of(&mp_table);
+    let mp_p1 = NamingFields::Partition {
+        parent_table: mp_table_id,
+        start_offset: 1 << 20,
+    };
+    let mp_p1_id = id_of(&mp_p1);
+    Topology::build(
+        vec![multipath, mp_table, mp_p1],
+        vec![
+            containment(multipath_id, mp_table_id),
+            containment(mp_table_id, mp_p1_id),
+        ],
+    )
+    .expect("a partitioned dm-multipath node must build (ADR-0045)");
+
+    // d. A loop-backed volume: Volume.producer names the BackingExtent
+    //    carrying its bytes, over the host-backing edge (issue #365's
+    //    population, the fixed-kind round's fatal).
+    let loop_dev = device(b"LOOPHOST");
+    let loop_dev_id = id_of(&loop_dev);
+    let host_fs = NamingFields::FileSystem {
+        host: loop_dev_id,
+        kind: super::naming::FileSystemKind::Ext4,
+        superblock_offset: 1024,
+    };
+    let host_fs_id = id_of(&host_fs);
+    let image = NamingFields::BackingExtent {
+        host: host_fs_id,
+        locator: ExtentLocator::Path {
+            bytes: b"/srv/images/vm.img".to_vec(),
+        },
+    };
+    let image_id = id_of(&image);
+    let loop0 = NamingFields::Volume {
+        producer: image_id,
+        name: b"loop0".to_vec(),
+        role: None,
+    };
+    let loop0_id = id_of(&loop0);
+    Topology::build(
+        vec![loop_dev, host_fs, image, loop0],
+        vec![
+            containment(loop_dev_id, host_fs_id),
+            Edge {
+                kind: EdgeKind::HostBacking,
+                source: image_id,
+                target: loop0_id,
+            },
+        ],
+    )
+    .expect("a loop-backed volume must build: its producer is the backing extent");
 }
 
 // Requirements: MODEL-002
