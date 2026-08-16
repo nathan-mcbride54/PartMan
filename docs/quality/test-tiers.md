@@ -146,6 +146,9 @@ when ADR-0040 — one Rust merge, PR #372, whose sole non-Markdown path is
 the test file `protection_tests.rs` — tripped it a sixteenth, named in
 that PR's body before the merge but against a pin the r20 sitting had
 already moved past, and found by checking the condition against `HEAD`,
+and on `b002ac3` (2026-08-15 UTC) when the body-validity arc — two Rust
+merges, PRs #377 and #379, ADR-0041 — tripped it a seventeenth, taken
+once at the arc's head and named in both bodies before the first merge,
 with identical harness values and fixture digests every time. (This sentence
 previously read "four times" while the custody table held six rows — the
 `39b59f5` re-take never updated it, the stale-count shape again, corrected
