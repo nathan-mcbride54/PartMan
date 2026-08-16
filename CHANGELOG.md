@@ -7,6 +7,36 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Fixed
 
+- **WP-010: a frame root is never written wholesale, and a target frame
+  root reaches what it carries (issue #353, ADR-0042; spec version
+  unchanged — a defect fix against §2.1:110).** `canonical_ranges` put
+  the target's whole extent in `written_table_extents` for `Create`,
+  `Grow`, `Repair`, `Label`, `Uuid` and `Decrypt`; for a device target
+  that is "the parent device wholesale" in the sentence's own words, and
+  the whole-disk gates refused *because* of it — correct the entry alone
+  and six gates open over a live pool with a green suite (the issue's
+  table). Now a target whose extent is expressed in its own address
+  space declares no written range, and `descends_into` lets
+  carried-content descent leave a self-framed extent when, and only
+  when, that node is the step's target — the operand is in the set by
+  identity, not by intersection, so ADR-0039's sibling-capture guard is
+  untouched for every other node and re-asserted on the same disk.
+  Measured on five layouts: the whole-disk vdev keeps all ten refusals
+  through the hop; a partitioned disk carrying a protected *partition*
+  moves six device-target gates from over-refusal to `Clear` (creating
+  a partition in free space does not touch sda2) while the four release
+  operations still refuse; the ordinary disk, the LUKS chain and every
+  partition-target gate are unchanged; ADR-0040's whole-disk pin holds,
+  its revisit condition discharged. Below a frame root the entry is
+  unchanged and pinned — an over-approximation the record names, kept
+  because the planner's touched-device derivation reads it, and whose
+  removal survives the domain suite while silently dropping PART-013
+  obligations there (WP-060 pins the consumer side first, PR #382).
+  Five mutations, each proven applied; four killed in the domain suite,
+  the fifth by that planner test. What stays open: the per-kind truthful
+  entry, which needs the request or the topology at `canonical_ranges`
+  and is a cross-package act.
+
 - **WP-010: the relocation exemption is retired, and the release entry
   stands (issue #348, ADR-0040, spec 13.0.1).** ADR-0018:141-145
   exempted "the relocated target's own subtree from destruction

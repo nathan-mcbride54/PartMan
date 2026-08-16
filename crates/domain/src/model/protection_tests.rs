@@ -1687,3 +1687,285 @@ fn a_range_that_touches_no_gpt_structure_does_not_release_the_disk() {
         "nothing protected is reached, so the step constructs"
     );
 }
+
+// ---------------------------------------------------------------------
+// Issue #353: the canonical entry never writes a frame root wholesale,
+// and a frame root that is the step's target reaches what it carries.
+// ---------------------------------------------------------------------
+
+/// A whole-disk ZFS vdev: no table; the label hosted by the device and
+/// backing a live pool. The layout on which, before ADR-0042, every
+/// refusal came from the over-claimed whole-device write alone.
+struct WholeDiskVdev {
+    topology: Topology,
+    facts: Facts,
+    sda: NodeId,
+    signature: NodeId,
+    pool: NodeId,
+}
+
+fn whole_disk_vdev() -> WholeDiskVdev {
+    let sda = device(b"SDA");
+    let sda_id = derive_id(&sda).expect("derivable");
+    let signature = NamingFields::BackingSignature {
+        host: sda_id,
+        family: SignatureFamily::Zfs,
+        primary_offset: 0,
+    };
+    let signature_id = derive_id(&signature).expect("derivable");
+    let pool = NamingFields::Aggregate {
+        technology: AggregateTechnology::Zfs,
+        designator: Some(b"tank".to_vec()),
+    };
+    let pool_id = derive_id(&pool).expect("derivable");
+    let topology = Topology::build(
+        vec![sda, signature, pool],
+        vec![
+            Edge {
+                kind: EdgeKind::Containment,
+                source: sda_id,
+                target: signature_id,
+            },
+            Edge {
+                kind: EdgeKind::Backing,
+                source: signature_id,
+                target: pool_id,
+            },
+        ],
+    )
+    .expect("builds");
+    let mut extents = BTreeMap::new();
+    extents.insert(
+        sda_id,
+        HostRange {
+            host: sda_id,
+            start: 0,
+            length: 1 << 30,
+        },
+    );
+    extents.insert(
+        signature_id,
+        HostRange {
+            host: sda_id,
+            start: 0,
+            length: MIB,
+        },
+    );
+    let mut transports = BTreeMap::new();
+    transports.insert(sda_id, TransportClass::Sata);
+    WholeDiskVdev {
+        topology,
+        facts: Facts {
+            extents,
+            transports,
+            member_counts: BTreeMap::new(),
+            table_states: BTreeMap::new(),
+        },
+        sda: sda_id,
+        signature: signature_id,
+        pool: pool_id,
+    }
+}
+
+fn mutating_operations() -> [super::capability::Operation; 10] {
+    use super::capability::Operation;
+    [
+        Operation::Create,
+        Operation::Grow,
+        Operation::Shrink,
+        Operation::Move,
+        Operation::Repair,
+        Operation::Label,
+        Operation::Uuid,
+        Operation::Encrypt,
+        Operation::Decrypt,
+        Operation::Wipe,
+    ]
+}
+
+// Requirements: MODEL-002, SAFE-005, CAP-003
+//   Issue #353's regression, the one the issue said nothing committed
+//   observed. On a whole-disk vdev every mutating gate refused before
+//   this act, but six of them — Create, Grow, Repair, Label, Uuid,
+//   Decrypt — refused only because the canonical entry wrote the parent
+//   device wholesale, which §2.1 forbids in as many words; correct the
+//   entry alone and six gates open over a live pool with the suite
+//   green. Now the entry declares no written range for a frame root, and
+//   the ten gates still refuse: the target seeds the set by identity and
+//   descends into the label it carries. Both halves are asserted — the
+//   entry's shape and the gate's outcome — so neither can quietly regress
+//   into the other.
+// Evidence: whole_disk_gates_hold_without_the_wholesale_write
+#[test]
+fn whole_disk_gates_hold_without_the_wholesale_write() {
+    use super::capability::{Operation, ProtectionGate, canonical_ranges, protection_gate};
+    let layout = whole_disk_vdev();
+    for op in mutating_operations() {
+        let ranges = canonical_ranges(op, layout.sda, &layout.facts);
+        assert!(
+            ranges.written_table_extents.is_empty(),
+            "{op:?} must not write the parent device wholesale (§2.1), got {ranges:?}"
+        );
+        if matches!(
+            op,
+            Operation::Create
+                | Operation::Grow
+                | Operation::Repair
+                | Operation::Label
+                | Operation::Uuid
+                | Operation::Decrypt
+        ) {
+            assert!(
+                ranges.destroyed.is_empty() && ranges.consumed.is_empty(),
+                "{op:?} destroys and consumes nothing at capability time, got {ranges:?}"
+            );
+        }
+        let affected = affected_set(&layout.topology, &layout.facts, layout.sda, &ranges);
+        assert!(
+            affected.contains(&layout.signature) && affected.contains(&layout.pool),
+            "{op:?} on the whole disk must reach the label it carries and the pool behind it"
+        );
+        let gate = protection_gate(&layout.topology, &layout.facts, layout.sda, op);
+        assert!(
+            matches!(
+                gate,
+                ProtectionGate::Unsupported {
+                    ground: RefusalGround::Zfs
+                }
+            ),
+            "{op:?} over a whole-disk vdev must refuse, got {gate:?}"
+        );
+    }
+}
+
+// Requirements: MODEL-002, SAFE-005, CAP-003
+//   The false-refusal control, and the exact reach of the new hop. On a
+//   partitioned disk carrying a live pool member on sda2, the six
+//   non-destroying operations on the disk itself refused before this
+//   act only through the wholesale over-claim — creating a partition in
+//   free space does not touch sda2 — and now clear; the four release
+//   operations still destroy the whole extent and still refuse. The hop
+//   reaches what the disk carries and no more: Label on sda brings the
+//   table, not the ESP, not the member, not the pool.
+// Evidence: a_frame_root_target_reaches_what_it_carries_and_no_more
+#[test]
+fn a_frame_root_target_reaches_what_it_carries_and_no_more() {
+    use super::capability::{Operation, ProtectionGate, canonical_ranges, protection_gate};
+    let layout = root_on_zfs();
+    for op in mutating_operations() {
+        let gate = protection_gate(&layout.topology, &layout.facts, layout.sda, op);
+        let release = matches!(
+            op,
+            Operation::Shrink | Operation::Move | Operation::Encrypt | Operation::Wipe
+        );
+        if release {
+            assert!(
+                matches!(
+                    gate,
+                    ProtectionGate::Unsupported {
+                        ground: RefusalGround::Zfs
+                    }
+                ),
+                "{op:?} on the disk destroys its whole extent and must refuse, got {gate:?}"
+            );
+        } else {
+            assert_eq!(
+                gate,
+                ProtectionGate::Clear,
+                "{op:?} on the disk touches no protected partition and must not refuse"
+            );
+        }
+    }
+    // Below the frame root the entry is unchanged: a partition's Label
+    // still declares the partition's own extent, framed on the disk,
+    // which is what the plan layer's touched-device derivation reads.
+    let member_label = canonical_ranges(Operation::Label, layout.member, &layout.facts);
+    assert_eq!(
+        member_label.written_table_extents,
+        vec![layout.facts.extents[&layout.member]],
+        "a partition target's entry is its own extent, unchanged by this act"
+    );
+    let label = canonical_ranges(Operation::Label, layout.sda, &layout.facts);
+    let affected = affected_set(&layout.topology, &layout.facts, layout.sda, &label);
+    assert!(affected.contains(&layout.sda));
+    assert!(
+        affected.contains(&layout.table),
+        "the disk's table is content the disk carries"
+    );
+    assert!(
+        !affected.contains(&layout.esp),
+        "a partition is not carried by the disk"
+    );
+    assert!(!affected.contains(&layout.member));
+    assert!(!affected.contains(&layout.pool));
+}
+
+// Requirements: MODEL-002, SAFE-005
+//   The hop is for the target and for nothing else. A frame root that
+//   enters the set because a range on it intersected its self-extent is
+//   still never a descent source — that is ADR-0039's sibling-capture
+//   guard, and it is asserted here on the very disk whose target case
+//   now descends: deleting the member partition (target: the table)
+//   range-destroys sda's self-extent, and the ESP stays out. Under
+//   ADR-0039's clause with the target exemption removed, or with the
+//   exemption widened to any node in the set, this reds.
+// Evidence: a_frame_root_that_is_not_the_target_still_never_descends
+#[test]
+fn a_frame_root_that_is_not_the_target_still_never_descends() {
+    let layout = root_on_zfs();
+    let delete_member = StepRanges {
+        written_table_extents: vec![HostRange {
+            host: layout.sda,
+            start: 0,
+            length: MIB,
+        }],
+        consumed: vec![],
+        destroyed: vec![HostRange {
+            host: layout.sda,
+            start: 512 * MIB,
+            length: 256 * MIB,
+        }],
+    };
+    let affected = affected_set(
+        &layout.topology,
+        &layout.facts,
+        layout.table,
+        &delete_member,
+    );
+    assert!(
+        affected.contains(&layout.sda),
+        "the disk's self-extent intersects the destroyed range, so it is in the set"
+    );
+    assert!(
+        !affected.contains(&layout.esp),
+        "and yet the disk must not descend into its siblings: the ESP stays out"
+    );
+    assert!(
+        affected.contains(&layout.pool),
+        "the destroyed member's pool is reached"
+    );
+}
+
+// Requirements: MODEL-002, SAFE-005
+//   A frame root's own children are reached through the hop only where
+//   geometry admits, exactly as any other descent: the disk's table is
+//   inside the disk; a partition nested inside the table's own bytes is
+//   reached through the table; a partition beyond them is not. Measured
+//   on the BIOS-boot layout so the overlapping geometry is on record.
+// Evidence: the_target_hop_is_bounded_by_the_same_geometry_as_every_other
+#[test]
+fn the_target_hop_is_bounded_by_the_same_geometry_as_every_other() {
+    use super::capability::{Operation, canonical_ranges};
+    let f = bios_boot_gpt();
+    let create = canonical_ranges(Operation::Create, f.sda, &f.facts);
+    assert!(create.written_table_extents.is_empty());
+    let affected = affected_set(&f.topology, &f.facts, f.sda, &create);
+    assert!(affected.contains(&f.table));
+    assert!(
+        affected.contains(&f.boot),
+        "bios_grub lies inside the table's declared bytes and is reached through it"
+    );
+    assert!(!affected.contains(&f.esp));
+    assert!(!affected.contains(&f.member));
+    assert!(!affected.contains(&f.pool));
+}
