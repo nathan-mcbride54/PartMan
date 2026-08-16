@@ -3098,3 +3098,70 @@ fn content_on_a_multipath_node_inherits_its_detection_only_refusal() {
         );
     }
 }
+
+// Requirements: MODEL-002, SAFE-005
+//   Issue #333's own measurement, made unrepresentable (ADR-0046). At the
+//   filing, re-anchoring only the ZFS signature's extent into its member
+//   partition's address space — every extent still present — left the
+//   pool unreached and the whole-device wipe constructing, defeating the
+//   flagship refusal without removing a fact. Under ADR-0037's rule as
+//   enforced, that fact set is refused before any closure can read it:
+//   the signature's name leads through the member and its table to `sda`,
+//   and an extent framed anywhere else — the member, the table, the
+//   sibling ESP — is refused with the declared frame and the derived root
+//   named side by side. The refusal stands with both table edges removed,
+//   because the root is read off the name; and every committed layout in
+//   this file — root-on-ZFS with and without its table edges, the LUKS
+//   chain, the BIOS-boot GPT, the whole-disk vdev, the partitioned mdraid
+//   array with its volume-framed extents — is framed as the rule
+//   requires.
+// Evidence: the_flagship_defeat_is_unrepresentable_and_every_layout_is_lawful
+#[test]
+fn the_flagship_defeat_is_unrepresentable_and_every_layout_is_lawful() {
+    use super::protection::{FactError, validate_facts};
+    let layout = root_on_zfs();
+    let signature = layout.facts.extents[&layout.signature];
+    for declared in [layout.member, layout.table, layout.esp] {
+        let mut facts = layout.facts.clone();
+        facts.extents.insert(
+            layout.signature,
+            HostRange {
+                host: declared,
+                start: 0,
+                ..signature
+            },
+        );
+        let expected = Err(FactError::ExtentFrameDisagreesWithName {
+            node: layout.signature,
+            declared,
+            derived: layout.sda,
+        });
+        assert_eq!(validate_facts(&layout.topology, &facts), expected);
+        assert_eq!(
+            validate_facts(&root_on_zfs_without_table_edges().topology, &facts),
+            expected,
+            "the frame is read off the name, not the edges"
+        );
+    }
+
+    let without_edges = root_on_zfs_without_table_edges();
+    let luks = luks_chain();
+    let bios = bios_boot_gpt();
+    let whole = whole_disk_vdev();
+    let mdraid = partitioned_mdraid();
+    let lawful: [(&str, &Topology, &Facts); 6] = [
+        ("root_on_zfs", &layout.topology, &layout.facts),
+        (
+            "root_on_zfs_without_table_edges",
+            &without_edges.topology,
+            &without_edges.facts,
+        ),
+        ("luks_chain", &luks.topology, &luks.facts),
+        ("bios_boot_gpt", &bios.topology, &bios.facts),
+        ("whole_disk_vdev", &whole.topology, &whole.facts),
+        ("partitioned_mdraid", &mdraid.topology, &mdraid.facts),
+    ];
+    for (name, topology, facts) in lawful {
+        assert_eq!(validate_facts(topology, facts), Ok(()), "{name}");
+    }
+}

@@ -301,6 +301,54 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **spec-change 15.2.0: the frame rule is enforced (ADR-0046, resolving
+  issue #333 and issue #401).** ADR-0037 decided that a range in a
+  containment forest is expressed in that forest's root address space and
+  held the enforcement — no green form, and a capture-side referent sweep
+  owed first; ADR-0045 delivered the sweep, and this act delivers the
+  front-runner ADR-0037 named, in the form it named. **At
+  `TopologySnapshot::assemble`, and therefore at every decode, every
+  extent's `host` is compared with the containment root the node's own
+  name leads to** — `frame_root` walks the one naming field per kind
+  `naming_referent_rule` classifies as naming a containment source (a
+  partition's `parent_table`, a table's `parent`, a signature's or file
+  system's `host`, a conflicting entry's `table`) until a kind that names
+  none, so there is no second roster and no edge is consulted — and a
+  mismatch refuses with `FactError::ExtentFrameDisagreesWithName { node,
+  declared, derived }`, both frames named, the declared host never
+  replaced. **A containment edge must nest a node in the parent its name
+  embeds** (`ContainmentEdgeDisagreesWithName`, the strength ADR-0045
+  held beside this issue), so a node's three positional claims — name,
+  edge, extent — are pairwise consistent and ADR-0041's rule 6 collapses
+  to its one live branch. A backing extent is carved out (no containment
+  pair, the one open naming field, its range in its host's own space) and
+  the carve-out is pinned: it assembles framed on any absorbed node
+  (issue #365's). Measured: issue #333's flagship defeat — `root_on_zfs`
+  with only the signature re-anchored on its member, pool unreached, wipe
+  constructing — is unrepresentable on both construction paths, equal by
+  value, and with both table edges removed; a body holding a device
+  forest, a volume forest and a multipath forest at every depth,
+  enumerated over every node × every candidate frame, admits exactly one
+  frame per forest node (340 refused, 38 admitted); every containment
+  edge re-sourced onto every other node refuses (59 by the name, 245 by
+  the pair table first); six committed layouts validate; the golden
+  vector is regenerated in the same act — `snapshot-full-captured` and
+  `node-entry-backing-signature-7` move by exactly `extent_host` and
+  `extent_start`, fourteen entries byte-identical, the TypeScript suite
+  unchanged — under MODEL-003's explicit-rejection limb, `SCHEMA_VERSION`
+  1, the debt ADR-0037 said travels with the enforcement discharged.
+  Fifteen mutations, each proven applied, each killed but one whose
+  premise (a child and parent reaching rule 6 in different frames) the
+  two new rules make unconstructible, recorded. Third and last PR of the
+  arc: issue #401's occupancy reading and WP-060's fixtures landed first.
+  Priced and not taken, recorded in the ADR: a root-framed rule on a
+  step's declared ranges (zero cost across every committed step; held on
+  #365, since a range over a host-backed file's bytes is expressed in its
+  file system's space). **Minor under §0.1**: the rule is 12.14.0's; the
+  edge-name agreement, the occupancy readings and the Section 5 sentence
+  are additions; what a body may say narrows, as under 13.1.0. It still
+  does not make the reach sound.
+
 - **spec-change 15.1.0: names are admitted where edges are (ADR-0045,
   resolving issue #354's kind half).** Eight node kinds embed a `NodeId`
   in their hashed name; PR #362 made every such referent resolve, and a

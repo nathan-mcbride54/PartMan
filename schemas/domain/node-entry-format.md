@@ -100,7 +100,11 @@ helper's evidence contract established a fact for a node, the entry
 carries it:
 
 - `extent_host` Bytes(32) + `extent_start` Unsigned + `extent_length`
-  Unsigned — the node's byte range on its host;
+  Unsigned — the node's byte range, framed on the containment root the
+  node's own name leads to (ADR-0037's rule; since ADR-0046 a body whose
+  `extent_host` is any other address refuses at the typed boundary with
+  both frames named, and a backing extent — outside every containment
+  forest — is the one kind the rule does not reach);
 - `transport` Text — one of `nvme-pcie`, `sata`, `sas-direct`, `usb`,
   `sd-mmc`, `paravirtual-local`, `recognized-remote`, `unrecognized`
   (ADR-0018's device-scope transport arm reads this);
@@ -113,7 +117,10 @@ carries it:
 
 An unestablished fact is omitted — absence of a key is "not established",
 never a default. A fact on a kind that cannot carry it refuses at the
-typed boundary.
+typed boundary, as does an extent that is not a range, one framed below
+its containment root, one lying outside its containment parent, and a
+containment edge that nests the node in a parent its name does not embed
+(ADR-0041, ADR-0046).
 
 ## 6. Derived addresses
 

@@ -236,7 +236,7 @@ impl Precondition {
     /// snapshot's authenticated facts, or `None` where it holds.
     ///
     /// Occupancy is read three ways, and a node found by any of them
-    /// occupies (issue #333's enforcement arc, on ADR-0022's truthfulness):
+    /// occupies (issue #401, ADR-0046, on ADR-0022's truthfulness):
     /// its extent is framed on the host itself; its extent lies on the
     /// host's bytes, compared in the frame the host's own extent is
     /// expressed in — a file system whose extent, like its partition's, is

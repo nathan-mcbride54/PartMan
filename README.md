@@ -211,34 +211,34 @@ Run `cargo xtask help` for the full command list.
 
 ## Open issues
 
-Eight are open after ADR-0045 (2026-08-16): #354 closed and #397 was
-filed from its round. This section reports status only; each issue's own
-thread is the record, and the review rounds under `docs/reviews/` carry
-the measurements. The current handoff,
-`docs/reviews/HANDOFF_2026-08-16_FABLE_ISSUE_360_TO_NEXT.md`, states the
+Seven are open after ADR-0046 (2026-08-16): #333 closed, and #401 —
+filed from its round — closed in the same arc. This section reports
+status only; each issue's own thread is the record, and the review
+rounds under `docs/reviews/` carry the measurements. The current handoff,
+`docs/reviews/HANDOFF_2026-08-16_FABLE_ISSUE_333_TO_NEXT.md`, states the
 reasoning behind the ordering below.
 
-**No sitting is owed at the time of writing.** Issue #354's kind-half act
-(PR #398, ADR-0045) shipped Rust after WP-020's r25 pin at `91cd1c9`; the
-r26 sitting (VMID 9450, 2026-08-16 UTC) discharged it, and WP-020 is
-re-pinned at `ee12af2`. The check is
+**A sitting is owed at the time of writing.** Issue #333's enforcement
+arc (issue #401's occupancy reading, WP-060's fixtures, and ADR-0046)
+ships Rust after WP-020's r26 pin at `ee12af2`; the r27 sitting is named
+in each of the arc's pull requests, taken at the arc's head, and its
+re-pin follows. The check is
 `git diff --name-only ee12af2 HEAD | grep -v '\.md$'`, and it must be run
 against `HEAD` rather than against whichever pin a pull request body cited;
 any non-Markdown path it lists re-opens the three acceptances.
 
 Most of the domain issues were ordered by a dependency chain established by
 measurement — **#347 → #360 → #354's kind half → #333's enforcement**.
-#347 closed with ADR-0043, #360 with ADR-0044, and #354 with ADR-0045 (all
-2026-08-16); ADR-0037:217's precondition is satisfied and **#333's
-enforcement is now the head**, its own round.
+#347 closed with ADR-0043, #360 with ADR-0044, #354 with ADR-0045, and
+#333 with ADR-0046 (all 2026-08-16): the chain is closed. What remains
+is not a chain; #397 and #365 are the nearest to the closure.
 
 | Issue | Package | Standing |
 | --- | --- | --- |
-| **#333** | WP-010 | The reach closure misses children anchored outside the device's address space. Rule **decided** (ADR-0037), enforcement **held**; its precondition — the capture-side referent sweep, both halves — landed with #362 and ADR-0045, so it is **unblocked** and the head of the chain. Derive-and-compare form only; the golden vector is regenerated in the same act. |
 | **#397** | WP-010 | Device-scope inheritance ascends the edge set only: content that names its host with the containment edge omitted inherits nothing. ADR-0045's named limit, pinned as a committed row beside the multipath-content test; the fail-closed name-ascent candidate is recorded, not built. |
 | **#392** | WP-010 | An extentless target's own wipe is never seen destroyed: `Wipe(volume)` reaches a table it carries as content only. ADR-0044's named limit, pinned as a committed row; the whole-frame canonical entry that closes it was measured green and **held**, because it moves `canonical_ranges` and the planner's simulation on an uncovered population. |
 | **#319** | WP-060/WP-010 | Absent child extents fail open. The occupancy half landed under ADR-0036; the **authorization half** remains. Its recorded blocker (#338) has since closed, so whether it is still blocked is **unverified**. |
-| **#365** | WP-010 | The host-backed producing relation is under-represented outside the pair table: a wrong doc comment, no committed fixture, and a blind suite. |
+| **#365** | WP-010 | The host-backed producing relation is under-represented outside the pair table: a wrong doc comment, no committed fixture, and a blind suite. ADR-0046 carves a backing extent out of the frame rule and pins that its extent assembles framed on any absorbed node — this issue owns what frames it. |
 | **#366** | WP-035 | The transport-discrimination protocol's deferral addresses the IPC route decision, so its real consumer will never pick it up. |
 | **#370** | WP-010 | A byte-preserving relocation of a protected structure refuses, and relief needs a preservation proof that is not computable today. Split from #348 by ADR-0040. |
 | **#371** | WP-010 | PART-005's hosted-signature duty is undelivered and has no plan vehicle — an exhaustive grep returns only the spec sentence stating it. Split from #348 by ADR-0040. |
@@ -255,7 +255,10 @@ partitions it describes) on its third round, spec 14.0.0; **#360** closed
 with ADR-0044 (destruction carries through the cascade, and a volume
 carries a partition table), spec 15.0.0; **#354** closed with ADR-0045
 (names are admitted where edges are: the pair-table-derived naming kind
-check, and the three multipath-node containment rows), spec 15.1.0.
+check, and the three multipath-node containment rows), spec 15.1.0;
+**#333** and **#401** closed with ADR-0046 (the frame rule is enforced:
+the extent's frame, the containment edge and the name agree, and
+occupancy is read as bytes), spec 15.2.0.
 
 ## Roadmap
 
