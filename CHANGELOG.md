@@ -7,6 +7,28 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Fixed
 
+- **WP-010: reach follows the hosting name (issue #409; ADR-0049, spec
+  17.0.0 — major).** A `BackingExtent` is the target of no edge kind —
+  the pair table admits it only as the source of `HostBacking`, and
+  `Topology::build` refuses `containment(file-system → backing-extent)`
+  outright — so the closure, which walks edges, could not traverse the
+  relation its hashed name asserts. The entire host-backed class had no
+  upward reach: measured on a body that validates, wiping the disk
+  holding a loop image gated **`Clear` on 10 of 10** mutating operations
+  over a live ZFS pool, and so did wiping its file system, which the
+  filing had not recorded. The closure gains a fourth arm — downward
+  hosting — bounded by the same declared geometry as containment,
+  descending only, and carrying destruction exactly when the host is
+  destroyed. It reads the name and never the frame, so #365's frame
+  question stays open and untouched. Both alternatives were built and
+  run: admitting a containment pair makes the honest body
+  unrepresentable and, once reframed to satisfy that, makes a 512 MiB
+  image file read as destruction of the whole disk; additionally moving
+  the naming rule to `Sources(CONTAINMENT)` costs five reds including
+  ADR-0022's occupancy witness and ADR-0046's carve-out pin. The chosen
+  route costs zero reds. Four mutations, each proven applied, all killed
+  — one only after the round added the regression it was missing.
+
 - **WP-010: an extentless target is destroyed by identity (issue #392;
   ADR-0048, spec 16.0.0 — major).** A `Volume`, `Aggregate`,
   `EncryptionLayer` or `MultipathNode` declares no extent, so

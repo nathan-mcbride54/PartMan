@@ -3559,3 +3559,441 @@ fn the_identity_seed_is_frame_equal_not_merely_non_empty() {
         "a range framed on the target destroys it by identity"
     );
 }
+
+/// The host-backed chain issue #409 measured: a device carrying an ext4
+/// file system, an image file on that file system, the loop volume the
+/// image produces, and a live ZFS pool on the volume. Every fact is
+/// present and the body validates; the image's extent is framed on the
+/// file system, where `ExtentLocator`'s own contract puts it.
+struct LoopBacked {
+    topology: Topology,
+    facts: Facts,
+    host: NodeId,
+    host_fs: NodeId,
+    image: NodeId,
+    loop0: NodeId,
+    sig: NodeId,
+    pool: NodeId,
+}
+
+#[allow(clippy::too_many_lines)]
+fn loop_backed() -> LoopBacked {
+    use super::naming::{ExtentLocator, FileSystemKind};
+    let host = device(b"LOOPHOST");
+    let host_id = derive_id(&host).expect("derivable");
+    let host_fs = NamingFields::FileSystem {
+        host: host_id,
+        kind: FileSystemKind::Ext4,
+        superblock_offset: 1024,
+    };
+    let host_fs_id = derive_id(&host_fs).expect("derivable");
+    let image = NamingFields::BackingExtent {
+        host: host_fs_id,
+        locator: ExtentLocator::Path {
+            bytes: b"/srv/images/vm.img".to_vec(),
+        },
+    };
+    let image_id = derive_id(&image).expect("derivable");
+    let loop0 = NamingFields::Volume {
+        producer: image_id,
+        name: b"loop0".to_vec(),
+        role: None,
+    };
+    let loop0_id = derive_id(&loop0).expect("derivable");
+    let sig = NamingFields::BackingSignature {
+        host: loop0_id,
+        family: SignatureFamily::Zfs,
+        primary_offset: 0,
+    };
+    let sig_id = derive_id(&sig).expect("derivable");
+    let pool = NamingFields::Aggregate {
+        technology: AggregateTechnology::Zfs,
+        designator: Some(b"tank".to_vec()),
+    };
+    let pool_id = derive_id(&pool).expect("derivable");
+
+    let topology = Topology::build(
+        vec![host, host_fs, image, loop0, sig, pool],
+        vec![
+            Edge {
+                kind: EdgeKind::Containment,
+                source: host_id,
+                target: host_fs_id,
+            },
+            Edge {
+                kind: EdgeKind::HostBacking,
+                source: image_id,
+                target: loop0_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: loop0_id,
+                target: sig_id,
+            },
+            Edge {
+                kind: EdgeKind::Backing,
+                source: sig_id,
+                target: pool_id,
+            },
+        ],
+    )
+    .expect("the loop-backed body builds");
+
+    let mut extents = BTreeMap::new();
+    extents.insert(
+        host_id,
+        HostRange {
+            host: host_id,
+            start: 0,
+            length: 1 << 30,
+        },
+    );
+    extents.insert(
+        host_fs_id,
+        HostRange {
+            host: host_id,
+            start: 0,
+            length: 1 << 30,
+        },
+    );
+    extents.insert(
+        image_id,
+        HostRange {
+            host: host_fs_id,
+            start: 0,
+            length: 1 << 29,
+        },
+    );
+    extents.insert(
+        sig_id,
+        HostRange {
+            host: loop0_id,
+            start: 0,
+            length: MIB,
+        },
+    );
+    let mut transports = BTreeMap::new();
+    transports.insert(host_id, TransportClass::Sata);
+    LoopBacked {
+        topology,
+        facts: Facts {
+            extents,
+            transports,
+            ..Facts::default()
+        },
+        host: host_id,
+        host_fs: host_fs_id,
+        image: image_id,
+        loop0: loop0_id,
+        sig: sig_id,
+        pool: pool_id,
+    }
+}
+
+// Requirements: MODEL-002, SAFE-005, CAP-003
+//   ADR-0049, issue #409: reach follows the hosting name. A backing
+//   extent is the target of no edge kind — the pair table admits it only
+//   as the source of `HostBacking` — so before this arm the whole
+//   host-backed class had no upward reach and a wipe of the disk holding
+//   a loop or VHD image gated Clear over the live pool on the volume that
+//   image backed. Both targets the defect reaches are asserted: the
+//   device, which the issue filed, and the file system, which it did not.
+// Evidence: reach_follows_the_hosting_name_into_a_backing_extent
+#[test]
+fn reach_follows_the_hosting_name_into_a_backing_extent() {
+    use super::capability::{Operation, ProtectionGate, canonical_ranges, protection_gate};
+    use super::protection::validate_facts;
+    let b = loop_backed();
+
+    assert_eq!(
+        validate_facts(&b.topology, &b.facts),
+        Ok(()),
+        "the image's extent is framed on the file system and the body is lawful"
+    );
+
+    for (name, target) in [("the device", b.host), ("its file system", b.host_fs)] {
+        let ranges = canonical_ranges(Operation::Wipe, target, &b.facts);
+        let affected = affected_set(&b.topology, &b.facts, target, &ranges);
+        for reached in [b.image, b.loop0, b.sig, b.pool] {
+            assert!(
+                affected.contains(&reached),
+                "wiping {name} reaches the image it holds, and the pool below it"
+            );
+        }
+        for op in mutating_operations() {
+            assert_ne!(
+                protection_gate(&b.topology, &b.facts, target, op),
+                ProtectionGate::Clear,
+                "{op:?} on {name} refuses: a live pool hangs off the image it holds"
+            );
+        }
+    }
+}
+
+// Requirements: MODEL-002, SAFE-005
+//   The new arm is bounded exactly as containment is, and it adds reach
+//   without adding a route back up. A wipe of the image reaches what the
+//   image carries and never its host — the arm descends from host to
+//   backing extent, not the reverse — which is what keeps a 512 MiB image
+//   file from reading as destruction of the disk that holds it. That
+//   asymmetry is the whole reason this route was taken over admitting a
+//   containment pair, where the extent would have to be reframed onto the
+//   device and the reverse reach followed.
+// Evidence: the_hosting_arm_descends_only_and_stays_bounded
+#[test]
+fn the_hosting_arm_descends_only_and_stays_bounded() {
+    use super::capability::{Operation, canonical_ranges};
+    let b = loop_backed();
+
+    let ranges = canonical_ranges(Operation::Wipe, b.image, &b.facts);
+    let affected = affected_set(&b.topology, &b.facts, b.image, &ranges);
+    assert!(
+        affected.contains(&b.loop0) && affected.contains(&b.pool),
+        "the image's own wipe still reaches what it backs"
+    );
+    assert!(
+        !affected.contains(&b.host) && !affected.contains(&b.host_fs),
+        "and never its host: the arm descends, so an image file is not its disk"
+    );
+
+    // The bound: an image whose declared geometry positively contradicts
+    // containment in its host's frame is not descended into. The file
+    // system spans the whole device; an image claiming bytes beyond it,
+    // in that same frame, is refused the hop.
+    let mut beyond = b.facts.clone();
+    beyond.extents.insert(
+        b.image,
+        HostRange {
+            host: b.host,
+            start: 2 << 30,
+            length: 1 << 29,
+        },
+    );
+    let ranges = canonical_ranges(Operation::Wipe, b.host_fs, &beyond);
+    let affected = affected_set(&b.topology, &beyond, b.host_fs, &ranges);
+    assert!(
+        !affected.contains(&b.image),
+        "the hop is refused where the geometry positively contradicts containment"
+    );
+}
+
+// Requirements: MODEL-002, SAFE-005
+//   Reach is not destruction across the hosting arm either. A step that
+//   destroys nothing reaches the image its host holds — ADR-0039's
+//   carried content — but must not destroy it, because destroying a
+//   backing extent carries down into the volume it backs and releases
+//   the partitions a table there describes (ADR-0043, ADR-0044). The
+//   distinction is invisible on a chain with no table, which is why this
+//   fixture puts one on the loop volume: with it, a Label on the disk
+//   that merely holds the image would otherwise release a partition
+//   inside that image.
+// Evidence: the_hosting_arm_reaches_without_destroying
+#[test]
+fn the_hosting_arm_reaches_without_destroying() {
+    use super::capability::{Operation, canonical_ranges};
+    use super::naming::{ExtentLocator, FileSystemKind, TableRole};
+
+    let host = device(b"LOOPTBL");
+    let host_id = derive_id(&host).expect("derivable");
+    let host_fs = NamingFields::FileSystem {
+        host: host_id,
+        kind: FileSystemKind::Ext4,
+        superblock_offset: 1024,
+    };
+    let host_fs_id = derive_id(&host_fs).expect("derivable");
+    let image = NamingFields::BackingExtent {
+        host: host_fs_id,
+        locator: ExtentLocator::Path {
+            bytes: b"/srv/images/disk.img".to_vec(),
+        },
+    };
+    let image_id = derive_id(&image).expect("derivable");
+    let loop0 = NamingFields::Volume {
+        producer: image_id,
+        name: b"loop0".to_vec(),
+        role: None,
+    };
+    let loop0_id = derive_id(&loop0).expect("derivable");
+    let table = NamingFields::PartitionTable {
+        parent: loop0_id,
+        role: TableRole::Gpt,
+    };
+    let table_id = derive_id(&table).expect("derivable");
+    let part = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: MIB,
+    };
+    let part_id = derive_id(&part).expect("derivable");
+
+    let topology = Topology::build(
+        vec![host, host_fs, image, loop0, table, part],
+        vec![
+            Edge {
+                kind: EdgeKind::Containment,
+                source: host_id,
+                target: host_fs_id,
+            },
+            Edge {
+                kind: EdgeKind::HostBacking,
+                source: image_id,
+                target: loop0_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: loop0_id,
+                target: table_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: table_id,
+                target: part_id,
+            },
+        ],
+    )
+    .expect("builds");
+
+    let mut extents = BTreeMap::new();
+    for (node, host_of, start, length) in [
+        (host_id, host_id, 0, 1 << 30),
+        (host_fs_id, host_id, 0, 1 << 30),
+        (image_id, host_fs_id, 0, 1 << 29),
+        (table_id, loop0_id, 0, MIB),
+        (part_id, loop0_id, MIB, 1 << 28),
+    ] {
+        extents.insert(
+            node,
+            HostRange {
+                host: host_of,
+                start,
+                length,
+            },
+        );
+    }
+    let mut transports = BTreeMap::new();
+    transports.insert(host_id, TransportClass::Sata);
+    let facts = Facts {
+        extents,
+        transports,
+        ..Facts::default()
+    };
+
+    // A wipe of the disk destroys the image, which carries down and
+    // releases the partition the table inside it describes.
+    let wipe = canonical_ranges(Operation::Wipe, host_id, &facts);
+    let destroyed_reach = affected_set(&topology, &facts, host_id, &wipe);
+    assert!(
+        destroyed_reach.contains(&image_id) && destroyed_reach.contains(&part_id),
+        "a wipe of the disk reaches the image and releases what its table describes"
+    );
+
+    // A label destroys nothing. It still reaches the image — carried
+    // content — but must release nothing inside it.
+    let label = canonical_ranges(Operation::Label, host_id, &facts);
+    let reach_only = affected_set(&topology, &facts, host_id, &label);
+    assert!(
+        reach_only.contains(&image_id),
+        "a label reaches the image the disk holds"
+    );
+    assert!(
+        !reach_only.contains(&part_id),
+        "and releases nothing inside it: reach is not destruction"
+    );
+}
+
+// Requirements: MODEL-002, SAFE-005, CAP-003
+//   The flagship population, and the shape the first draft of this act
+//   was inert on. An `ExtentLocator::Path` image has no contiguous device
+//   range — that is this ADR's own argument against the rejected route —
+//   so the natural body declares no extent for it at all, and nothing
+//   requires one. Routing the arm through containment's absent-child
+//   carve-out made honest absence fail OPEN: the body validated and both
+//   targets gated Clear on ten of ten over a live pool. Absence admits.
+// Evidence: the_hosting_arm_admits_a_backing_extent_that_declares_no_extent
+#[test]
+fn the_hosting_arm_admits_a_backing_extent_that_declares_no_extent() {
+    use super::capability::{Operation, ProtectionGate, canonical_ranges, protection_gate};
+    use super::protection::validate_facts;
+    let b = loop_backed();
+
+    let mut unlocated = b.facts.clone();
+    unlocated.extents.remove(&b.image);
+    assert_eq!(
+        validate_facts(&b.topology, &unlocated),
+        Ok(()),
+        "an image with no extent fact is a lawful body: nothing requires one"
+    );
+
+    for (name, target) in [("the device", b.host), ("its file system", b.host_fs)] {
+        let ranges = canonical_ranges(Operation::Wipe, target, &unlocated);
+        let affected = affected_set(&b.topology, &unlocated, target, &ranges);
+        for reached in [b.image, b.loop0, b.sig, b.pool] {
+            assert!(
+                affected.contains(&reached),
+                "wiping {name} reaches an unlocated image and the pool below it"
+            );
+        }
+        for op in mutating_operations() {
+            assert_ne!(
+                protection_gate(&b.topology, &unlocated, target, op),
+                ProtectionGate::Clear,
+                "{op:?} on {name}: absence of an extent must not subtract reach"
+            );
+        }
+    }
+}
+
+// Requirements: MODEL-002, SAFE-005
+//   A measured OPEN LIMIT, pinned so that closing it is deliberate.
+//   Nothing authenticates a backing extent's frame — its `host` naming
+//   field is `ReferentRule::Open`, so `named_position` is `Outside`,
+//   `frame_root` is `None`, ADR-0046's frame rule never runs on it, and
+//   no edge may target it so the edge-versus-extent cross-check never
+//   sees it either. An author may therefore frame the image's extent on
+//   the host's own frame root, place it outside the host, and suppress
+//   the hop on a body that validates. This is issue #365's undecided
+//   question reaching into this arm. It is recorded here at its measured
+//   cost rather than claimed absent, and it does not make protection
+//   worse than it was before this act: the arm only ever adds reach.
+// Evidence: an_authored_frame_can_still_suppress_the_hosting_arm
+#[test]
+fn an_authored_frame_can_still_suppress_the_hosting_arm() {
+    use super::capability::{Operation, ProtectionGate, canonical_ranges, protection_gate};
+    use super::protection::validate_facts;
+    let b = loop_backed();
+
+    // Framed on the device — the file system's own frame root — and
+    // placed beyond the file system's bytes.
+    let mut authored = b.facts.clone();
+    authored.extents.insert(
+        b.image,
+        HostRange {
+            host: b.host,
+            start: 2 << 30,
+            length: 1 << 29,
+        },
+    );
+    assert_eq!(
+        validate_facts(&b.topology, &authored),
+        Ok(()),
+        "the body validates: nothing constrains a backing extent's frame"
+    );
+
+    for target in [b.host, b.host_fs] {
+        let ranges = canonical_ranges(Operation::Wipe, target, &authored);
+        let affected = affected_set(&b.topology, &authored, target, &ranges);
+        assert!(
+            !affected.contains(&b.pool),
+            "the open limit: an authored frame suppresses the hop"
+        );
+        let clear = mutating_operations()
+            .into_iter()
+            .filter(|op| {
+                protection_gate(&b.topology, &authored, target, *op) == ProtectionGate::Clear
+            })
+            .count();
+        assert_eq!(
+            clear, 10,
+            "and its measured cost is ten of ten Clear, pinned under issue #365"
+        );
+    }
+}

@@ -211,7 +211,8 @@ Run `cargo xtask help` for the full command list.
 
 ## Open issues
 
-Six are open after ADR-0048 (2026-08-16): #392 closes here, ADR-0044's
+Five are open after ADR-0049 (2026-08-16): #409 closes here, and
+before it #392 with ADR-0048, ADR-0044's
 named limit with it, and #397 closed with ADR-0047 before it. #409 was
 filed from the round preceding #397's act, and #319 stands reopened —
 it had been auto-closed in error by PR #406's body, whose sentence saying
@@ -222,7 +223,7 @@ rounds under `docs/reviews/` carry the measurements. The current handoff,
 `docs/reviews/HANDOFF_2026-08-16_FABLE_ISSUE_333_TO_NEXT.md`, states the
 reasoning behind the ordering below.
 
-**No sitting is owed at the time of writing.** ADR-0048's planner coverage (PR #416 — WP-060, test-only) shipped a non-Markdown path after the r29 pin at `be6c3f0`; the r30 sitting (VMID 9454, 2026-08-16 UTC) on its merge commit discharged it, and WP-020 is re-pinned at `55e5601`. Before it: issue #392's act (PR #414 — ADR-0048, spec 16.0.0), and before that issue #397's act
+**A sitting is owed.** Issue #409's act (ADR-0049, spec 17.0.0) ships Rust after the r30 pin at `55e5601`, so the r31 sitting (VMID 9455) is owed on its merge commit. Before it: ADR-0048's planner coverage (PR #416 — WP-060, test-only), whose r30 sitting (VMID 9454) discharged its own trip, and before that issue #392's act (PR #414 — ADR-0048, spec 16.0.0), and before that issue #397's act
 (PR #411 — ADR-0047, spec 15.3.0) shipped Rust after WP-020's r27 pin at
 `ca2bc0f`; the r28 sitting (VMID 9452, 2026-08-16 UTC) on that act's
 merge commit discharged it, and WP-020 is re-pinned at `63ee769`. The
@@ -236,15 +237,12 @@ measurement — **#347 → #360 → #354's kind half → #333's enforcement**.
 #347 closed with ADR-0043, #360 with ADR-0044, #354 with ADR-0045, and
 #333 with ADR-0046 (all 2026-08-16): the chain is closed. What remains
 is not a chain. #397 closed with ADR-0047 and #392 with ADR-0048;
-#365's remaining half and
-#409 are the nearest to the closure, and #409 measured a wider break than
-#365 states — a backing extent's host is on no edge at all, so a wipe of
-the device holding a loop or VHD image gates `Clear` over the live pool
-on it.
+#409 closed with ADR-0049, which gave the closure a fourth arm rather
+than answering #365's frame question — so #365's remaining half is the
+nearest to the closure, and is now the only host-backed question left.
 
 | Issue | Package | Standing |
 | --- | --- | --- |
-| **#409** | WP-010 | A backing extent's host is on no edge: `Topology::build` refuses `containment(file-system → backing-extent)`, and reach walks edges, so wiping the device holding a loop or VHD image is `Clear` on all ten mutating operations while a live pool runs on the volume that image backs. Measured on an honest body with every fact present. ADR-0047 explicitly does not reach it. |
 | **#319** | WP-060/WP-010 | Absent child extents fail open. The planner half closed with ADR-0036; the **authorization half is live** — range-reach and containment descent both skip a node whose extent is absent, so three measured shapes gate a live ZFS pool `Clear`. ADR-0048 pins the third of them as an **open limit** rather than closing it. The §2.1:117-versus-`descends_into` conformance question is recorded on the issue: the spec sentence admits descent on every absence, ADR-0039's clause list carved containment out deliberately, and both of that carve-out's stated grounds were retired by ADR-0046. |
 | **#365** | WP-010 | The host-backed producing relation is under-represented outside the pair table: a wrong doc comment, no committed fixture, and a blind suite. ADR-0046 carves a backing extent out of the frame rule and pins that its extent assembles framed on any absorbed node — this issue owns what frames it. |
 | **#366** | WP-035 | The transport-discrimination protocol's deferral addresses the IPC route decision, so its real consumer will never pick it up. |
