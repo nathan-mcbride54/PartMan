@@ -3088,13 +3088,17 @@ fn content_on_a_multipath_node_inherits_its_detection_only_refusal() {
         }
     ));
 
-    // The named limit: the edge omitted, the name alone carries no scope.
+    // ADR-0045's named limit, closed by issue #397: with the edge
+    // omitted the name alone still carries the scope, because the
+    // hosting field is in the node's own hashed address.
     let without_edge = Topology::build(vec![mpatha, xfs], vec![]).expect("builds");
     for op in mutating_operations() {
         assert_eq!(
             protection_gate(&without_edge, &facts, xfs_id, op),
-            ProtectionGate::Clear,
-            "{op:?}: device scope ascends edges, not names (the named limit)"
+            ProtectionGate::Unsupported {
+                ground: RefusalGround::InheritedDeviceScope
+            },
+            "{op:?}: device scope ascends names as well as edges (issue #397)"
         );
     }
 }
@@ -3164,4 +3168,175 @@ fn the_flagship_defeat_is_unrepresentable_and_every_layout_is_lawful() {
     for (name, topology, facts) in lawful {
         assert_eq!(validate_facts(topology, facts), Ok(()), "{name}");
     }
+}
+
+// Requirements: MODEL-002, SAFE-005, CAP-003
+//   Issue #397, ADR-0045's named limit closed. Device scope and the
+//   producing relation both ascend the naming relation beside the edge
+//   set. An edge is authored content a body may omit; a hosting or
+//   producing field is in the node's own hashed name, so omitting it
+//   changes the node's address rather than hiding its host. The three
+//   arms: a multipath node's detection-only refusal, a device's
+//   transport arm, and a producer's own refusal — each inherited with
+//   the edge absent, on a body that builds and validates.
+// Evidence: an_omitted_edge_is_not_an_escape_from_inheritance
+#[test]
+fn an_omitted_edge_is_not_an_escape_from_inheritance() {
+    use super::capability::{ProtectionGate, protection_gate};
+    use super::naming::FileSystemKind;
+    use super::protection::validate_facts;
+
+    // 1. A multipath node's detection-only refusal, the edge omitted.
+    let mpatha = NamingFields::MultipathNode {
+        lun_designator: b"naa.60015".to_vec(),
+    };
+    let mpatha_id = derive_id(&mpatha).expect("derivable");
+    let xfs = NamingFields::FileSystem {
+        host: mpatha_id,
+        kind: FileSystemKind::Xfs,
+        superblock_offset: 0,
+    };
+    let xfs_id = derive_id(&xfs).expect("derivable");
+    let mut extents = BTreeMap::new();
+    extents.insert(
+        xfs_id,
+        HostRange {
+            host: mpatha_id,
+            start: 0,
+            length: 512 * MIB,
+        },
+    );
+    let mp_facts = Facts {
+        extents,
+        ..Facts::default()
+    };
+    let mp = Topology::build(vec![mpatha, xfs], vec![]).expect("builds with no edge");
+    assert_eq!(validate_facts(&mp, &mp_facts), Ok(()), "the body is lawful");
+    for op in mutating_operations() {
+        assert_eq!(
+            protection_gate(&mp, &mp_facts, xfs_id, op),
+            ProtectionGate::Unsupported {
+                ground: RefusalGround::InheritedDeviceScope
+            },
+            "{op:?}: the name carries the multipath scope with no edge"
+        );
+    }
+
+    // 2. A recognized-remote device's transport arm, the edge omitted:
+    //    the network-block-device non-goal, no longer escaped by
+    //    dropping one edge.
+    let remote = NamingFields::PhysicalDevice {
+        serial: Some(b"NBD0".to_vec()),
+        wwn: None,
+        total_bytes: 1 << 30,
+    };
+    let remote_id = derive_id(&remote).expect("derivable");
+    let ext4 = NamingFields::FileSystem {
+        host: remote_id,
+        kind: FileSystemKind::Ext4,
+        superblock_offset: 1024,
+    };
+    let ext4_id = derive_id(&ext4).expect("derivable");
+    let mut transports = BTreeMap::new();
+    transports.insert(remote_id, TransportClass::RecognizedRemote);
+    let remote_facts = Facts {
+        transports,
+        ..Facts::default()
+    };
+    let remote_topology = Topology::build(vec![remote, ext4], vec![]).expect("builds with no edge");
+    for op in mutating_operations() {
+        assert_ne!(
+            protection_gate(&remote_topology, &remote_facts, ext4_id, op),
+            ProtectionGate::Clear,
+            "{op:?}: a file system naming a remote device inherits its scope"
+        );
+    }
+
+    // 3. The producing relation: a volume naming a ZFS pool as its
+    //    producer, the Production edge omitted, inherits the pool's own
+    //    refusal rather than reading Permitted.
+    let pool = NamingFields::Aggregate {
+        technology: AggregateTechnology::Zfs,
+        designator: Some(b"tank".to_vec()),
+    };
+    let pool_id = derive_id(&pool).expect("derivable");
+    let zvol = NamingFields::Volume {
+        producer: pool_id,
+        name: b"vol0".to_vec(),
+        role: None,
+    };
+    let zvol_id = derive_id(&zvol).expect("derivable");
+    let zfs = Topology::build(vec![pool, zvol], vec![]).expect("builds with no edge");
+    let zfs_facts = Facts::default();
+    assert!(
+        matches!(
+            node_verdict(&zfs, &zfs_facts, zvol_id),
+            Verdict::Refused {
+                ground: RefusalGround::InheritedFromConsumerOrProducer
+            }
+        ),
+        "a volume naming its producer inherits the producer's refusal with no edge"
+    );
+    for op in mutating_operations() {
+        assert_ne!(
+            protection_gate(&zfs, &zfs_facts, zvol_id, op),
+            ProtectionGate::Clear,
+            "{op:?}: the producing name is not escaped by omitting the edge"
+        );
+    }
+}
+
+// Requirements: MODEL-002, SAFE-005
+//   The enumeration lens (ADR-0046's shape, issue #397): every committed
+//   layout, every containment-bearing node in it, one edge removed at a
+//   time — the node's verdict is never weakened by the removal. A
+//   fixture is one shape; the lens is what catches a partial fix that
+//   handles the kind it was written against and no other.
+// Evidence: removing_any_one_containment_edge_never_weakens_a_verdict
+#[test]
+fn removing_any_one_containment_edge_never_weakens_a_verdict() {
+    let root = root_on_zfs();
+    let luks = luks_chain();
+    let mdraid = partitioned_mdraid();
+    let layouts: [(&str, &Topology, &Facts); 3] = [
+        ("root_on_zfs", &root.topology, &root.facts),
+        ("luks_chain", &luks.topology, &luks.facts),
+        ("partitioned_mdraid", &mdraid.topology, &mdraid.facts),
+    ];
+    let mut checked = 0_usize;
+    for (name, topology, facts) in layouts {
+        let entries: Vec<NamingFields> = topology
+            .entries()
+            .iter()
+            .map(|entry| match entry {
+                super::naming::NodeEntry::Single { fields, .. }
+                | super::naming::NodeEntry::Group { fields, .. } => fields.clone(),
+            })
+            .collect();
+        let edges: Vec<Edge> = topology.edges().to_vec();
+        for (index, dropped) in edges.iter().enumerate() {
+            if dropped.kind != EdgeKind::Containment {
+                continue;
+            }
+            let mut thinned = edges.clone();
+            thinned.remove(index);
+            let Ok(without) = Topology::build(entries.clone(), thinned) else {
+                continue;
+            };
+            let rank = |verdict: &Verdict| match verdict {
+                Verdict::Permitted => 0_u8,
+                Verdict::Indeterminate { .. } => 1,
+                Verdict::Refused { .. } => 2,
+            };
+            let before = node_verdict(topology, facts, dropped.target);
+            let after = node_verdict(&without, facts, dropped.target);
+            assert!(
+                rank(&after) >= rank(&before),
+                "{name}: dropping a containment edge weakened {:?} from {before:?} to {after:?}",
+                dropped.target
+            );
+            checked += 1;
+        }
+    }
+    assert!(checked >= 6, "the lens examined {checked} removals");
 }
