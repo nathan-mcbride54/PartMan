@@ -364,21 +364,7 @@ fn unaccounted_occupant(
             continue;
         };
         let located = snapshot.facts().extents.get(&entry.id()).copied();
-        let on_this_host = located.is_some_and(|range| range.host == host);
-        if !tables.contains(parent_table) {
-            if !on_this_host {
-                continue;
-            }
-            return Some(SolveRefusal::UnaccountedOccupant {
-                host,
-                occupant: entry.id(),
-                declared_start: *start_offset,
-                ground: OccupancyGround::TableIsNotThisHosts {
-                    named_table: *parent_table,
-                },
-            });
-        }
-        if let Some(ground) = occupancy_ground(located, host, *start_offset) {
+        if let Some(ground) = occupant_ground(located, host, *start_offset, *parent_table, tables) {
             return Some(SolveRefusal::UnaccountedOccupant {
                 host,
                 occupant: entry.id(),
@@ -388,6 +374,33 @@ fn unaccounted_occupant(
         }
     }
     None
+}
+
+/// Why a partition naming `named_table` and `declared_start` is an
+/// occupant of `host` the subtraction does not remove — or `None` where
+/// it is accounted for, or is no occupant of this host at all: a
+/// partition under a table this host does not carry, located elsewhere
+/// or nowhere, is another host's matter. One located on this host under
+/// such a table is refused as [`OccupancyGround::TableIsNotThisHosts`];
+/// the rest is [`occupancy_ground`]. A function of the range and the
+/// names alone, for the same reason that helper is: the body boundary
+/// refuses some of these shapes before a snapshot can carry them
+/// (ADR-0041; ADR-0037's frame rule once enforced makes this arm's shape
+/// one of them), and the solver's own reading must not depend on which
+/// shapes reach it.
+pub(crate) fn occupant_ground(
+    located: Option<HostRange>,
+    host: NodeId,
+    declared_start: u64,
+    named_table: NodeId,
+    host_tables: &[NodeId],
+) -> Option<OccupancyGround> {
+    if !host_tables.contains(&named_table) {
+        return located
+            .filter(|range| range.host == host)
+            .map(|_| OccupancyGround::TableIsNotThisHosts { named_table });
+    }
+    occupancy_ground(located, host, declared_start)
 }
 
 /// Why a located range does not account for the occupant whose hashed
