@@ -215,6 +215,14 @@ naming relation and the destruction carried from the step's target,
 never geometry and never reach alone. The consequence stands: a sibling
 is never captured by a step that destroys another partition, because a
 range that touches a non-target node establishes no destruction of it.)*
+*(Amended a fourth time in 16.0.0 by ADR-0048: the step's target may
+declare no extent at all, in which case no range can reach it and the
+seed had no source — such a target is destroyed by identity where a
+destroyed range is expressed in its own address space, and membership
+below it follows the arms already named. The consequence is unchanged and
+for the same reason: the seed is frame-equal, so a range in another
+frame establishes no destruction of an extentless node, and a sibling is
+still never captured.)*
 The premise, stated as a named property of the edge taxonomy: **no backing
 or production edge targets a physical device** — products are virtual
 devices, volumes, or file systems; containment descent is strictly

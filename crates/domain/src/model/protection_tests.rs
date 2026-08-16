@@ -1806,6 +1806,19 @@ fn whole_disk_vdev() -> WholeDiskVdev {
     }
 }
 
+/// The four operations whose canonical entry declares a destroyed range
+/// (ADR-0038's release set). The other six mutating operations write and
+/// destroy nothing, which is why ADR-0048 moves these and not those.
+fn destroying_operations() -> [super::capability::Operation; 4] {
+    use super::capability::Operation;
+    [
+        Operation::Wipe,
+        Operation::Encrypt,
+        Operation::Move,
+        Operation::Shrink,
+    ]
+}
+
 fn mutating_operations() -> [super::capability::Operation; 10] {
     use super::capability::Operation;
     [
@@ -2730,12 +2743,12 @@ fn destroying_a_partitioned_arrays_member_reaches_what_its_partitions_carry() {
 //   nothing reach the table on the volume (ADR-0039's carried content)
 //   and release nothing — a table reached is not a table destroyed. A
 //   range that merely touches a table never seeds it either: round 2's L1
-//   and L2 guards hold unmoved and are not re-asserted here. And an
-//   extentless target — the volume, the array — declares no destroyed
-//   range at all, so its own wipe cannot be seen destroyed and reaches
-//   the table it carries as content only. That last row is the named
-//   limit ADR-0044 leaves open, pinned so that closing it is a deliberate
-//   change and never a drift.
+//   and L2 guards hold unmoved and are not re-asserted here. ADR-0044's
+//   named limit — an extentless target declaring no destroyed range, so
+//   its own wipe could not be seen destroyed — is closed by ADR-0048
+//   (issue #392): the volume and the array now refuse, and the rows that
+//   pinned them assert the refusal instead. What this test still pins is
+//   the distinction those rows were guarding: reach is not destruction.
 // Evidence: destruction_carries_only_from_the_target_and_reach_never_releases
 #[test]
 fn destruction_carries_only_from_the_target_and_reach_never_releases() {
@@ -2751,17 +2764,36 @@ fn destruction_carries_only_from_the_target_and_reach_never_releases() {
         !affected.contains(&m.md0p1) && !affected.contains(&m.pool),
         "and releases nothing: reach is not destruction"
     );
-    // The named limit: an extentless target.
+    // ADR-0044's named limit, closed by ADR-0048 (issue #392): an
+    // extentless target's own wipe is seen destroyed, so the pool under
+    // the table it carries is reached and every destroying operation
+    // refuses. The volume reaches it because its children are framed on
+    // it; the array because destruction now carries by identity into the
+    // volume it produces.
     for target in [m.md0, m.array] {
-        for op in mutating_operations() {
-            assert_eq!(
+        for op in destroying_operations() {
+            assert_ne!(
                 protection_gate(&m.topology, &m.facts, target, op),
                 ProtectionGate::Clear,
-                "{op:?} on an extentless target declares no destroyed range (ADR-0044's named limit)"
+                "{op:?} on an extentless target is seen destroyed (ADR-0048)"
             );
         }
+        let ranges = super::capability::canonical_ranges(Operation::Wipe, target, &m.facts);
+        let affected = affected_set(&m.topology, &m.facts, target, &ranges);
+        assert!(
+            affected.contains(&m.pool),
+            "the pool under an extentless target's table is reached"
+        );
+    }
+
+    // The distinction the closed limit was guarding, pinned in its own
+    // right: a step that declares no destroyed range still only reaches.
+    for target in [m.md0, m.array] {
         let affected = affected_set(&m.topology, &m.facts, target, &StepRanges::default());
-        assert!(affected.contains(&m.table) && !affected.contains(&m.pool));
+        assert!(
+            affected.contains(&m.table) && !affected.contains(&m.pool),
+            "with no declared ranges, an extentless target reaches its table and releases nothing"
+        );
     }
 }
 
@@ -3339,4 +3371,191 @@ fn removing_any_one_containment_edge_never_weakens_a_verdict() {
         }
     }
     assert!(checked >= 6, "the lens examined {checked} removals");
+}
+
+// Requirements: MODEL-002, SAFE-005, CAP-003
+//   ADR-0048, issue #392: an extentless target is destroyed by identity.
+//   Both halves are load-bearing and each is asserted on the arm only it
+//   reaches. The whole-frame entry range-destroys what is framed on the
+//   target, which is how the volume's table, partition, signature and
+//   pool are reached; the identity seed destroys the target itself,
+//   which is how destruction carries from an aggregate along production
+//   to the volume it produces — nothing is framed on an aggregate, so
+//   the entry alone leaves it Clear. The two controls that must not move
+//   are pinned beside them: a whole-disk wipe, and the reach-only Label.
+// Evidence: an_extentless_target_is_destroyed_by_identity
+#[test]
+fn an_extentless_target_is_destroyed_by_identity() {
+    use super::capability::{Operation, ProtectionGate, canonical_ranges, protection_gate};
+    let m = partitioned_mdraid();
+
+    // 1. The volume: its children are framed on it, so the whole-frame
+    //    entry reaches them and the pool below.
+    let ranges = canonical_ranges(Operation::Wipe, m.md0, &m.facts);
+    assert_eq!(
+        ranges.destroyed,
+        vec![HostRange {
+            host: m.md0,
+            start: 0,
+            length: u64::MAX
+        }],
+        "an extentless target's destroyed entry is its whole frame"
+    );
+    let affected = affected_set(&m.topology, &m.facts, m.md0, &ranges);
+    for reached in [m.table, m.md0p1, m.zfs_signature, m.pool] {
+        assert!(
+            affected.contains(&reached),
+            "the volume's wipe reaches everything framed on it, and the pool below"
+        );
+    }
+
+    // 2. The aggregate: nothing is framed on it, so only the identity
+    //    seed carries destruction into the volume it produces.
+    let array_ranges = canonical_ranges(Operation::Wipe, m.array, &m.facts);
+    let array_affected = affected_set(&m.topology, &m.facts, m.array, &array_ranges);
+    assert!(
+        array_affected.contains(&m.pool),
+        "destruction carries from an aggregate along production (the identity seed)"
+    );
+
+    // 3. Both refuse the four destroying operations over the live pool.
+    //    The six that write declare no destroyed range and so still only
+    //    reach — that is ADR-0039's distinction, unchanged here, and the
+    //    reason this loop names four operations rather than ten.
+    for target in [m.md0, m.array] {
+        for op in destroying_operations() {
+            assert_ne!(
+                protection_gate(&m.topology, &m.facts, target, op),
+                ProtectionGate::Clear,
+                "{op:?} on an extentless target over a live pool"
+            );
+        }
+        for op in [Operation::Label, Operation::Uuid] {
+            assert_eq!(
+                protection_gate(&m.topology, &m.facts, target, op),
+                ProtectionGate::Clear,
+                "{op:?} destroys nothing, so it reaches without releasing"
+            );
+        }
+    }
+
+    // 4. The controls, unmoved. A whole-disk wipe reaches what it always
+    //    did, and a Label — which destroys nothing — still reaches the
+    //    table without releasing the partition under it.
+    let wipe_sda = canonical_ranges(Operation::Wipe, m.sda, &m.facts);
+    let wiped = affected_set(&m.topology, &m.facts, m.sda, &wipe_sda);
+    for reached in [m.md_signature, m.array, m.md0, m.table, m.md0p1, m.pool] {
+        assert!(
+            wiped.contains(&reached),
+            "the whole-disk control is unmoved"
+        );
+    }
+    let label_sda = canonical_ranges(Operation::Label, m.sda, &m.facts);
+    let labelled = affected_set(&m.topology, &m.facts, m.sda, &label_sda);
+    assert!(
+        labelled.contains(&m.table) && !labelled.contains(&m.md0p1) && !labelled.contains(&m.pool),
+        "reach is not destruction: Label reaches the table and releases nothing"
+    );
+}
+
+// Requirements: MODEL-002, SAFE-005
+//   The seed's second source reads the step's declared ranges and the
+//   absence of an extent, so it is measured against issue #319's
+//   population — a body whose extent-bearing node has no extent fact —
+//   rather than argued about. `canonical_ranges` cannot tell "this kind
+//   carries no extent" from "this extent is absent", so the whole-frame
+//   entry lands on both, and the question is whether it can ever open a
+//   gate. For every node ADR-0048's own arms read it cannot. The one
+//   shape that does open gates is issue #319's third measured shape and
+//   is pinned here as an open limit, not fixed: this act does not close
+//   that issue and must not read as though it had.
+// Evidence: the_identity_seed_never_weakens_a_gate_on_an_absent_extent
+#[test]
+fn the_identity_seed_never_weakens_a_gate_on_an_absent_extent() {
+    use super::capability::{ProtectionGate, protection_gate};
+    let m = partitioned_mdraid();
+
+    let clear_count = |facts: &Facts, target: NodeId| {
+        mutating_operations()
+            .into_iter()
+            .filter(|op| protection_gate(&m.topology, facts, target, *op) == ProtectionGate::Clear)
+            .count()
+    };
+
+    // The nodes this act's arms read: the frame root, a partition framed
+    // on the volume, and the table. Dropping any one never opens a gate.
+    for victim in [m.sda, m.md0p1, m.table] {
+        let mut thinned = m.facts.clone();
+        thinned.extents.remove(&victim);
+        for target in [m.sda, m.md0p1, m.md0, m.array] {
+            let honest = clear_count(&m.facts, target);
+            let absent = clear_count(&thinned, target);
+            assert!(
+                absent <= honest,
+                "removing an extent fact opened {} gate(s) on {target:?}",
+                absent.saturating_sub(honest)
+            );
+        }
+    }
+
+    // Issue #319's third measured shape, pinned as an OPEN limit. The ZFS
+    // signature is reached only by the byte scan, so removing its extent
+    // removes the one route to the pool and every gate opens — at HEAD
+    // before this act and at HEAD after it. ADR-0048 neither causes this
+    // nor repairs it; range-reach remains extent-only
+    // (`protection.rs`, the `facts.extents.get(&id)` arm). Pinned so that
+    // closing issue #319 is a deliberate change and never a drift.
+    let mut no_signature = m.facts.clone();
+    no_signature.extents.remove(&m.zfs_signature);
+    for target in [m.sda, m.md0p1, m.md0, m.array] {
+        assert_eq!(
+            clear_count(&no_signature, target),
+            10,
+            "issue #319's open shape: an unlocated signature hides the pool from {target:?}"
+        );
+    }
+}
+
+// Requirements: MODEL-002, SAFE-005
+//   The identity seed is frame-equal, not merely non-empty. `affected_set`
+//   is public over caller-supplied `StepRanges`, and a plan step declares
+//   its own ranges rather than the canonical ones, so a step destroying
+//   bytes in some other frame must not destroy an extentless target that
+//   happens to be in the same body. `canonical_ranges` always frames its
+//   whole-frame entry on the target, so this distinction is invisible
+//   through the gate and is pinned here at the closure instead.
+// Evidence: the_identity_seed_is_frame_equal_not_merely_non_empty
+#[test]
+fn the_identity_seed_is_frame_equal_not_merely_non_empty() {
+    let m = partitioned_mdraid();
+
+    // A destroyed range on the DEVICE's frame, with the volume as target.
+    let elsewhere = StepRanges {
+        destroyed: vec![HostRange {
+            host: m.sda,
+            start: 0,
+            length: 1 << 30,
+        }],
+        ..StepRanges::default()
+    };
+    let affected = affected_set(&m.topology, &m.facts, m.md0, &elsewhere);
+    assert!(
+        !affected.contains(&m.pool),
+        "a range in another frame does not destroy an extentless target"
+    );
+
+    // The same range framed on the volume does destroy it.
+    let here = StepRanges {
+        destroyed: vec![HostRange {
+            host: m.md0,
+            start: 0,
+            length: 1 << 30,
+        }],
+        ..StepRanges::default()
+    };
+    let affected = affected_set(&m.topology, &m.facts, m.md0, &here);
+    assert!(
+        affected.contains(&m.pool),
+        "a range framed on the target destroys it by identity"
+    );
 }

@@ -136,15 +136,31 @@ pub enum ProtectionGate {
     },
 }
 
-/// The canonical effect-table entry for an operation over a target
-/// (ADR-0018's canonical-step rule): the operation's minimal invariant
-/// ranges, derivable from the body's own facts with no plan in scope.
+/// The canonical effect-table entry for an operation over a target: the
+/// ranges the operation has over it that are derivable from the body's
+/// own facts, with no plan and no request in scope.
+///
+/// **Not minimal, and never was.** Earlier revisions of this comment
+/// called these "the operation's minimal invariant ranges" and credited
+/// the phrase to "ADR-0018's canonical-step rule". ADR-0018 has no such
+/// rule and does not use the phrase; it is ADR-0042:23's gloss, repeated
+/// here and inherited by issue #392's filing. The entry was already
+/// non-minimal before that: ADR-0038 made `Shrink` and `Move` declare the
+/// whole target extent rather than the freed tail, because this function
+/// takes no request and cannot know a shrink's new length, and the
+/// truthful entry was measured to be a safety regression. ADR-0048 makes
+/// it less minimal again. The invariant that does hold is conservatism —
+/// an entry may over-approximate what the operation touches, never
+/// under-approximate it.
 ///
 /// A destructive operation's canonical entry destroys the target's
-/// extent; a create writes the host's table extents and consumes an
-/// unspecified free range, which by the constructor's own rule hosts
-/// nothing and therefore cannot hide a reach; content operations declare
-/// no host-range effects at capability time — the plan step's declared
+/// extent, or — where the target declares none — its whole frame
+/// (ADR-0048, issue #392). The six write operations declare the target's
+/// own extent as written, filtered to exclude a frame root's self-extent,
+/// which is what §2.1 forbids naming wholesale (ADR-0042); despite an
+/// earlier revision of this comment, a create declares no consumed range
+/// here at all, because the free range it takes needs the request. Content
+/// operations declare no host-range effects — the plan step's declared
 /// ranges are authoritative and re-run the same closure.
 #[must_use]
 pub fn canonical_ranges(operation: Operation, target: NodeId, facts: &Facts) -> StepRanges {
@@ -168,7 +184,24 @@ pub fn canonical_ranges(operation: Operation, target: NodeId, facts: &Facts) -> 
         // The plan layer, which does know its geometry, still computes
         // the real freed range.
         Operation::Wipe | Operation::Encrypt | Operation::Move | Operation::Shrink => {
-            destroyed_target(extent)
+            // ADR-0048, issue #392. A target that declares no extent —
+            // a volume, an aggregate, an encryption layer, a multipath
+            // node, for which `may_carry_extent` is false — had no range
+            // here at all, so the closure never saw it destroyed: the
+            // table it carries was reached as content and never
+            // destroyed, ADR-0043's release never fired, and
+            // `Wipe(volume)` gated `Clear` over a live pool. Its entry
+            // is its whole frame, which is the honest reading: wiping a
+            // volume destroys everything expressed in the volume's own
+            // address space, and nothing else — `HostRange::intersects`
+            // is frame-equal, so this range cannot touch another frame,
+            // and `u64::MAX` is safe under the saturating arithmetic
+            // `intersects` and `contains` both use.
+            destroyed_target(extent.or(Some(HostRange {
+                host: target,
+                start: 0,
+                length: u64::MAX,
+            })))
         }
         // Issue #353. §2.1: "Table writes target the table node's own
         // extents, never the parent device wholesale." These six write,
