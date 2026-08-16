@@ -200,7 +200,14 @@ declared extent is comparable with its reacher's and lies outside it is
 ever in the set. Containment descent now reaches nodes this claim
 excluded — that is the fix — while the consequence the claim was written
 for, that a sibling is never captured, holds by geometry rather than by
-the edge taxonomy alone.)* The
+the edge taxonomy alone.)* *(Amended again in 14.0.0 by ADR-0043: a
+partition released by the destruction of the table its own name says
+describes it is in the set although it lies outside its reacher's
+extent — membership there follows the naming relation and the step's
+target, never geometry. The consequence is restated with the same care:
+a sibling is never captured by a step that destroys another partition; a
+step that destroys the table releases every partition it describes,
+which is release, not capture.)* The
 premise, stated as a named property of the edge taxonomy: **no backing
 or production edge targets a physical device** — products are virtual
 devices, volumes, or file systems; containment descent is strictly

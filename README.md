@@ -211,7 +211,7 @@ Run `cargo xtask help` for the full command list.
 
 ## Open issues
 
-Nine are open after ADR-0042 (2026-08-15). This section reports status
+Eight are open after ADR-0043 (2026-08-16). This section reports status
 only; each issue's own thread is the record, and the review rounds under
 `docs/reviews/` carry the measurements. The current handoff,
 `docs/reviews/HANDOFF_2026-08-15_OPUS_CLEANUP_TO_NEXT.md`, states the
@@ -225,14 +225,15 @@ head, and WP-020 is re-pinned at `53c90f1`. The check is
 against `HEAD` rather than against whichever pin a pull request body cited;
 any non-Markdown path it lists re-opens the three acceptances.
 
-Most of the domain issues are ordered by a dependency chain established by
-measurement — **#347 → #360 → #354's kind half → #333's enforcement** — so
-#347 gates three others despite reading as self-contained.
+Most of the domain issues were ordered by a dependency chain established by
+measurement — **#347 → #360 → #354's kind half → #333's enforcement**.
+#347 closed with ADR-0043 (2026-08-16); #360 is now the head of that chain,
+and ADR-0043 names what its act must add (the release propagating through
+the cascade, with its own row and fixture).
 
 | Issue | Package | Standing |
 | --- | --- | --- |
-| **#347** | WP-010 | Destroying a partition table reaches none of the partitions it releases. **Head of the chain.** Round 2's candidate was **rejected** on measured grounds (`docs/reviews/ISSUE-347_RELEASE_ROUND_2_ADVERSARIAL_2026-08-14.md`); round 1's two requirements are **jointly unsatisfiable over `Facts.extents`**, so the release must be decided structurally. The proposed round-3 direction — deriving it from the naming relation — is reasoned but **unmeasured**. |
-| **#360** | WP-010 | A partitioned mdraid array has no containment expression. One pair-table row suffices and the workspace is green with it, but it **must not land before #347**: the newly-representable population silently under-reaches. |
+| **#360** | WP-010 | A partitioned mdraid array has no containment expression. One pair-table row suffices and the workspace is green with it. **Head of the chain now**: ADR-0043 measured that with the row the member-disk wipe reaches the pool only if the release propagates through the cascade, and cut that clause as uncovered — #360's act adds the row, the fixture and the propagation together, and `Wipe(volume)` besides. |
 | **#354** | WP-010 | Naming-field referents validated by nobody. **Partially discharged** — resolve-only landed (#362); the kind half is open and blocked on #360. |
 | **#333** | WP-010 | The reach closure misses children anchored outside the device's address space. Rule **decided**, enforcement **held**, gated on #360. |
 | **#319** | WP-060/WP-010 | Absent child extents fail open. The occupancy half landed under ADR-0036; the **authorization half** remains. Its recorded blocker (#338) has since closed, so whether it is still blocked is **unverified**. |
@@ -247,7 +248,9 @@ are validated against its topology at assembly), whose record names what
 each leaves open — #356's absent-extent spelling is #319's class and
 still constructs; **#353** closed with ADR-0042 (a frame root is never
 written wholesale, and a target frame root reaches what it carries),
-which leaves the per-kind truthful entry open as a cross-package act.
+which leaves the per-kind truthful entry open as a cross-package act;
+**#347** closed with ADR-0043 (a destroyed partition table releases the
+partitions it describes) on its third round, spec 14.0.0.
 
 ## Roadmap
 

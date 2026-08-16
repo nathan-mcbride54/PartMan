@@ -264,6 +264,42 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **spec-change 14.0.0: a destroyed partition table releases the
+  partitions it describes (ADR-0043, resolving issue #347 on its third
+  round).** ADR-0018 defines the destroyed class as releases — content
+  that "ceases to be referenced" — and the closure reached none of the
+  partitions a destroyed table describes: on a disk carrying a live ZFS
+  vdev, `Wipe(table)` was 10/10 `Clear` with the pool never consulted.
+  Two designs died inside the closure on the table's own authored
+  geometry — round 1's coverage test (fail-open on one byte of
+  inflation), round 2's intersection test (every sibling captured from a
+  partition-target step on the BIOS-boot layout) — and round 2's panel
+  measured that no predicate over `Facts.extents` can be repaired into
+  shape. **The release is structural now**: a step whose *target* is a
+  partition table and whose own destroyed ranges reach it destroys the
+  table, and a destroyed table releases every partition whose *name*
+  says it describes it (`Partition.parent_table`, `released_by_table`,
+  quantified over the naming roster). Never a table some other step's
+  range touches, never coverage of the table's extent, never the edge
+  set; a `ConflictingTableEntry` names a table and is not released by
+  it. Measured on the panel's own fatal shapes: L1's partition-target
+  row is 10/10 `Clear`; L2's one-byte inflation no longer refuses
+  `Wipe(esp)`; M3's hybrid-MBR wipe stays `Clear`; M5's omitted-edge
+  escape is closed; the plain disk still constructs; every
+  non-table-target row on five layouts is byte-identical to before. One
+  priced limit, pinned beside the honest spelling on `bios_boot_gpt`: a
+  table-target step destroying any byte the body attributes to the table
+  releases, fail-closed — the closure cannot tell one GPT entry from the
+  header, and nothing delivered emits that spelling. Six mutations, each
+  proven applied, each killed (release on target identity alone is
+  killed by four pre-existing guards). **Major**: ADR-0018's theorem is
+  amended again and §2.1:113 changes — including the correction of
+  ADR-0042's "never a descent source" mispricing, recorded rather than
+  smoothed. The #360 chain needs the release to propagate through the
+  cascade; measured to work and cut as an uncovered clause; #360's
+  remainder, with `Wipe(volume)`. `Containment`'s doc comment now says
+  what the two table pairs are (round 1's §2 finding).
+
 - **spec-change 13.1.0: the body's facts are validated against its
   topology at assembly (ADR-0041, resolving issues #349 and #356 as
   filed).** `TopologySnapshot::assemble` — the one path both the

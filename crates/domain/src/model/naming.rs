@@ -772,6 +772,26 @@ impl NamingFields {
         }
     }
 
+    /// The partition table whose destruction releases this node, if its
+    /// own name says one describes it (issue #347, ADR-0043).
+    ///
+    /// A `Partition` names its table in `parent_table`, so it cannot be
+    /// represented without saying which table describes it — the release
+    /// is read here rather than off a containment edge, which a body may
+    /// omit. A `ConflictingTableEntry` also names a table, and is **not**
+    /// released by it: ADR-0019 holds it verbatim as a record inside the
+    /// table's own bytes, and ADR-0036 decided it is not an occupant of
+    /// the region it names; destroying its table destroys the record,
+    /// which the ordinary geometry already reaches, and releases nothing
+    /// beyond it. Every other kind names no table.
+    #[must_use]
+    pub const fn released_by_table(&self) -> Option<NodeId> {
+        match self {
+            Self::Partition { parent_table, .. } => Some(*parent_table),
+            _ => None,
+        }
+    }
+
     /// Whether a node of this kind may carry an extent fact.
     ///
     /// A produced node has no position in anyone's address space: an

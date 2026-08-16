@@ -1613,20 +1613,60 @@ fn a_bios_boot_gpt_disk_assembles_under_the_validity_rules() {
     let _ = (f.boot, f.esp, f.member, f.pool, f.table);
 }
 
-// Requirements: MODEL-002, SAFE-005
-//   Deleting the bios_grub entry — the table's extent written, the
-//   entry's own bytes destroyed — must reach neither the ESP nor the pool:
+// Requirements: MODEL-002, SAFE-005, CAP-003
+//   Deleting the bios_grub entry must reach neither the ESP nor the pool:
 //   both are disjoint from the destroyed range. This is the property the
 //   committed sibling guard states, on the one layout where the deleted
-//   partition nests inside the table's own extent. It passed at HEAD and
-//   failed under the issue-347 round-2 candidate, which is why it is
-//   committed: any release predicate proposed in that family is measured
-//   against this shape first.
+//   partition nests inside the table's own declared extent — the shape on
+//   which the issue-347 round-2 candidate captured every sibling (its
+//   panel's L1). Under ADR-0043 the release is decided by the step's
+//   *target*: a partition-target step never releases its table, however
+//   much of the table's declared region its range touches, so the honest
+//   spelling of "delete bios_grub" — Wipe with the partition as target,
+//   which is what the panel measured and what the planner emits — is
+//   ten-for-ten Clear and reaches only the entry itself. The other
+//   spelling is asserted beside it, as a priced limit rather
+//   than a promise: a step whose target is the *table* and which destroys
+//   any byte the body attributes to the table is read as destroying the
+//   table, and releases. The closure has no non-authored way to tell one
+//   GPT entry from the header — that is round 2's impossibility result —
+//   and it reads the case fail-closed. Nothing delivered emits that
+//   spelling; if something does, this is the row that says what it gets.
 // Evidence: a_sibling_esp_is_never_captured_when_the_deleted_partition_nests_in_the_table
 #[test]
 fn a_sibling_esp_is_never_captured_when_the_deleted_partition_nests_in_the_table() {
+    use super::capability::{Operation, ProtectionGate, canonical_ranges, protection_gate};
     let f = bios_boot_gpt();
-    let delete_bios_grub = StepRanges {
+    for op in mutating_operations() {
+        assert_eq!(
+            protection_gate(&f.topology, &f.facts, f.boot, op),
+            ProtectionGate::Clear,
+            "{op:?} on bios_grub touches no sibling and must not refuse"
+        );
+    }
+    let delete_bios_grub = canonical_ranges(Operation::Wipe, f.boot, &f.facts);
+    let affected = affected_set(&f.topology, &f.facts, f.boot, &delete_bios_grub);
+    assert!(
+        affected.contains(&f.boot),
+        "the destroyed entry itself is reached"
+    );
+    assert!(
+        affected.contains(&f.table),
+        "the table's declared region is intersected, so the table is in the set"
+    );
+    assert!(
+        !affected.contains(&f.esp),
+        "the ESP is disjoint from the destroyed range and must stay unreached"
+    );
+    assert!(!affected.contains(&f.member));
+    assert!(
+        !affected.contains(&f.pool),
+        "the pool is disjoint from the destroyed range and must stay unreached"
+    );
+
+    // The priced limit: the same bytes destroyed by a step whose target
+    // is the table release the table's partitions.
+    let table_target = StepRanges {
         written_table_extents: vec![HostRange {
             host: f.sda,
             start: 0,
@@ -1639,34 +1679,29 @@ fn a_sibling_esp_is_never_captured_when_the_deleted_partition_nests_in_the_table
             length: MIB - 17408,
         }],
     };
-    let affected = affected_set(&f.topology, &f.facts, f.table, &delete_bios_grub);
+    let affected = affected_set(&f.topology, &f.facts, f.table, &table_target);
     assert!(
-        affected.contains(&f.boot),
-        "the destroyed entry itself is reached"
+        affected.contains(&f.esp) && affected.contains(&f.pool),
+        "a table-target step destroying bytes the body attributes to the table releases, fail-closed"
     );
-    assert!(
-        !affected.contains(&f.esp),
-        "the ESP is disjoint from the destroyed range and must stay unreached"
-    );
-    assert!(
-        !affected.contains(&f.pool),
-        "the pool is disjoint from the destroyed range and must stay unreached"
-    );
-    let _ = (f.member, f.signature);
+    let _ = f.signature;
 }
 
 // Requirements: MODEL-002, SAFE-005
 //   The destroyed range provably misses every GPT structure — LBA 0 is
 //   [0, 512), the header LBA 1 is [512, 1024), the entry array LBA 2..33
-//   is [1024, 17408) — and destroys [17408, 1 MiB) alone. Such a range
-//   must not release the table's partitions: the pool stays unreached and
-//   the step constructs. Committed beside the test above for the same
-//   reason: it separates "the table's declared extent was touched" from
-//   "a GPT structure was destroyed", which the rejected round-2 candidate
-//   conflated.
-// Evidence: a_range_that_touches_no_gpt_structure_does_not_release_the_disk
+//   is [1024, 17408) — and destroys [17408, 1 MiB) alone. Under ADR-0043
+//   what that range releases is decided by whose step it is: with the
+//   partition as target it releases nothing (the pool stays unreached, the
+//   step constructs); with the table as target the closure reads the
+//   table as destroyed and releases (the priced limit above). The pair is
+//   the separation round 2 asked for — "the table was destroyed" from
+//   "something inside the region the body attributes to the table was
+//   destroyed" — drawn where the closure can draw it, on target identity,
+//   never on the table's own authored geometry.
+// Evidence: a_range_that_touches_no_gpt_structure_releases_only_from_a_table_target
 #[test]
-fn a_range_that_touches_no_gpt_structure_does_not_release_the_disk() {
+fn a_range_that_touches_no_gpt_structure_releases_only_from_a_table_target() {
     let f = bios_boot_gpt();
     let ranges = StepRanges {
         written_table_extents: vec![],
@@ -1677,15 +1712,19 @@ fn a_range_that_touches_no_gpt_structure_does_not_release_the_disk() {
             length: MIB - 17408,
         }],
     };
-    let affected = affected_set(&f.topology, &f.facts, f.table, &ranges);
+    let affected = affected_set(&f.topology, &f.facts, f.boot, &ranges);
     assert!(
         !affected.contains(&f.pool),
-        "a range containing no GPT structure must not release the table's partitions"
+        "from the partition's own step the range releases nothing"
     );
+    assert!(step_constructs(&f.topology, &f.facts, f.boot, &ranges).is_ok());
+
+    let affected = affected_set(&f.topology, &f.facts, f.table, &ranges);
     assert!(
-        step_constructs(&f.topology, &f.facts, f.table, &ranges).is_ok(),
-        "nothing protected is reached, so the step constructs"
+        affected.contains(&f.pool),
+        "from a table-target step the same range is read as destroying the table"
     );
+    assert!(step_constructs(&f.topology, &f.facts, f.table, &ranges).is_err());
 }
 
 // ---------------------------------------------------------------------
@@ -1968,4 +2007,512 @@ fn the_target_hop_is_bounded_by_the_same_geometry_as_every_other() {
     assert!(!affected.contains(&f.esp));
     assert!(!affected.contains(&f.member));
     assert!(!affected.contains(&f.pool));
+}
+
+// ---------------------------------------------------------------------
+// Issue #347 (ADR-0043): destroying a partition table releases the
+// partitions it describes — decided structurally, by the step's target
+// and the naming relation, never by the table's own authored geometry.
+// ---------------------------------------------------------------------
+
+/// The `root_on_zfs` layout with the two `table -> partition` containment
+/// edges omitted, every fact unchanged. A body may omit an edge; it cannot
+/// represent a partition without naming its table.
+fn root_on_zfs_without_table_edges() -> RootOnZfs {
+    let l = root_on_zfs();
+    let nodes: Vec<NamingFields> = l
+        .topology
+        .entries()
+        .iter()
+        .map(|entry| match entry {
+            super::naming::NodeEntry::Single { fields, .. }
+            | super::naming::NodeEntry::Group { fields, .. } => fields.clone(),
+        })
+        .collect();
+    let edges: Vec<Edge> = l
+        .topology
+        .edges()
+        .iter()
+        .filter(|edge| !(edge.kind == EdgeKind::Containment && edge.source == l.table))
+        .copied()
+        .collect();
+    assert_eq!(
+        edges.len(),
+        l.topology.edges().len() - 2,
+        "both table edges dropped"
+    );
+    let topology = Topology::build(nodes, edges).expect("builds");
+    RootOnZfs { topology, ..l }
+}
+
+fn wipe_of(facts: &Facts, node: NodeId) -> StepRanges {
+    StepRanges {
+        written_table_extents: vec![],
+        consumed: vec![],
+        destroyed: vec![facts.extents[&node]],
+    }
+}
+
+// Requirements: MODEL-002, SAFE-005, CAP-003
+//   Issue #347 as filed: destroying the partition table of a disk carrying
+//   a live ZFS vdev on sda2 releases the partitions it describes, and the
+//   pool behind the member refuses. At HEAD the ten-operation gate on the
+//   table was 10/10 Clear with the pool's Refused{Zfs} never consulted.
+//   Now the four release operations refuse and the six that destroy
+//   nothing stay Clear (Repair on a table is not a release — the property
+//   a rejected #319 arm defeated). Both halves are asserted, the affected
+//   set and the gate, so neither can regress into the other.
+// Evidence: destroying_a_partition_table_releases_the_partitions_it_describes
+#[test]
+fn destroying_a_partition_table_releases_the_partitions_it_describes() {
+    use super::capability::{Operation, ProtectionGate, protection_gate};
+    let l = root_on_zfs();
+    let affected = affected_set(&l.topology, &l.facts, l.table, &wipe_of(&l.facts, l.table));
+    for (name, node) in [
+        ("esp", l.esp),
+        ("member", l.member),
+        ("signature", l.signature),
+        ("pool", l.pool),
+    ] {
+        assert!(
+            affected.contains(&node),
+            "destroying the table releases {name}"
+        );
+    }
+    assert!(step_constructs(&l.topology, &l.facts, l.table, &wipe_of(&l.facts, l.table)).is_err());
+    for op in mutating_operations() {
+        let gate = protection_gate(&l.topology, &l.facts, l.table, op);
+        if matches!(
+            op,
+            Operation::Wipe | Operation::Shrink | Operation::Move | Operation::Encrypt
+        ) {
+            assert!(
+                matches!(
+                    gate,
+                    ProtectionGate::Unsupported {
+                        ground: RefusalGround::Zfs
+                    }
+                ),
+                "{op:?} destroys the table and must refuse through the pool, got {gate:?}"
+            );
+        } else {
+            assert_eq!(gate, ProtectionGate::Clear, "{op:?} destroys nothing");
+        }
+    }
+}
+
+// Requirements: MODEL-002, SAFE-005
+//   The release is read off the naming relation and the step's target,
+//   and off nothing the body can author to remove it (round 1 §11.4's
+//   acceptance test, asked in the removal direction). Omit both
+//   `table -> partition` edges: the release still fires — a partition
+//   cannot be represented without naming its table. Deflate the table's
+//   extent to its real 17 408 bytes, or inflate it by a byte: the release
+//   still fires, because the trigger is the target's own membership in
+//   the destroyed class, and a step that destroys its own target's extent
+//   intersects it at every size. Under-declare the wipe to the protective
+//   MBR's 512 bytes with the table as target: it still fires, fail-closed.
+//   None of these is a coverage test, which round 2 measured to be
+//   anti-monotone in the authored extent.
+// Evidence: the_release_follows_the_naming_relation_not_the_edges_or_the_extent
+#[test]
+fn the_release_follows_the_naming_relation_not_the_edges_or_the_extent() {
+    let l = root_on_zfs_without_table_edges();
+    let affected = affected_set(&l.topology, &l.facts, l.table, &wipe_of(&l.facts, l.table));
+    assert!(
+        affected.contains(&l.pool),
+        "with the table -> partition edges omitted the release still reaches the pool"
+    );
+
+    let l = root_on_zfs();
+    for (label, length) in [
+        ("deflated to 17408", 17408),
+        ("inflated by a byte", MIB + 1),
+    ] {
+        let mut facts = l.facts.clone();
+        facts.extents.insert(
+            l.table,
+            HostRange {
+                host: l.sda,
+                start: 0,
+                length,
+            },
+        );
+        let affected = affected_set(&l.topology, &facts, l.table, &wipe_of(&facts, l.table));
+        assert!(
+            affected.contains(&l.pool),
+            "table extent {label}: the release still fires"
+        );
+    }
+
+    let under_declared = StepRanges {
+        written_table_extents: vec![],
+        consumed: vec![],
+        destroyed: vec![HostRange {
+            host: l.sda,
+            start: 0,
+            length: 512,
+        }],
+    };
+    let affected = affected_set(&l.topology, &l.facts, l.table, &under_declared);
+    assert!(
+        affected.contains(&l.pool),
+        "a table-target step destroying 512 bytes of the table is read as destroying it"
+    );
+}
+
+// Requirements: MODEL-002, SAFE-005, CAP-003
+//   A table that is not the step's target never releases, however its
+//   declared extent is touched. Round 2's L2: inflate the table's extent by
+//   one byte so the ESP's own extent intersects it, then wipe the ESP —
+//   the table enters the destroyed class by intersection, and released
+//   nothing: the ESP's gate stays ten-for-ten Clear, the member and the
+//   pool stay out. Under the rejected candidate this row went
+//   Unsupported{Zfs} on one byte of over-declaration; here the byte does
+//   nothing, because release is not decided by intersection.
+// Evidence: a_table_that_is_not_the_target_never_releases
+#[test]
+fn a_table_that_is_not_the_target_never_releases() {
+    use super::capability::{ProtectionGate, protection_gate};
+    let l = root_on_zfs();
+    let mut facts = l.facts.clone();
+    facts.extents.insert(
+        l.table,
+        HostRange {
+            host: l.sda,
+            start: 0,
+            length: MIB + 1,
+        },
+    );
+    for op in mutating_operations() {
+        assert_eq!(
+            protection_gate(&l.topology, &facts, l.esp, op),
+            ProtectionGate::Clear,
+            "{op:?} on the ESP under a one-byte-inflated table must not refuse"
+        );
+    }
+    let affected = affected_set(&l.topology, &facts, l.esp, &wipe_of(&facts, l.esp));
+    assert!(
+        affected.contains(&l.table),
+        "the table's inflated extent is intersected, so it is in the set"
+    );
+    assert!(!affected.contains(&l.member), "and released nothing");
+    assert!(!affected.contains(&l.pool));
+}
+
+// Requirements: MODEL-002, SAFE-005, CAP-003
+//   The false-refusal controls. A plain ext4 disk: destroying its table
+//   releases the partition and the file system it carries, both
+//   Permitted, and the step constructs — the release reaches, it does not
+//   refuse. A hybrid disk: the GPT describes the partitions and a hybrid
+//   MBR view describes none, so wiping the MBR view releases nothing and
+//   stays Clear while wiping the GPT refuses through the pool under sda2 —
+//   round 2's M3 (a 512-byte MBR wipe refusing through a pool 512 MiB
+//   away) cannot arise, because the release follows `parent_table`, and a
+//   ConflictingTableEntry names a table without being released by it.
+// Evidence: a_released_partition_refuses_only_for_what_it_carries
+#[test]
+#[allow(clippy::too_many_lines)]
+fn a_released_partition_refuses_only_for_what_it_carries() {
+    use super::capability::{Operation, ProtectionGate, protection_gate};
+    use super::naming::FileSystemKind;
+
+    // Plain ext4 disk.
+    let plain = device(b"SDY");
+    let plain_id = derive_id(&plain).expect("derivable");
+    let table = NamingFields::PartitionTable {
+        parent: plain_id,
+        role: TableRole::Gpt,
+    };
+    let table_id = derive_id(&table).expect("derivable");
+    let p1 = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: MIB,
+    };
+    let p1_id = derive_id(&p1).expect("derivable");
+    let fs = NamingFields::FileSystem {
+        host: p1_id,
+        kind: FileSystemKind::Ext4,
+        superblock_offset: 1024,
+    };
+    let fs_id = derive_id(&fs).expect("derivable");
+    let topology = Topology::build(
+        vec![plain, table, p1, fs],
+        vec![
+            Edge {
+                kind: EdgeKind::Containment,
+                source: plain_id,
+                target: table_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: table_id,
+                target: p1_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: p1_id,
+                target: fs_id,
+            },
+        ],
+    )
+    .expect("builds");
+    let mut extents = BTreeMap::new();
+    let host = |start, length| HostRange {
+        host: plain_id,
+        start,
+        length,
+    };
+    extents.insert(plain_id, host(0, 1 << 30));
+    extents.insert(table_id, host(0, MIB));
+    extents.insert(p1_id, host(MIB, 512 * MIB));
+    extents.insert(fs_id, host(MIB, 512 * MIB));
+    let mut transports = BTreeMap::new();
+    transports.insert(plain_id, TransportClass::Sata);
+    let facts = Facts {
+        extents,
+        transports,
+        member_counts: BTreeMap::new(),
+        table_states: BTreeMap::new(),
+    };
+    let affected = affected_set(&topology, &facts, table_id, &wipe_of(&facts, table_id));
+    assert!(affected.contains(&p1_id) && affected.contains(&fs_id));
+    assert!(
+        step_constructs(&topology, &facts, table_id, &wipe_of(&facts, table_id)).is_ok(),
+        "nothing released is protected, so the table wipe constructs"
+    );
+    for op in mutating_operations() {
+        assert_eq!(
+            protection_gate(&topology, &facts, table_id, op),
+            ProtectionGate::Clear
+        );
+    }
+
+    // Hybrid disk: GPT + hybrid MBR view + one conflicting entry; the pool
+    // is under the GPT's second partition.
+    let sda = device(b"HYB");
+    let sda_id = derive_id(&sda).expect("derivable");
+    let gpt = NamingFields::PartitionTable {
+        parent: sda_id,
+        role: TableRole::Gpt,
+    };
+    let gpt_id = derive_id(&gpt).expect("derivable");
+    let mbr = NamingFields::PartitionTable {
+        parent: sda_id,
+        role: TableRole::HybridMbr,
+    };
+    let mbr_id = derive_id(&mbr).expect("derivable");
+    let esp = NamingFields::Partition {
+        parent_table: gpt_id,
+        start_offset: MIB,
+    };
+    let esp_id = derive_id(&esp).expect("derivable");
+    let member = NamingFields::Partition {
+        parent_table: gpt_id,
+        start_offset: 512 * MIB,
+    };
+    let member_id = derive_id(&member).expect("derivable");
+    let sig = NamingFields::BackingSignature {
+        host: member_id,
+        family: SignatureFamily::Zfs,
+        primary_offset: 0,
+    };
+    let sig_id = derive_id(&sig).expect("derivable");
+    let pool = NamingFields::Aggregate {
+        technology: AggregateTechnology::Zfs,
+        designator: Some(b"hp".to_vec()),
+    };
+    let pool_id = derive_id(&pool).expect("derivable");
+    let cte = NamingFields::ConflictingTableEntry {
+        table: mbr_id,
+        view_role: TableRole::HybridMbr,
+        entry_start: MIB,
+    };
+    let cte_id = derive_id(&cte).expect("derivable");
+    let topology = Topology::build(
+        vec![sda, gpt, mbr, esp, member, sig, pool, cte],
+        vec![
+            Edge {
+                kind: EdgeKind::Containment,
+                source: sda_id,
+                target: gpt_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: sda_id,
+                target: mbr_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: gpt_id,
+                target: esp_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: gpt_id,
+                target: member_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: member_id,
+                target: sig_id,
+            },
+            Edge {
+                kind: EdgeKind::Backing,
+                source: sig_id,
+                target: pool_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: mbr_id,
+                target: cte_id,
+            },
+        ],
+    )
+    .expect("builds");
+    let mut extents = BTreeMap::new();
+    let host = |start, length| HostRange {
+        host: sda_id,
+        start,
+        length,
+    };
+    extents.insert(sda_id, host(0, 1 << 30));
+    extents.insert(gpt_id, host(0, MIB));
+    extents.insert(mbr_id, host(0, 512));
+    extents.insert(esp_id, host(MIB, 256 * MIB));
+    extents.insert(member_id, host(512 * MIB, 256 * MIB));
+    extents.insert(sig_id, host(512 * MIB, MIB));
+    let mut transports = BTreeMap::new();
+    transports.insert(sda_id, TransportClass::Sata);
+    let facts = Facts {
+        extents,
+        transports,
+        member_counts: BTreeMap::new(),
+        table_states: BTreeMap::new(),
+    };
+    for op in mutating_operations() {
+        assert_eq!(
+            protection_gate(&topology, &facts, mbr_id, op),
+            ProtectionGate::Clear,
+            "{op:?} on the hybrid MBR view describes no partition and releases nothing"
+        );
+    }
+    let affected = affected_set(&topology, &facts, mbr_id, &wipe_of(&facts, mbr_id));
+    assert!(!affected.contains(&esp_id) && !affected.contains(&pool_id));
+    let _ = cte_id;
+    assert!(matches!(
+        protection_gate(&topology, &facts, gpt_id, Operation::Wipe),
+        ProtectionGate::Unsupported {
+            ground: RefusalGround::Zfs
+        }
+    ));
+}
+
+// Requirements: MODEL-002, SAFE-005
+//   The release roster, pinned per kind — the property test ADR-0018:210-217
+//   demands, quantified over the naming roster rather than the edge set.
+//   Exactly one kind is released by a table's destruction, `Partition`,
+//   and the table that releases it is the one its own name declares in
+//   `parent_table`. `ConflictingTableEntry` names a table in `table` and
+//   is not released by it (ADR-0019 holds it verbatim as a record in the
+//   table's own bytes; ADR-0036 decided it is not an occupant of the
+//   region it names) — round 2's L3, which the candidate then had no
+//   fixture to kill. Every other kind names no table. A kind added to the
+//   roster that names a table lands here and must be classified.
+// Evidence: the_release_roster_is_pinned_per_kind
+#[test]
+fn the_release_roster_is_pinned_per_kind() {
+    use super::naming::{ExtentLocator, FileSystemKind};
+    let dev = device(b"ROSTER");
+    let dev_id = derive_id(&dev).expect("derivable");
+    let table = NamingFields::PartitionTable {
+        parent: dev_id,
+        role: TableRole::Gpt,
+    };
+    let table_id = derive_id(&table).expect("derivable");
+    let part = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: MIB,
+    };
+    let part_id = derive_id(&part).expect("derivable");
+    let sig = NamingFields::BackingSignature {
+        host: part_id,
+        family: SignatureFamily::Luks2,
+        primary_offset: 0,
+    };
+    let sig_id = derive_id(&sig).expect("derivable");
+    let layer = NamingFields::EncryptionLayer {
+        backing_signature: sig_id,
+    };
+    let layer_id = derive_id(&layer).expect("derivable");
+    let agg = NamingFields::Aggregate {
+        technology: AggregateTechnology::Lvm2,
+        designator: Some(b"vg".to_vec()),
+    };
+    let agg_id = derive_id(&agg).expect("derivable");
+    let vol = NamingFields::Volume {
+        producer: agg_id,
+        name: b"lv".to_vec(),
+        role: None,
+    };
+    let vol_id = derive_id(&vol).expect("derivable");
+    let one_of_each: Vec<NamingFields> = vec![
+        dev,
+        table.clone(),
+        part.clone(),
+        NamingFields::ConflictingTableEntry {
+            table: table_id,
+            view_role: TableRole::HybridMbr,
+            entry_start: MIB,
+        },
+        sig,
+        NamingFields::FileSystem {
+            host: vol_id,
+            kind: FileSystemKind::Ext4,
+            superblock_offset: 1024,
+        },
+        NamingFields::BackingExtent {
+            host: vol_id,
+            locator: ExtentLocator::Range {
+                start: 0,
+                length: MIB,
+            },
+        },
+        layer.clone(),
+        agg,
+        vol,
+        NamingFields::MultipathNode {
+            lun_designator: b"mpatha".to_vec(),
+        },
+    ];
+    let mut kinds: Vec<&'static str> = one_of_each.iter().map(NamingFields::kind_name).collect();
+    kinds.sort_unstable();
+    kinds.dedup();
+    assert_eq!(kinds.len(), 11, "one of every kind is on the roster");
+
+    let mut released_kinds = Vec::new();
+    for fields in &one_of_each {
+        let names_a_table = fields
+            .naming_referents()
+            .iter()
+            .any(|(_, referent)| *referent == table_id);
+        match (fields.kind_name(), fields.released_by_table()) {
+            ("partition", Some(table)) => {
+                assert_eq!(table, table_id, "released by the table its name declares");
+                assert!(names_a_table);
+                released_kinds.push("partition");
+            }
+            ("partition", None) => panic!("a partition is released by its table"),
+            ("conflicting-table-entry", released) => {
+                assert!(names_a_table, "a conflicting entry names its table");
+                assert!(released.is_none(), "and is not released by it (round 2 L3)");
+            }
+            (kind, released) => {
+                assert!(!names_a_table, "{kind} names no table");
+                assert!(released.is_none(), "{kind} is released by nothing");
+            }
+        }
+    }
+    assert_eq!(released_kinds, vec!["partition"]);
+    let _ = layer_id;
 }
