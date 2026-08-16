@@ -3531,3 +3531,239 @@ fn no_request_set_reaches_an_unplannable_statement() {
         );
     }
 }
+
+/// A partitioned volume: an mdraid array over one member, the array
+/// producing `md0`, and `md0` carrying a partition table with one
+/// partition on it. `optional_pool` puts a live ZFS pool on that
+/// partition. The array and the volume carry no extent — their kinds may
+/// not — so everything below the volume is framed on the volume itself,
+/// which is the population ADR-0048 moved and no planner test exercised.
+struct PartitionedVolume {
+    snapshot: TopologySnapshot,
+    dev: NodeId,
+    array: NodeId,
+    md0: NodeId,
+    table: NodeId,
+    md0p1: NodeId,
+    pool: Option<NodeId>,
+}
+
+#[allow(clippy::too_many_lines)]
+fn partitioned_volume(with_pool: bool) -> PartitionedVolume {
+    let dev = device(b"PLN-PVOL");
+    let dev_id = derive_id(&dev).expect("derivable");
+    let member = NamingFields::BackingSignature {
+        host: dev_id,
+        family: SignatureFamily::Mdraid1x,
+        primary_offset: 4096,
+    };
+    let member_id = derive_id(&member).expect("derivable");
+    let array = NamingFields::Aggregate {
+        technology: AggregateTechnology::Mdraid,
+        designator: Some(b"md0".to_vec()),
+    };
+    let array_id = derive_id(&array).expect("derivable");
+    let md0 = NamingFields::Volume {
+        producer: array_id,
+        name: b"md0".to_vec(),
+        role: None,
+    };
+    let md0_id = derive_id(&md0).expect("derivable");
+    let table = NamingFields::PartitionTable {
+        parent: md0_id,
+        role: TableRole::Gpt,
+    };
+    let table_id = derive_id(&table).expect("derivable");
+    let md0p1 = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: 1 << 20,
+    };
+    let md0p1_id = derive_id(&md0p1).expect("derivable");
+
+    let mut entries = vec![dev.clone(), member, array, md0, table, md0p1];
+    let mut edges = vec![
+        Edge {
+            kind: EdgeKind::Containment,
+            source: dev_id,
+            target: member_id,
+        },
+        Edge {
+            kind: EdgeKind::Backing,
+            source: member_id,
+            target: array_id,
+        },
+        Edge {
+            kind: EdgeKind::Production,
+            source: array_id,
+            target: md0_id,
+        },
+        Edge {
+            kind: EdgeKind::Containment,
+            source: md0_id,
+            target: table_id,
+        },
+        Edge {
+            kind: EdgeKind::Containment,
+            source: table_id,
+            target: md0p1_id,
+        },
+    ];
+
+    let mut facts = Facts::default();
+    device_facts(&mut facts, dev_id);
+    facts.extents.insert(
+        member_id,
+        HostRange {
+            host: dev_id,
+            start: 4096,
+            length: 4096,
+        },
+    );
+    // Framed on the volume, which declares no extent of its own.
+    facts.extents.insert(
+        table_id,
+        HostRange {
+            host: md0_id,
+            start: 0,
+            length: 1 << 20,
+        },
+    );
+    facts.extents.insert(
+        md0p1_id,
+        HostRange {
+            host: md0_id,
+            start: 1 << 20,
+            length: 1 << 29,
+        },
+    );
+
+    let mut pool_id = None;
+    if with_pool {
+        let zfs = NamingFields::BackingSignature {
+            host: md0p1_id,
+            family: SignatureFamily::Zfs,
+            primary_offset: 0,
+        };
+        let zfs_id = derive_id(&zfs).expect("derivable");
+        let pool = NamingFields::Aggregate {
+            technology: AggregateTechnology::Zfs,
+            designator: Some(b"tank".to_vec()),
+        };
+        let p_id = derive_id(&pool).expect("derivable");
+        facts.extents.insert(
+            zfs_id,
+            HostRange {
+                host: md0_id,
+                start: 1 << 20,
+                length: 1 << 20,
+            },
+        );
+        entries.push(zfs);
+        entries.push(pool);
+        edges.push(Edge {
+            kind: EdgeKind::Containment,
+            source: md0p1_id,
+            target: zfs_id,
+        });
+        edges.push(Edge {
+            kind: EdgeKind::Backing,
+            source: zfs_id,
+            target: p_id,
+        });
+        pool_id = Some(p_id);
+    }
+
+    let snapshot = TopologySnapshot::assemble(SnapshotKind::Captured, false, entries, edges, facts)
+        .expect("a partitioned volume assembles");
+    PartitionedVolume {
+        snapshot,
+        dev: dev_id,
+        array: array_id,
+        md0: md0_id,
+        table: table_id,
+        md0p1: md0p1_id,
+        pool: pool_id,
+    }
+}
+
+// Requirements: PLAN-001, PLAN-002
+//   ADR-0048's named obligation, discharged. `canonical_ranges` feeds
+//   `Effects.destroyed`, so an extentless target's whole-frame entry
+//   reaches `destroyed_closure` — and this is the population no planner
+//   test exercised when that entry was introduced. Wiping a volume that
+//   carries a partition table removes the table and the partition framed
+//   on it from the simulated topology, and leaves the device and the
+//   array that produces the volume standing: the volume's frame is the
+//   volume's own address space and nothing else.
+// Evidence: wiping_an_extentless_volume_removes_what_its_frame_holds
+#[test]
+fn wiping_an_extentless_volume_removes_what_its_frame_holds() {
+    let v = partitioned_volume(false);
+
+    let Planned { simulated, .. } = plan(
+        PlanRequest {
+            operation: Operation::Wipe,
+            target: v.md0,
+        },
+        &v.snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect("an unprotected partitioned volume plans");
+
+    let survivors: Vec<NodeId> = simulated
+        .topology()
+        .entries()
+        .iter()
+        .map(super::NodeEntry::id)
+        .collect();
+    assert!(
+        !survivors.contains(&v.table) && !survivors.contains(&v.md0p1),
+        "everything framed on the wiped volume is gone from the prediction"
+    );
+    assert!(
+        survivors.contains(&v.dev),
+        "the device the array is built from is in another frame and survives"
+    );
+    assert!(
+        survivors.contains(&v.md0),
+        "a wipe empties the volume without removing it"
+    );
+}
+
+// Requirements: PLAN-001, PLAN-002
+//   The same population with a live pool on the partition: the plan
+//   refuses rather than predicting. Before ADR-0048 this constructed —
+//   the volume declared no destroyed range, so the closure never saw it
+//   destroyed and the pool was never reached — and that is the defect
+//   issue #392 recorded, now covered end to end through the planner
+//   rather than at the domain gate alone.
+// Evidence: wiping_a_volume_that_carries_a_live_pool_refuses_the_plan
+#[test]
+fn wiping_a_volume_that_carries_a_live_pool_refuses_the_plan() {
+    let v = partitioned_volume(true);
+    assert!(v.pool.is_some(), "the fixture carries a pool");
+
+    for target in [v.md0, v.array] {
+        let refused = plan(
+            PlanRequest {
+                operation: Operation::Wipe,
+                target,
+            },
+            &v.snapshot,
+            &TechnologyLimits::default(),
+            &RuntimeFacts::clean(),
+            &identity(),
+        )
+        .expect_err("a live pool below an extentless target refuses the plan");
+        let PlanRefusal::CapabilityRefused { answer } = refused else {
+            panic!("the refusal carries the engine's answer: {refused:?}");
+        };
+        assert_eq!(answer.status(), Status::Unsupported);
+        assert!(
+            matches!(answer.reason(), Reason::ProtectionRefused { .. }),
+            "the refusal is the protection closure's, not a capability limit"
+        );
+    }
+}
