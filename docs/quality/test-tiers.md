@@ -157,8 +157,12 @@ nineteenth, named in the PR body before the merge, and on `91cd1c9`
 (2026-08-16 UTC) when issue #360's act — one Rust merge, PR #393,
 ADR-0044 — tripped it a twentieth, likewise named before the merge, and
 on `ee12af2` (2026-08-16 UTC) when issue #354's kind-half act — one Rust
-merge, PR #398, ADR-0045 — tripped it a twenty-first, likewise named,
-with identical harness values and fixture digests every time. (This sentence
+merge, PR #398, ADR-0045 — tripped it a twenty-first, likewise named, and
+on `ca2bc0f` (2026-08-16 UTC) when issue #333's enforcement arc — three
+Rust merges, PRs #403, #404 and #406, ADR-0046 — tripped it a
+twenty-second, taken once at the arc's head and named in every body
+before the first merge, with identical harness values and fixture digests
+every time. (This sentence
 previously read "four times" while the custody table held six rows — the
 `39b59f5` re-take never updated it, the stale-count shape again, corrected
 with the sixth.) The run record with its
