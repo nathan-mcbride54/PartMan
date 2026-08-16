@@ -666,26 +666,7 @@ pub fn affected_set(
     let mut destroyed: BTreeSet<NodeId> = BTreeSet::new();
     affected.insert(target);
 
-    for entry in topology.entries() {
-        let id = entry.id();
-        if let Some(extent) = facts.extents.get(&id) {
-            if ranges
-                .destroyed
-                .iter()
-                .any(|range| range.intersects(extent))
-            {
-                range_destroyed.insert(id);
-            }
-            if ranges
-                .written_table_extents
-                .iter()
-                .chain(ranges.consumed.iter())
-                .any(|range| range.intersects(extent))
-            {
-                affected.insert(id);
-            }
-        }
-    }
+    seed_from_ranges(topology, facts, ranges, &mut range_destroyed, &mut affected);
     // Release (issue #347, ADR-0043; propagated by ADR-0044 on issue
     // #360). A step whose own destroyed ranges reach its target destroys
     // the target; destruction carries from there through the cascade;
@@ -721,6 +702,17 @@ pub fn affected_set(
 
     loop {
         let mut changed = false;
+        if hosting_arm(
+            topology,
+            facts,
+            target,
+            &range_destroyed,
+            &affected,
+            &mut destroyed,
+            &mut cascade_destroyed,
+        ) {
+            changed = true;
+        }
         for edge in topology.edges() {
             // ADR-0039's carried-content reach: every node in the set
             // propagates to the content it carries, not only the
@@ -874,6 +866,97 @@ fn kind_of(topology: &Topology, id: NodeId) -> Option<&NamingFields> {
         .map(|entry| match entry {
             NodeEntry::Single { fields, .. } | NodeEntry::Group { fields, .. } => fields,
         })
+}
+
+/// Seed the two byte-derived classes from the step's declared ranges: a
+/// node whose declared extent a destroyed range touches, and one a
+/// written-table or consumed range touches. Absence of an extent is
+/// honest absence and enters neither class — issue #319's open half.
+fn seed_from_ranges(
+    topology: &Topology,
+    facts: &Facts,
+    ranges: &StepRanges,
+    range_destroyed: &mut BTreeSet<NodeId>,
+    affected: &mut BTreeSet<NodeId>,
+) {
+    for entry in topology.entries() {
+        let id = entry.id();
+        let Some(extent) = facts.extents.get(&id) else {
+            continue;
+        };
+        if ranges
+            .destroyed
+            .iter()
+            .any(|range| range.intersects(extent))
+        {
+            range_destroyed.insert(id);
+        }
+        if ranges
+            .written_table_extents
+            .iter()
+            .chain(ranges.consumed.iter())
+            .any(|range| range.intersects(extent))
+        {
+            affected.insert(id);
+        }
+    }
+}
+
+/// Reach follows the hosting name (ADR-0049, issue #409): one propagation
+/// pass over the backing extents a body declares.
+///
+/// A [`NamingFields::BackingExtent`] names the node whose bytes carry it,
+/// and that field is in its hashed address — but `backing-extent` occurs
+/// in the endpoint-pair table once, as the *source* of
+/// [`EdgeKind::HostBacking`], and as the target of no edge kind at all:
+/// [`Topology::build`] refuses `containment(file-system -> backing-extent)`
+/// outright. The edge walk beside this can therefore never descend into
+/// one, and without this pass the whole host-backed class — loop devices,
+/// VHD/VHDX, dm-linear, attached images — had no upward reach: wiping the
+/// disk holding the image gated `Clear` over the live pool on the volume
+/// that image backed.
+///
+/// The hop is bounded exactly as containment is, by the same predicate,
+/// and it **descends only** — destruction carries across it when the host
+/// is destroyed, never when the host is merely reached. It reads the name
+/// and never the frame, which is why it needs no answer to what frames a
+/// backing extent (issue #365).
+fn hosting_arm(
+    topology: &Topology,
+    facts: &Facts,
+    target: NodeId,
+    range_destroyed: &BTreeSet<NodeId>,
+    affected: &BTreeSet<NodeId>,
+    destroyed: &mut BTreeSet<NodeId>,
+    cascade_destroyed: &mut BTreeSet<NodeId>,
+) -> bool {
+    let mut changed = false;
+    for entry in topology.entries() {
+        let id = entry.id();
+        let fields = match entry {
+            NodeEntry::Single { fields, .. } | NodeEntry::Group { fields, .. } => fields,
+        };
+        let NamingFields::BackingExtent { host, .. } = fields else {
+            continue;
+        };
+        let host = *host;
+        let host_in_set = range_destroyed.contains(&host)
+            || cascade_destroyed.contains(&host)
+            || affected.contains(&host);
+        if host_in_set
+            && descends_into(topology, facts, target, EdgeKind::Containment, host, id)
+            && carry(
+                topology,
+                id,
+                destroyed.contains(&host),
+                destroyed,
+                cascade_destroyed,
+            )
+        {
+            changed = true;
+        }
+    }
+    changed
 }
 
 /// Whether descent may cross this edge (issue #338's held half).

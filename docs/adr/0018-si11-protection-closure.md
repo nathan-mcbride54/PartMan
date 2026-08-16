@@ -223,6 +223,18 @@ below it follows the arms already named. The consequence is unchanged and
 for the same reason: the seed is frame-equal, so a range in another
 frame establishes no destruction of an extentless node, and a sibling is
 still never captured.)*
+*(Amended a fifth time in 17.0.0 by ADR-0049, which adds an arm this
+claim's premise does not describe: a backing extent is reached from the
+node its own name says carries its bytes, over no edge at all, and
+`backing-extent` is a kind that may declare an extent — which the premise
+below forbids of the propagating pairs. The theorem is **re-proved rather
+than carried**: that premise protects the arms whose descent is
+unbounded, where a target declaring an extent could capture its siblings;
+the hosting arm is bounded by the same declared geometry as containment,
+so it joins the bounded family the premise does not govern, and the
+consequence follows from geometry as it does for containment. A sibling
+is still never captured, and the premise below is restated unchanged
+because no edge kind moved.)*
 The premise, stated as a named property of the edge taxonomy: **no backing
 or production edge targets a physical device** — products are virtual
 devices, volumes, or file systems; containment descent is strictly
