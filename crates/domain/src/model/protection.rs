@@ -23,7 +23,7 @@ use std::fmt;
 
 use super::identity::TableState;
 use super::naming::{AggregateTechnology, NamingFields, NodeEntry, NodeId};
-use super::topology::{EdgeKind, Topology};
+use super::topology::{EdgeKind, ReferentRule, Topology, naming_referent_rule};
 
 /// A host-qualified byte range: one address space per containment root
 /// — [`EdgeKind::Containment`](super::topology::EdgeKind::Containment)'s
@@ -40,7 +40,9 @@ pub struct HostRange {
 }
 
 impl HostRange {
-    fn intersects(&self, other: &Self) -> bool {
+    /// Whether the two ranges share a byte, in one frame. Ranges in
+    /// different frames never intersect: nothing here translates.
+    pub(crate) fn intersects(&self, other: &Self) -> bool {
         self.host == other.host
             && self.start < other.start.saturating_add(other.length)
             && other.start < self.start.saturating_add(self.length)
@@ -196,6 +198,76 @@ impl fmt::Display for FactError {
 }
 
 impl std::error::Error for FactError {}
+
+/// Where a node's own name positions it, read off the naming relation
+/// through [`naming_referent_rule`] — never off the edge set, which a
+/// body may omit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NamedPosition {
+    /// The name embeds a containment source: a partition's table, a
+    /// table's carrier, a signature's or file system's host, a
+    /// conflicting entry's table. The node's bytes lie inside that node's.
+    Inside(NodeId),
+    /// The name embeds no containment source: a physical device, a
+    /// volume, a multipath node — and the kinds that carry no extent. The
+    /// node is a containment root.
+    Root,
+    /// The name's positioning field is the one the pair table has no
+    /// opinion about — a backing extent's `host`, which appears in no
+    /// containment pair. Its range lives in its host's own address space
+    /// (`ExtentLocator::Range`), outside every containment forest.
+    Outside,
+}
+
+fn named_position(fields: &NamingFields) -> NamedPosition {
+    let mut position = NamedPosition::Root;
+    for (field, referent) in fields.naming_referents() {
+        match naming_referent_rule(fields.kind_name(), field) {
+            ReferentRule::Sources(kinds) if kinds == [EdgeKind::Containment] => {
+                position = NamedPosition::Inside(referent);
+            }
+            ReferentRule::Open => return NamedPosition::Outside,
+            ReferentRule::Sources(_) => {}
+        }
+    }
+    position
+}
+
+/// The nodes a node's own name positions it inside, nearest first, up
+/// to and including its containment root; empty for a node outside every
+/// containment forest, and for one whose walk cannot be completed on a
+/// topology that [`Topology::build`] would not have built.
+///
+/// Every hop is a referent the build already resolved and kind-checked
+/// (ADR-0045), so the walk climbs strictly — a signature to its
+/// partition, the partition to its table, the table to its device — and
+/// ends within the forest's depth; the visited guard is belt and braces.
+fn named_ancestry(topology: &Topology, id: NodeId) -> Vec<NodeId> {
+    let mut visited = BTreeSet::new();
+    let mut ancestry = Vec::new();
+    let mut current = id;
+    while visited.insert(current) {
+        let Some(fields) = kind_of(topology, current) else {
+            return vec![];
+        };
+        match named_position(fields) {
+            NamedPosition::Inside(referent) => {
+                ancestry.push(referent);
+                current = referent;
+            }
+            NamedPosition::Root => return ancestry,
+            NamedPosition::Outside => return vec![],
+        }
+    }
+    vec![]
+}
+
+/// Whether `node`'s own name positions it inside `host`, at any depth: a
+/// file system naming a partition, a signature naming a partition whose
+/// table names a device. Never true of a node for itself.
+pub(crate) fn names_within(topology: &Topology, node: NodeId, host: NodeId) -> bool {
+    named_ancestry(topology, node).contains(&host)
+}
 
 /// Whether a containment pair is *geometric* — the parent's extent is the
 /// region its children lie in — as opposed to *structural*, where the
