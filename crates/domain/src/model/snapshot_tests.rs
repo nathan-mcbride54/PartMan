@@ -8,7 +8,7 @@ use super::naming::{NamingFields, SignatureFamily, TableRole, derive_id};
 use super::protection::{FactError, Facts, HostRange, StepRanges, TransportClass, Verdict};
 use super::provenance::{Confidence, Method, Observation, Outcome, PropertyObservations};
 use super::snapshot::{SnapshotError, SnapshotKind, SnapshotSchemaError, TopologySnapshot};
-use super::topology::{Edge, EdgeKind};
+use super::topology::{Edge, EdgeKind, TopologyError};
 
 fn device(serial: &[u8]) -> NamingFields {
     NamingFields::PhysicalDevice {
@@ -256,6 +256,94 @@ fn a_forged_forbidden_edge_refuses_at_decode() {
     assert!(
         matches!(result, Err(SnapshotSchemaError::Rebuild(_))),
         "forged edge must refuse at the rebuild: {result:?}"
+    );
+}
+
+// Requirements: MODEL-005, MODEL-002
+//   The decode-recompute rule for names (issue #354's kind half, ADR-0045):
+//   a body whose partition names the physical device as its `parent_table`
+//   — the issue's second probe, which decoded cleanly at `8e03e68` — refuses
+//   at the rebuild with the constructor's own refusal, naming the pairing.
+//   The forged body is otherwise byte-lawful (the field's value is a real
+//   node's address, and the node's own address re-derives from it), so what
+//   refuses is the pairing and nothing else. `SCHEMA_VERSION` is unchanged:
+//   the refused population was never lawful under MODEL-002, only
+//   unvalidated (MODEL-003's explicit-rejection limb, as #362 read it).
+// Evidence: a_wrong_kind_naming_referent_refuses_at_decode
+#[test]
+fn a_wrong_kind_naming_referent_refuses_at_decode() {
+    let dev = device(b"D0");
+    let dev_id = derive_id(&dev).expect("derivable");
+    let table = NamingFields::PartitionTable {
+        parent: dev_id,
+        role: TableRole::Gpt,
+    };
+    let table_id = derive_id(&table).expect("derivable");
+    let partition = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: 1 << 20,
+    };
+    let forged = NamingFields::Partition {
+        parent_table: dev_id,
+        start_offset: 1 << 20,
+    };
+    let forged_id = derive_id(&forged).expect("derivable");
+    let in_process = TopologySnapshot::assemble(
+        SnapshotKind::Captured,
+        false,
+        vec![dev.clone(), table.clone(), forged],
+        vec![],
+        Facts::default(),
+    )
+    .expect_err("assembly refuses the pairing");
+    assert_eq!(
+        in_process,
+        SnapshotError::Topology(TopologyError::ForbiddenNamingReferent {
+            node: forged_id,
+            kind: "partition",
+            field: "parent_table",
+            referent: dev_id,
+            referent_kind: "physical-device",
+        })
+    );
+
+    let honest = TopologySnapshot::assemble(
+        SnapshotKind::Captured,
+        false,
+        vec![dev, table, partition],
+        vec![],
+        Facts::default(),
+    )
+    .expect("assembles");
+    let body = honest.body_value().expect("body");
+    let canonical::Value::Map(mut map) = body else {
+        panic!("body is a map");
+    };
+    let Some(canonical::Value::Array(nodes)) = map.get_mut("nodes") else {
+        panic!("nodes present");
+    };
+    let entry = nodes
+        .iter_mut()
+        .find_map(|entry| match entry {
+            canonical::Value::Map(entry)
+                if entry.get("kind") == Some(&canonical::Value::Text("partition".to_owned())) =>
+            {
+                Some(entry)
+            }
+            _ => None,
+        })
+        .expect("the partition's entry");
+    entry.insert(
+        "parent_table".to_owned(),
+        canonical::Value::Bytes(dev_id.as_bytes().to_vec()),
+    );
+    resort(nodes);
+    let bytes = canonical::encode(&canonical::Value::Map(map)).expect("encodable");
+    let at_boundary = TopologySnapshot::from_canonical_body(&bytes).expect_err("decode refuses");
+    assert_eq!(
+        at_boundary,
+        SnapshotSchemaError::Rebuild(in_process),
+        "the boundary's refusal is the constructor's refusal"
     );
 }
 

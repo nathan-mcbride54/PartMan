@@ -207,11 +207,12 @@ impl std::error::Error for FactError {}
 /// BIOS-boot layout puts one entry *inside* the first MiB and the rest
 /// beyond it. So `partition-table` → `partition` and
 /// `partition-table` → `conflicting-table-entry` carry no span claim.
-/// The other eight pairs do: a table, signature or file system inside a
+/// The other eleven pairs do: a table, signature or file system inside a
 /// device, a signature or file system inside a partition, and a
-/// signature, file system or table inside a volume (ADR-0044), all lie
-/// within their parent's bytes — a volume declares no extent of its
-/// own, so its three pairs are geometric in kind and never compared.
+/// signature, file system or table inside a volume (ADR-0044) or a
+/// multipath node (ADR-0045), all lie within their parent's bytes — a
+/// volume and a multipath node declare no extent of their own, so their
+/// six pairs are geometric in kind and never compared.
 fn containment_pair_is_geometric(source_kind: &str) -> bool {
     !matches!(source_kind, "partition-table")
 }
@@ -925,8 +926,10 @@ fn producer_verdict(topology: &Topology, facts: &Facts, id: NodeId) -> Verdict {
 /// A node's inherited device-scope verdict: the worst over every
 /// containment root above it.
 ///
-/// Only a physical device's device-scope arm is inherited (never a
-/// sibling's anything). The ascent is a graph walk rather than a line
+/// Only a containment root's own arm is inherited — a physical device's
+/// device-scope arm, or a multipath node's detection-only refusal
+/// (ADR-0045), so content on `/dev/mapper/mpatha` refuses with the node
+/// — never a sibling's anything. The ascent is a graph walk rather than a line
 /// because nothing bounds a node's containment in-degree: the pair
 /// table admits a `BackingSignature` or `FileSystem` under both a
 /// physical device and a partition, and `Topology::build` enforces no
