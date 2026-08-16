@@ -349,16 +349,33 @@ fn an_ordered_chain_constructs_deterministically() {
 }
 
 // Requirements: PLAN-003
-//   The same two steps with the dependency removed refuse as an
-//   unordered overlap naming both steps and the host: no order makes
+//   The ordered chain's two steps with the dependency removed refuse as
+//   an unordered overlap naming both steps and the host: no order makes
 //   concurrent effects on the same bytes deterministic, and the absent
-//   dependency is exactly what would have explained them.
+//   dependency is exactly what would have explained them. The pair is
+//   two wipes whose destroyed ranges truthfully overlap. It used to be a
+//   wipe and an *unsized* create on one device, which overlapped only
+//   because the create's canonical entry wrote the parent device
+//   wholesale — the over-claim §2.1 forbids and issue #353 removes; an
+//   unsized create's honest ground is the simulate refusal it already
+//   gets, and the graph refusal is asserted on ranges that exist.
 // Evidence: an_unordered_overlap_refuses_with_both_steps_named
 #[test]
 fn an_unordered_overlap_refuses_with_both_steps_named() {
-    let (snapshot, clean, _) = fixture();
-    let mut set = wipe_and_create(clean);
-    set.dependencies.clear();
+    let (snapshot, dev, luks) = chain_fixture();
+    let set = PlanRequestSet {
+        requests: vec![
+            PlanRequest {
+                operation: Operation::Wipe,
+                target: luks,
+            },
+            PlanRequest {
+                operation: Operation::Wipe,
+                target: dev,
+            },
+        ],
+        dependencies: vec![],
+    };
     let refused = plan_set(
         &set,
         &snapshot,
@@ -373,9 +390,136 @@ fn an_unordered_overlap_refuses_with_both_steps_named() {
             refusal: GraphRefusal::UnorderedOverlap {
                 first: 0,
                 second: 1,
-                host: clean,
+                host: dev,
             }
         }
+    );
+}
+
+/// A device with the given table state carrying one table view and one
+/// partition at 1 MiB, the partition's extent framed on the device.
+fn stateful_device_with_partition(
+    serial: &[u8],
+    state: TableState,
+) -> (TopologySnapshot, NodeId, NodeId) {
+    let dev = device(serial);
+    let dev_id = derive_id(&dev).expect("derivable");
+    let table = NamingFields::PartitionTable {
+        parent: dev_id,
+        role: partman_domain::model::naming::TableRole::Gpt,
+    };
+    let table_id = derive_id(&table).expect("derivable");
+    let part = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: 1 << 20,
+    };
+    let part_id = derive_id(&part).expect("derivable");
+    let mut facts = Facts::default();
+    facts.transports.insert(dev_id, TransportClass::Sata);
+    facts.extents.insert(
+        dev_id,
+        HostRange {
+            host: dev_id,
+            start: 0,
+            length: 1 << 30,
+        },
+    );
+    facts.extents.insert(
+        table_id,
+        HostRange {
+            host: dev_id,
+            start: 0,
+            length: 17_408,
+        },
+    );
+    facts.extents.insert(
+        part_id,
+        HostRange {
+            host: dev_id,
+            start: 1 << 20,
+            length: 256 << 20,
+        },
+    );
+    facts.table_states.insert(dev_id, state);
+    let snapshot = TopologySnapshot::assemble(
+        SnapshotKind::Captured,
+        false,
+        vec![dev, table, part],
+        vec![
+            Edge {
+                kind: EdgeKind::Containment,
+                source: dev_id,
+                target: table_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: table_id,
+                target: part_id,
+            },
+        ],
+        facts,
+    )
+    .expect("assembles");
+    (snapshot, dev_id, part_id)
+}
+
+// Requirements: PART-013, PLAN-001
+//   A write on a partition touches the disk that carries it, for the
+//   arms that read touched devices: a Label on a partition of a device
+//   with a Present table carries that device's parse-backup obligation,
+//   and the same request against Indeterminate media refuses on the
+//   device. Both are derived from the step's declared ranges, whose host
+//   is the disk — the partition's canonical entry, framed on its device.
+//   Nothing pinned this before issue #353's act; the domain suite is
+//   blind to it (dropping every write entry survives there), so the
+//   consumer that depends on it is where it is held.
+// Evidence: a_partition_write_still_touches_its_disk_for_the_protection_arms
+#[test]
+fn a_partition_write_still_touches_its_disk_for_the_protection_arms() {
+    let (present, dev, part) = stateful_device_with_partition(
+        b"PRT-PART",
+        TableState::Present {
+            checksum: canonical::hash(&Value::Text("present part".into())).expect("hashable"),
+        },
+    );
+    let planned = plan(
+        PlanRequest {
+            operation: Operation::Label,
+            target: part,
+        },
+        &present,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect("a label on a partition of a Present-table disk plans");
+    assert_eq!(
+        planned.protection,
+        vec![ProtectionObligation::ParseBackup { device: dev }],
+        "the partition's write touches its disk, whose table is backed up first"
+    );
+
+    let (indeterminate, dev, part) = stateful_device_with_partition(
+        b"PRT-PART-IND",
+        TableState::Indeterminate {
+            cause: IndeterminateCause::Ambiguous,
+        },
+    );
+    let refused = plan(
+        PlanRequest {
+            operation: Operation::Label,
+            target: part,
+        },
+        &indeterminate,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect_err("an ordinary write on a partition of Indeterminate media refuses");
+    assert_eq!(
+        refused,
+        PlanRefusal::TableStateIndeterminate { device: dev },
+        "and it refuses on the disk, not the partition"
     );
 }
 
