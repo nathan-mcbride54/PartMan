@@ -151,7 +151,9 @@ merges, PRs #377 and #379, ADR-0041 — tripped it a seventeenth, taken
 once at the arc's head and named in both bodies before the first merge,
 and on `53c90f1` (2026-08-16 UTC) when the issue-353 arc — two Rust
 merges, PRs #382 and #384, ADR-0042 — tripped it an eighteenth, under
-the same practice,
+the same practice, and on `c83d9f1` (2026-08-16 UTC) when issue #347's
+round-3 act — one Rust merge, PR #388, ADR-0043 — tripped it a
+nineteenth, named in the PR body before the merge,
 with identical harness values and fixture digests every time. (This sentence
 previously read "four times" while the custody table held six rows — the
 `39b59f5` re-take never updated it, the stale-count shape again, corrected
