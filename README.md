@@ -211,18 +211,20 @@ Run `cargo xtask help` for the full command list.
 
 ## Open issues
 
-Seven are open after ADR-0046 (2026-08-16): #333 closed, and #401 —
-filed from its round — closed in the same arc. This section reports
+Seven are open after ADR-0047 (2026-08-16): #397 closed here, #409
+filed from the round that preceded it, and #319 reopened — it had been
+auto-closed in error by PR #406's body, whose sentence saying the act
+does *not* close it carried a closing keyword adjacent to the number.
+This section reports
 status only; each issue's own thread is the record, and the review
 rounds under `docs/reviews/` carry the measurements. The current handoff,
 `docs/reviews/HANDOFF_2026-08-16_FABLE_ISSUE_333_TO_NEXT.md`, states the
 reasoning behind the ordering below.
 
-**No sitting is owed at the time of writing.** Issue #333's enforcement
-arc (PRs #403, #404 and #406 — issue #401's occupancy reading, WP-060's
-fixtures, and ADR-0046) shipped Rust after WP-020's r26 pin at `ee12af2`;
-the r27 sitting (VMID 9451, 2026-08-16 UTC) at the arc's head discharged
-it, and WP-020 is re-pinned at `ca2bc0f`. The check is
+**A sitting is owed.** Issue #397's act (ADR-0047) ships Rust after
+WP-020's r27 pin at `ca2bc0f`, so the r28 sitting (VMID 9452) is owed on
+this act's merge commit and WP-020 must be re-pinned there in its own
+pull request. The check is
 `git diff --name-only ca2bc0f HEAD | grep -v '\.md$'`, and it must be run
 against `HEAD` rather than against whichever pin a pull request body cited;
 any non-Markdown path it lists re-opens the three acceptances.
@@ -231,11 +233,16 @@ Most of the domain issues were ordered by a dependency chain established by
 measurement — **#347 → #360 → #354's kind half → #333's enforcement**.
 #347 closed with ADR-0043, #360 with ADR-0044, #354 with ADR-0045, and
 #333 with ADR-0046 (all 2026-08-16): the chain is closed. What remains
-is not a chain; #397 and #365 are the nearest to the closure.
+is not a chain. #397 closed with ADR-0047; #365's remaining half and
+#409 are the nearest to the closure, and #409 measured a wider break than
+#365 states — a backing extent's host is on no edge at all, so a wipe of
+the device holding a loop or VHD image gates `Clear` over the live pool
+on it.
 
 | Issue | Package | Standing |
 | --- | --- | --- |
-| **#397** | WP-010 | Device-scope inheritance ascends the edge set only: content that names its host with the containment edge omitted inherits nothing. ADR-0045's named limit, pinned as a committed row beside the multipath-content test; the fail-closed name-ascent candidate is recorded, not built. |
+| **#409** | WP-010 | A backing extent's host is on no edge: `Topology::build` refuses `containment(file-system → backing-extent)`, and reach walks edges, so wiping the device holding a loop or VHD image is `Clear` on all ten mutating operations while a live pool runs on the volume that image backs. Measured on an honest body with every fact present. ADR-0047 explicitly does not reach it. |
+| **#319** | WP-010 | Absent child extents fail open. The planner half closed with ADR-0036; the **authorization half is live** — range-reach and containment descent both skip a node whose extent is absent, so three measured shapes gate a live ZFS pool `Clear`. The §2.1:117-versus-`descends_into` conformance question is recorded on the issue: the spec sentence admits descent on every absence, ADR-0039's clause list carved containment out deliberately, and both of that carve-out's stated grounds were retired by ADR-0046. |
 | **#392** | WP-010 | An extentless target's own wipe is never seen destroyed: `Wipe(volume)` reaches a table it carries as content only. ADR-0044's named limit, pinned as a committed row; the whole-frame canonical entry that closes it was measured green and **held**, because it moves `canonical_ranges` and the planner's simulation on an uncovered population. |
 | **#319** | WP-060/WP-010 | Absent child extents fail open. The occupancy half landed under ADR-0036; the **authorization half** remains. Its recorded blocker (#338) has since closed, so whether it is still blocked is **unverified**. |
 | **#365** | WP-010 | The host-backed producing relation is under-represented outside the pair table: a wrong doc comment, no committed fixture, and a blind suite. ADR-0046 carves a backing extent out of the frame rule and pins that its extent assembles framed on any absorbed node — this issue owns what frames it. |

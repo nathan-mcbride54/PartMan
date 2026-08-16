@@ -7,6 +7,34 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Fixed
 
+- **WP-010: an omitted edge is not an escape from inheritance (issue
+  #397; ADR-0047, spec 15.3.0 — minor).** `device_scope_verdict` and
+  `producer_verdict` both walked the edge set only, so a body that named
+  its host in `FileSystem.host`, `BackingSignature.host`,
+  `PartitionTable.parent` or `Partition.parent_table`, or its producer in
+  `Volume.producer`, **with the edge omitted, inherited nothing**.
+  Measured on ADR-0045's own pinned named limit: an xfs naming a
+  multipath node gated `Clear` on all ten mutating operations with the
+  edge dropped, against `Unsupported{InheritedDeviceScope}` with it
+  present; the same shape held for a `RecognizedRemote` device's
+  transport arm and for a volume naming a ZFS aggregate as its producer.
+  ADR-0043 closed this class of escape for *release* by reading
+  `Partition.parent_table` rather than the edge; the inheritance verdicts
+  now follow. The containment parent a node's name declares is ascended
+  alongside every incoming containment edge, and the producers its name
+  declares are folded alongside the `Production` and `HostBacking` edge
+  sources — the qualifying fields read off `naming_referent_rule` rather
+  than a second copy of the list. Both fold with `worst`, so an added
+  ancestry can only ever **add** refusal and an agreeing body answers
+  exactly as before; `affected_set` is untouched, no descent bound moves,
+  and no schema version or golden vector moves. Cost: one red across the
+  whole workspace, ADR-0045's pin itself. Six mutations, each proven
+  applied — three killed, and three recorded as survivors that are
+  proofs. **Named limit**: `NamingFields::Aggregate` carries no naming
+  referents, so a signature whose `Backing` edge to its aggregate is
+  omitted still leaves the aggregate unreached; this does not close the
+  omitted-edge escape in general.
+
 - **WP-010: occupancy is read as bytes, not as frame names (issue #401;
   spec version unchanged — a defect fix on ADR-0022's truthfulness
   mechanism, recorded in the ADR that lands issue #333's frame

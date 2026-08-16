@@ -1073,16 +1073,21 @@ fn node_own_only(topology: &Topology, facts: &Facts, id: NodeId) -> Verdict {
 /// such choice: with one producer it is that producer's verdict, and
 /// with none it is `Permitted`, exactly as before.
 fn producer_verdict(topology: &Topology, facts: &Facts, id: NodeId) -> Verdict {
-    topology
+    let mut producers: BTreeSet<NodeId> = topology
         .edges()
         .iter()
         .filter(|edge| {
             matches!(edge.kind, EdgeKind::Production | EdgeKind::HostBacking) && edge.target == id
         })
-        .fold(Verdict::Permitted, |carried, edge| {
+        .map(|edge| edge.source)
+        .collect();
+    producers.extend(named_producers(topology, id));
+    producers
+        .into_iter()
+        .fold(Verdict::Permitted, |carried, producer| {
             worst(
                 carried,
-                match node_own_only(topology, facts, edge.source) {
+                match node_own_only(topology, facts, producer) {
                     Verdict::Refused { .. } => Verdict::Refused {
                         ground: RefusalGround::InheritedFromConsumerOrProducer,
                     },
@@ -1090,6 +1095,35 @@ fn producer_verdict(topology: &Topology, facts: &Facts, id: NodeId) -> Verdict {
                 },
             )
         })
+}
+
+/// The producers a node's own name declares (issue #397), read off
+/// [`naming_referent_rule`] rather than a second copy of the field list:
+/// a field whose rule names only producing edge kinds is a producing
+/// claim, and today that is `Volume.producer` alone. Ascended beside the
+/// edge set for the same reason device scope is — the field is in the
+/// node's hashed name, so a body cannot omit it the way it can omit an
+/// edge — and folded with `worst`, so it can only ever add refusal.
+fn named_producers(topology: &Topology, id: NodeId) -> Vec<NodeId> {
+    let Some(fields) = kind_of(topology, id) else {
+        return Vec::new();
+    };
+    fields
+        .naming_referents()
+        .into_iter()
+        .filter(
+            |(field, _)| match naming_referent_rule(fields.kind_name(), field) {
+                ReferentRule::Sources(kinds) => {
+                    !kinds.is_empty()
+                        && kinds.iter().all(|kind| {
+                            matches!(kind, EdgeKind::Production | EdgeKind::HostBacking)
+                        })
+                }
+                ReferentRule::Open => false,
+            },
+        )
+        .map(|(_, referent)| referent)
+        .collect()
 }
 
 /// A node's inherited device-scope verdict: the worst over every
@@ -1123,6 +1157,17 @@ fn device_scope_verdict(topology: &Topology, facts: &Facts, id: NodeId) -> Verdi
                 ascended = true;
                 pending.push(edge.source);
             }
+        }
+        // The naming relation, ascended beside the edges (issue #397). An
+        // edge is authored content a body may simply omit; the hosting
+        // field is in the node's own hashed name, so omitting it changes
+        // the address rather than hiding the host. Folded with `worst`
+        // below, so an added ancestry can only ever add refusal.
+        if let Some(fields) = kind_of(topology, current)
+            && let NamedPosition::Inside(referent) = named_position(fields)
+        {
+            ascended = true;
+            pending.push(referent);
         }
         if !ascended {
             roots.insert(current);
