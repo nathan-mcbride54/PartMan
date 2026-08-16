@@ -170,13 +170,35 @@ pub fn canonical_ranges(operation: Operation, target: NodeId, facts: &Facts) -> 
         Operation::Wipe | Operation::Encrypt | Operation::Move | Operation::Shrink => {
             destroyed_target(extent)
         }
+        // Issue #353. §2.1: "Table writes target the table node's own
+        // extents, never the parent device wholesale." These six write,
+        // and for a target below a frame root the entry is the target's
+        // own extent — an over-approximation for a partition, whose
+        // grow writes one table entry and whose label writes inside its
+        // own bytes, but bounded by the target and reach-equivalent to
+        // ADR-0039's carried content, and what the plan layer's
+        // touched-device derivation reads. For a frame root — a target
+        // whose extent is expressed in its own address space, a device —
+        // the delivered entry was the parent device wholesale, in as
+        // many words what the sentence forbids, and the whole-disk gates
+        // refused *because* of it, by byte scan alone. Such a target
+        // declares no written range: it seeds the set by identity and
+        // ADR-0039's descent reaches what it carries, the table and
+        // whatever is hosted directly on it. What a truthful per-kind
+        // entry would be — the host's table extents for a create, one
+        // entry for a grow — needs the request or the topology, neither
+        // of which this function has; the plan step's declared ranges,
+        // which do, are authoritative and re-run the same closure.
         Operation::Grow
         | Operation::Create
         | Operation::Repair
         | Operation::Label
         | Operation::Uuid
         | Operation::Decrypt => StepRanges {
-            written_table_extents: extent.into_iter().collect(),
+            written_table_extents: extent
+                .into_iter()
+                .filter(|extent| extent.host != target)
+                .collect(),
             consumed: vec![],
             destroyed: vec![],
         },

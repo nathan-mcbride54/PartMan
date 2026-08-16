@@ -522,7 +522,14 @@ pub fn affected_set(
                 // source's.
                 EdgeKind::Containment | EdgeKind::Production | EdgeKind::HostBacking => {
                     if source_destroyed
-                        && descends_into(topology, facts, edge.kind, edge.source, edge.target)
+                        && descends_into(
+                            topology,
+                            facts,
+                            target,
+                            edge.kind,
+                            edge.source,
+                            edge.target,
+                        )
                         && cascade_destroyed.insert(edge.target)
                     {
                         changed = true;
@@ -544,7 +551,14 @@ pub fn affected_set(
                         changed = true;
                     }
                     if source_destroyed
-                        && descends_into(topology, facts, edge.kind, edge.source, edge.target)
+                        && descends_into(
+                            topology,
+                            facts,
+                            target,
+                            edge.kind,
+                            edge.source,
+                            edge.target,
+                        )
                         && cascade_destroyed.insert(edge.target)
                     {
                         changed = true;
@@ -584,6 +598,7 @@ fn kind_of(topology: &Topology, id: NodeId) -> Option<&NamingFields> {
 fn descends_into(
     topology: &Topology,
     facts: &Facts,
+    step_target: NodeId,
     kind: EdgeKind,
     source: NodeId,
     target: NodeId,
@@ -600,7 +615,17 @@ fn descends_into(
     // lies inside a device's self-extent, so descending out of one would
     // re-derive round two's sibling capture. The committed code says the
     // same thing by never descending from a range-destroyed node at all.
-    if parent.is_some_and(|extent| extent.host == source) {
+    //
+    // Unless the frame root is the step's own target (issue #353). The
+    // target is in the set by identity, not because a range intersected
+    // its self-extent, and ADR-0039's rule is that a step reaches the
+    // content its target carries: for a disk, the table and whatever is
+    // hosted directly on the device. Without this hop a whole-disk
+    // layout's protection came entirely from the over-claimed
+    // whole-device write this issue removes, and six gates opened over a
+    // live pool once it was removed. Descent from the target's children
+    // onward is still bounded by geometry below.
+    if parent.is_some_and(|extent| extent.host == source) && source != step_target {
         return false;
     }
     match (parent, facts.extents.get(&target)) {
