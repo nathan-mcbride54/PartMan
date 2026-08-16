@@ -207,8 +207,15 @@ extent — membership there follows the naming relation and the step's
 target, never geometry. The consequence is restated with the same care:
 a sibling is never captured by a step that destroys another partition; a
 step that destroys the table releases every partition it describes,
-which is release, not capture.)* The
-premise, stated as a named property of the edge taxonomy: **no backing
+which is release, not capture.)* *(Amended a third time in 15.0.0 by
+ADR-0044: the destroyed table need not be the step's target — destruction
+is carried from the target along the same arms and under the same bound
+as reach, and a table it reaches releases too; membership follows the
+naming relation and the destruction carried from the step's target,
+never geometry and never reach alone. The consequence stands: a sibling
+is never captured by a step that destroys another partition, because a
+range that touches a non-target node establishes no destruction of it.)*
+The premise, stated as a named property of the edge taxonomy: **no backing
 or production edge targets a physical device** — products are virtual
 devices, volumes, or file systems; containment descent is strictly
 range-bounded; table writes target table extents, not the parent
