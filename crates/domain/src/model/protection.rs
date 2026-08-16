@@ -701,7 +701,21 @@ pub fn affected_set(
     // escape). The released partitions are destroyed too: they descend
     // into what they carry by the ordinary geometry, a signature they
     // carry brings its consumer, and a table below them releases in turn.
-    if range_destroyed.contains(&target) {
+    // The seed has a second source (ADR-0048, issue #392): a target that
+    // declares no extent, named by a destroyed range framed on itself, is
+    // destroyed by identity. Without it the whole-frame entry above
+    // range-destroys a volume's *children* but never the volume, so
+    // ADR-0039's production descent does not carry from an aggregate to
+    // the volume it produces — measured: the entry alone closes
+    // `Wipe(volume)` and leaves `Wipe(aggregate)` `Clear` on ten of ten
+    // over the same live pool. This arm cannot fire on an extent-bearing
+    // target, whose extent the range loop above already judges, and it
+    // reads the step's own declared ranges rather than the topology, so
+    // an author cannot reach it by omitting a fact.
+    if range_destroyed.contains(&target)
+        || (!facts.extents.contains_key(&target)
+            && ranges.destroyed.iter().any(|range| range.host == target))
+    {
         destroy(topology, target, &mut destroyed, &mut cascade_destroyed);
     }
 

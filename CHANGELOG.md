@@ -7,6 +7,33 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Fixed
 
+- **WP-010: an extentless target is destroyed by identity (issue #392;
+  ADR-0048, spec 16.0.0 — major).** A `Volume`, `Aggregate`,
+  `EncryptionLayer` or `MultipathNode` declares no extent, so
+  `canonical_ranges` gave it no destroyed range at all: measured on the
+  committed `partitioned_mdraid` fixture, `Wipe(md0)` and `Wipe(array)`
+  gated **`Clear` on 10 of 10** mutating operations over a live ZFS pool,
+  on a complete ADR-0046-lawful body with nothing omitted. Two rules land
+  together, and the measurement establishes that both are needed: an
+  extentless target's canonical destroyed entry is its **whole frame**,
+  which closes the volume; and the destroyed-target seed gains a second
+  source — such a target named by a destroyed range framed on itself is
+  destroyed by identity — which is the only thing that closes the
+  **aggregate**, since nothing is framed on an aggregate. Both move to
+  `Clear` 6/10 (the four destroying operations refuse; the six that write
+  and destroy nothing are deliberately unchanged), while the committed
+  `Label(sda)` and `Wipe(sda)` controls are byte-identical. Cost: one red
+  workspace-wide, ADR-0044's pinned limit rewritten in place. Five
+  mutations, each proven applied; three killed, one killed only after the
+  round added the missing regression (the seed is frame-equal, not merely
+  non-empty), and one recorded as a survivor that is a proof. Editorial,
+  corrected in the same pass and not this act's own claim: "the
+  operation's minimal invariant ranges" is not ADR-0018 text, and a
+  create-writes-and-consumes claim in the same comment had contradicted
+  the code beneath it since ADR-0042. Issue #319 is untouched and its
+  third measured shape is pinned as an open limit; the planner simulation
+  coverage this population lacks is WP-060's own pull request.
+
 - **WP-010: an omitted edge is not an escape from inheritance (issue
   #397; ADR-0047, spec 15.3.0 — minor).** `device_scope_verdict` and
   `producer_verdict` both walked the edge set only, so a body that named
