@@ -3899,3 +3899,101 @@ fn the_hosting_arm_reaches_without_destroying() {
         "and releases nothing inside it: reach is not destruction"
     );
 }
+
+// Requirements: MODEL-002, SAFE-005, CAP-003
+//   The flagship population, and the shape the first draft of this act
+//   was inert on. An `ExtentLocator::Path` image has no contiguous device
+//   range — that is this ADR's own argument against the rejected route —
+//   so the natural body declares no extent for it at all, and nothing
+//   requires one. Routing the arm through containment's absent-child
+//   carve-out made honest absence fail OPEN: the body validated and both
+//   targets gated Clear on ten of ten over a live pool. Absence admits.
+// Evidence: the_hosting_arm_admits_a_backing_extent_that_declares_no_extent
+#[test]
+fn the_hosting_arm_admits_a_backing_extent_that_declares_no_extent() {
+    use super::capability::{Operation, ProtectionGate, canonical_ranges, protection_gate};
+    use super::protection::validate_facts;
+    let b = loop_backed();
+
+    let mut unlocated = b.facts.clone();
+    unlocated.extents.remove(&b.image);
+    assert_eq!(
+        validate_facts(&b.topology, &unlocated),
+        Ok(()),
+        "an image with no extent fact is a lawful body: nothing requires one"
+    );
+
+    for (name, target) in [("the device", b.host), ("its file system", b.host_fs)] {
+        let ranges = canonical_ranges(Operation::Wipe, target, &unlocated);
+        let affected = affected_set(&b.topology, &unlocated, target, &ranges);
+        for reached in [b.image, b.loop0, b.sig, b.pool] {
+            assert!(
+                affected.contains(&reached),
+                "wiping {name} reaches an unlocated image and the pool below it"
+            );
+        }
+        for op in mutating_operations() {
+            assert_ne!(
+                protection_gate(&b.topology, &unlocated, target, op),
+                ProtectionGate::Clear,
+                "{op:?} on {name}: absence of an extent must not subtract reach"
+            );
+        }
+    }
+}
+
+// Requirements: MODEL-002, SAFE-005
+//   A measured OPEN LIMIT, pinned so that closing it is deliberate.
+//   Nothing authenticates a backing extent's frame — its `host` naming
+//   field is `ReferentRule::Open`, so `named_position` is `Outside`,
+//   `frame_root` is `None`, ADR-0046's frame rule never runs on it, and
+//   no edge may target it so the edge-versus-extent cross-check never
+//   sees it either. An author may therefore frame the image's extent on
+//   the host's own frame root, place it outside the host, and suppress
+//   the hop on a body that validates. This is issue #365's undecided
+//   question reaching into this arm. It is recorded here at its measured
+//   cost rather than claimed absent, and it does not make protection
+//   worse than it was before this act: the arm only ever adds reach.
+// Evidence: an_authored_frame_can_still_suppress_the_hosting_arm
+#[test]
+fn an_authored_frame_can_still_suppress_the_hosting_arm() {
+    use super::capability::{Operation, ProtectionGate, canonical_ranges, protection_gate};
+    use super::protection::validate_facts;
+    let b = loop_backed();
+
+    // Framed on the device — the file system's own frame root — and
+    // placed beyond the file system's bytes.
+    let mut authored = b.facts.clone();
+    authored.extents.insert(
+        b.image,
+        HostRange {
+            host: b.host,
+            start: 2 << 30,
+            length: 1 << 29,
+        },
+    );
+    assert_eq!(
+        validate_facts(&b.topology, &authored),
+        Ok(()),
+        "the body validates: nothing constrains a backing extent's frame"
+    );
+
+    for target in [b.host, b.host_fs] {
+        let ranges = canonical_ranges(Operation::Wipe, target, &authored);
+        let affected = affected_set(&b.topology, &authored, target, &ranges);
+        assert!(
+            !affected.contains(&b.pool),
+            "the open limit: an authored frame suppresses the hop"
+        );
+        let clear = mutating_operations()
+            .into_iter()
+            .filter(|op| {
+                protection_gate(&b.topology, &authored, target, *op) == ProtectionGate::Clear
+            })
+            .count();
+        assert_eq!(
+            clear, 10,
+            "and its measured cost is ten of ten Clear, pinned under issue #365"
+        );
+    }
+}

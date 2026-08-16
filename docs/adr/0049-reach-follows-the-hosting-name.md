@@ -14,7 +14,9 @@
   enumerates the arms and this adds a fourth.
 - Work packages blocked: none. Issue #409 closes here, and with a
   correction to its own text. Issue #365's "what frames a backing extent"
-  stays open and is **not needed** by this act.
+  stays open; this act does not decide it, but — corrected after review —
+  does not escape it either: the bound's one refusal reads that undecided
+  frame, and the limit is pinned rather than claimed away.
 
 ## Context
 
@@ -55,17 +57,44 @@ plain dm-crypt and attached images.
 
 > **Reach follows the hosting name.** In `affected_set`'s propagation, a
 > `BackingExtent` whose `host` field names a node already in the set is
-> descended into, under the **same geometric bound** the edge arms use:
-> `descends_into` with `EdgeKind::Containment`, so the hop is refused
-> only where the declared geometry positively contradicts containment in
-> one frame, and admitted on absence, mismatch or ambiguity.
+> descended into, under **its own bound** (`hosting_descends_into`):
+> absence admits, an extent framed on the host admits, a frame the host's
+> extent cannot be compared against admits, and the one refusal is a
+> positive geometric contradiction — same frame, wholly outside.
 
 The arm **descends only**. It carries destruction exactly when the host
 is destroyed, never when the host is merely reached.
 
-It reads the **name** and never the frame, which is why it needs no
-answer to what frames a backing extent. ADR-0046 deliberately left that
-open; this act keeps it open.
+It reads the **name** to decide *whether* the relation exists — that part
+needs no answer to what frames a backing extent, and ADR-0046's carve-out
+is untouched. It reads the frame only to refuse a positive contradiction,
+and **that clause is not authenticated for this kind**, which is a
+measured limit recorded below rather than a claim of independence from
+issue #365.
+
+## What adversarial review changed
+
+The first form of this act reused `descends_into` with
+`EdgeKind::Containment`. Review measured two defects in it, both on
+bodies that validate, and both are fixed here rather than filed:
+
+1. **It was inert on its own flagship population.** That spelling carries
+   containment's absent-child carve-out — `(Some(_), None) => kind !=
+   EdgeKind::Containment` — so a backing extent declaring **no extent**
+   was never descended into. An `ExtentLocator::Path` image has no
+   contiguous device range, which is this ADR's own argument against the
+   rejected route, so the natural body declares no extent at all and
+   nothing requires one. Measured: the body validated and both targets
+   gated `Clear` **10/10** over the live pool — issue #409's filed
+   measurement, restored by removing one optional fact. Honest absence
+   was failing **open**. The arm now has its own bound, in which absence
+   admits, and the carve-out's justification is recorded as not
+   transferring: `host` is hashed into the node's address, so a backing
+   extent naming H is under H by construction and cannot be a sibling.
+2. **The bound's remaining refusal is author-controlled**, because
+   nothing authenticates a backing extent's frame. That is recorded as a
+   named limit below and pinned by a regression at its measured cost,
+   rather than described as absent.
 
 ## The routes rejected, each measured
 
@@ -108,16 +137,18 @@ problem above on top of them.
   file system.
 - `Wipe(image)` reaches `{image, volume, signature, pool}` and **not** its
   host — the asymmetry the rejected route could not preserve.
-- `cargo xtask ci` exit 0.
+- `cargo xtask ci` exit 0. The battery was re-run against the rewritten
+  bound, not carried over from the reviewed form.
 
 **Mutation battery**, each applied with an editor and proven applied:
 
 | # | mutation | outcome |
 | --- | --- | --- |
 | M1 | the arm removed | killed |
-| M2 | the geometric bound dropped | killed |
+| M2 | the bound dropped entirely | killed |
 | M3 | membership read off the backing extent instead of its host | killed |
 | M4 | destruction carried from a merely reached host | **killed, but only after this round added the regression that catches it** |
+| M5 | the bound's absence clause refuses instead of admitting (the reviewed defect, re-applied) | killed by the absent-extent regression |
 
 **M4 is the round's own finding.** It survived the committed suite
 because the reach-versus-destruction distinction is invisible on a chain
@@ -152,8 +183,16 @@ membership sentence gains a fifth parenthetical saying so.
 
 ## Consequences
 
-- The whole host-backed class enters the closure: loop devices,
-  VHD/VHDX, dm-linear, plain dm-crypt, attached images.
+- The host-backed class enters the closure where it was outside it.
+  **Narrower than the first draft of this ADR claimed**, and corrected
+  after review measured the difference: a backing extent whose declared
+  extent lies in the frame of the step's own declared ranges — a
+  device-hosted `ExtentLocator::Range` image, the dm-linear shape — was
+  **already** reached at base, by `seed_from_ranges`, because a destroyed
+  range simply intersects its extent. What had no upward reach is a
+  backing extent whose extent is *not* in that frame, or absent
+  altogether: the `Path`-located image framed on its file system, which
+  is the loop/VHDX population. The act closes that.
 - Nothing about what frames a backing extent is decided. `named_position`
   still returns `Outside` for one, `frame_root` still returns `None`, and
   ADR-0046's carve-out and its enumeration pin are untouched — which is
@@ -171,7 +210,30 @@ this ADR.
 
 ## What stays open
 
-- **#365's frame question**, deliberately. This act routes around it.
+- **An authored frame can still suppress the arm**, measured and pinned.
+  `("backing-extent", "host")` is `ReferentRule::Open`, so
+  `named_position` is `Outside`, `frame_root` is `None`, ADR-0046's frame
+  rule never runs on a backing extent, and no edge may target it so the
+  edge-versus-extent cross-check never sees it. An author may frame the
+  extent on the host's own frame root and place it outside the host; the
+  bound's one refusal then fires on a body that validates, at a measured
+  cost of `Clear` **10/10** on both targets.
+  `an_authored_frame_can_still_suppress_the_hosting_arm` pins that, so
+  closing it is deliberate. It does **not** make protection worse than
+  before this act — the arm only ever adds reach — but it is issue #365's
+  undecided question reaching into this arm, and this ADR does not claim
+  independence from it.
+- **The two-layer disagreement is untested.** The planner's
+  `destroyed_closure` propagates to any node whose naming referents
+  contain a removed node, unconditionally and with no geometric bound, so
+  it removes a backing extent whose host is removed in every case where
+  this arm is conditional. No test in `crates/planner` or
+  `crates/capability` constructs a host-backed body. Covering it is
+  **WP-060's own pull request under its own grant**, and is this act's
+  named obligation — the shape ADR-0048 named and discharged one act
+  earlier.
+- **#365's frame question**, deliberately. This act does not decide it,
+  and the limit above is where it still bites.
 - **The `Backing` signature-to-aggregate omission** ADR-0047 named as its
   limit is untouched and still open.
 - **Issue #319's authorization half.**
