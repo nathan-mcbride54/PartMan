@@ -294,6 +294,24 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **WP-060: two planner tests re-based on ranges that exist, ahead of
+  issue #353's act.** `an_unordered_overlap_refuses_with_both_steps_named`
+  now asserts the graph refusal on the ordered chain's two wipes with
+  the dependency removed — destroyed ranges that truthfully overlap. It
+  used to pair a wipe with an *unsized* create on one device, which
+  overlapped only because the create's canonical entry wrote the parent
+  device wholesale, the over-claim §2.1 forbids and the act removes; an
+  unsized create's honest ground is the simulate refusal it already
+  gets. And a new test,
+  `a_partition_write_still_touches_its_disk_for_the_protection_arms`,
+  pins what nothing pinned: a `Label` on a partition carries its disk's
+  PART-013 parse-backup obligation and refuses on Indeterminate media,
+  both derived from the step's declared range whose host is the disk.
+  The domain suite is blind to that entry (dropping every write entry
+  survives there, measured), so the consumer that depends on it holds
+  it. Green at HEAD; green with the act merged (661 tests, 0 failed);
+  and the new test is what kills the declare-nothing mutation.
+
 - **WP-060: the occupancy ground is a function of the located range.**
   `occupancy_ground(located, host, declared_start)` is extracted from
   `unaccounted_occupant` and every `OccupancyGround` arm is asserted on
