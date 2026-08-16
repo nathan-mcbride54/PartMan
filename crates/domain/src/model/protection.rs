@@ -163,6 +163,34 @@ pub enum FactError {
         /// The parent named by the containment edge.
         parent: NodeId,
     },
+    /// An extent's `host` is not the containment root the node's own name
+    /// leads to (ADR-0037's anchoring rule, enforced by ADR-0046 on issue
+    /// #333). The name and the extent are two claims about which address
+    /// space the node's bytes are positioned in — the name through the
+    /// containment relation it embeds, the extent directly — and they
+    /// disagree. Both are named here, side by side, so a refused capture
+    /// can be answered.
+    ExtentFrameDisagreesWithName {
+        /// The node.
+        node: NodeId,
+        /// The frame the extent declares.
+        declared: NodeId,
+        /// The containment root the name derives.
+        derived: NodeId,
+    },
+    /// A containment edge nests a node inside one parent while the node's
+    /// own name positions it inside another (ADR-0046, on the strength
+    /// ADR-0045 held beside issue #333). The edge and the name are two
+    /// claims about the same relation; the body is refused rather than
+    /// either being preferred, both parents named.
+    ContainmentEdgeDisagreesWithName {
+        /// The child.
+        child: NodeId,
+        /// The parent the edge names.
+        edge_parent: NodeId,
+        /// The parent the child's own name embeds.
+        named_parent: NodeId,
+    },
 }
 
 impl fmt::Display for FactError {
@@ -193,11 +221,150 @@ impl fmt::Display for FactError {
                 formatter,
                 "extent of {child} lies outside its containment parent {parent}"
             ),
+            Self::ExtentFrameDisagreesWithName {
+                node,
+                declared,
+                derived,
+            } => write!(
+                formatter,
+                "extent of {node} is framed on {declared}, but its name leads to containment root {derived}"
+            ),
+            Self::ContainmentEdgeDisagreesWithName {
+                child,
+                edge_parent,
+                named_parent,
+            } => write!(
+                formatter,
+                "containment edge nests {child} in {edge_parent}, but its name positions it in {named_parent}"
+            ),
         }
     }
 }
 
 impl std::error::Error for FactError {}
+
+/// Whether a containment pair is *geometric* — the parent's extent is the
+/// region its children lie in — as opposed to *structural*, where the
+/// parent's extent is its own bytes and the children lie beside them.
+///
+/// A partition table's extent is the table structure — protective MBR,
+/// header, entry array — not the region it governs: every committed GPT
+/// fixture puts `p1` at `table.start + table.length` exactly, and a
+/// BIOS-boot layout puts one entry *inside* the first MiB and the rest
+/// beyond it. So `partition-table` → `partition` and
+/// `partition-table` → `conflicting-table-entry` carry no span claim.
+/// The other eleven pairs do: a table, signature or file system inside a
+/// device, a signature or file system inside a partition, and a
+/// signature, file system or table inside a volume (ADR-0044) or a
+/// multipath node (ADR-0045), all lie within their parent's bytes — a
+/// volume and a multipath node declare no extent of their own, so their
+/// six pairs are geometric in kind and never compared.
+fn containment_pair_is_geometric(source_kind: &str) -> bool {
+    !matches!(source_kind, "partition-table")
+}
+
+/// Refuse a fact set that its topology cannot carry (issues #349, #356;
+/// ADR-0041). Applied by [`TopologySnapshot::assemble`], which both the
+/// in-process constructors and the decode boundary run through, so no
+/// snapshot can exist whose facts would be refused on the other path.
+///
+/// Every rule refuses only what is positively unlawful. Absence of a fact
+/// is never refused here — it is honest absence and fails closed at the
+/// arm that needs it. Since ADR-0046 (issue #333) the three positional
+/// claims a body can make about a node — its name, the containment edge
+/// that nests it, and its extent — are pairwise compared: the extent's
+/// frame is the containment root the name leads to, the edge nests the
+/// node where the name says, and the extent lies within the edge's
+/// parent where the pair is geometric.
+///
+/// # Errors
+///
+/// [`FactError`] naming the first offending fact.
+pub fn validate_facts(topology: &Topology, facts: &Facts) -> Result<(), FactError> {
+    // Every fact key names an absorbed entry, and that entry's kind
+    // carries the fact.
+    placed(topology, "transport", facts.transports.keys(), |fields| {
+        matches!(fields, NamingFields::PhysicalDevice { .. })
+    })?;
+    placed(
+        topology,
+        "member_count",
+        facts.member_counts.keys(),
+        |fields| matches!(fields, NamingFields::Aggregate { .. }),
+    )?;
+    placed(
+        topology,
+        "table_state",
+        facts.table_states.keys(),
+        |fields| matches!(fields, NamingFields::PhysicalDevice { .. }),
+    )?;
+    placed(
+        topology,
+        "extent_host",
+        facts.extents.keys(),
+        NamingFields::may_carry_extent,
+    )?;
+
+    // Every extent is a range: framed on an entry, of at least one byte,
+    // with an end below `u64::MAX`.
+    for (node, extent) in &facts.extents {
+        if kind_of(topology, extent.host).is_none() {
+            return Err(FactError::UnresolvedExtentHost {
+                node: *node,
+                host: extent.host,
+            });
+        }
+        if extent.length == 0 {
+            return Err(FactError::ZeroLengthExtent { node: *node });
+        }
+        if extent.start.checked_add(extent.length).is_none() {
+            return Err(FactError::ExtentOverflows { node: *node });
+        }
+        // ADR-0037's anchoring rule, enforced (ADR-0046, issue #333): a
+        // range in a containment forest is expressed in that forest's
+        // root address space, and the root is derived from the node's own
+        // name — never from the edge set, which a body may omit, and never
+        // by replacing the declared host, which other consumers read.
+        if let Some(derived) = frame_root(topology, *node)
+            && extent.host != derived
+        {
+            return Err(FactError::ExtentFrameDisagreesWithName {
+                node: *node,
+                declared: extent.host,
+                derived,
+            });
+        }
+    }
+
+    containment_agrees_with_names(topology)?;
+    containment_agrees_with_extents(topology, facts)
+}
+
+/// A containment edge and the target's own name are two claims about the
+/// same relation — which node the target's bytes lie inside. Where the
+/// name embeds a containment source, the edge nests the node in that
+/// source or the body is refused (ADR-0046). A node whose name embeds
+/// none, or whose positioning field is the open one, is not asked.
+fn containment_agrees_with_names(topology: &Topology) -> Result<(), FactError> {
+    for edge in topology.edges() {
+        if edge.kind != EdgeKind::Containment {
+            continue;
+        }
+        let Some(fields) = kind_of(topology, edge.target) else {
+            continue;
+        };
+        if let NamedPosition::Inside(named_parent) = named_position(fields)
+            && named_parent != edge.source
+        {
+            return Err(FactError::ContainmentEdgeDisagreesWithName {
+                child: edge.target,
+                edge_parent: edge.source,
+                named_parent,
+            });
+        }
+    }
+    Ok(())
+}
 
 /// Where a node's own name positions it, read off the naming relation
 /// through [`naming_referent_rule`] — never off the edge set, which a
@@ -262,90 +429,24 @@ fn named_ancestry(topology: &Topology, id: NodeId) -> Vec<NodeId> {
     vec![]
 }
 
+/// The containment root a node's own name leads to: the address space
+/// ADR-0037 says its extent is expressed in, enforced by ADR-0046. `None`
+/// for a node outside every containment forest (a backing extent), which
+/// the rule does not reach, and for an address no entry carries.
+fn frame_root(topology: &Topology, id: NodeId) -> Option<NodeId> {
+    let fields = kind_of(topology, id)?;
+    match named_position(fields) {
+        NamedPosition::Root => Some(id),
+        NamedPosition::Inside(_) => named_ancestry(topology, id).last().copied(),
+        NamedPosition::Outside => None,
+    }
+}
+
 /// Whether `node`'s own name positions it inside `host`, at any depth: a
 /// file system naming a partition, a signature naming a partition whose
 /// table names a device. Never true of a node for itself.
 pub(crate) fn names_within(topology: &Topology, node: NodeId, host: NodeId) -> bool {
     named_ancestry(topology, node).contains(&host)
-}
-
-/// Whether a containment pair is *geometric* — the parent's extent is the
-/// region its children lie in — as opposed to *structural*, where the
-/// parent's extent is its own bytes and the children lie beside them.
-///
-/// A partition table's extent is the table structure — protective MBR,
-/// header, entry array — not the region it governs: every committed GPT
-/// fixture puts `p1` at `table.start + table.length` exactly, and a
-/// BIOS-boot layout puts one entry *inside* the first MiB and the rest
-/// beyond it. So `partition-table` → `partition` and
-/// `partition-table` → `conflicting-table-entry` carry no span claim.
-/// The other eleven pairs do: a table, signature or file system inside a
-/// device, a signature or file system inside a partition, and a
-/// signature, file system or table inside a volume (ADR-0044) or a
-/// multipath node (ADR-0045), all lie within their parent's bytes — a
-/// volume and a multipath node declare no extent of their own, so their
-/// six pairs are geometric in kind and never compared.
-fn containment_pair_is_geometric(source_kind: &str) -> bool {
-    !matches!(source_kind, "partition-table")
-}
-
-/// Refuse a fact set that its topology cannot carry (issues #349, #356;
-/// ADR-0041). Applied by [`TopologySnapshot::assemble`], which both the
-/// in-process constructors and the decode boundary run through, so no
-/// snapshot can exist whose facts would be refused on the other path.
-///
-/// Every rule refuses only what is positively unlawful. Absence of a fact
-/// is never refused here — it is honest absence and fails closed at the
-/// arm that needs it — and a child extent expressed in a frame its parent
-/// cannot be compared against is left alone (that is ADR-0037's held
-/// enforcement, issue #333, and not this function's to decide).
-///
-/// # Errors
-///
-/// [`FactError`] naming the first offending fact.
-pub fn validate_facts(topology: &Topology, facts: &Facts) -> Result<(), FactError> {
-    // Every fact key names an absorbed entry, and that entry's kind
-    // carries the fact.
-    placed(topology, "transport", facts.transports.keys(), |fields| {
-        matches!(fields, NamingFields::PhysicalDevice { .. })
-    })?;
-    placed(
-        topology,
-        "member_count",
-        facts.member_counts.keys(),
-        |fields| matches!(fields, NamingFields::Aggregate { .. }),
-    )?;
-    placed(
-        topology,
-        "table_state",
-        facts.table_states.keys(),
-        |fields| matches!(fields, NamingFields::PhysicalDevice { .. }),
-    )?;
-    placed(
-        topology,
-        "extent_host",
-        facts.extents.keys(),
-        NamingFields::may_carry_extent,
-    )?;
-
-    // Every extent is a range: framed on an entry, of at least one byte,
-    // with an end below `u64::MAX`.
-    for (node, extent) in &facts.extents {
-        if kind_of(topology, extent.host).is_none() {
-            return Err(FactError::UnresolvedExtentHost {
-                node: *node,
-                host: extent.host,
-            });
-        }
-        if extent.length == 0 {
-            return Err(FactError::ZeroLengthExtent { node: *node });
-        }
-        if extent.start.checked_add(extent.length).is_none() {
-            return Err(FactError::ExtentOverflows { node: *node });
-        }
-    }
-
-    containment_agrees_with_extents(topology, facts)
 }
 
 /// Every key in `nodes` names an absorbed entry whose kind `carries` the
@@ -392,20 +493,16 @@ fn containment_agrees_with_extents(topology: &Topology, facts: &Facts) -> Result
         ) else {
             continue;
         };
-        let inside = if child.host == parent.host {
-            // Both in one frame: the child's bytes lie within the parent's.
-            parent.contains(child)
-        } else if child.host == edge.source {
-            // The child is expressed in the parent's own address space:
-            // its end lies within the parent's length. (Checked arithmetic
-            // holds by the rule above; saturating is belt and braces.)
-            child.start.saturating_add(child.length) <= parent.length
-        } else {
-            // A frame this parent cannot be compared against — ADR-0037's
-            // held enforcement, not a contradiction this rule can see.
-            true
-        };
-        if !inside {
+        // One frame, by construction: the frame rule puts both extents on
+        // the root the child's name leads to, and the edge-name rule puts
+        // the edge's parent on that same path, so the child and its parent
+        // share a frame and the child's bytes lie within the parent's.
+        // ADR-0041 also admitted a child expressed in the parent's own
+        // address space and left a frame the parent could not be compared
+        // against alone; both spellings are refused by the frame rule
+        // before this rule is reached, and `contains` fails closed across
+        // frames should a body ever arrive here in one.
+        if !parent.contains(child) {
             return Err(FactError::ExtentOutsideContainmentParent {
                 child: edge.target,
                 parent: edge.source,

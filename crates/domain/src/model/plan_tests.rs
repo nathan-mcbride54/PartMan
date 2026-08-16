@@ -354,11 +354,13 @@ fn reversal_worlds() -> ReversalWorlds {
             facts.extents.insert(part_id, created_range);
         }
         if with_fs {
+            // In the containment root's frame — the device's — like the
+            // partition it names as host (ADR-0037, enforced by ADR-0046).
             facts.extents.insert(
                 fs_id,
                 HostRange {
-                    host: part_id,
-                    start: 0,
+                    host: dev_id,
+                    start: 1 << 20,
                     length: 5 << 20,
                 },
             );
@@ -1543,7 +1545,7 @@ fn a_client_authored_table_state_never_validates() {
 
 // Requirements: MODEL-005, PLAN-008
 //   ADR-0022's truthfulness precondition reads occupancy as bytes, not as
-//   frame names (issue #333's enforcement arc). Under ADR-0037's rule a
+//   frame names (issue #401, ADR-0046). Under ADR-0037's rule a
 //   partition is never a frame, so "an extent framed on the host" finds
 //   nothing on any lawful capture and a decayed reversal would bind;
 //   occupancy is therefore also read geometrically — a node whose extent

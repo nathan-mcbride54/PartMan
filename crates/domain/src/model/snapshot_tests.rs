@@ -1114,11 +1114,11 @@ fn partition_carrying_signature(
 //   with both nodes named — the body is refused, neither claim preferred.
 //   The measured escape: a signature the edge nests in `[0, 100 MiB)` and
 //   the fact puts at 500 MiB. Honest spellings assemble: device-framed
-//   inside the partition, partition-framed within its length, and the
-//   exact-fit boundary. Two shapes are deliberately left alone, because
-//   refusing them would decide what ADR-0037 holds: a child in a frame its
-//   parent cannot be compared against, and a child whose parent declares
-//   no extent (the golden vector's shape).
+//   inside the partition, and the exact-fit boundary. Since ADR-0046
+//   enforced ADR-0037's rule the partition-framed twin and the child in
+//   an unrelated frame refuse before this rule is reached — the frame
+//   itself disagrees with the name — and one shape is still left alone: a
+//   child whose parent declares no extent.
 // Evidence: a_containment_child_outside_its_parent_refuses
 #[test]
 fn a_containment_child_outside_its_parent_refuses() {
@@ -1141,18 +1141,31 @@ fn a_containment_child_outside_its_parent_refuses() {
     };
     let unrelated = derive_id(&device(b"OTHER")).expect("derivable");
 
-    // The measured contradiction, and its partition-framed twin.
-    for forged in [device_framed(500 * MIB), partition_framed(500 * MIB)] {
-        let (nodes, edges, facts, _) = partition_carrying_signature(forged);
+    // The measured contradiction.
+    let (nodes, edges, facts, _) = partition_carrying_signature(device_framed(500 * MIB));
+    assert_eq!(
+        assemble_result(nodes, edges, facts).err(),
+        Some(SnapshotError::Facts(
+            FactError::ExtentOutsideContainmentParent {
+                child: sig_id,
+                parent: part_id,
+            }
+        ))
+    );
+    // Its partition-framed twin, at 500 MiB or honestly within the
+    // partition's length: the frame is refused first, both facts named.
+    for framed in [partition_framed(500 * MIB), partition_framed(MIB)] {
+        let (nodes, edges, facts, _) = partition_carrying_signature(framed);
         assert_eq!(
             assemble_result(nodes, edges, facts).err(),
             Some(SnapshotError::Facts(
-                FactError::ExtentOutsideContainmentParent {
-                    child: sig_id,
-                    parent: part_id,
+                FactError::ExtentFrameDisagreesWithName {
+                    node: sig_id,
+                    declared: part_id,
+                    derived: sda_id,
                 }
             )),
-            "{forged:?}"
+            "{framed:?}"
         );
     }
     // A child that starts inside and ends outside is outside.
@@ -1167,18 +1180,14 @@ fn a_containment_child_outside_its_parent_refuses() {
             FactError::ExtentOutsideContainmentParent { .. }
         ))
     ));
-    // Honest, in both lawful spellings; and the exact-fit boundary.
-    for honest in [
-        device_framed(MIB),
-        partition_framed(MIB),
-        device_framed(99 * MIB),
-        partition_framed(99 * MIB),
-    ] {
+    // Honest, in the one lawful spelling; and the exact-fit boundary.
+    for honest in [device_framed(MIB), device_framed(99 * MIB)] {
         let (nodes, edges, facts, _) = partition_carrying_signature(honest);
         assert!(assemble_result(nodes, edges, facts).is_ok(), "{honest:?}");
     }
-    // Left alone: a frame the parent cannot be compared against. That the
-    // frame resolves at all is required; where it lies is ADR-0037's.
+    // A frame the parent cannot be compared against — an unrelated
+    // absorbed device — was left alone by this rule and is refused by the
+    // frame rule: the signature's name leads to `sda`, not there.
     let (mut nodes, edges, mut facts, _) = partition_carrying_signature(HostRange {
         host: unrelated,
         start: 500 * MIB,
@@ -1186,7 +1195,16 @@ fn a_containment_child_outside_its_parent_refuses() {
     });
     nodes.push(device(b"OTHER"));
     facts.transports.insert(unrelated, TransportClass::Sata);
-    assert!(assemble_result(nodes, edges, facts).is_ok());
+    assert_eq!(
+        assemble_result(nodes, edges, facts).err(),
+        Some(SnapshotError::Facts(
+            FactError::ExtentFrameDisagreesWithName {
+                node: sig_id,
+                declared: unrelated,
+                derived: sda_id,
+            }
+        ))
+    );
     // Left alone: the parent declares no extent.
     let (nodes, edges, mut facts, _) = partition_carrying_signature(device_framed(500 * MIB));
     facts.extents.remove(&part_id);
@@ -1304,6 +1322,661 @@ fn a_forged_extent_refuses_at_the_boundary_before_any_closure_runs() {
             FactError::ExtentOutsideContainmentParent {
                 child: sig_id,
                 parent: part_id,
+            }
+        )))
+    );
+}
+
+// Requirements: MODEL-002, MODEL-005, SAFE-005
+//   ADR-0037's anchoring rule, enforced (ADR-0046, issue #333): a range in
+//   a containment forest is expressed in that forest's root address space,
+//   and the root is derived from the node's own name — never from the
+//   edge set, which a body may omit. A child extent framed on its
+//   immediate host rather than the root refuses at assembly with the two
+//   facts named side by side, in derive-and-compare form: the declared
+//   host stays a fact and is refused, never replaced. The golden vector's
+//   former shape (a signature framed on its partition), `plan_tests`'
+//   former shape (a file system framed on its partition), and a table
+//   framed on itself all refuse; the boundary's refusal is the
+//   constructor's, equal by value; and with every containment edge
+//   removed the refusal stands, because the frame is read off the name.
+// Evidence: an_extent_framed_below_its_containment_root_refuses_at_both_boundaries
+#[test]
+#[allow(clippy::too_many_lines)]
+fn an_extent_framed_below_its_containment_root_refuses_at_both_boundaries() {
+    const MIB: u64 = 1 << 20;
+    let dev = device(b"FRAME");
+    let dev_id = derive_id(&dev).expect("derivable");
+    let table = NamingFields::PartitionTable {
+        parent: dev_id,
+        role: TableRole::Gpt,
+    };
+    let table_id = derive_id(&table).expect("derivable");
+    let part = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: MIB,
+    };
+    let part_id = derive_id(&part).expect("derivable");
+    let sig = NamingFields::BackingSignature {
+        host: part_id,
+        family: SignatureFamily::Mdraid1x,
+        primary_offset: 4096,
+    };
+    let sig_id = derive_id(&sig).expect("derivable");
+    let fs = NamingFields::FileSystem {
+        host: part_id,
+        kind: super::naming::FileSystemKind::Ext4,
+        superblock_offset: 1024,
+    };
+    let fs_id = derive_id(&fs).expect("derivable");
+    let nodes = || {
+        vec![
+            dev.clone(),
+            table.clone(),
+            part.clone(),
+            sig.clone(),
+            fs.clone(),
+        ]
+    };
+    let containment = |source, target| Edge {
+        kind: EdgeKind::Containment,
+        source,
+        target,
+    };
+    let edges = || {
+        vec![
+            containment(dev_id, table_id),
+            containment(table_id, part_id),
+            containment(part_id, sig_id),
+            containment(part_id, fs_id),
+        ]
+    };
+    let framed = |host, start, length| HostRange {
+        host,
+        start,
+        length,
+    };
+    // The honest body: everything in the device's frame.
+    let honest = || {
+        let mut facts = Facts::default();
+        facts.transports.insert(dev_id, TransportClass::Sata);
+        facts.extents.insert(dev_id, framed(dev_id, 0, 1 << 30));
+        facts.extents.insert(table_id, framed(dev_id, 0, MIB));
+        facts
+            .extents
+            .insert(part_id, framed(dev_id, MIB, 256 * MIB));
+        facts
+            .extents
+            .insert(sig_id, framed(dev_id, MIB + 4096, 1 << 16));
+        facts
+            .extents
+            .insert(fs_id, framed(dev_id, 2 * MIB, 100 * MIB));
+        facts
+    };
+    let honest_snapshot =
+        assemble_result(nodes(), edges(), honest()).expect("the root-framed body assembles");
+
+    // Three refused spellings, each the same bytes framed one hop down.
+    let refused = [
+        (sig_id, framed(part_id, 4096, 1 << 16), part_id),
+        (fs_id, framed(part_id, MIB, 100 * MIB), part_id),
+        (table_id, framed(table_id, 0, MIB), table_id),
+    ];
+    for (node, extent, declared) in refused {
+        let mut facts = honest();
+        facts.extents.insert(node, extent);
+        let expected = || {
+            SnapshotError::Facts(FactError::ExtentFrameDisagreesWithName {
+                node,
+                declared,
+                derived: dev_id,
+            })
+        };
+        assert_eq!(
+            assemble_result(nodes(), edges(), facts.clone()).err(),
+            Some(expected()),
+            "{node}"
+        );
+        // With every containment edge removed the frame is still derived
+        // and still refused: it is read off the name, not the edges.
+        assert_eq!(
+            assemble_result(nodes(), vec![], facts).err(),
+            Some(expected()),
+            "{node}, no edges"
+        );
+
+        // The same forgery at the boundary: rewrite the honest body's
+        // entry for the node and decode. The boundary's refusal is the
+        // constructor's, equal by value.
+        let body = honest_snapshot.body_value().expect("body");
+        let canonical::Value::Map(mut map) = body else {
+            panic!("body is a map");
+        };
+        let Some(canonical::Value::Array(entries)) = map.get_mut("nodes") else {
+            panic!("nodes present");
+        };
+        let mut forged = false;
+        for entry in entries.iter_mut() {
+            let canonical::Value::Map(fields) = entry else {
+                panic!("entry is a map");
+            };
+            let mut named = fields.clone();
+            for key in ["extent_host", "extent_start", "extent_length"] {
+                named.remove(key);
+            }
+            let is_node = super::naming::fields_from_map(&named)
+                .ok()
+                .and_then(|fields| derive_id(&fields).ok())
+                == Some(node);
+            if is_node {
+                fields.insert(
+                    "extent_host".to_owned(),
+                    canonical::Value::Bytes(extent.host.as_bytes().to_vec()),
+                );
+                fields.insert(
+                    "extent_start".to_owned(),
+                    canonical::Value::Unsigned(extent.start),
+                );
+                forged = true;
+            }
+        }
+        assert!(forged, "the node's entry was found and re-framed");
+        resort(entries);
+        let bytes = canonical::encode(&canonical::Value::Map(map)).expect("encodable");
+        assert_eq!(
+            TopologySnapshot::from_canonical_body(&bytes),
+            Err(SnapshotSchemaError::Rebuild(expected())),
+            "{node}, at the boundary"
+        );
+    }
+}
+
+/// One body holding every containment forest the pair table can root —
+/// a device, a produced volume, a multipath node — with an extent-bearing
+/// node at every depth of each, plus a backing extent, which appears in
+/// no containment pair. Every extent is framed on the root its name leads
+/// to, and the geometry is honest.
+/// Nodes, edges, facts, and for every extent-bearing node the root its
+/// name leads to (`None` outside every forest).
+type EveryForest = (
+    Vec<NamingFields>,
+    Vec<Edge>,
+    Facts,
+    Vec<(super::naming::NodeId, Option<super::naming::NodeId>)>,
+);
+
+#[allow(clippy::too_many_lines)]
+fn every_forest() -> EveryForest {
+    use super::naming::{ExtentLocator, FileSystemKind};
+    const MIB: u64 = 1 << 20;
+    let id = |fields: &NamingFields| derive_id(fields).expect("derivable");
+    let containment = |source, target| Edge {
+        kind: EdgeKind::Containment,
+        source,
+        target,
+    };
+    let framed = |host, start, length| HostRange {
+        host,
+        start,
+        length,
+    };
+    let mut nodes = Vec::new();
+    let mut edges = Vec::new();
+    let mut facts = Facts::default();
+    // (node, the root its name leads to; `None` outside every forest)
+    let mut roots = Vec::new();
+
+    // The device forest.
+    let dev = device(b"EVERY");
+    let dev_id = id(&dev);
+    let table = NamingFields::PartitionTable {
+        parent: dev_id,
+        role: TableRole::Gpt,
+    };
+    let table_id = id(&table);
+    let part = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: MIB,
+    };
+    let part_id = id(&part);
+    let sig_in_part = NamingFields::BackingSignature {
+        host: part_id,
+        family: SignatureFamily::Zfs,
+        primary_offset: 0,
+    };
+    let sig_in_part_id = id(&sig_in_part);
+    let fs_in_part = NamingFields::FileSystem {
+        host: part_id,
+        kind: FileSystemKind::Ext4,
+        superblock_offset: 1024,
+    };
+    let fs_in_part_id = id(&fs_in_part);
+    let entry = NamingFields::ConflictingTableEntry {
+        table: table_id,
+        view_role: TableRole::HybridMbr,
+        entry_start: 300 * MIB,
+    };
+    let entry_id = id(&entry);
+    let sig_on_dev = NamingFields::BackingSignature {
+        host: dev_id,
+        family: SignatureFamily::Mdraid1x,
+        primary_offset: 600 * MIB,
+    };
+    let sig_on_dev_id = id(&sig_on_dev);
+    let fs_on_dev = NamingFields::FileSystem {
+        host: dev_id,
+        kind: FileSystemKind::Xfs,
+        superblock_offset: 700 * MIB,
+    };
+    let fs_on_dev_id = id(&fs_on_dev);
+    facts.transports.insert(dev_id, TransportClass::Sata);
+    facts.extents.insert(dev_id, framed(dev_id, 0, 1 << 30));
+    facts.extents.insert(table_id, framed(dev_id, 0, MIB));
+    facts
+        .extents
+        .insert(part_id, framed(dev_id, MIB, 255 * MIB));
+    facts
+        .extents
+        .insert(sig_in_part_id, framed(dev_id, MIB, 4096));
+    facts
+        .extents
+        .insert(fs_in_part_id, framed(dev_id, 2 * MIB, 100 * MIB));
+    facts
+        .extents
+        .insert(entry_id, framed(dev_id, 300 * MIB, MIB));
+    facts
+        .extents
+        .insert(sig_on_dev_id, framed(dev_id, 600 * MIB, 4096));
+    facts
+        .extents
+        .insert(fs_on_dev_id, framed(dev_id, 700 * MIB, 100 * MIB));
+    nodes.extend([
+        dev,
+        table,
+        part,
+        sig_in_part,
+        fs_in_part,
+        entry,
+        sig_on_dev,
+        fs_on_dev,
+    ]);
+    edges.extend([
+        containment(dev_id, table_id),
+        containment(table_id, part_id),
+        containment(part_id, sig_in_part_id),
+        containment(part_id, fs_in_part_id),
+        containment(table_id, entry_id),
+        containment(dev_id, sig_on_dev_id),
+        containment(dev_id, fs_on_dev_id),
+    ]);
+    roots.extend([
+        (dev_id, Some(dev_id)),
+        (table_id, Some(dev_id)),
+        (part_id, Some(dev_id)),
+        (sig_in_part_id, Some(dev_id)),
+        (fs_in_part_id, Some(dev_id)),
+        (entry_id, Some(dev_id)),
+        (sig_on_dev_id, Some(dev_id)),
+        (fs_on_dev_id, Some(dev_id)),
+    ]);
+
+    // The volume forest, produced by an aggregate the device signature
+    // backs.
+    let agg = NamingFields::Aggregate {
+        technology: AggregateTechnology::Mdraid,
+        designator: Some(b"every-md".to_vec()),
+    };
+    let agg_id = id(&agg);
+    let vol = NamingFields::Volume {
+        producer: agg_id,
+        name: b"md0".to_vec(),
+        role: None,
+    };
+    let vol_id = id(&vol);
+    let vtable = NamingFields::PartitionTable {
+        parent: vol_id,
+        role: TableRole::Gpt,
+    };
+    let vtable_id = id(&vtable);
+    let vpart = NamingFields::Partition {
+        parent_table: vtable_id,
+        start_offset: MIB,
+    };
+    let vpart_id = id(&vpart);
+    let sig_below_vol = NamingFields::BackingSignature {
+        host: vpart_id,
+        family: SignatureFamily::Zfs,
+        primary_offset: 0,
+    };
+    let sig_below_vol_id = id(&sig_below_vol);
+    let fs_on_vol = NamingFields::FileSystem {
+        host: vol_id,
+        kind: FileSystemKind::Ext4,
+        superblock_offset: 200 * MIB,
+    };
+    let fs_on_vol_id = id(&fs_on_vol);
+    let sig_on_vol = NamingFields::BackingSignature {
+        host: vol_id,
+        family: SignatureFamily::Luks2,
+        primary_offset: 300 * MIB,
+    };
+    let sig_on_vol_id = id(&sig_on_vol);
+    facts.member_counts.insert(agg_id, 1);
+    facts.extents.insert(vtable_id, framed(vol_id, 0, MIB));
+    facts
+        .extents
+        .insert(vpart_id, framed(vol_id, MIB, 100 * MIB));
+    facts
+        .extents
+        .insert(sig_below_vol_id, framed(vol_id, MIB, 4096));
+    facts
+        .extents
+        .insert(fs_on_vol_id, framed(vol_id, 200 * MIB, 50 * MIB));
+    facts
+        .extents
+        .insert(sig_on_vol_id, framed(vol_id, 300 * MIB, 4096));
+    nodes.extend([
+        agg,
+        vol,
+        vtable,
+        vpart,
+        sig_below_vol,
+        fs_on_vol,
+        sig_on_vol,
+    ]);
+    edges.extend([
+        Edge {
+            kind: EdgeKind::Backing,
+            source: sig_on_dev_id,
+            target: agg_id,
+        },
+        Edge {
+            kind: EdgeKind::Production,
+            source: agg_id,
+            target: vol_id,
+        },
+        containment(vol_id, vtable_id),
+        containment(vtable_id, vpart_id),
+        containment(vpart_id, sig_below_vol_id),
+        containment(vol_id, fs_on_vol_id),
+        containment(vol_id, sig_on_vol_id),
+    ]);
+    roots.extend([
+        (vtable_id, Some(vol_id)),
+        (vpart_id, Some(vol_id)),
+        (sig_below_vol_id, Some(vol_id)),
+        (fs_on_vol_id, Some(vol_id)),
+        (sig_on_vol_id, Some(vol_id)),
+    ]);
+
+    // The multipath forest.
+    let mp = NamingFields::MultipathNode {
+        lun_designator: b"every-lun".to_vec(),
+    };
+    let mp_id = id(&mp);
+    let mtable = NamingFields::PartitionTable {
+        parent: mp_id,
+        role: TableRole::Mbr,
+    };
+    let mtable_id = id(&mtable);
+    let mpart = NamingFields::Partition {
+        parent_table: mtable_id,
+        start_offset: MIB,
+    };
+    let mpart_id = id(&mpart);
+    let fs_on_mp = NamingFields::FileSystem {
+        host: mp_id,
+        kind: FileSystemKind::Xfs,
+        superblock_offset: 100 * MIB,
+    };
+    let fs_on_mp_id = id(&fs_on_mp);
+    let sig_on_mp = NamingFields::BackingSignature {
+        host: mp_id,
+        family: SignatureFamily::Zfs,
+        primary_offset: 200 * MIB,
+    };
+    let sig_on_mp_id = id(&sig_on_mp);
+    facts.extents.insert(mtable_id, framed(mp_id, 0, MIB));
+    facts.extents.insert(mpart_id, framed(mp_id, MIB, 50 * MIB));
+    facts
+        .extents
+        .insert(fs_on_mp_id, framed(mp_id, 100 * MIB, 10 * MIB));
+    facts
+        .extents
+        .insert(sig_on_mp_id, framed(mp_id, 200 * MIB, 4096));
+    nodes.extend([mp, mtable, mpart, fs_on_mp, sig_on_mp]);
+    edges.extend([
+        containment(mp_id, mtable_id),
+        containment(mtable_id, mpart_id),
+        containment(mp_id, fs_on_mp_id),
+        containment(mp_id, sig_on_mp_id),
+    ]);
+    roots.extend([
+        (mtable_id, Some(mp_id)),
+        (mpart_id, Some(mp_id)),
+        (fs_on_mp_id, Some(mp_id)),
+        (sig_on_mp_id, Some(mp_id)),
+    ]);
+
+    // Outside every forest: a backing extent, a byte range within the
+    // device-hosted file system's own address space.
+    let backing = NamingFields::BackingExtent {
+        host: fs_on_dev_id,
+        locator: ExtentLocator::Range {
+            start: MIB,
+            length: 8 * MIB,
+        },
+    };
+    let backing_id = id(&backing);
+    facts
+        .extents
+        .insert(backing_id, framed(fs_on_dev_id, MIB, 8 * MIB));
+    nodes.push(backing);
+    roots.push((backing_id, None));
+
+    (nodes, edges, facts, roots)
+}
+
+// Requirements: MODEL-002, MODEL-005, SAFE-005
+//   The frame rule reaches every containment forest the pair table can
+//   root and every depth of each (ADR-0046): a device's table, partition,
+//   the signature and file system inside the partition, the conflicting
+//   entry, and the signature and file system on the device itself; the
+//   same below a produced volume and below a multipath node. Enumerated
+//   rather than sampled: for every extent-bearing node in one honest body
+//   and every absorbed node as a candidate frame, the body assembles
+//   exactly when the frame is the root the node's own name leads to and
+//   refuses, naming both, otherwise — the volume and multipath forests
+//   included, whose roots carry no extent of their own. The backing
+//   extent is the one node the rule does not reach: it appears in no
+//   containment pair, its `host` is the one open naming field, and its
+//   range lives in its host's own address space, so it assembles framed
+//   on any absorbed node — a limit recorded, not a rule (issue #365).
+// Evidence: the_frame_rule_reaches_every_forest_at_every_depth
+#[test]
+fn the_frame_rule_reaches_every_forest_at_every_depth() {
+    let (nodes, edges, facts, roots) = every_forest();
+    assert!(
+        assemble_result(nodes.clone(), edges.clone(), facts.clone()).is_ok(),
+        "the honest body assembles"
+    );
+    let candidates: Vec<super::naming::NodeId> = nodes
+        .iter()
+        .map(|fields| derive_id(fields).expect("derivable"))
+        .collect();
+    assert_eq!(
+        candidates.len(),
+        21,
+        "the population is what this test says it is"
+    );
+    let mut refused = 0;
+    let mut admitted = 0;
+    for (node, root) in &roots {
+        let honest = facts.extents[node];
+        for candidate in &candidates {
+            let mut mutated = facts.clone();
+            mutated.extents.insert(
+                *node,
+                HostRange {
+                    host: *candidate,
+                    ..honest
+                },
+            );
+            let result = assemble_result(nodes.clone(), edges.clone(), mutated);
+            match root {
+                Some(root) if candidate != root => {
+                    assert_eq!(
+                        result.err(),
+                        Some(SnapshotError::Facts(
+                            FactError::ExtentFrameDisagreesWithName {
+                                node: *node,
+                                declared: *candidate,
+                                derived: *root,
+                            }
+                        )),
+                        "{node} framed on {candidate}"
+                    );
+                    refused += 1;
+                }
+                _ => {
+                    assert!(result.is_ok(), "{node} framed on {candidate}: {result:?}");
+                    admitted += 1;
+                }
+            }
+        }
+    }
+    // Seventeen forest nodes × twenty-one candidates, one lawful frame
+    // each; the backing extent admits all twenty-one.
+    assert_eq!((refused, admitted), (17 * 20, 17 + 21));
+}
+
+// Requirements: MODEL-002, MODEL-005, SAFE-005
+//   The third witness (ADR-0046, on the strength ADR-0045 held beside
+//   issue #333): a containment edge and the target's own name are two
+//   claims about which node the target's bytes lie inside, and a body
+//   whose edge nests a node in one parent while its name positions it in
+//   another is refused with both parents named — a signature edge-nested
+//   under a sibling partition, a partition under another table, a table
+//   under another device, at every forest. Enumerated: every containment
+//   edge in the honest body, re-sourced onto every other absorbed node,
+//   refuses exactly this way when the target names its parent, and only
+//   the pair table's own refusal otherwise; and the boundary's refusal is
+//   the constructor's.
+// Evidence: a_containment_edge_that_disagrees_with_the_name_refuses
+#[test]
+#[allow(clippy::too_many_lines)]
+fn a_containment_edge_that_disagrees_with_the_name_refuses() {
+    let (nodes, edges, facts, _) = every_forest();
+    let honest = assemble_result(nodes.clone(), edges.clone(), facts.clone())
+        .expect("the honest body assembles");
+    let candidates: Vec<super::naming::NodeId> = nodes
+        .iter()
+        .map(|fields| derive_id(fields).expect("derivable"))
+        .collect();
+    let kind_of = |id: super::naming::NodeId| {
+        nodes
+            .iter()
+            .find(|fields| derive_id(fields).expect("derivable") == id)
+            .map(NamingFields::kind_name)
+            .expect("absorbed")
+    };
+    let mut refused = 0;
+    let mut pair_refused = 0;
+    for (index, edge) in edges.iter().enumerate() {
+        if edge.kind != EdgeKind::Containment {
+            continue;
+        }
+        for candidate in &candidates {
+            if *candidate == edge.source || *candidate == edge.target {
+                continue;
+            }
+            let mut moved = edges.clone();
+            moved[index] = Edge {
+                source: *candidate,
+                ..*edge
+            };
+            let result = assemble_result(nodes.clone(), moved, facts.clone());
+            if super::topology::endpoint_pair_allowed(
+                EdgeKind::Containment,
+                kind_of(*candidate),
+                kind_of(edge.target),
+            ) {
+                assert_eq!(
+                    result.err(),
+                    Some(SnapshotError::Facts(
+                        FactError::ContainmentEdgeDisagreesWithName {
+                            child: edge.target,
+                            edge_parent: *candidate,
+                            named_parent: edge.source,
+                        }
+                    )),
+                    "edge {index} re-sourced onto {candidate}"
+                );
+                refused += 1;
+            } else {
+                assert!(
+                    matches!(
+                        result,
+                        Err(SnapshotError::Topology(
+                            TopologyError::ForbiddenEndpoint { .. }
+                        ))
+                    ),
+                    "edge {index} re-sourced onto {candidate}: {result:?}"
+                );
+                pair_refused += 1;
+            }
+        }
+    }
+    // Sixteen containment edges × nineteen other candidates: 59 land on a
+    // kind the pair table admits as this target's parent and are refused
+    // by the name; 245 are refused by the table itself first.
+    assert_eq!(
+        (refused, pair_refused),
+        (59, 245),
+        "the enumeration is what this test says it is"
+    );
+
+    // At the boundary: the honest body with one edge re-sourced onto the
+    // sibling partition decodes to the constructor's refusal.
+    let (dev_id, part_id, sig_id) = {
+        let dev = derive_id(&nodes[0]).expect("derivable");
+        let part = derive_id(&nodes[2]).expect("derivable");
+        let sig = derive_id(&nodes[3]).expect("derivable");
+        (dev, part, sig)
+    };
+    let body = honest.body_value().expect("body");
+    let canonical::Value::Map(mut map) = body else {
+        panic!("body is a map");
+    };
+    let Some(canonical::Value::Array(entries)) = map.get_mut("edges") else {
+        panic!("edges present");
+    };
+    let mut moved = false;
+    for entry in entries.iter_mut() {
+        let canonical::Value::Map(fields) = entry else {
+            panic!("edge is a map");
+        };
+        let is_sig_edge = fields.get("target")
+            == Some(&canonical::Value::Bytes(sig_id.as_bytes().to_vec()))
+            && fields.get("source") == Some(&canonical::Value::Bytes(part_id.as_bytes().to_vec()));
+        if is_sig_edge {
+            fields.insert(
+                "source".to_owned(),
+                canonical::Value::Bytes(dev_id.as_bytes().to_vec()),
+            );
+            moved = true;
+        }
+    }
+    assert!(moved, "the signature's edge was found and re-sourced");
+    resort(entries);
+    let bytes = canonical::encode(&canonical::Value::Map(map)).expect("encodable");
+    assert_eq!(
+        TopologySnapshot::from_canonical_body(&bytes),
+        Err(SnapshotSchemaError::Rebuild(SnapshotError::Facts(
+            FactError::ContainmentEdgeDisagreesWithName {
+                child: sig_id,
+                edge_parent: dev_id,
+                named_parent: part_id,
             }
         )))
     );
