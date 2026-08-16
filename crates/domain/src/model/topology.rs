@@ -25,7 +25,12 @@ use super::naming::{NamingError, NamingFields, NodeEntry, NodeId, absorb};
 pub enum EdgeKind {
     /// Positional nesting inside one addressable byte space
     /// (device → table → partition; a host carrying a signature or file
-    /// system).
+    /// system). "Inside one byte space" is a claim about the *frame*, not
+    /// about the parent's span: a table's own extent is its header
+    /// bytes, and the partitions it describes lie beside them, so the two
+    /// `partition-table`-sourced pairs carry no span claim (ADR-0041) and
+    /// what a destroyed table releases is decided by the naming relation,
+    /// not by this edge (ADR-0043). The other seven pairs are geometric.
     Containment,
     /// Evidence to consumer: a backing signature backing its aggregate or
     /// encryption layer.

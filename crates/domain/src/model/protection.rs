@@ -500,6 +500,22 @@ pub fn affected_set(
             }
         }
     }
+    // Release (issue #347, ADR-0043). A step whose target is a partition
+    // table and whose own destroyed ranges reach that table destroys the
+    // table, and a destroyed table releases every partition whose name
+    // says it describes it — ADR-0018's own definition of the destroyed
+    // class, "content that ceases to be referenced". Decided by the
+    // step's target and the naming relation, and by nothing else: never
+    // by whether a range from some other step's target happens to touch
+    // the table's declared extent (round 2's sibling capture, from a
+    // partition-target step), never by whether the destroyed ranges cover
+    // that extent (round 1's one-byte fail-open), and never by the edge
+    // set (an omitted edge is not an escape). The released partitions
+    // enter the cascade class and descend into what they carry by the
+    // ordinary geometry; a signature they carry brings its consumer.
+    if range_destroyed.contains(&target) {
+        release_described_partitions(topology, target, &mut cascade_destroyed);
+    }
 
     loop {
         let mut changed = false;
@@ -576,6 +592,28 @@ pub fn affected_set(
     affected.extend(range_destroyed.iter().copied());
     affected.extend(cascade_destroyed.iter().copied());
     affected
+}
+
+/// Release (issue #347, ADR-0043): every partition whose own name says
+/// `table` describes it enters the cascade class. Read off the naming
+/// relation — `Partition.parent_table`, which a partition cannot be
+/// represented without — never off a containment edge, which a body may
+/// omit; and quantified over the roster by
+/// [`NamingFields::released_by_table`], so a kind that comes to name a
+/// table lands in one place.
+fn release_described_partitions(
+    topology: &Topology,
+    table: NodeId,
+    cascade_destroyed: &mut BTreeSet<NodeId>,
+) {
+    for entry in topology.entries() {
+        let fields = match entry {
+            NodeEntry::Single { fields, .. } | NodeEntry::Group { fields, .. } => fields,
+        };
+        if fields.released_by_table() == Some(table) {
+            cascade_destroyed.insert(entry.id());
+        }
+    }
 }
 
 fn kind_of(topology: &Topology, id: NodeId) -> Option<&NamingFields> {
