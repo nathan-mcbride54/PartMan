@@ -1300,11 +1300,13 @@ fn created_capture(with_fs: bool) -> TopologySnapshot {
         },
     ];
     if with_fs {
+        // In the containment root's frame — the device's — like the
+        // partition it names as host (ADR-0037's anchoring rule).
         facts.extents.insert(
             fs_id,
             HostRange {
-                host: created_id,
-                start: 0,
+                host: host_id,
+                start: 65 * DEFAULT_ALIGNMENT,
                 length: DEFAULT_ALIGNMENT,
             },
         );
@@ -2601,24 +2603,6 @@ fn occupancy_host(
     declared_start: u64,
     placed: Option<HostRange>,
 ) -> (TopologySnapshot, NodeId, NodeId) {
-    occupancy_host_with(declared_start, placed, None)
-}
-
-/// [`occupancy_host`] with a second, unrelated device absorbed beside
-/// it, so a range framed on that device is a valid body.
-fn occupancy_host_beside(
-    declared_start: u64,
-    placed: Option<HostRange>,
-    beside: &NamingFields,
-) -> (TopologySnapshot, NodeId, NodeId) {
-    occupancy_host_with(declared_start, placed, Some(beside.clone()))
-}
-
-fn occupancy_host_with(
-    declared_start: u64,
-    placed: Option<HostRange>,
-    beside: Option<NamingFields>,
-) -> (TopologySnapshot, NodeId, NodeId) {
     let host = device(b"OCCUPANT");
     let host_id = derive_id(&host).expect("derivable");
     let table = NamingFields::PartitionTable {
@@ -2636,16 +2620,10 @@ fn occupancy_host_with(
     if let Some(range) = placed {
         facts.extents.insert(part_id, range);
     }
-    let mut nodes = vec![host, table, part];
-    if let Some(beside) = beside {
-        let beside_id = derive_id(&beside).expect("derivable");
-        device_facts(&mut facts, beside_id);
-        nodes.push(beside);
-    }
     let snapshot = TopologySnapshot::assemble(
         SnapshotKind::Captured,
         false,
-        nodes,
+        vec![host, table, part],
         vec![
             Edge {
                 kind: EdgeKind::Containment,
@@ -2797,18 +2775,19 @@ fn an_unrecognized_scheme_refuses_whether_or_not_it_is_located() {
 //   is the subtraction's own, so each ground names what the facts carry
 //   beside the offset the occupant's own hashed name declares. The
 //   ground is a function of the located range alone and every arm is
-//   asserted there, empty range included: the body boundary refuses a
-//   zero-length extent before a snapshot can carry one (ADR-0041), and
-//   the solver's reading of a range must not depend on which shapes a
-//   snapshot lets through. Through a snapshot, every ground a valid body
-//   can carry is then asserted end to end.
+//   asserted there, empty range and other-host range included: the body
+//   boundary refuses a zero-length extent before a snapshot can carry one
+//   (ADR-0041) and, under ADR-0037's frame rule, a partition framed
+//   anywhere but the root its own name leads to; the solver's reading of
+//   a range must not depend on which shapes a snapshot lets through.
+//   Through a snapshot, every ground a valid body can carry is then
+//   asserted end to end.
 // Evidence: an_unaccounted_occupant_refuses_naming_what_the_facts_carry_instead
 #[test]
 fn an_unaccounted_occupant_refuses_naming_what_the_facts_carry_instead() {
     let declared = 500 * DEFAULT_ALIGNMENT;
     let host_id = derive_id(&device(b"OCCUPANT")).expect("derivable");
-    let elsewhere_dev = device(b"ELSEWHERE");
-    let elsewhere = derive_id(&elsewhere_dev).expect("derivable");
+    let elsewhere = derive_id(&device(b"ELSEWHERE")).expect("derivable");
 
     // The ground, read off the range alone.
     for (located, expected) in [
@@ -2853,19 +2832,10 @@ fn an_unaccounted_occupant_refuses_naming_what_the_facts_carry_instead() {
         );
     }
 
-    // Through a snapshot. The other-host case names a device the snapshot
-    // absorbs, because a range framed on an address no entry carries is
-    // not a valid body.
+    // Through a snapshot: the grounds a body framed as ADR-0037 requires
+    // can carry.
     let cases = [
         (None, OccupancyGround::NoRange),
-        (
-            Some(HostRange {
-                host: elsewhere,
-                start: declared,
-                length: DEFAULT_ALIGNMENT,
-            }),
-            OccupancyGround::RangeOnAnotherHost { host: elsewhere },
-        ),
         (
             Some(HostRange {
                 host: host_id,
@@ -2877,7 +2847,7 @@ fn an_unaccounted_occupant_refuses_naming_what_the_facts_carry_instead() {
     ];
 
     for (index, (placed, expected)) in cases.into_iter().enumerate() {
-        let (snapshot, host, part) = occupancy_host_beside(declared, placed, &elsewhere_dev);
+        let (snapshot, host, part) = occupancy_host(declared, placed);
         match free_extents(&snapshot, host) {
             Err(SolveRefusal::UnaccountedOccupant {
                 host: refused,
@@ -2910,78 +2880,78 @@ fn an_unaccounted_occupant_refuses_naming_what_the_facts_carry_instead() {
 //   An occupant located on this host under a table view this host does
 //   not carry: no scheme of this host's accounts for it. This is the
 //   arm that closes the no-table-node hole positively, rather than by
-//   refusing on absence.
+//   refusing on absence. Asserted on the ground helper, where it can be
+//   measured regardless of which shapes a snapshot lets through: under
+//   ADR-0037's frame rule a partition's extent is framed on the root its
+//   own table's name leads to, so a body carrying this shape is refused
+//   at assembly once that rule is enforced, and the solver's own defence
+//   must not depend on it. The other side of the arm is asserted too: a
+//   partition under a foreign table that is located elsewhere, or
+//   nowhere, is no occupant of this host at all.
 // Evidence: an_occupant_under_a_table_this_host_does_not_carry_refuses
 #[test]
 fn an_occupant_under_a_table_this_host_does_not_carry_refuses() {
-    let host = device(b"HOST-A");
-    let host_id = derive_id(&host).expect("derivable");
-    let other = device(b"HOST-B");
-    let other_id = derive_id(&other).expect("derivable");
-    let foreign_table = NamingFields::PartitionTable {
+    let host_id = derive_id(&device(b"HOST-A")).expect("derivable");
+    let other_id = derive_id(&device(b"HOST-B")).expect("derivable");
+    let own_table = derive_id(&NamingFields::PartitionTable {
+        parent: host_id,
+        role: TableRole::Mbr,
+    })
+    .expect("derivable");
+    let foreign_table = derive_id(&NamingFields::PartitionTable {
         parent: other_id,
         role: TableRole::Mbr,
+    })
+    .expect("derivable");
+    let declared = 300 << 20;
+    let on_this_host = HostRange {
+        host: host_id,
+        start: declared,
+        length: DEFAULT_ALIGNMENT,
     };
-    let foreign_table_id = derive_id(&foreign_table).expect("derivable");
-    let part = NamingFields::Partition {
-        parent_table: foreign_table_id,
-        start_offset: 300 << 20,
+    let elsewhere = HostRange {
+        host: other_id,
+        start: declared,
+        length: DEFAULT_ALIGNMENT,
     };
-    let part_id = derive_id(&part).expect("derivable");
 
-    let mut facts = Facts::default();
-    device_facts(&mut facts, host_id);
-    facts.extents.insert(
-        other_id,
-        HostRange {
-            host: other_id,
-            start: 0,
-            length: GIB,
-        },
+    // Located on this host, under a table this host does not carry.
+    assert_eq!(
+        crate::solve::occupant_ground(
+            Some(on_this_host),
+            host_id,
+            declared,
+            foreign_table,
+            &[own_table]
+        ),
+        Some(OccupancyGround::TableIsNotThisHosts {
+            named_table: foreign_table
+        })
     );
-    // Every extent present, and the occupant IS located — on this host.
-    facts.extents.insert(
-        part_id,
-        HostRange {
-            host: host_id,
-            start: 300 << 20,
-            length: DEFAULT_ALIGNMENT,
-        },
-    );
-    let snapshot = TopologySnapshot::assemble(
-        SnapshotKind::Captured,
-        false,
-        vec![host, other, foreign_table, part],
-        vec![
-            Edge {
-                kind: EdgeKind::Containment,
-                source: other_id,
-                target: foreign_table_id,
-            },
-            Edge {
-                kind: EdgeKind::Containment,
-                source: foreign_table_id,
-                target: part_id,
-            },
-        ],
-        facts,
-    )
-    .expect("assembles");
-
-    match free_extents(&snapshot, host_id) {
-        Err(SolveRefusal::UnaccountedOccupant {
-            occupant, ground, ..
-        }) => {
-            assert_eq!(occupant, part_id);
-            assert_eq!(
-                ground,
-                OccupancyGround::TableIsNotThisHosts {
-                    named_table: foreign_table_id
-                }
-            );
-        }
-        other => panic!("expected a foreign-table refusal, got {other:?}"),
+    // Under a foreign table but located elsewhere, or nowhere: another
+    // host's matter, not this host's occupant.
+    for located in [Some(elsewhere), None] {
+        assert_eq!(
+            crate::solve::occupant_ground(located, host_id, declared, foreign_table, &[own_table]),
+            None,
+            "{located:?}"
+        );
     }
+    // Under this host's own table, the arm defers to the range's ground.
+    assert_eq!(
+        crate::solve::occupant_ground(
+            Some(on_this_host),
+            host_id,
+            declared,
+            own_table,
+            &[own_table]
+        ),
+        None
+    );
+    assert_eq!(
+        crate::solve::occupant_ground(None, host_id, declared, own_table, &[own_table]),
+        Some(OccupancyGround::NoRange)
+    );
 }
 
 // Requirements: PLAN-001, INV-004
