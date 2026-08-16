@@ -1540,3 +1540,190 @@ fn a_client_authored_table_state_never_validates() {
         Err(PlanSchemaError::AuthoredFieldMismatch)
     );
 }
+
+// Requirements: MODEL-005, PLAN-008
+//   ADR-0022's truthfulness precondition reads occupancy as bytes, not as
+//   frame names (issue #333's enforcement arc). Under ADR-0037's rule a
+//   partition is never a frame, so "an extent framed on the host" finds
+//   nothing on any lawful capture and a decayed reversal would bind;
+//   occupancy is therefore also read geometrically — a node whose extent
+//   lies on the host's bytes, compared in the frame the host's own extent
+//   is expressed in — and, for the whole-host form, by name — a node
+//   whose own name positions it inside the host, extent or none. The
+//   host's frame ancestors are not its occupants whatever their bytes
+//   overlap; a disjoint sibling is not; and the region form is
+//   byte-exact: the reclaimed tail is translated through the host's
+//   extent and a file system ending before it does not violate. A host
+//   whose own extent is absent has bytes that cannot be located, and
+//   where nothing else is found it is returned itself: honest absence
+//   fails closed here as at every other arm that needs a fact.
+// Evidence: occupancy_is_read_by_geometry_and_by_name
+#[test]
+#[allow(clippy::too_many_lines)]
+fn occupancy_is_read_by_geometry_and_by_name() {
+    const MIB: u64 = 1 << 20;
+    let dev = device(b"OCC");
+    let dev_id = derive_id(&dev).expect("derivable");
+    let table = NamingFields::PartitionTable {
+        parent: dev_id,
+        role: TableRole::Gpt,
+    };
+    let table_id = derive_id(&table).expect("derivable");
+    let part = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: MIB,
+    };
+    let part_id = derive_id(&part).expect("derivable");
+    let sibling = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: 20 * MIB,
+    };
+    let sibling_id = derive_id(&sibling).expect("derivable");
+    let fs = NamingFields::FileSystem {
+        host: part_id,
+        kind: super::naming::FileSystemKind::Ext4,
+        superblock_offset: 1024,
+    };
+    let fs_id = derive_id(&fs).expect("derivable");
+    let unlocated = NamingFields::FileSystem {
+        host: part_id,
+        kind: super::naming::FileSystemKind::Xfs,
+        superblock_offset: 0,
+    };
+    let unlocated_id = derive_id(&unlocated).expect("derivable");
+    let sibling_sig = NamingFields::BackingSignature {
+        host: sibling_id,
+        family: super::naming::SignatureFamily::Zfs,
+        primary_offset: 0,
+    };
+    let sibling_sig_id = derive_id(&sibling_sig).expect("derivable");
+    let framed = |start, length| HostRange {
+        host: dev_id,
+        start,
+        length,
+    };
+    let containment = |source, target| Edge {
+        kind: EdgeKind::Containment,
+        source,
+        target,
+    };
+    // (extra nodes beyond the device, table and two partitions; whether
+    // the partition under test carries an extent; extra extents)
+    let world = |extra: Vec<NamingFields>,
+                 part_located: bool,
+                 extents: Vec<(super::naming::NodeId, HostRange)>| {
+        let mut facts = Facts::default();
+        facts.transports.insert(dev_id, TransportClass::Sata);
+        facts.extents.insert(dev_id, framed(0, 1 << 30));
+        facts.extents.insert(table_id, framed(0, MIB));
+        if part_located {
+            facts.extents.insert(part_id, framed(MIB, 10 * MIB));
+        }
+        facts.extents.insert(sibling_id, framed(20 * MIB, 10 * MIB));
+        facts.extents.extend(extents);
+        let mut nodes = vec![dev.clone(), table.clone(), part.clone(), sibling.clone()];
+        nodes.extend(extra);
+        // Deliberately no partition→content edges: the reading must not
+        // depend on them.
+        TopologySnapshot::assemble(
+            SnapshotKind::Captured,
+            false,
+            nodes,
+            vec![
+                containment(dev_id, table_id),
+                containment(table_id, part_id),
+                containment(table_id, sibling_id),
+            ],
+            facts,
+        )
+        .expect("assembles")
+    };
+    let whole = Precondition::HostUnoccupied { host: part_id };
+    let tail = |start, length| Precondition::RegionUnoccupied {
+        region: HostRange {
+            host: part_id,
+            start,
+            length,
+        },
+    };
+
+    // Empty: the device's self-extent and the table are the partition's
+    // frame ancestors, the sibling and its signature are disjoint.
+    let empty = world(
+        vec![sibling_sig.clone()],
+        true,
+        vec![(sibling_sig_id, framed(20 * MIB, 4096))],
+    );
+    assert_eq!(whole.violated_by(&empty), None);
+    assert_eq!(tail(4 * MIB, 6 * MIB).violated_by(&empty), None);
+
+    // A file system on the partition's bytes, framed on the device as the
+    // partition is: found by geometry, whole-host and region alike, and
+    // the region is byte-exact.
+    let with_fs = world(vec![fs.clone()], true, vec![(fs_id, framed(MIB, 5 * MIB))]);
+    assert_eq!(whole.violated_by(&with_fs), Some(fs_id));
+    assert_eq!(tail(4 * MIB, 2 * MIB).violated_by(&with_fs), Some(fs_id));
+    assert_eq!(
+        tail(5 * MIB, 2 * MIB).violated_by(&with_fs),
+        None,
+        "the file system ends at 6 MiB, before the reclaimed tail begins"
+    );
+
+    // A file system that names the partition but declares no extent:
+    // found by name for the whole host; a region cannot be located by a
+    // name and is not.
+    let unlocated_world = world(vec![unlocated.clone()], true, vec![]);
+    assert_eq!(whole.violated_by(&unlocated_world), Some(unlocated_id));
+    assert_eq!(tail(4 * MIB, 2 * MIB).violated_by(&unlocated_world), None);
+
+    // The partition itself carries no extent: geometry cannot be read, the
+    // name still can; and where nothing is found the host itself is
+    // returned, because bytes that cannot be located are not known empty.
+    let host_unlocated = world(vec![fs.clone()], false, vec![(fs_id, framed(MIB, 5 * MIB))]);
+    assert_eq!(whole.violated_by(&host_unlocated), Some(fs_id));
+    assert_eq!(
+        tail(4 * MIB, 2 * MIB).violated_by(&host_unlocated),
+        Some(part_id)
+    );
+    let host_unlocated_and_bare = world(vec![], false, vec![]);
+    assert_eq!(whole.violated_by(&host_unlocated_and_bare), Some(part_id));
+    assert_eq!(
+        tail(4 * MIB, 2 * MIB).violated_by(&host_unlocated_and_bare),
+        Some(part_id)
+    );
+
+    // ADR-0022's original reading is kept and still answers alone in one
+    // corner: a range framed on the host itself, beyond the host's own
+    // extent — bytes the host's declared extent understates. A backing
+    // extent is the one kind the frame rule lets be framed anywhere; one
+    // hosted elsewhere and framed on a bare device past its self-extent
+    // names nothing inside the device and lies on none of its declared
+    // bytes, and is an occupant of it all the same.
+    let other = device(b"OCC-OTHER");
+    let other_id = derive_id(&other).expect("derivable");
+    let backing = NamingFields::BackingExtent {
+        host: other_id,
+        locator: super::naming::ExtentLocator::Range {
+            start: 0,
+            length: 4096,
+        },
+    };
+    let backing_id = derive_id(&backing).expect("derivable");
+    let mut facts = Facts::default();
+    facts.transports.insert(dev_id, TransportClass::Sata);
+    facts.extents.insert(dev_id, framed(0, 1 << 30));
+    facts.extents.insert(backing_id, framed(2 << 30, 4096));
+    let beyond = TopologySnapshot::assemble(
+        SnapshotKind::Captured,
+        false,
+        vec![dev.clone(), other, backing],
+        vec![],
+        facts,
+    )
+    .expect("assembles");
+    assert_eq!(
+        Precondition::HostUnoccupied { host: dev_id }.violated_by(&beyond),
+        Some(backing_id),
+        "found by frame alone"
+    );
+}

@@ -34,9 +34,9 @@
 use std::collections::BTreeSet;
 use std::fmt;
 
-use super::naming::NodeId;
+use super::naming::{NodeEntry, NodeId};
 use super::protection::{
-    HostRange, IndeterminateGround, StepRanges, Verdict, affected_set, node_verdict,
+    HostRange, IndeterminateGround, StepRanges, Verdict, affected_set, names_within, node_verdict,
 };
 use super::snapshot::TopologySnapshot;
 
@@ -234,27 +234,73 @@ pub enum Precondition {
 impl Precondition {
     /// The first node violating this precondition in the given
     /// snapshot's authenticated facts, or `None` where it holds.
+    ///
+    /// Occupancy is read three ways, and a node found by any of them
+    /// occupies (issue #333's enforcement arc, on ADR-0022's truthfulness):
+    /// its extent is framed on the host itself; its extent lies on the
+    /// host's bytes, compared in the frame the host's own extent is
+    /// expressed in — a file system whose extent, like its partition's, is
+    /// spelled in the device's address space, as ADR-0037's rule requires
+    /// of both; or, for the whole-host form, its own name positions it
+    /// inside the host, at any depth, extent or no extent. The host's
+    /// frame ancestors — the table and device its name leads to — are not
+    /// occupants of it, whatever their bytes overlap; nothing else is
+    /// excused. Under ADR-0037 a partition is never a frame, so the first
+    /// reading alone would find nothing on any lawful capture and a
+    /// decayed reversal would bind; the other two are what keep the
+    /// precondition a claim about bytes.
+    ///
+    /// A host whose own extent is absent has bytes that cannot be
+    /// located, and the emptiness of bytes that cannot be located is not
+    /// established: where nothing else is found, the host itself is
+    /// returned — honest absence failing closed at the arm that needs
+    /// the fact, which is `Facts`' own posture.
     #[must_use]
     pub fn violated_by(&self, snapshot: &TopologySnapshot) -> Option<NodeId> {
-        match self {
-            Self::RegionUnoccupied { region } => snapshot
-                .facts()
-                .extents
-                .iter()
-                .find(|(node, extent)| {
-                    **node != region.host
-                        && extent.host == region.host
-                        && extent.start < region.start.saturating_add(region.length)
-                        && region.start < extent.start.saturating_add(extent.length)
-                })
-                .map(|(node, _)| *node),
-            Self::HostUnoccupied { host } => snapshot
-                .facts()
-                .extents
-                .iter()
-                .find(|(node, extent)| **node != *host && extent.host == *host)
-                .map(|(node, _)| *node),
-        }
+        let (host, region) = match self {
+            Self::RegionUnoccupied { region } => (region.host, Some(*region)),
+            Self::HostUnoccupied { host } => (*host, None),
+        };
+        let topology = snapshot.topology();
+        let facts = snapshot.facts();
+        // An extent framed on the host itself, on the asked bytes.
+        let framed_on_host = |extent: &HostRange| {
+            extent.host == host && region.is_none_or(|r| extent.intersects(&r))
+        };
+        // The asked bytes translated into the frame the host's own extent
+        // is expressed in — the containment root's, on a lawful capture:
+        // the region offset by the host's start, or the host's extent
+        // entire.
+        let translated = facts.extents.get(&host).map(|extent| match region {
+            Some(region) => HostRange {
+                host: extent.host,
+                start: extent.start.saturating_add(region.start),
+                length: region.length,
+            },
+            None => *extent,
+        });
+        let on_hosts_bytes =
+            |extent: &HostRange| translated.is_some_and(|asked| extent.intersects(&asked));
+        let by_extent = facts
+            .extents
+            .iter()
+            .find(|(node, extent)| {
+                **node != host
+                    && !names_within(topology, host, **node)
+                    && (framed_on_host(extent) || on_hosts_bytes(extent))
+            })
+            .map(|(node, _)| *node);
+        let by_name = || {
+            region.is_none().then(|| {
+                topology
+                    .entries()
+                    .iter()
+                    .map(NodeEntry::id)
+                    .find(|node| *node != host && names_within(topology, *node, host))
+            })?
+        };
+        let unlocated = || translated.is_none().then_some(host);
+        by_extent.or_else(by_name).or_else(unlocated)
     }
 }
 

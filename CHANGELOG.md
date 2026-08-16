@@ -7,6 +7,43 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Fixed
 
+- **WP-010: occupancy is read as bytes, not as frame names (issue #401;
+  spec version unchanged — a defect fix on ADR-0022's truthfulness
+  mechanism, recorded in the ADR that lands issue #333's frame
+  enforcement).** `Precondition::violated_by` found an occupant of a
+  host only where an extent was *framed on* the host — `extent.host ==
+  host` — and ADR-0037's accepted rule (12.14.0) makes a partition never
+  a frame: a file system inside a partition carries its extent on the
+  device. So on any capture framed as the rule requires, `HostUnoccupied`
+  over a created partition and `RegionUnoccupied` over a grow's reclaimed
+  tail held vacuously, and the decayed reversal that ADR-0022 exists to
+  refuse bound and destroyed. Measured at `43872c0`: re-framing only
+  `reversal_worlds`' file system onto the device — the lawful spelling,
+  nothing else changed — and `a_decayed_precondition_refuses_at_binding`
+  binds; the committed test was green only on the partition-framed
+  spelling ADR-0037 calls unlawful. **Occupancy is now read three ways
+  and a node found by any of them occupies**: an extent framed on the
+  host (the old reading, kept, so nothing found before is lost); an
+  extent lying on the host's bytes, compared in the frame the host's own
+  extent is expressed in — a region translated through the host's extent
+  into that frame, or the host's extent entire — with the host's own
+  frame ancestors (its table, its device, read off the naming relation)
+  excused and nothing else; and, for the whole-host form, a node whose
+  own name positions it inside the host, extent or none. A host whose own
+  extent is absent has bytes that cannot be located and is returned
+  itself: honest absence fails closed at this arm as at every other. The
+  naming walk (`named_position`, `named_ancestry`, `names_within`) reads
+  `naming_referent_rule` — the field that names a containment source is
+  the hop, a backing extent's open `host` is outside every forest — so
+  there is no second roster. Green on the committed population unchanged
+  (674 tests); one new regression enumerates the four readings, the
+  ancestor exclusion, the byte-exact tail, the unlocated host, and the
+  one corner the old reading alone answers; six mutations on this arm
+  (each reading dropped, the ancestors made occupants, the region left
+  untranslated, the unlocated host admitted), each proven applied, each
+  killed. First PR of issue #333's enforcement arc: WP-060's fixtures
+  move next, then the frame rule lands with ADR-0046.
+
 - **WP-010: a frame root is never written wholesale, and a target frame
   root reaches what it carries (issue #353, ADR-0042; spec version
   unchanged — a defect fix against §2.1:110).** `canonical_ranges` put
