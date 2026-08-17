@@ -1772,7 +1772,7 @@ fn every_forest() -> EveryForest {
         .extents
         .insert(backing_id, framed(fs_on_dev_id, MIB, 8 * MIB));
     nodes.push(backing);
-    roots.push((backing_id, None));
+    roots.push((backing_id, Some(fs_on_dev_id)));
 
     (nodes, edges, facts, roots)
 }
@@ -1809,6 +1809,13 @@ fn the_frame_rule_reaches_every_forest_at_every_depth() {
         21,
         "the population is what this test says it is"
     );
+    // The one node whose frame its own name pins rather than a derived
+    // containment root (ADR-0050).
+    let backing_id = nodes
+        .iter()
+        .find(|fields| matches!(fields, NamingFields::BackingExtent { .. }))
+        .map(|fields| derive_id(fields).expect("derivable"))
+        .expect("the population carries a backing extent");
     let mut refused = 0;
     let mut admitted = 0;
     for (node, root) in &roots {
@@ -1825,15 +1832,27 @@ fn the_frame_rule_reaches_every_forest_at_every_depth() {
             let result = assemble_result(nodes.clone(), edges.clone(), mutated);
             match root {
                 Some(root) if candidate != root => {
+                    // A backing extent is refused by its own rule
+                    // (ADR-0050): it is outside every containment forest,
+                    // so the frame rule above never reaches it and its
+                    // name — not a derived root — is what its declared
+                    // frame is compared against.
+                    let expected = if *node == backing_id {
+                        FactError::BackingExtentFrameDisagreesWithName {
+                            node: *node,
+                            declared: *candidate,
+                            named: *root,
+                        }
+                    } else {
+                        FactError::ExtentFrameDisagreesWithName {
+                            node: *node,
+                            declared: *candidate,
+                            derived: *root,
+                        }
+                    };
                     assert_eq!(
                         result.err(),
-                        Some(SnapshotError::Facts(
-                            FactError::ExtentFrameDisagreesWithName {
-                                node: *node,
-                                declared: *candidate,
-                                derived: *root,
-                            }
-                        )),
+                        Some(SnapshotError::Facts(expected)),
                         "{node} framed on {candidate}"
                     );
                     refused += 1;
@@ -1845,9 +1864,12 @@ fn the_frame_rule_reaches_every_forest_at_every_depth() {
             }
         }
     }
-    // Seventeen forest nodes × twenty-one candidates, one lawful frame
-    // each; the backing extent admits all twenty-one.
-    assert_eq!((refused, admitted), (17 * 20, 17 + 21));
+    // Eighteen nodes × twenty-one candidates, one lawful frame each —
+    // the backing extent included, since ADR-0050. It was the single
+    // exception, admitting all twenty-one because nothing constrained its
+    // frame while its own `ExtentLocator::Range` already said otherwise.
+    // The enumeration now has no exception in it at all.
+    assert_eq!((refused, admitted), (18 * 20, 18));
 }
 
 // Requirements: MODEL-002, MODEL-005, SAFE-005

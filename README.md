@@ -211,7 +211,10 @@ Run `cargo xtask help` for the full command list.
 
 ## Open issues
 
-Five are open after ADR-0049 (2026-08-16): #409 closes here, and
+Four are open after ADR-0050 (2026-08-17): #365 closes here, entire —
+its Half B decided, its two wrong doc comments corrected, its coverage
+delivered and its Part 3 recorded as discharged by ADR-0045. Before it
+#409 closed with ADR-0049, and
 before it #392 with ADR-0048, ADR-0044's
 named limit with it, and #397 closed with ADR-0047 before it. #409 was
 filed from the round preceding #397's act, and #319 stands reopened —
@@ -223,7 +226,7 @@ rounds under `docs/reviews/` carry the measurements. The current handoff,
 `docs/reviews/HANDOFF_2026-08-16_FABLE_ISSUE_333_TO_NEXT.md`, states the
 reasoning behind the ordering below.
 
-**No sitting is owed at the time of writing.** ADR-0049's planner coverage (PR #421 — WP-060, test-only) shipped a non-Markdown path after the r31 pin at `8791a56`; the r32 sitting (VMID 9456, 2026-08-17 UTC) on its merge commit discharged it, and WP-020 is re-pinned at `6168b47`. Before it: issue #409's act (PR #419 — ADR-0049, spec 17.0.0), whose r31 sitting (VMID 9455) discharged its own trip, and before that: ADR-0048's planner coverage (PR #416 — WP-060, test-only), whose r30 sitting (VMID 9454) discharged its own trip, and before that issue #392's act (PR #414 — ADR-0048, spec 16.0.0), and before that issue #397's act
+**A sitting is owed.** Issue #365's arc (PR #424, WP-060's consumer-first retirement, and the ADR-0050 act) ships Rust after the r32 pin at `6168b47`, so the r33 sitting (VMID 9457) is owed **once at the arc's head**, the intent recorded before the first merge on the r11/r22 precedent. Before it: ADR-0049's planner coverage (PR #421 — WP-060, test-only), whose r32 sitting (VMID 9456) discharged its own trip, and before that: issue #409's act (PR #419 — ADR-0049, spec 17.0.0), whose r31 sitting (VMID 9455) discharged its own trip, and before that: ADR-0048's planner coverage (PR #416 — WP-060, test-only), whose r30 sitting (VMID 9454) discharged its own trip, and before that issue #392's act (PR #414 — ADR-0048, spec 16.0.0), and before that issue #397's act
 (PR #411 — ADR-0047, spec 15.3.0) shipped Rust after WP-020's r27 pin at
 `ca2bc0f`; the r28 sitting (VMID 9452, 2026-08-16 UTC) on that act's
 merge commit discharged it, and WP-020 is re-pinned at `63ee769`. The
@@ -244,7 +247,6 @@ nearest to the closure, and is now the only host-backed question left.
 | Issue | Package | Standing |
 | --- | --- | --- |
 | **#319** | WP-060/WP-010 | Absent child extents fail open. The planner half closed with ADR-0036; the **authorization half is live** — range-reach and containment descent both skip a node whose extent is absent, so three measured shapes gate a live ZFS pool `Clear`. ADR-0048 pins the third of them as an **open limit** rather than closing it. The §2.1:117-versus-`descends_into` conformance question is recorded on the issue: the spec sentence admits descent on every absence, ADR-0039's clause list carved containment out deliberately, and both of that carve-out's stated grounds were retired by ADR-0046. |
-| **#365** | WP-010 | The host-backed producing relation is under-represented outside the pair table: a wrong doc comment, no committed fixture, and a blind suite. ADR-0046 carves a backing extent out of the frame rule and pins that its extent assembles framed on any absorbed node — this issue owns what frames it. |
 | **#366** | WP-035 | The transport-discrimination protocol's deferral addresses the IPC route decision, so its real consumer will never pick it up. |
 | **#370** | WP-010 | A byte-preserving relocation of a protected structure refuses, and relief needs a preservation proof that is not computable today. Split from #348 by ADR-0040. |
 | **#371** | WP-010 | PART-005's hosted-signature duty is undelivered and has no plan vehicle — an exhaustive grep returns only the spec sentence stating it. Split from #348 by ADR-0040. |

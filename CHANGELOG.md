@@ -7,6 +7,26 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Fixed
 
+- **WP-010: a backing extent is framed on its named host (issue #365;
+  ADR-0050, spec 17.1.0 — minor).** ADR-0046 enforced the anchoring rule
+  for every kind but one: a backing extent is outside every containment
+  forest, so `frame_root` is `None` for it and the frame check never ran,
+  and no edge may target one so the edge-versus-extent cross-check never
+  saw it. It was the single node whose declared frame nothing
+  constrained, and three acts had to pin limits around that hole. The
+  model already answered the question — `ExtentLocator::Range` reads "a
+  byte range within the host node's own address space" and
+  `BackingExtent.host` names that node — so this is enforcement, not a
+  new decision. Absence still admits. Measured: three reds, every one a
+  repair. ADR-0022's occupancy witness rebuilds on a lawful body and
+  still proves the frame arm finds what nothing else does; ADR-0046's
+  enumeration is strengthened to no exceptions at all; ADR-0049's pinned
+  limit closes. `crates/planner` took the consumer-first pull request its
+  own grant required. Two mutations, each proven applied, each killed.
+  Issue #365 closes entire: Part 1's two wrong doc comments now state the
+  relation rather than a list that can drift from it, Part 2's coverage
+  is delivered, and Part 3 was already discharged by ADR-0045.
+
 - **WP-010: reach follows the hosting name (issue #409; ADR-0049, spec
   17.0.0 — major).** A `BackingExtent` is the target of no edge kind —
   the pair table admits it only as the source of `HostBacking`, and

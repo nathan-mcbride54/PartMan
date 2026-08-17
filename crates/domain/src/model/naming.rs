@@ -217,7 +217,11 @@ pub enum NamingFields {
     },
     /// A partition table, one per device, at MODEL-002's chain position.
     PartitionTable {
-        /// The device the table describes.
+        /// The node whose bytes the table describes: whatever kind the
+        /// pair table admits as the containment source of a partition
+        /// table — a physical device, and since ADR-0044 a volume or a
+        /// multipath node too (issue #365). Stated as the relation
+        /// rather than a list, so it cannot drift from the table.
         parent: NodeId,
         /// The table's scheme role.
         role: TableRole,
@@ -267,7 +271,13 @@ pub enum NamingFields {
     /// A volume or produced virtual device, named from its producer and the
     /// technology's own name — never a regenerable UUID.
     Volume {
-        /// The producing aggregate or encryption layer.
+        /// The node that produces this volume: whatever kind
+        /// [`endpoint_pair_allowed`](super::topology::endpoint_pair_allowed)
+        /// admits as the source of a `Production` or `HostBacking` edge
+        /// into a volume — an aggregate, an encryption layer, or a
+        /// backing extent, which is how every host-backed virtual
+        /// device is modelled (issue #365). Stated as the relation
+        /// rather than a list, so it cannot drift from the table.
         producer: NodeId,
         /// The technology's own volume name bytes.
         name: Vec<u8>,

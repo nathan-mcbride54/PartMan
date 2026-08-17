@@ -178,6 +178,21 @@ pub enum FactError {
         /// The containment root the name derives.
         derived: NodeId,
     },
+    /// A backing extent's declared frame is not the host its own name
+    /// says carries its bytes (ADR-0050, issue #365). A backing extent
+    /// is outside every containment forest, so ADR-0046's frame rule
+    /// does not reach it; its `host` field and `ExtentLocator::Range`
+    /// nonetheless state where its bytes lie, and a declared frame
+    /// elsewhere contradicts them. Both are named so a refused capture
+    /// can be answered.
+    BackingExtentFrameDisagreesWithName {
+        /// The backing extent.
+        node: NodeId,
+        /// The frame the extent declares.
+        declared: NodeId,
+        /// The host the node's own name carries.
+        named: NodeId,
+    },
     /// A containment edge nests a node inside one parent while the node's
     /// own name positions it inside another (ADR-0046, on the strength
     /// ADR-0045 held beside issue #333). The edge and the name are two
@@ -228,6 +243,14 @@ impl fmt::Display for FactError {
             } => write!(
                 formatter,
                 "extent of {node} is framed on {declared}, but its name leads to containment root {derived}"
+            ),
+            Self::BackingExtentFrameDisagreesWithName {
+                node,
+                declared,
+                named,
+            } => write!(
+                formatter,
+                "extent of backing extent {node} is framed on {declared}, but its own name says {named} carries its bytes"
             ),
             Self::ContainmentEdgeDisagreesWithName {
                 child,
@@ -332,6 +355,26 @@ pub fn validate_facts(topology: &Topology, facts: &Facts) -> Result<(), FactErro
                 node: *node,
                 declared: extent.host,
                 derived,
+            });
+        }
+        // The one kind ADR-0046 carved out (ADR-0050, issue #365's Half
+        // B). A backing extent lies outside every containment forest, so
+        // `frame_root` is `None` for it and the rule above never runs —
+        // it was the single node whose declared frame nothing constrained.
+        // Its own name already says where its bytes are:
+        // `ExtentLocator::Range` is "a byte range within the host node's
+        // own address space", and `host` names that node in a field the
+        // hashed address carries. Compared here, and refused on the same
+        // disagreement, for the same reason: two positional claims about
+        // one node that contradict. Absence still admits — a `Path`-located
+        // image has no contiguous device range and declares no extent.
+        if let Some(NamingFields::BackingExtent { host: named, .. }) = kind_of(topology, *node)
+            && extent.host != *named
+        {
+            return Err(FactError::BackingExtentFrameDisagreesWithName {
+                node: *node,
+                declared: extent.host,
+                named: *named,
             });
         }
     }
