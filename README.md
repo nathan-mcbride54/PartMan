@@ -211,8 +211,12 @@ Run `cargo xtask help` for the full command list.
 
 ## Open issues
 
-Three are open after ADR-0051 (2026-08-17): #319's authorization half
-closes here, the oldest live hole in the tree. Before it #365 closed with
+Two are open. **#366 closed on 2026-08-17 without an ADR** — a
+decision-owner call re-pointing a deferral clause's addressee, the first
+closure in this record that changed no code, no requirement and no
+decision, only which package a deferral was addressed to. Before it
+ADR-0051 (2026-08-17) closed #319's authorization half,
+the oldest live hole in the tree. Before it #365 closed with
 ADR-0050, entire —
 its Half B decided, its two wrong doc comments corrected, its coverage
 delivered and its Part 3 recorded as discharged by ADR-0045. Before it
@@ -248,7 +252,6 @@ nearest to the closure, and is now the only host-backed question left.
 
 | Issue | Package | Standing |
 | --- | --- | --- |
-| **#366** | WP-035 | The transport-discrimination protocol's deferral addresses the IPC route decision, so its real consumer will never pick it up. |
 | **#370** | WP-010 | A byte-preserving relocation of a protected structure refuses, and relief needs a preservation proof that is not computable today. Split from #348 by ADR-0040. |
 | **#371** | WP-010 | PART-005's hosted-signature duty is undelivered and has no plan vehicle — an exhaustive grep returns only the spec sentence stating it. Split from #348 by ADR-0040. |
 
@@ -268,6 +271,19 @@ check, and the three multipath-node containment rows), spec 15.1.0;
 **#333** and **#401** closed with ADR-0046 (the frame rule is enforced:
 the extent's frame, the containment edge and the name agree, and
 occupancy is read as bytes), spec 15.2.0.
+
+**#366** closed on 2026-08-17 with no ADR and no version change. WP-035's
+observability share had deferred the fabric-versus-local
+transport-discrimination protocol to "whichever package first records a
+transport route decision" — a phrase that denotes WP-040's per-OS **IPC**
+transport everywhere else in this repository, so the deferral was
+addressed to a package that never consumes the row and would never pick
+it up. The sponsor is now **WP-010**, named rather than described by
+role: it owns `TransportClass` and the closure that reads it, and the
+ADR-0034-pattern designation extension the deferring round named in the
+same sentence is sponsored from its assignment. Nothing became owed —
+every adapter's transport answer stays `Unrecognized`, which is
+`Indeterminate` at the closure and never `Permitted`.
 
 ## Roadmap
 
