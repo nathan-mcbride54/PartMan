@@ -3777,13 +3777,10 @@ fn wiping_a_volume_that_carries_a_live_pool_refuses_the_plan() {
 struct HostBacked {
     snapshot: TopologySnapshot,
     dev: NodeId,
-    image: NodeId,
-    loop0: NodeId,
-    pool: NodeId,
 }
 
 #[allow(clippy::too_many_lines)]
-fn host_backed(image_framed_on_device: bool) -> HostBacked {
+fn host_backed() -> HostBacked {
     use partman_domain::model::naming::{ExtentLocator, FileSystemKind};
 
     let dev = device(b"PLN-LOOP");
@@ -3831,20 +3828,10 @@ fn host_backed(image_framed_on_device: bool) -> HostBacked {
     );
     facts.extents.insert(
         image_id,
-        if image_framed_on_device {
-            // Framed on the file system's own frame root, beyond its
-            // bytes. Nothing validates a backing extent's frame.
-            HostRange {
-                host: dev_id,
-                start: 2 << 30,
-                length: 1 << 29,
-            }
-        } else {
-            HostRange {
-                host: host_fs_id,
-                start: 0,
-                length: 1 << 29,
-            }
+        HostRange {
+            host: host_fs_id,
+            start: 0,
+            length: 1 << 29,
         },
     );
     facts.extents.insert(
@@ -3889,9 +3876,6 @@ fn host_backed(image_framed_on_device: bool) -> HostBacked {
     HostBacked {
         snapshot,
         dev: dev_id,
-        image: image_id,
-        loop0: loop0_id,
-        pool: pool_id,
     }
 }
 
@@ -3906,7 +3890,7 @@ fn host_backed(image_framed_on_device: bool) -> HostBacked {
 // Evidence: wiping_a_disk_that_holds_a_loop_image_refuses_the_plan
 #[test]
 fn wiping_a_disk_that_holds_a_loop_image_refuses_the_plan() {
-    let b = host_backed(false);
+    let b = host_backed();
 
     let refused = plan(
         PlanRequest {
@@ -3929,60 +3913,19 @@ fn wiping_a_disk_that_holds_a_loop_image_refuses_the_plan() {
     );
 }
 
-// Requirements: PLAN-001, PLAN-002
-//   A two-layer disagreement, pinned as an open limit rather than fixed
-//   here, and measured rather than predicted — the shape it takes is not
-//   the one ADR-0049 anticipated. `destroyed_closure` (`simulate.rs`)
-//   propagates to any node whose naming referents contain a removed one,
-//   unconditionally and with no geometric bound, so it removes a backing
-//   extent whenever its host is removed — where the protection closure's
-//   hosting arm is bounded, and ADR-0049 records that its bound reads a
-//   frame nothing authenticates. On the authored-frame body the gate
-//   therefore permits the wipe while the simulation removes the image and
-//   the volume. But the two layers do not simply disagree, and the
-//   difference matters: the live pool SURVIVES the prediction. An
-//   `Aggregate` carries no naming referents at all — `naming_referents`
-//   returns an empty vector for it — so the referent walk cannot reach
-//   one, and the pool is left standing on a volume the same prediction
-//   has just removed. That is ADR-0047's named limit, an aggregate being
-//   name-unrecoverable, surfacing in the planner: neither layer sees the
-//   pool on this body, the gate being suppressed by the authored frame
-//   and the walk being by name alone. All of it is pinned so that closing
-//   any part is deliberate — issue #365 decides the frame, ADR-0047's
-//   limit decides the aggregate.
-// Evidence: the_planner_and_the_gate_disagree_on_an_authored_backing_frame
-#[test]
-fn the_planner_and_the_gate_disagree_on_an_authored_backing_frame() {
-    let b = host_backed(true);
-
-    let Planned { simulated, .. } = plan(
-        PlanRequest {
-            operation: Operation::Wipe,
-            target: b.dev,
-        },
-        &b.snapshot,
-        &TechnologyLimits::default(),
-        &RuntimeFacts::clean(),
-        &identity(),
-    )
-    .expect("the gate permits it: the hosting arm's bound is suppressed by the authored frame");
-
-    let survivors: Vec<NodeId> = simulated
-        .topology()
-        .entries()
-        .iter()
-        .map(super::NodeEntry::id)
-        .collect();
-
-    for gone in [b.image, b.loop0] {
-        assert!(
-            !survivors.contains(&gone),
-            "the simulation follows the hashed name with no bound, so the image              and the volume it produces are removed where the gate permitted the wipe"
-        );
-    }
-    assert!(
-        survivors.contains(&b.pool),
-        "the open limit worth the most: the live pool SURVIVES the prediction,          because an aggregate carries no naming referents and the walk is by name          alone — neither layer sees it on this body (ADR-0047's named limit, issue #365)"
-    );
-    assert!(survivors.contains(&b.dev), "the wiped device remains");
-}
+// The two-layer disagreement this file recorded until ADR-0050 is gone,
+// and deliberately not replaced by an equivalent. It was measured on a
+// body whose backing extent declared a frame other than the host its own
+// name carries — the only shape in which the capability gate permitted a
+// wipe while `destroyed_closure` removed the image and the volume. That
+// body is refused at assembly once a backing extent's frame is pinned to
+// its named host, so the disagreement has no lawful witness left and a
+// test asserting it could not be built.
+//
+// One observation from it is still true of `destroyed_closure` and is
+// recorded here rather than lost: the walk propagates along naming
+// referents, and `NamingFields::Aggregate` carries none, so no aggregate
+// is ever reached by it. On the bodies that remain lawful the protection
+// gate refuses before a prediction is produced, so nothing exhibits it —
+// but it is ADR-0047's named limit in a second layer, and it belongs on
+// issue #365 rather than in a test that cannot be constructed.
