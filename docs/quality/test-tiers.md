@@ -158,7 +158,9 @@ nineteenth, named in the PR body before the merge, and on `91cd1c9`
 ADR-0044 — tripped it a twentieth, likewise named before the merge, and
 on `ee12af2` (2026-08-16 UTC) when issue #354's kind-half act — one Rust
 merge, PR #398, ADR-0045 — tripped it a twenty-first, likewise named, and
-on `7fad56d` (2026-08-17 UTC) when issue #365's arc — PRs #424 and #425,
+on `fed2d76` (2026-08-17 UTC) when issue #319's authorization half —
+PR #428, ADR-0051 at spec 17.2.0 — tripped it; and before that on
+`7fad56d` when issue #365's arc — PRs #424 and #425,
 ADR-0050 at spec 17.1.0 — tripped it; and before that on `6168b47` when
 ADR-0049's planner coverage — WP-060
 PR #421, whose one non-Markdown path is a test file — tripped it; and
