@@ -7,6 +7,42 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Fixed
 
+- **WP-035: the transport-discrimination protocol's deferral is re-pointed
+  at its real sponsor (issue #366; a decision-owner call — no ADR, no
+  version change, no code).** WP-035's `observability.md` share deferred
+  the fabric-versus-local protocol row to "whichever package first records
+  a transport route decision", the 2026-08-13 grant-question round's route
+  (c). Measured at `381c7ec`, every occurrence of that phrase in this
+  repository is WP-040's per-OS **IPC** transport — `identity.rs:104`,
+  `:107` and `:110`, `schemas/rpc/authentication.md:40-42`, ADR-0021:236,
+  and five in `WP-040.md` — and none is a device-transport classification.
+  WP-040 has no reference to ADR-0018, no observability share and no
+  obligations section, so the deferral had no scheduled author: precisely
+  the late discovery that filing obligations exists to prevent. The
+  sponsor is now **WP-010**, named rather than described by role.
+
+  Two measurements decided which replacement. The ADR-0034-pattern
+  designation extension the deferring round named beside WP-040, in the
+  same sentence, is sponsored from WP-010's assignment, whose
+  `owned-paths-reserved` block carries that ADR's path — the round kept
+  the wrong half of its own sentence. And a platform adapter cannot
+  sponsor it: WP-L100's imported obligation 6 records that the protocol's
+  only source is vendor documentation, which that package's evidence rule
+  forbids. The *rows* of ADR-0018's evidence obligation (2) are measurable
+  there and two of the six positive-local classes already are; the
+  *protocol* is not. They are two obligations, not one.
+
+  Nothing became owed and no increment in any package gained or lost an
+  item. Every adapter's transport answer stays
+  `TransportClass::Unrecognized`, which resolves to `Indeterminate` at the
+  closure and never to `Permitted` — ADR-0018's own terms for an
+  unmeasured transport. Three assignments carry the change: WP-035's
+  clause re-pointed with all three rejected readings recorded beside it,
+  WP-010's reciprocal obligation added so the sponsorship is scheduled
+  rather than asserted only in another package's text, and WP-L100's
+  open-reading paragraph answered while keeping the clause as accepted on
+  2026-08-13 beside its answer.
+
 - **WP-010: descent admits an unlocated child of a geometric parent
   (issue #319's authorization half; ADR-0051, spec 17.2.0 — minor).**
   The oldest live hole in the tree, and the one three predicates had died
