@@ -3458,20 +3458,17 @@ fn an_extentless_target_is_destroyed_by_identity() {
     );
 }
 
-// Requirements: MODEL-002, SAFE-005
-//   The seed's second source reads the step's declared ranges and the
-//   absence of an extent, so it is measured against issue #319's
-//   population — a body whose extent-bearing node has no extent fact —
-//   rather than argued about. `canonical_ranges` cannot tell "this kind
-//   carries no extent" from "this extent is absent", so the whole-frame
-//   entry lands on both, and the question is whether it can ever open a
-//   gate. For every node ADR-0048's own arms read it cannot. The one
-//   shape that does open gates is issue #319's third measured shape and
-//   is pinned here as an open limit, not fixed: this act does not close
-//   that issue and must not read as though it had.
-// Evidence: the_identity_seed_never_weakens_a_gate_on_an_absent_extent
+// Requirements: MODEL-002, SAFE-005, CAP-003
+//   ADR-0048 pinned issue #319's third measured shape here as an OPEN
+//   limit — an unlocated ZFS signature hid the pool from every target,
+//   at Clear 10/10 — so that closing it would be deliberate. ADR-0051
+//   closes it, and this row is the closure. Removing an extent fact now
+//   never opens a gate, for any node this act's arms read: descent
+//   admits an unlocated child of a geometric parent, so the signature is
+//   reached by the hop that was previously refused.
+// Evidence: removing_an_extent_fact_never_opens_a_gate
 #[test]
-fn the_identity_seed_never_weakens_a_gate_on_an_absent_extent() {
+fn removing_an_extent_fact_never_opens_a_gate() {
     use super::capability::{ProtectionGate, protection_gate};
     let m = partitioned_mdraid();
 
@@ -3482,9 +3479,7 @@ fn the_identity_seed_never_weakens_a_gate_on_an_absent_extent() {
             .count()
     };
 
-    // The nodes this act's arms read: the frame root, a partition framed
-    // on the volume, and the table. Dropping any one never opens a gate.
-    for victim in [m.sda, m.md0p1, m.table] {
+    for victim in [m.sda, m.md0p1, m.table, m.zfs_signature] {
         let mut thinned = m.facts.clone();
         thinned.extents.remove(&victim);
         for target in [m.sda, m.md0p1, m.md0, m.array] {
@@ -3492,28 +3487,74 @@ fn the_identity_seed_never_weakens_a_gate_on_an_absent_extent() {
             let absent = clear_count(&thinned, target);
             assert!(
                 absent <= honest,
-                "removing an extent fact opened {} gate(s) on {target:?}",
+                "removing {victim:?}'s extent opened {} gate(s) on {target:?}",
                 absent.saturating_sub(honest)
             );
         }
     }
+}
 
-    // Issue #319's third measured shape, pinned as an OPEN limit. The ZFS
-    // signature is reached only by the byte scan, so removing its extent
-    // removes the one route to the pool and every gate opens — at HEAD
-    // before this act and at HEAD after it. ADR-0048 neither causes this
-    // nor repairs it; range-reach remains extent-only
-    // (`protection.rs`, the `facts.extents.get(&id)` arm). Pinned so that
-    // closing issue #319 is a deliberate change and never a drift.
-    let mut no_signature = m.facts.clone();
-    no_signature.extents.remove(&m.zfs_signature);
-    for target in [m.sda, m.md0p1, m.md0, m.array] {
-        assert_eq!(
-            clear_count(&no_signature, target),
-            10,
-            "issue #319's open shape: an unlocated signature hides the pool from {target:?}"
+// Requirements: MODEL-002, SAFE-005, CAP-003
+//   ADR-0051, issue #319's authorization half, on the shape the issue
+//   filed. A whole-disk ZFS vdev's signature is reached only by the byte
+//   scan, so removing its one extent fact — a fact nothing requires —
+//   removed the only route to the pool and took every mutating operation
+//   from refusing to Clear. Descent now admits it: the device-to-signature
+//   pair is geometric, so an unlocated child is still inside the region
+//   the parent's extent describes.
+// Evidence: an_unlocated_signature_is_still_reached_through_its_host
+#[test]
+fn an_unlocated_signature_is_still_reached_through_its_host() {
+    use super::capability::{Operation, ProtectionGate, canonical_ranges, protection_gate};
+    let w = whole_disk_vdev();
+
+    let mut unlocated = w.facts.clone();
+    unlocated.extents.remove(&w.signature);
+
+    let ranges = canonical_ranges(Operation::Wipe, w.sda, &unlocated);
+    let affected = affected_set(&w.topology, &unlocated, w.sda, &ranges);
+    assert!(
+        affected.contains(&w.signature) && affected.contains(&w.pool),
+        "the hop into an unlocated signature is admitted, so the pool is reached"
+    );
+    for op in mutating_operations() {
+        assert_ne!(
+            protection_gate(&w.topology, &unlocated, w.sda, op),
+            ProtectionGate::Clear,
+            "{op:?} on a disk whose signature declares no extent"
         );
     }
+}
+
+// Requirements: MODEL-002, SAFE-005
+//   The half of the old carve-out that was doing real work, kept and now
+//   named by the predicate that decides it. A partition table's extent is
+//   its own header bytes, not the region it governs, so a table never
+//   descends into a partition — and an absent extent must not turn that
+//   refusal into an admission. This is what reds if the clause admits
+//   wholesale, and the reason the wholesale form is wrong.
+// Evidence: a_structural_parent_never_descends_into_an_unlocated_child
+#[test]
+fn a_structural_parent_never_descends_into_an_unlocated_child() {
+    let m = partitioned_mdraid();
+
+    // The table is reached but its partition, stripped of its extent, is
+    // not descended into from it.
+    let mut thinned = m.facts.clone();
+    thinned.extents.remove(&m.md0p1);
+    let ranges = StepRanges {
+        written_table_extents: vec![m.facts.extents[&m.table]],
+        ..StepRanges::default()
+    };
+    let affected = affected_set(&m.topology, &thinned, m.table, &ranges);
+    assert!(
+        affected.contains(&m.table),
+        "the table is reached by the write"
+    );
+    assert!(
+        !affected.contains(&m.md0p1),
+        "and does not descend into an unlocated partition: the pair is structural"
+    );
 }
 
 // Requirements: MODEL-002, SAFE-005
