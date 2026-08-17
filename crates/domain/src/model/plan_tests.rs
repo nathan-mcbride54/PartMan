@@ -1696,17 +1696,25 @@ fn occupancy_is_read_by_geometry_and_by_name() {
 
     // ADR-0022's original reading is kept and still answers alone in one
     // corner: a range framed on the host itself, beyond the host's own
-    // extent — bytes the host's declared extent understates. A backing
-    // extent is the one kind the frame rule lets be framed anywhere; one
-    // hosted elsewhere and framed on a bare device past its self-extent
-    // names nothing inside the device and lies on none of its declared
-    // bytes, and is an occupant of it all the same.
+    // extent — bytes the host's declared extent understates. The witness
+    // is a backing extent naming this device and framed on it past its
+    // self-extent: it lies on none of the device's declared bytes and is
+    // an occupant of it all the same. It is found by frame alone because
+    // `names_within` reaches no backing extent — one is outside every
+    // containment forest, so `named_ancestry` is empty for it — which is
+    // what keeps this arm from being redundant with the naming arm.
+    // Before ADR-0050 this witness named a *different* host and was
+    // framed here anyway, a body whose two positional claims contradicted
+    // and which only assembled because nothing constrained a backing
+    // extent's frame. That body is now refused; the witness is rebuilt
+    // honestly and the arm it proves is unchanged.
+    // A second device in the population, deliberately not the backing
+    // extent's host: the arm must find the occupant of *this* device.
     let other = device(b"OCC-OTHER");
-    let other_id = derive_id(&other).expect("derivable");
     let backing = NamingFields::BackingExtent {
-        host: other_id,
+        host: dev_id,
         locator: super::naming::ExtentLocator::Range {
-            start: 0,
+            start: 2 << 30,
             length: 4096,
         },
     };

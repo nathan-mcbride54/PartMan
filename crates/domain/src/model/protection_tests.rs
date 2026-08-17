@@ -3942,27 +3942,25 @@ fn the_hosting_arm_admits_a_backing_extent_that_declares_no_extent() {
     }
 }
 
-// Requirements: MODEL-002, SAFE-005
-//   A measured OPEN LIMIT, pinned so that closing it is deliberate.
-//   Nothing authenticates a backing extent's frame — its `host` naming
-//   field is `ReferentRule::Open`, so `named_position` is `Outside`,
-//   `frame_root` is `None`, ADR-0046's frame rule never runs on it, and
-//   no edge may target it so the edge-versus-extent cross-check never
-//   sees it either. An author may therefore frame the image's extent on
-//   the host's own frame root, place it outside the host, and suppress
-//   the hop on a body that validates. This is issue #365's undecided
-//   question reaching into this arm. It is recorded here at its measured
-//   cost rather than claimed absent, and it does not make protection
-//   worse than it was before this act: the arm only ever adds reach.
-// Evidence: an_authored_frame_can_still_suppress_the_hosting_arm
+// Requirements: MODEL-002, SAFE-005, CAP-003
+//   ADR-0049's open limit, CLOSED by ADR-0050 (issue #365's Half B), and
+//   this row is the closure. The limit was that nothing authenticated a
+//   backing extent's frame, so an author could frame one on the host's
+//   own frame root, place it outside the host, and suppress the hosting
+//   arm on a body that validated — at a measured cost of Clear 10/10 over
+//   a live pool. That body is now refused at assembly: a backing extent's
+//   own `ExtentLocator::Range` says its bytes lie in its named host's
+//   address space, and a frame elsewhere contradicts its own name. The
+//   arm's bound therefore no longer reads a value an author picks freely.
+// Evidence: an_authored_backing_frame_is_refused_rather_than_suppressing_the_arm
 #[test]
-fn an_authored_frame_can_still_suppress_the_hosting_arm() {
-    use super::capability::{Operation, ProtectionGate, canonical_ranges, protection_gate};
-    use super::protection::validate_facts;
+fn an_authored_backing_frame_is_refused_rather_than_suppressing_the_arm() {
+    use super::protection::{FactError, validate_facts};
     let b = loop_backed();
 
-    // Framed on the device — the file system's own frame root — and
-    // placed beyond the file system's bytes.
+    // The suppressing frame: the file system's own frame root, beyond the
+    // file system's bytes. Under ADR-0049 alone this validated and the
+    // gate went Clear on all ten mutating operations.
     let mut authored = b.facts.clone();
     authored.extents.insert(
         b.image,
@@ -3974,26 +3972,19 @@ fn an_authored_frame_can_still_suppress_the_hosting_arm() {
     );
     assert_eq!(
         validate_facts(&b.topology, &authored),
-        Ok(()),
-        "the body validates: nothing constrains a backing extent's frame"
+        Err(FactError::BackingExtentFrameDisagreesWithName {
+            node: b.image,
+            declared: b.host,
+            named: b.host_fs,
+        }),
+        "the body is refused at assembly, so the arm can no longer be suppressed by an authored frame"
     );
 
-    for target in [b.host, b.host_fs] {
-        let ranges = canonical_ranges(Operation::Wipe, target, &authored);
-        let affected = affected_set(&b.topology, &authored, target, &ranges);
-        assert!(
-            !affected.contains(&b.pool),
-            "the open limit: an authored frame suppresses the hop"
-        );
-        let clear = mutating_operations()
-            .into_iter()
-            .filter(|op| {
-                protection_gate(&b.topology, &authored, target, *op) == ProtectionGate::Clear
-            })
-            .count();
-        assert_eq!(
-            clear, 10,
-            "and its measured cost is ten of ten Clear, pinned under issue #365"
-        );
-    }
+    // The honest frame — the host the name carries — still validates, and
+    // the arm still reaches the pool through it.
+    assert_eq!(
+        validate_facts(&b.topology, &b.facts),
+        Ok(()),
+        "the honest body, framed on the named host, is unaffected"
+    );
 }
