@@ -3767,3 +3767,222 @@ fn wiping_a_volume_that_carries_a_live_pool_refuses_the_plan() {
         );
     }
 }
+
+/// The host-backed chain ADR-0049 gave the closure an arm for: a device
+/// carrying an ext4 file system, an image file on it, the loop volume
+/// that image produces, and a live ZFS pool on the volume. `framed_on`
+/// chooses where the image's extent is declared — the file system, which
+/// is the honest form, or the device beyond the file system, which is the
+/// authored frame ADR-0049 pins as an open limit under issue #365.
+struct HostBacked {
+    snapshot: TopologySnapshot,
+    dev: NodeId,
+    image: NodeId,
+    loop0: NodeId,
+    pool: NodeId,
+}
+
+#[allow(clippy::too_many_lines)]
+fn host_backed(image_framed_on_device: bool) -> HostBacked {
+    use partman_domain::model::naming::{ExtentLocator, FileSystemKind};
+
+    let dev = device(b"PLN-LOOP");
+    let dev_id = derive_id(&dev).expect("derivable");
+    let host_fs = NamingFields::FileSystem {
+        host: dev_id,
+        kind: FileSystemKind::Ext4,
+        superblock_offset: 1024,
+    };
+    let host_fs_id = derive_id(&host_fs).expect("derivable");
+    let image = NamingFields::BackingExtent {
+        host: host_fs_id,
+        locator: ExtentLocator::Path {
+            bytes: b"/srv/images/vm.img".to_vec(),
+        },
+    };
+    let image_id = derive_id(&image).expect("derivable");
+    let loop0 = NamingFields::Volume {
+        producer: image_id,
+        name: b"loop0".to_vec(),
+        role: None,
+    };
+    let loop0_id = derive_id(&loop0).expect("derivable");
+    let sig = NamingFields::BackingSignature {
+        host: loop0_id,
+        family: SignatureFamily::Zfs,
+        primary_offset: 0,
+    };
+    let sig_id = derive_id(&sig).expect("derivable");
+    let pool = NamingFields::Aggregate {
+        technology: AggregateTechnology::Zfs,
+        designator: Some(b"tank".to_vec()),
+    };
+    let pool_id = derive_id(&pool).expect("derivable");
+
+    let mut facts = Facts::default();
+    device_facts(&mut facts, dev_id);
+    facts.extents.insert(
+        host_fs_id,
+        HostRange {
+            host: dev_id,
+            start: 0,
+            length: 1 << 30,
+        },
+    );
+    facts.extents.insert(
+        image_id,
+        if image_framed_on_device {
+            // Framed on the file system's own frame root, beyond its
+            // bytes. Nothing validates a backing extent's frame.
+            HostRange {
+                host: dev_id,
+                start: 2 << 30,
+                length: 1 << 29,
+            }
+        } else {
+            HostRange {
+                host: host_fs_id,
+                start: 0,
+                length: 1 << 29,
+            }
+        },
+    );
+    facts.extents.insert(
+        sig_id,
+        HostRange {
+            host: loop0_id,
+            start: 0,
+            length: 1 << 20,
+        },
+    );
+
+    let snapshot = TopologySnapshot::assemble(
+        SnapshotKind::Captured,
+        false,
+        vec![dev, host_fs, image, loop0, sig, pool],
+        vec![
+            Edge {
+                kind: EdgeKind::Containment,
+                source: dev_id,
+                target: host_fs_id,
+            },
+            Edge {
+                kind: EdgeKind::HostBacking,
+                source: image_id,
+                target: loop0_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: loop0_id,
+                target: sig_id,
+            },
+            Edge {
+                kind: EdgeKind::Backing,
+                source: sig_id,
+                target: pool_id,
+            },
+        ],
+        facts,
+    )
+    .expect("a host-backed body assembles");
+
+    HostBacked {
+        snapshot,
+        dev: dev_id,
+        image: image_id,
+        loop0: loop0_id,
+        pool: pool_id,
+    }
+}
+
+// Requirements: PLAN-001, PLAN-002
+//   ADR-0049's named obligation, discharged. The act gave the protection
+//   closure an arm into a backing extent over a relation no edge can
+//   carry; this is the planner half of that population, which no test in
+//   this crate built. On the honest body a wipe of the disk holding the
+//   image refuses at the capability gate rather than planning — the
+//   pool below the image is reached now, where before ADR-0049 the whole
+//   chain was invisible and the plan constructed.
+// Evidence: wiping_a_disk_that_holds_a_loop_image_refuses_the_plan
+#[test]
+fn wiping_a_disk_that_holds_a_loop_image_refuses_the_plan() {
+    let b = host_backed(false);
+
+    let refused = plan(
+        PlanRequest {
+            operation: Operation::Wipe,
+            target: b.dev,
+        },
+        &b.snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect_err("a live pool below a loop image refuses the plan");
+    let PlanRefusal::CapabilityRefused { answer } = refused else {
+        panic!("the refusal carries the engine's answer: {refused:?}");
+    };
+    assert_eq!(answer.status(), Status::Unsupported);
+    assert!(
+        matches!(answer.reason(), Reason::ProtectionRefused { .. }),
+        "the refusal is the protection closure's"
+    );
+}
+
+// Requirements: PLAN-001, PLAN-002
+//   A two-layer disagreement, pinned as an open limit rather than fixed
+//   here, and measured rather than predicted — the shape it takes is not
+//   the one ADR-0049 anticipated. `destroyed_closure` (`simulate.rs`)
+//   propagates to any node whose naming referents contain a removed one,
+//   unconditionally and with no geometric bound, so it removes a backing
+//   extent whenever its host is removed — where the protection closure's
+//   hosting arm is bounded, and ADR-0049 records that its bound reads a
+//   frame nothing authenticates. On the authored-frame body the gate
+//   therefore permits the wipe while the simulation removes the image and
+//   the volume. But the two layers do not simply disagree, and the
+//   difference matters: the live pool SURVIVES the prediction. An
+//   `Aggregate` carries no naming referents at all — `naming_referents`
+//   returns an empty vector for it — so the referent walk cannot reach
+//   one, and the pool is left standing on a volume the same prediction
+//   has just removed. That is ADR-0047's named limit, an aggregate being
+//   name-unrecoverable, surfacing in the planner: neither layer sees the
+//   pool on this body, the gate being suppressed by the authored frame
+//   and the walk being by name alone. All of it is pinned so that closing
+//   any part is deliberate — issue #365 decides the frame, ADR-0047's
+//   limit decides the aggregate.
+// Evidence: the_planner_and_the_gate_disagree_on_an_authored_backing_frame
+#[test]
+fn the_planner_and_the_gate_disagree_on_an_authored_backing_frame() {
+    let b = host_backed(true);
+
+    let Planned { simulated, .. } = plan(
+        PlanRequest {
+            operation: Operation::Wipe,
+            target: b.dev,
+        },
+        &b.snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect("the gate permits it: the hosting arm's bound is suppressed by the authored frame");
+
+    let survivors: Vec<NodeId> = simulated
+        .topology()
+        .entries()
+        .iter()
+        .map(super::NodeEntry::id)
+        .collect();
+
+    for gone in [b.image, b.loop0] {
+        assert!(
+            !survivors.contains(&gone),
+            "the simulation follows the hashed name with no bound, so the image              and the volume it produces are removed where the gate permitted the wipe"
+        );
+    }
+    assert!(
+        survivors.contains(&b.pool),
+        "the open limit worth the most: the live pool SURVIVES the prediction,          because an aggregate carries no naming referents and the walk is by name          alone — neither layer sees it on this body (ADR-0047's named limit, issue #365)"
+    );
+    assert!(survivors.contains(&b.dev), "the wiped device remains");
+}
