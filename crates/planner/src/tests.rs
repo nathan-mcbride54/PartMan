@@ -3929,3 +3929,142 @@ fn wiping_a_disk_that_holds_a_loop_image_refuses_the_plan() {
 // gate refuses before a prediction is produced, so nothing exhibits it —
 // but it is ADR-0047's named limit in a second layer, and it belongs on
 // issue #365 rather than in a test that cannot be constructed.
+
+// Requirements: PART-005, PLAN-002
+//   ADR-0018's hosted-signature duty — "Relocation classes (move,
+//   copy-then-commit) MUST either preserve hosted signatures byte-wise
+//   or enumerate their loss explicitly in the plan" — has no population
+//   to enumerate into. Issue #371 records that in prose; this pins it,
+//   because prose is what let the exemption ADR-0040 retired stand
+//   undelivered and uncited for six spec versions.
+//   Three legs. The two relocation classes produce no plan, and they
+//   fail at different layers, which is measured here rather than
+//   assumed: `Move` reaches simulation and refuses `NotRepresentable`
+//   for want of a destination vocabulary, while `Copy` is
+//   `OperationClass::Source` and is refused as not planning material at
+//   all — so the duty's "copy-then-commit" half has no mutating
+//   operation behind it, not merely an unrepresentable one. Second,
+//   every request the solver does back leaves every pre-existing
+//   structure's start and frame byte-identical, measured against the
+//   captured snapshot rather than argued from the request names, so
+//   nothing representable moves an existing byte. Third, no member of
+//   the consequence vocabulary states a hosted-signature outcome.
+//   The two exhaustive matches are the tripwire, and they are why this
+//   is a test rather than a comment. A `SizedRequest` variant carrying
+//   a destination, or a `Consequence` member naming a signature, stops
+//   this file compiling. That is the moment the duty becomes
+//   dischargeable and the moment to add the variant — not before, when
+//   nothing could construct it and the type would assert a discharge
+//   that had not happened.
+// Evidence: no_representable_request_relocates_bytes
+#[test]
+fn no_representable_request_relocates_bytes() {
+    // Leg 1: neither relocation class yields a plan, for two different
+    // reasons at two different layers.
+    let (unsized_snapshot, clean, _) = fixture();
+    let refuse = |operation| {
+        plan(
+            PlanRequest {
+                operation,
+                target: clean,
+            },
+            &unsized_snapshot,
+            &TechnologyLimits::default(),
+            &RuntimeFacts::clean(),
+            &identity(),
+        )
+        .expect_err("a relocation has no destination vocabulary to be planned into")
+    };
+    assert!(
+        matches!(
+            refuse(Operation::Move),
+            PlanRefusal::SimulateRefused {
+                refusal: SimulateRefusal::NotRepresentable { .. }
+            }
+        ),
+        "Move reaches simulation and refuses there: the effect has no destination \
+         vocabulary to be expressed in"
+    );
+    assert_eq!(
+        refuse(Operation::Copy),
+        PlanRefusal::NotAPlanningOperation {
+            operation: Operation::Copy
+        },
+        "Copy is source-class and never reaches simulation, so the duty's \
+         copy-then-commit half has no mutating operation behind it at all"
+    );
+
+    // Leg 2: what the solver does back never moves a pre-existing start.
+    // The match is exhaustive by construction — a fourth `SizedRequest`
+    // fails to compile here, which is the point of writing it out.
+    let (snapshot, host, aligned, misaligned) = solver_fixture();
+    let requests = [
+        SizedRequest::Create {
+            host,
+            size: 4 * DEFAULT_ALIGNMENT,
+        },
+        SizedRequest::Grow {
+            target: aligned,
+            new_length: 80 * DEFAULT_ALIGNMENT,
+        },
+        SizedRequest::Shrink {
+            target: aligned,
+            new_length: 32 * DEFAULT_ALIGNMENT,
+        },
+    ];
+    for request in requests {
+        let ground = match request {
+            SizedRequest::Create { .. } => "placed in the host's free space",
+            SizedRequest::Grow { .. } => "extends the tail",
+            SizedRequest::Shrink { .. } => "truncates the tail",
+        };
+        let planned = plan_sized(
+            request,
+            &snapshot,
+            &TechnologyLimits::default(),
+            &RuntimeFacts::clean(),
+            &identity(),
+        )
+        .expect("the solver backs all three");
+
+        for (node, before) in &snapshot.facts().extents {
+            let Some(after) = planned.simulated.facts().extents.get(node) else {
+                continue;
+            };
+            assert_eq!(
+                before.start, after.start,
+                "{request:?} ({ground}) moved a pre-existing start; a request that \
+                 relocates bytes would give ADR-0018's duty its population"
+            );
+            assert_eq!(
+                before.host, after.host,
+                "{request:?} ({ground}) re-framed a pre-existing extent"
+            );
+        }
+    }
+
+    // Leg 3: nothing in the consequence vocabulary states a
+    // hosted-signature outcome. Exhaustive for the same reason as leg 2.
+    let vocabulary = [
+        Consequence::InheritedMisalignedStart {
+            target: misaligned,
+            start: 100 * DEFAULT_ALIGNMENT + 512,
+        },
+        Consequence::CoincidentBoundary {
+            target: aligned,
+            boundary: 65 * DEFAULT_ALIGNMENT,
+            edge: StructuralEdge::HostEnd,
+        },
+    ];
+    for fact in vocabulary {
+        let subject = match fact {
+            Consequence::InheritedMisalignedStart { .. } => "a start the plan leaves alone",
+            Consequence::CoincidentBoundary { .. } => "an authored boundary meeting an edge",
+        };
+        assert!(
+            !fact.to_string().contains("signature"),
+            "{subject}: no consequence states a hosted-signature outcome, so the duty \
+             has nothing to be enumerated through until its producer exists"
+        );
+    }
+}
