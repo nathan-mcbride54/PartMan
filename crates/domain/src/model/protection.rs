@@ -1096,12 +1096,32 @@ fn descends_into(
         // The source declares bytes and the child does not. On the
         // propagating arms that is the ordinary shape — a product carries
         // no extent by construction — and the committed closure descends.
-        // Under containment it is a node positioned inside a known frame
-        // whose position is unstated, and the committed closure never
-        // descends out of an extent-bearing containment source at all;
-        // admitting it here would capture a sibling that merely lacks a
-        // fact.
-        (Some(_), None) => kind != EdgeKind::Containment,
+        //
+        // Under containment it depends on what the pair means (ADR-0051,
+        // issue #319's authorization half). Where the pair is
+        // **geometric** — the parent's extent is the region its children
+        // lie in — an unlocated child is a node inside a known region
+        // whose position within it is unstated, and refusing the hop lets
+        // honest absence subtract reach: removing a ZFS signature's one
+        // extent fact took a whole-disk wipe from refusing every mutating
+        // operation to `Clear` on all ten, over a live pool. §2.1 says
+        // descent is admitted on every absence; here it now is.
+        //
+        // Where the pair is **structural** the refusal is real and stays.
+        // A partition table's extent is its own header bytes, not the
+        // region it governs, so a table never descends into its
+        // partitions — for an extent-bearing partition the comparison
+        // above already refuses it, and this arm keeps the same answer
+        // when the fact is absent. That is the job the old `kind !=
+        // Containment` spelling was doing, under a name that described
+        // something else: it read as sibling-capture prevention, and the
+        // predicate that actually decides it is ADR-0041's, which this
+        // arm had never consulted.
+        (Some(_), None) => {
+            kind != EdgeKind::Containment
+                || kind_of(topology, source)
+                    .is_some_and(|fields| containment_pair_is_geometric(fields.kind_name()))
+        }
     }
 }
 

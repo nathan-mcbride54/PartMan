@@ -7,6 +7,25 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Fixed
 
+- **WP-010: descent admits an unlocated child of a geometric parent
+  (issue #319's authorization half; ADR-0051, spec 17.2.0 — minor).**
+  The oldest live hole in the tree, and the one three predicates had died
+  on. `descends_into` never descended into a containment child that
+  declared no extent, so removing a ZFS signature's one extent fact —
+  which nothing requires — took every mutating operation on the disk from
+  refusing 10 of 10 to `Clear` 10 of 10 over a live pool. The round's
+  finding is that the arm's comment described a job it does not do: the
+  capture it prevents is a **partition table's**, whose extent is its own
+  header bytes rather than the region it governs, and ADR-0041's
+  `containment_pair_is_geometric` — the predicate that actually decides
+  it — had never been consulted by this arm. Descent now admits an
+  unlocated child where the pair is geometric and refuses it where the
+  pair is structural. One red, ADR-0048's pinned open limit for this very
+  issue, closing deliberately; both sibling pins survive. Two mutations,
+  each proven applied, each killed. Issue #319's third measured shape did
+  not reproduce on the committed fixture and is recorded as unmeasured
+  rather than claimed closed.
+
 - **WP-010: a backing extent is framed on its named host (issue #365;
   ADR-0050, spec 17.1.0 — minor).** ADR-0046 enforced the anchoring rule
   for every kind but one: a backing extent is outside every containment

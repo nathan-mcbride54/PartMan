@@ -73,6 +73,21 @@ with four clauses, each answering a measured failure:
   and not under containment, where the child is a node positioned inside
   a known frame whose position is unstated, and admitting it would
   capture a sibling that merely lacks a fact.
+  *(Amended in 17.2.0 by ADR-0051, on issue #319's authorization half.
+  The behaviour this clause protects is kept; its stated ground was a
+  mis-description. Measured: the capture it prevents is not a sibling's
+  but a **partition table's** — a table's extent is its own header bytes,
+  not the region it governs, so descent from a table into a partition
+  must be refused, and for an extent-bearing partition the geometric
+  comparison already refuses it. This clause was extending that refusal
+  to extentless children under a name describing something else. Descent
+  now admits an unlocated child where the containment pair is
+  **geometric** and refuses it where the pair is **structural**, naming
+  ADR-0041's `containment_pair_is_geometric` — which this arm had never
+  consulted. The refusal on absence under a geometric pair was a
+  fail-open: removing a ZFS signature's one extent fact took a whole-disk
+  wipe from refusing every mutating operation to `Clear` on all ten, over
+  a live pool.)*
 
 **The invariant that makes this defensible: the act can never remove
 reach.** Every arm the committed closure has is preserved, two are
