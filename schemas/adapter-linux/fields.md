@@ -192,12 +192,23 @@ exactly the hardware class where the distinction matters.
   prices knowingly and which resolves to `Indeterminate` at the closure,
   never `Permitted`. **The protocol's home is decided and is not here:**
   WP-035's observability share, amended 2026-08-13, deliberately gives
-  the transport-discrimination protocol row no home in that grant and
-  houses it with whichever package first records a transport route
-  decision. That phrase needs a reading before anyone can act on it —
-  everywhere else in this repository it denotes WP-040's IPC transports,
-  which never consume this row — which is issue #366, recorded in the
-  obligations section of `docs/work-packages/WP-L100.md`.
+  the transport-discrimination protocol row no home in that grant, and
+  since 2026-08-17 names **WP-010** as its sponsor. As accepted the clause
+  housed it with "whichever package first records a transport route
+  decision" — a phrase that denotes WP-040's IPC transports everywhere
+  else in this repository, which never consume this row. That was issue
+  #366, and the decision owner answered it by naming the sponsor rather
+  than describing it by role: WP-010 owns `TransportClass` and the closure
+  that reads it, and the ADR-0034-pattern designation extension the
+  deferring round named in the same sentence is sponsored from that
+  assignment. **This package was not a candidate**, and the reason is the
+  sentence three lines above: the protocol's only source is vendor
+  documentation, which this package's evidence rule forbids. The *rows* of
+  evidence obligation (2) remain measurable here — two of the six
+  positive-local classes already carry a real-hardware Linux measurement —
+  and the *protocol* is not. They are two obligations, not one. Recorded
+  in the obligations sections of `docs/work-packages/WP-010.md` and
+  `docs/work-packages/WP-L100.md`.
 - That the block class directory contains only whole devices and
   partitions. No row records its population, so the entry bound is a
   fail-closed constant rather than a measured headroom figure.
