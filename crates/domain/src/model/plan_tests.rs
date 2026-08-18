@@ -1737,3 +1737,264 @@ fn occupancy_is_read_by_geometry_and_by_name() {
         "found by frame alone"
     );
 }
+
+// ---------------------------------------------------------------------
+// Slice 3p: Section 6's consequence text rides the body (version 5).
+// ---------------------------------------------------------------------
+
+fn stated_plan(
+    snapshot: &TopologySnapshot,
+    step: PlanStep,
+    sentences: Vec<String>,
+) -> Result<OperationPlan, PlanError> {
+    OperationPlan::assemble_linked_stated(
+        b"plan-3p".to_vec(),
+        1_700_000_000,
+        snapshot,
+        ValidityWindow {
+            not_after: 1_700_086_400,
+        },
+        std::collections::BTreeMap::new(),
+        vec![step],
+        ReversalLinkage::Impossible {
+            statements: vec![StepImpossibility {
+                step: 0,
+                reason: ImpossibilityReason::DataDestroyed,
+            }],
+        },
+        sentences,
+    )
+}
+
+fn wipe_step_on(serial: &[u8]) -> (TopologySnapshot, PlanStep) {
+    let (snapshot, dev_id) = clean_snapshot(serial);
+    let step = PlanStep::mutating(
+        &snapshot,
+        dev_id,
+        wipe(dev_id),
+        vec![],
+        risk(Severity::Destructive),
+    )
+    .expect("constructs");
+    (snapshot, step)
+}
+
+// Requirements: MODEL-003, MODEL-005, MODEL-006
+//   Section 6's user-facing consequence text is body content (slice 3p,
+//   version 5), in ADR-0023's form — sentences, never typed hashed
+//   carriage of the facts — as a canonical set: the stated form takes the
+//   sentences in any order with any repetition and the body carries them
+//   sorted by canonical bytes and unique; the delegating form states an
+//   empty set, which is lawful; the set round-trips through the boundary
+//   and moves the hash exactly when a sentence is added, never when the
+//   input order changes.
+// Evidence: consequence_text_rides_the_body_as_a_canonical_set
+#[test]
+fn consequence_text_rides_the_body_as_a_canonical_set() {
+    let (snapshot, step) = wipe_step_on(b"C0");
+    let unordered = vec![
+        "zeta: the device is wiped".to_owned(),
+        "alpha: nothing is preserved".to_owned(),
+        "zeta: the device is wiped".to_owned(),
+    ];
+    let plan = stated_plan(&snapshot, step.clone(), unordered).expect("assembles");
+    // Canonical order is length-first (`pce/1` writes the length before
+    // the bytes), so the 25-byte sentence precedes the 27-byte one
+    // whatever their first letters — the property a lexical sort would
+    // silently get wrong.
+    assert_eq!(
+        plan.consequences(),
+        ["zeta: the device is wiped", "alpha: nothing is preserved"],
+        "sorted by canonical bytes — length-first — and unique"
+    );
+    let bytes = canonical::encode(&plan.body_value().expect("body")).expect("encodable");
+    let rebuilt = OperationPlan::from_canonical_body(&bytes, &snapshot).expect("round-trips");
+    assert_eq!(rebuilt.consequences(), plan.consequences());
+    assert_eq!(
+        rebuilt.body_hash().expect("hash"),
+        plan.body_hash().expect("hash")
+    );
+
+    // The same sentences in the other order hash identically; one more
+    // sentence moves the hash; the delegating form states none.
+    let reordered = stated_plan(
+        &snapshot,
+        step.clone(),
+        vec![
+            "alpha: nothing is preserved".to_owned(),
+            "zeta: the device is wiped".to_owned(),
+        ],
+    )
+    .expect("assembles");
+    assert_eq!(
+        reordered.body_hash().expect("hash"),
+        plan.body_hash().expect("hash")
+    );
+    let extended = stated_plan(
+        &snapshot,
+        step.clone(),
+        vec![
+            "alpha: nothing is preserved".to_owned(),
+            "beta: a third fact".to_owned(),
+            "zeta: the device is wiped".to_owned(),
+        ],
+    )
+    .expect("assembles");
+    assert_ne!(
+        extended.body_hash().expect("hash"),
+        plan.body_hash().expect("hash")
+    );
+    let silent = plan_over(&snapshot, step);
+    assert!(
+        silent.consequences().is_empty(),
+        "the delegating form states an empty set"
+    );
+    let silent_bytes = canonical::encode(&silent.body_value().expect("body")).expect("encodable");
+    let Value::Map(map) = canonical::decode(&silent_bytes).expect("decodes") else {
+        panic!("body is a map");
+    };
+    assert_eq!(
+        map.get("consequences"),
+        Some(&Value::Array(vec![])),
+        "present, and empty"
+    );
+}
+
+// Requirements: MODEL-003, MODEL-005, MODEL-006
+//   The boundary's rules for the item, each refused typed: a missing
+//   item, an unsorted set, a repeated element, an empty sentence, a
+//   non-text element, and the retired version 4 — one change window old,
+//   no emitter outside it — which refuses at the version gate before
+//   any field is read.
+// Evidence: a_malformed_consequence_set_and_the_retired_version_4_refuse
+#[test]
+fn a_malformed_consequence_set_and_the_retired_version_4_refuse() {
+    let (snapshot, step) = wipe_step_on(b"C1");
+    let plan = stated_plan(
+        &snapshot,
+        step.clone(),
+        vec!["alpha".to_owned(), "beta".to_owned()],
+    )
+    .expect("assembles");
+    let body = || {
+        let Value::Map(map) = plan.body_value().expect("body") else {
+            panic!("body is a map");
+        };
+        map
+    };
+    let refusal = |map: std::collections::BTreeMap<String, Value>| {
+        let bytes = canonical::encode(&Value::Map(map)).expect("encodable");
+        OperationPlan::from_canonical_body(&bytes, &snapshot).expect_err("refuses")
+    };
+
+    let mut missing = body();
+    missing.remove("consequences");
+    assert_eq!(
+        refusal(missing),
+        PlanSchemaError::MissingField {
+            key: "consequences"
+        }
+    );
+
+    // Canonical order is length-first: `beta` (4) precedes `alpha` (5),
+    // so the lexical order is the unsorted one here.
+    assert_eq!(plan.consequences(), ["beta", "alpha"]);
+    let mut unsorted = body();
+    unsorted.insert(
+        "consequences".to_owned(),
+        Value::Array(vec![
+            Value::Text("alpha".to_owned()),
+            Value::Text("beta".to_owned()),
+        ]),
+    );
+    assert!(matches!(
+        refusal(unsorted),
+        PlanSchemaError::ConsequenceSetOrder(_)
+    ));
+
+    let mut repeated = body();
+    repeated.insert(
+        "consequences".to_owned(),
+        Value::Array(vec![
+            Value::Text("alpha".to_owned()),
+            Value::Text("alpha".to_owned()),
+        ]),
+    );
+    assert!(matches!(
+        refusal(repeated),
+        PlanSchemaError::ConsequenceSetOrder(_)
+    ));
+
+    let mut empty_sentence = body();
+    empty_sentence.insert(
+        "consequences".to_owned(),
+        Value::Array(vec![Value::Text(String::new())]),
+    );
+    assert_eq!(refusal(empty_sentence), PlanSchemaError::EmptyConsequence);
+
+    let mut non_text = body();
+    non_text.insert(
+        "consequences".to_owned(),
+        Value::Array(vec![Value::Unsigned(1)]),
+    );
+    assert_eq!(
+        refusal(non_text),
+        PlanSchemaError::MissingField {
+            key: "consequences"
+        }
+    );
+
+    // The stated form refuses an empty sentence at assembly, before a
+    // body exists to hash over it.
+    assert_eq!(
+        stated_plan(&snapshot, step, vec![String::new()]).err(),
+        Some(PlanError::EmptyConsequence)
+    );
+
+    // Version 4 — the shape without the item — refuses at the version
+    // gate, and so does a v4-tagged body that carries it.
+    let mut v4 = body();
+    v4.insert("schema_version".to_owned(), Value::Unsigned(4));
+    v4.remove("consequences");
+    assert_eq!(refusal(v4), PlanSchemaError::WrongSchemaVersion);
+    let mut v4_tagged = body();
+    v4_tagged.insert("schema_version".to_owned(), Value::Unsigned(4));
+    assert_eq!(refusal(v4_tagged), PlanSchemaError::WrongSchemaVersion);
+}
+
+// Requirements: MODEL-003, MODEL-005
+//   A reversal draft's consequence set is pinned empty at emission,
+//   exactly as its class is pinned ordinary and its cancellation to the
+//   floor: a draft is a prediction whose consequences are authored when
+//   it binds. The emitted draft carries the empty set, and a draft body
+//   claiming any refuses at decode.
+// Evidence: a_drafts_consequences_are_pinned_empty
+#[test]
+fn a_drafts_consequences_are_pinned_empty() {
+    let worlds = reversal_worlds();
+    let (_, draft) = forward_and_draft(&worlds);
+    let Value::Map(map) = draft.body_value() else {
+        panic!("draft body is a map");
+    };
+    assert_eq!(map.get("consequences"), Some(&Value::Array(vec![])));
+
+    let mut claiming = map.clone();
+    claiming.insert(
+        "consequences".to_owned(),
+        Value::Array(vec![Value::Text("a claimed consequence".to_owned())]),
+    );
+    let bytes = canonical::encode(&Value::Map(claiming)).expect("encodable");
+    assert_eq!(
+        ReversalDraft::from_canonical_body(&bytes),
+        Err(PlanSchemaError::DraftStatesConsequences)
+    );
+    let mut absent = map;
+    absent.remove("consequences");
+    let bytes = canonical::encode(&Value::Map(absent)).expect("encodable");
+    assert_eq!(
+        ReversalDraft::from_canonical_body(&bytes),
+        Err(PlanSchemaError::MissingField {
+            key: "consequences"
+        })
+    );
+}

@@ -7,10 +7,13 @@
 //! snapshot's body hash **as bound at validation** (8.0.0's rule), the
 //! validity window (body deliberately — enforced, not re-derived, per
 //! ADR-C2), and the ordered step graph as a semantic array (MODEL-006:
-//! steps are a dependency order, not a set). The remaining Section 6
-//! items — outcome text, consequence text, privileges, environment
-//! requirements, backup actions, cancellation, capability versions,
-//! reversal — land as their owning vocabularies (WP-050/WP-060) arrive.
+//! steps are a dependency order, not a set), and — since slice 3p —
+//! Section 6's user-facing consequence text as a set of sentences
+//! (ADR-0023's form: text, never typed hashed carriage of the facts).
+//! The remaining Section 6 items — outcome text, privileges, environment
+//! requirements, backup actions, capability versions — land as their
+//! owning vocabularies (WP-050/WP-060) arrive; cancellation landed in
+//! slice 3n and the reversal linkage in slice 3l.
 //!
 //! [`OperationPlan::from_canonical_body`] takes the plan bytes **and the
 //! snapshot they claim to bind**, and re-runs every step through
@@ -43,15 +46,21 @@ pub const SCHEMA: &str = "partman.plan";
 /// cancellation-class decision, 2026-08-12): Section 6's
 /// reversal-linkage item is required, and every step carries its
 /// preconditions, its typed class, and its cancellation declaration.
+/// Version 5 (slice 3p, jointly sequenced with WP-060 increment 12)
+/// additionally carries Section 6's **consequence text**: a required
+/// set-valued array of sentences (MODEL-006), empty where the planner
+/// has nothing to state, pinned empty in a reversal draft.
+///
 /// Every other version is retired and refuses at decode (MODEL-003's
 /// explicit-migration discipline), each retirement recorded in the
 /// changelog: version 1 — the pre-ADR-0022 unlinked form, the last
 /// version whose emitters were this crate's own tests and vectors —
 /// was retired by slice 3o once nothing else emitted it, and versions
-/// 2 (the linked form without the class field) and 3 (without the
-/// cancellation field) each lived for exactly one change window with
-/// no emitter outside it and no surviving artifact.
-pub const LINKED_SCHEMA_VERSION: u64 = 4;
+/// 2 (the linked form without the class field), 3 (without the
+/// cancellation field) and 4 (without the consequence text) each lived
+/// for exactly one change window with no emitter outside it and no
+/// surviving artifact.
+pub const LINKED_SCHEMA_VERSION: u64 = 5;
 
 /// PLAN-008's per-step reversal-impossibility reason — closed, typed,
 /// free of free text (the JRN-005 discipline).
@@ -144,6 +153,14 @@ pub struct OperationPlan {
     /// retirement (slice 3o): a plan without a linkage is
     /// unconstructible, not merely refused.
     reversal: ReversalLinkage,
+    /// Section 6's user-facing consequence text (slice 3p): the plan's
+    /// consequence sentences as a set — sorted by canonical bytes,
+    /// unique, each non-empty. Text and only text (ADR-0023: typed
+    /// hashed carriage of the facts was rejected; the facts are in the
+    /// bound snapshot already). Empty where the planner's vocabulary
+    /// had nothing to say, and that silence asserts nothing beyond it
+    /// (ADR-0052 D6).
+    consequences: Vec<String>,
 }
 
 /// The ADR-0022 severity rule, shared by assembly and the boundary: a
@@ -186,6 +203,45 @@ impl OperationPlan {
         steps: Vec<PlanStep>,
         reversal: ReversalLinkage,
     ) -> Result<Self, PlanError> {
+        Self::assemble_linked_stated(
+            plan_id,
+            created_at,
+            snapshot,
+            validity,
+            identities,
+            steps,
+            reversal,
+            Vec::new(),
+        )
+    }
+
+    /// The fully-stated assembly (slice 3p): as [`Self::assemble_linked`],
+    /// plus Section 6's user-facing consequence text — the sentences the
+    /// planner's consequence vocabulary produced, in any order and with
+    /// any repetition, sorted here into the body's canonical set. The
+    /// delegating form states none, which is lawful: a plan with no
+    /// consequence to state carries an empty set.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::assemble_linked`], plus [`PlanError::EmptyConsequence`]
+    /// when a sentence is empty — a consequence that says nothing is not
+    /// a consequence, and carrying it would let a body hash over silence.
+    #[allow(clippy::too_many_arguments)]
+    pub fn assemble_linked_stated(
+        plan_id: Vec<u8>,
+        created_at: u64,
+        snapshot: &TopologySnapshot,
+        validity: ValidityWindow,
+        identities: BTreeMap<NodeId, DeviceIdentity>,
+        steps: Vec<PlanStep>,
+        reversal: ReversalLinkage,
+        consequences: Vec<String>,
+    ) -> Result<Self, PlanError> {
+        if consequences.iter().any(String::is_empty) {
+            return Err(PlanError::EmptyConsequence);
+        }
+        let consequences = canonical_text_set(consequences)?;
         if let ReversalLinkage::Impossible { statements } = &reversal {
             let covers_exactly = statements.len() == steps.len()
                 && statements
@@ -211,7 +267,16 @@ impl OperationPlan {
                 .collect(),
             steps,
             reversal,
+            consequences,
         })
+    }
+
+    /// Section 6's user-facing consequence text: the sentences, as the
+    /// body's canonical set (sorted by canonical bytes, unique). Empty
+    /// where the planner stated none.
+    #[must_use]
+    pub fn consequences(&self) -> &[String] {
+        &self.consequences
     }
 
     /// The plan's identifier bytes.
@@ -296,6 +361,15 @@ impl OperationPlan {
             Value::Array(self.steps.iter().map(step_value).collect()),
         );
         body.insert("reversal".to_owned(), reversal_value(&self.reversal));
+        body.insert(
+            "consequences".to_owned(),
+            Value::Array(
+                self.consequences
+                    .iter()
+                    .map(|sentence| Value::Text(sentence.clone()))
+                    .collect(),
+            ),
+        );
         Ok(Value::Map(body))
     }
 
@@ -339,7 +413,7 @@ impl OperationPlan {
             _ => return Err(PlanSchemaError::WrongSchema),
         }
         // The sole live version: every retired version — 1 (unlinked),
-        // 2, and 3 — refuses here (MODEL-003's explicit-migration
+        // 2, 3, and 4 — refuses here (MODEL-003's explicit-migration
         // discipline).
         match map.get("schema_version") {
             Some(Value::Unsigned(version)) if *version == LINKED_SCHEMA_VERSION => {}
@@ -357,6 +431,7 @@ impl OperationPlan {
                     | "identities"
                     | "steps"
                     | "reversal"
+                    | "consequences"
             );
             if !known {
                 return Err(PlanSchemaError::UnknownField { key: key.clone() });
@@ -402,6 +477,7 @@ impl OperationPlan {
         if !reversible_backed(&steps, &reversal) {
             return Err(PlanSchemaError::ReversibleWithoutReversal);
         }
+        let consequences = parse_consequences(&map)?;
         // The two-time truthfulness re-check (ADR-0022): a precondition
         // is body content, judged here against the snapshot the plan
         // binds — a claim that decayed refuses instead of silently
@@ -421,6 +497,7 @@ impl OperationPlan {
             identities,
             steps,
             reversal,
+            consequences,
         };
         let recomputed = rebuilt
             .body_value()
@@ -431,6 +508,49 @@ impl OperationPlan {
         }
         Ok(rebuilt)
     }
+}
+
+/// The producer half of the consequence set (MODEL-006's canonical set
+/// rule, `schemas/domain/canonical-collections.md`): sort by each
+/// sentence's complete canonical `pce/1` bytes and drop repeats. The
+/// consumer half is [`parse_consequences`], which refuses what this
+/// would have reordered or merged.
+fn canonical_text_set(sentences: Vec<String>) -> Result<Vec<String>, PlanError> {
+    let mut keyed = Vec::with_capacity(sentences.len());
+    for sentence in sentences {
+        let bytes =
+            canonical::encode(&Value::Text(sentence.clone())).map_err(|_| PlanError::Encoding)?;
+        keyed.push((bytes, sentence));
+    }
+    keyed.sort_by(|left, right| left.0.cmp(&right.0));
+    keyed.dedup_by(|left, right| left.0 == right.0);
+    Ok(keyed.into_iter().map(|(_, sentence)| sentence).collect())
+}
+
+/// The consumer half: Section 6's `consequences` item is a required
+/// set-valued array of non-empty text. An unsorted or repeated element
+/// refuses as a set violation, an empty sentence refuses, and any other
+/// element kind refuses as a missing field.
+fn parse_consequences(map: &BTreeMap<String, Value>) -> Result<Vec<String>, PlanSchemaError> {
+    let Some(Value::Array(elements)) = map.get("consequences") else {
+        return Err(PlanSchemaError::MissingField {
+            key: "consequences",
+        });
+    };
+    canonical::set::validate_array(elements, 1).map_err(PlanSchemaError::ConsequenceSetOrder)?;
+    let mut sentences = Vec::with_capacity(elements.len());
+    for element in elements {
+        let Value::Text(sentence) = element else {
+            return Err(PlanSchemaError::MissingField {
+                key: "consequences",
+            });
+        };
+        if sentence.is_empty() {
+            return Err(PlanSchemaError::EmptyConsequence);
+        }
+        sentences.push(sentence.clone());
+    }
+    Ok(sentences)
 }
 
 fn parse_header_scalars(
@@ -1082,6 +1202,9 @@ pub enum PlanError {
     /// An impossibility statement set that does not cover exactly the
     /// plan's step indices in ascending order.
     MalformedLinkage,
+    /// A consequence sentence that is empty (slice 3p): a consequence
+    /// that says nothing is not one, and a body must not hash over it.
+    EmptyConsequence,
 }
 
 impl fmt::Display for PlanError {
@@ -1093,6 +1216,7 @@ impl fmt::Display for PlanError {
                 .write_str("a Reversible step stands only on an emitted reversal (ADR-0022)"),
             Self::MalformedLinkage => formatter
                 .write_str("impossibility statements must cover exactly the plan's steps in order"),
+            Self::EmptyConsequence => formatter.write_str("a consequence sentence is empty"),
         }
     }
 }
@@ -1158,6 +1282,15 @@ pub enum PlanSchemaError {
     /// A step spelled its target as a step-output reference, which only
     /// a reversal draft may carry; a bound plan names addresses.
     DraftSpellingOutsideDraft,
+    /// The `consequences` set is out of canonical order or repeats an
+    /// element (MODEL-006's consumer rule).
+    ConsequenceSetOrder(canonical::set::Error),
+    /// A consequence sentence is empty.
+    EmptyConsequence,
+    /// A reversal draft carried consequence text; a draft is a
+    /// prediction whose consequences are authored when it binds, so its
+    /// set is pinned empty at emission (slice 3p).
+    DraftStatesConsequences,
 }
 
 impl fmt::Display for PlanSchemaError {
@@ -1195,6 +1328,13 @@ impl fmt::Display for PlanSchemaError {
             }
             Self::DraftSpellingOutsideDraft => formatter
                 .write_str("a step-output target reference is a reversal draft's spelling only"),
+            Self::ConsequenceSetOrder(error) => {
+                write!(formatter, "consequence set order violated: {error:?}")
+            }
+            Self::EmptyConsequence => formatter.write_str("a consequence sentence is empty"),
+            Self::DraftStatesConsequences => {
+                formatter.write_str("a reversal draft states consequences; its set is pinned empty")
+            }
         }
     }
 }
@@ -1566,6 +1706,9 @@ impl ReversalDraft {
             Value::Unsigned(self.validity.not_after),
         );
         body.insert("identities".to_owned(), Value::Map(BTreeMap::new()));
+        // Pinned empty, as identities are: a draft's consequences are
+        // authored at its own planning when it binds (slice 3p).
+        body.insert("consequences".to_owned(), Value::Array(Vec::new()));
         body.insert(
             "steps".to_owned(),
             Value::Array(self.steps.iter().map(draft_step_value).collect()),
@@ -1615,8 +1758,18 @@ impl ReversalDraft {
                     | "identities"
                     | "steps"
                     | "reversal"
+                    | "consequences"
             ) {
                 return Err(PlanSchemaError::UnknownField { key: key.clone() });
+            }
+        }
+        match map.get("consequences") {
+            Some(Value::Array(consequences)) if consequences.is_empty() => {}
+            Some(Value::Array(_)) => return Err(PlanSchemaError::DraftStatesConsequences),
+            _ => {
+                return Err(PlanSchemaError::MissingField {
+                    key: "consequences",
+                });
             }
         }
         match map.get("schema") {
