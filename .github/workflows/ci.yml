@@ -39,6 +39,28 @@ jobs:
           # check would have to be skipped -- which for an ownership gate means
           # passing vacuously.
           fetch-depth: 0
+      # Dependency builds only. The key is the lockfile and the pinned
+      # toolchain, so what is restored is exactly what `Cargo.lock` already
+      # freezes: a change to either misses and rebuilds. First-party artifacts
+      # are stripped in the last step of this job, before the cache is written,
+      # so `partman-*` and `xtask` compile from source on every run and this
+      # gate still proves that the tree under review builds and tests cleanly.
+      #
+      # That distinction is the whole reason this is scoped the way it is.
+      # Caching `target/` wholesale would be faster still and would end the
+      # from-scratch property on all three operating systems, which is not a
+      # trade a gate should make quietly. Measured before choosing: on
+      # `windows-2025` the fetch/index phase is 3s and the compile phase 61s,
+      # so caching dependency *sources* alone would have bought nothing.
+      - name: Restore the pinned dependency build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: tier1-deps-${{ matrix.os }}-${{ hashFiles('rust-toolchain.toml') }}-${{ hashFiles('**/Cargo.lock') }}
       - name: Run the unprivileged Tier-1 gate
         run: cargo xtask ci
       # Section 1.10: a change belongs to the work package its commits declare.
@@ -53,6 +75,31 @@ jobs:
       - name: Verify the change belongs to its work package
         if: matrix.os == 'ubuntu-24.04' && github.event_name == 'pull_request'
         run: cargo xtask verify-change-ownership --base origin/${{ github.base_ref }}
+      # Runs before `actions/cache` writes its entry, because a post-step runs
+      # after every ordinary step. `if: always()` so a failing gate cannot leave
+      # first-party artifacts behind to be restored into the next run.
+      #
+      # The member list comes from `cargo metadata`, not a literal, so a crate
+      # added later is stripped without anyone remembering to edit this. If that
+      # command fails the step fails, which is the safe direction: no cache entry
+      # is better than one whose contents were never checked.
+      - name: Drop first-party artifacts before the cache is written
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          members=$(cargo metadata --no-deps --format-version 1 \
+            | python3 -c "import sys,json;print(' '.join(p['name'].replace('-','_') for p in json.load(sys.stdin)['packages']))")
+          echo "stripping: $members"
+          rm -rf target/debug/incremental
+          for member in $members; do
+            rm -rf target/debug/.fingerprint/"$member"-* || true
+            rm -rf target/debug/build/"$member"-*       || true
+            rm -f  target/debug/deps/*"$member"-*       || true
+            rm -f  target/debug/"$member"               || true
+            rm -f  target/debug/"$member".exe           || true
+          done
+          echo "cache payload: $(du -sh target 2>/dev/null | cut -f1) in target/"
 
   # Ran on Linux alone while runner minutes were metered against a private
   # repository, where Windows bills 2x and macOS 10x. On a public repository
