@@ -7,6 +7,26 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-035: the detection-rows sitting DR1–DR10, preregistered and taken
+  2026-08-18 (gitea#1005), all ten established.** WP-L100 increment 4 filed
+  ten Linux rows it could not author its detection layer without — the
+  mount and swap tables, the sysfs kind markers and membership listings of
+  host-assembled block devices, the cached signature view of their
+  members, the loop and Btrfs surfaces, mount-cycle byte stability, and
+  per-unit UUID distinctness across re-assembly. Preregistered on the
+  floor-rows precedent (`docs/quality/observability.md`), taken on two
+  disposable Proxmox guests with fourteen virtual disks and no
+  passthrough, valid on the second invocation (the first void for DR2 on a
+  setup-actor `mkswap` flag; retained). Findings the increment must carry:
+  a Btrfs mount keys by an anonymous `major:minor` and names its member
+  only in the source field (DR1); `slaves/`/`holders/` is a per-mapping
+  relation, not aggregate membership (DR4); a plain disk's udev record
+  carries `ID_FS_TYPE=` empty as a positive absence (DR6); virtio-scsi
+  `device/wwid` is a failed read, not an absence (DR9); minor numbers move
+  across re-assembly while `dm/uuid`, `MD_UUID`, `ID_FS_UUID` do not
+  (DR10). No designation is made; the record names the inputs a round
+  could rest on.
+
 - **WP-060 increment 12: the consequence text is stated into the body
   (Section 6; slice 3p's plan body v5; no spec change).** Every planning
   path assembles through `assemble_linked_stated` with the `Display`
