@@ -159,6 +159,9 @@ nineteenth, named in the PR body before the merge, and on `91cd1c9`
 ADR-0044 — tripped it a twentieth, likewise named before the merge, and
 on `ee12af2` (2026-08-16 UTC) when issue #354's kind-half act — one Rust
 merge, PR #398, ADR-0045 — tripped it a twenty-first, likewise named, and
+on `31e58be` (2026-08-18 UTC) when WP-000 PR #444 — the
+specification-version claim check, the third consecutive infrastructure trip —
+tripped it; and before that
 on `e96e46a` (2026-08-18 UTC) when WP-000 PR #439 — an arc of two: the
 Section 11.4 fuzz targets run concurrently, and Tier 1 restores only its dependency
 build from cache — tripped it, the first trip carrying both the instrument
