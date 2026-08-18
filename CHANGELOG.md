@@ -7,6 +7,26 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-035: the naming-designation cells DR11–DR14, preregistered and
+  taken 2026-08-18 (gitea#1007), all four established.** On the DR
+  apparatus with one declared reboot leg (kernel pinned by `grub-reboot`,
+  -186 on both sides): sysfs `md/uuid` **exists**, is client-readable,
+  hyphenated where the udev cache's `MD_UUID` is colon-quartet, and is
+  byte-equal across re-assembly and reboot and distinct per array — a
+  direct source, so mdraid is designatable on the ADR-0035 shape (DR11);
+  `dm/name` is stable for LVM logical volumes and is the **opener's
+  argument** for dm-crypt mappings — the sitting's own mis-addressed
+  re-open showed container A under the name `cr_b` — so it qualifies for
+  LVs and not for opened containers (DR12); two loops on one file report
+  the same `backing_file` and a re-attach reports the path verbatim
+  (DR13); the member-signature family is client-readable through both
+  interfaces and **no interface reports an offset** (DR14). The reboot
+  renumbered the disks (`sdh`/`sdi` swapped), which the first phase-2 pass
+  did not survive; two instrument amendments (serial- and `md/uuid`-keyed
+  re-addressing; containers re-opened under their baseline names) are
+  recorded and the mis-addressed captures retained. No designation is
+  made; the round's next act is now an ADR.
+
 - **WP-L100 increment 4b, first slice: mdraid arrays as designator-absent
   aggregates (LIN-006, INV-004; no spec change).** The Linux host-assembled
   designation round found no measured source that may name a host-assembled
