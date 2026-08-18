@@ -1,4 +1,4 @@
-//! The WP-L100 Linux read-only inventory adapter (increment 1).
+//! The WP-L100 Linux read-only inventory adapter (increment 3a).
 //!
 //! The ordinary Linux client contract, as a pure library: a bounded read seam
 //! over sysfs attribute files and the udev database, the MODEL-004
@@ -47,15 +47,25 @@
 //!   by the privileged helper at validation (ADR-0014, ADR-0016). This crate
 //!   emits neither on any path, so the closure fails closed at exactly the
 //!   position an authored value occupies rather than reading a client's guess.
-//! - **No topology and no capability answer.** Whole-device enumeration and
-//!   identity material are delivered (increment 2), but the topology and
-//!   INV-004's derivations are increment 3's, LIN-006's detection layer
-//!   increment 4's, and the CAP-004 runtime facts increment 5's. The engine
-//!   that judges any of it is WP-050's.
-//! - **No addressed output.** Nothing here builds a `NodeId`, a
-//!   `protection::Facts`, or a snapshot. Those are keyed by ADR-0019 derived
-//!   addresses, whose rules are increment 3's imported obligation, so an
-//!   adapter that keyed a map today would be naming without them.
+//! - **No layered topology.** Devices are addressed and absorbed (increment
+//!   3a), but nothing here builds a partition-table node, and therefore no
+//!   partition, file system, signature, or volume node either.
+//!   `NamingFields::PartitionTable` carries a `TableRole` — a scheme — and
+//!   this contract reads no table bytes. ADR-0036's forward obligation put
+//!   the choice to this increment in terms, and the package document records
+//!   the branch taken and the measured grounds for it. The rest of the
+//!   layered topology is increment 3b's, LIN-006's detection layer increment
+//!   4's, and the CAP-004 runtime facts increment 5's. The engine that judges
+//!   any of it is WP-050's.
+//! - **No free-extent derivation.** INV-004 forbids presenting it "where the
+//!   host declares a table scheme the build cannot name", and this contract
+//!   declares none. It is offered as an explicit refusal rather than omitted,
+//!   because an absent surface and a refusing one are different things to a
+//!   consumer.
+//! - **No snapshot and no protection facts.** Nothing here builds a
+//!   `protection::Facts` or a Section 6 snapshot body. Addressing devices is
+//!   the part ADR-0019 governs and increment 3a delivers; assembling a client
+//!   draft around them needs the node kinds above.
 //! - **No transport this build can positively name.** ADR-0018's answer is
 //!   `Unrecognized` for every device, because its own fabric-versus-local
 //!   discrimination rows are outstanding on every platform. Classifying
@@ -76,7 +86,9 @@
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub mod contract;
+pub mod derivation;
 pub mod devices;
+pub mod naming;
 pub mod observation;
 pub mod reach;
 

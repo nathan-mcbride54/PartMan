@@ -5,6 +5,86 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ## Unreleased
 
+### Added
+
+- **WP-L100 increment 3a: devices are addressed, and INV-004's presentable
+  derivation lands (ADR-0019, ADR-0033, ADR-0034; no spec change).** The
+  Linux adapter gains a bytes-preserving naming seam, ADR-0034's designated
+  serial resolution, ADR-0019 collision grouping through the domain's own
+  `absorb`, and the alignment derivation with its refusal arms.
+
+  **The seam is ADR-0034's own first delivery obligation.** That ADR records
+  the delivered `read_attribute` as "not a lawful naming-input path" because
+  it validates UTF-8, refuses non-text, and strips one trailing newline.
+  `read_naming_source` does none of those. The divergence is measured rather
+  than asserted: the suite reads the same fixture files both ways, and a file
+  holding a lone newline is a positively determined **absence** through the
+  text path and a one-byte **name** through this one.
+
+  **The serial resolves structurally, not at the measured depth.** ADR-0034
+  says the rule is "the nearest ancestor sysfs node that is a USB device
+  node" and that the instrument's four-step traversal "names the structure
+  that traversal reached", not the rule. The fixtures carry the USB node at
+  four depths and plant two decoy `serial` attributes on non-USB ancestors,
+  one nearer and one farther, so a fixed-depth walk and a first-readable-
+  serial walk each fail a named test. ADR-0034's two outcome rules land with
+  it: a measured absence leaves an operand with a weaker name, a failed read
+  leaves an indeterminate non-operand, and an undesignated cell is read **not
+  at all** — held by a source that records its reads, because no assertion
+  over return values can establish a negative.
+
+  **One shortfall is shipped fail-closed and recorded, on increment 2's own
+  precedent.** FR4 establishes that the measured traversal *reaches* a USB
+  device node; no row establishes what a client may read to *recognize* one,
+  which is a different claim and the one the delivered predicate makes.
+  Recognition requires both `idVendor` and `idProduct` to answer, an
+  unreadable marker recognizes nothing, and an unidentified ancestor yields
+  an absent serial and a weaker name. The predicate can only lose a name,
+  never invent one. Filed as an obligation on WP-035, which owns
+  `docs/quality/observability.md`.
+
+  **ADR-0033's imported obligation is discharged with a fixture for each
+  arm**: alignment presented over authoritative and inferred inputs — an
+  inferred input is fit, because the input's confidence travels by reference
+  rather than being copied onto the derivation — withheld with the input's
+  own state surfaced over `unavailable` and `conflicting`, and withheld over
+  an input fit by confidence that carries no usable value, an arm ADR-0033
+  does not name and a positively determined absence reaches. The
+  `conflicting` fixture is hand-built and said to be: this adapter keys each
+  property by the interface that answered, so production cannot produce a
+  plural set, and the arm would otherwise go untested rather than
+  unreachable.
+
+  **Free extents are not presented at all, and ADR-0036's choice is
+  recorded.** INV-004 forbids presenting the derivation "where the host
+  declares a table scheme the build cannot name"; this contract builds no
+  partition-table node, so it declares none. ADR-0036's forward obligation
+  put a binary choice to this increment, and the second branch is taken: the
+  solver reserves nothing on Linux client drafts until HLP-002 re-discovery
+  supplies a table node. The first was declined on **measured** grounds
+  rather than for want of a value. `ID_PART_TABLE_TYPE` *is* carried in the
+  client-readable udev database for loop-attached fixtures, and the record
+  measures it wrong on exactly the cases the domain model exists to
+  represent: `gpt` on the Indeterminate conflicting-tables fixture whose
+  backup view "appears nowhere"; `gpt` on a damaged fixture the kernel
+  materialized nothing from; `gpt, untraced` on a hybrid whose aliasing
+  `0x0c` entry "left no trace in the client projection"; and `PMBR` rather
+  than `gpt` on a 4Kn disk. Designating it would make the adapter assert
+  table states the record measures as false.
+
+  The layered topology — partitions, volumes, file systems, encryption
+  layers, signatures, and the `Captured` snapshot — is **increment 3b**, not
+  started and blocked on that route. Two further gaps are filed rather than
+  worked around: a real-hardware table-role row, and the fact that this
+  package's scope names **mounts** while `NamingFields` carries no mount
+  variant at all, which is WP-010's model rather than this adapter's.
+
+  Fourteen mutants killed by named tests before proposal, including a
+  compiling fixed-depth walk, a single-marker predicate, a wrong sector
+  unit, a silently overflowing byte product, a signed sector count, an
+  absence reported as a failed read and its converse, a value read before
+  the confidence gate, and free extents presented as an empty list.
+
 ### Fixed
 
 - **WP-035: the transport-discrimination protocol's deferral is re-pointed

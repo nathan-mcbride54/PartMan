@@ -238,6 +238,82 @@ pub fn read_attribute(
     AttributeRead::Text(text)
 }
 
+/// The outcome of one bounded, **bytes-preserving** read.
+///
+/// This is [`AttributeRead`] with its three transformations removed and one
+/// arm consequently unreachable. [`read_attribute`] validates UTF-8, refuses
+/// non-text as [`AttributeRead::NotText`], and strips one trailing newline;
+/// each is correct for the text-shaped observation rows it serves and each is
+/// unlawful for a name, because ADR-0019 takes identifier bytes
+/// contract-source-verbatim and excludes the transformation class wholesale.
+/// So there is no `NotText` here: non-UTF-8 bytes are a legal name.
+///
+/// The two absence arms stay separate for the reason they are separate above
+/// — an attribute that exists and is empty was read, and one that is not
+/// present was looked for — even though ADR-0034 gives both the same naming
+/// consequence. Folding them here would destroy the distinction at the seam
+/// rather than at the layer that decides it.
+pub enum NamingRead {
+    /// The source answered: its bytes, verbatim. The trailing newline is
+    /// **included**, per ADR-0034 — stripping it is a transformation with an
+    /// undecidable edge, since a value may legitimately end in `0x0a`.
+    Bytes(Vec<u8>),
+    /// The source exists and is empty — a positively determined absence.
+    Empty,
+    /// The source is not present under an interface that answered — a
+    /// positively determined absence.
+    NotPresent,
+    /// The read exceeded [`VALUE_LIMIT`] and was **not** truncated.
+    OverLimit {
+        /// How many bytes were seen.
+        seen: usize,
+    },
+    /// The read itself failed.
+    Failed {
+        /// The error, as the operating system reported it.
+        error: String,
+    },
+}
+
+/// Read one naming source under [`VALUE_LIMIT`], preserving its bytes.
+///
+/// ADR-0034: "The contract owes a bytes read seam before any naming input is
+/// consumed; that is WP-L100 increment 3's first delivery obligation." This is
+/// it. Every naming input flows through here and none through
+/// [`read_attribute`], which remains correct for what it was built for.
+///
+/// The token argument is required for the same reason [`read_attribute`]
+/// requires it, and the reason bites harder here: ADR-0034 gives a measured
+/// absence and a failed read **different** naming outcomes — the first leaves
+/// an operand with a weaker name, the second an indeterminate non-operand — so
+/// a caller who could reach [`NamingRead::NotPresent`] without the evidence
+/// that the interface answered could turn a failed read into an operand.
+#[must_use]
+pub fn read_naming_source(
+    source: &dyn ContractSource,
+    path: &Path,
+    _answered: &InterfaceAnswered,
+) -> NamingRead {
+    let raw = match source.read_bytes(path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return NamingRead::NotPresent;
+        }
+        Err(error) => {
+            return NamingRead::Failed {
+                error: error.to_string(),
+            };
+        }
+    };
+    if raw.len() > VALUE_LIMIT {
+        return NamingRead::OverLimit { seen: raw.len() };
+    }
+    if raw.is_empty() {
+        return NamingRead::Empty;
+    }
+    NamingRead::Bytes(raw)
+}
+
 /// The outcome of reading one record file.
 ///
 /// A record file is not an attribute: its absence means the interface holds
