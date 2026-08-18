@@ -37,7 +37,7 @@ use partman_capability::{Capability, Status};
 use partman_domain::model::capability::{Operation, OperationClass, canonical_ranges};
 use partman_domain::model::identity::TableState;
 use partman_domain::model::naming::NodeId;
-use partman_domain::model::naming::{NamingFields, NodeEntry};
+use partman_domain::model::naming::{FileSystemKind, NamingFields, NodeEntry, SignatureFamily};
 use partman_domain::model::plan::{
     DraftPrecondition, DraftRefusal, DraftStep, DraftTarget, ImpossibilityReason, OperationPlan,
     PlanError, ReversalDraft, ReversalLinkage, StepImpossibility, ValidityWindow,
@@ -49,10 +49,10 @@ use partman_domain::model::step::{
 };
 
 use crate::graph::{Dependency, GraphRefusal, execution_order};
-use crate::simulate::{Effects, SimulateRefusal, simulate};
+use crate::simulate::{Effects, Relocation, SimulateRefusal, simulate};
 use crate::solve::{
-    BoundaryPlacement, InheritedFact, SolveRefusal, SolvedCreate, SolvedGrow, SolvedShrink,
-    StructuralEdge, grow_extension, place_create, shrink_reduction,
+    BoundaryPlacement, InheritedFact, SolveRefusal, SolvedCreate, SolvedGrow, SolvedMove,
+    SolvedShrink, StructuralEdge, grow_extension, move_relocation, place_create, shrink_reduction,
 };
 use partman_domain::model::protection::{HostRange, StepRanges};
 
@@ -268,7 +268,7 @@ pub struct Planned {
 }
 
 /// One typed consequence fact, with its user-facing sentence.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Consequence {
     /// The target's pre-existing start is off the 1 MiB default and the
     /// plan leaves it byte-identical: a fact about the device, never a
@@ -290,6 +290,45 @@ pub enum Consequence {
         /// The edge coincided with.
         edge: StructuralEdge,
     },
+    /// A relocation releases content it does not carry (ADR-0052 D6, on
+    /// ADR-0018's relocation duty): a node positioned on the host inside
+    /// the moved target's source range but **not named within the
+    /// target** is not copied to the destination — release is
+    /// destruction, so the plan states the loss rather than preserving
+    /// it. Kind-level: what the bound snapshot can see. This vocabulary
+    /// carries no partition type or role, and its silence is not a
+    /// boot-consequence verdict.
+    RelocationReleases {
+        /// The moved target.
+        target: NodeId,
+        /// The node released with the source range.
+        node: NodeId,
+        /// What the snapshot says the node is.
+        content: ReleasedContent,
+    },
+}
+
+/// The kind-level description of content a relocation releases: the
+/// parsed file-system kind or signature family where the node has one,
+/// the node's kind name otherwise.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ReleasedContent {
+    /// A file system of this parsed kind.
+    FileSystem(FileSystemKind),
+    /// A signature of this parsed family.
+    Signature(SignatureFamily),
+    /// Any other kind, by its kind name.
+    Other(&'static str),
+}
+
+impl std::fmt::Display for ReleasedContent {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::FileSystem(kind) => write!(formatter, "a {kind:?} file system"),
+            Self::Signature(family) => write!(formatter, "a {family:?} signature"),
+            Self::Other(kind) => write!(formatter, "a {kind}"),
+        }
+    }
 }
 
 impl std::fmt::Display for Consequence {
@@ -323,6 +362,16 @@ impl std::fmt::Display for Consequence {
                      coincident"
                 ),
             },
+            Self::RelocationReleases {
+                target,
+                node,
+                content,
+            } => write!(
+                formatter,
+                "{node} ({content}) lies in {target}'s source range but is not named within \
+                 {target}, so the move does not carry it: the range is released and its content \
+                 ceases to be referenced — a loss this plan states, not a preservation"
+            ),
         }
     }
 }
@@ -362,6 +411,7 @@ fn canonical_effects(
             stamp_dropped: vec![target],
             minted_partition: None,
             resized: vec![],
+            relocated: None,
         }),
         // This model carries no labels or mutable identifiers, so at
         // this granularity the topology genuinely does not change:
@@ -373,8 +423,11 @@ fn canonical_effects(
         Operation::Grow | Operation::Shrink => Err(SimulateRefusal::NotRepresentable {
             effect: "an unsized resize has no target length; use the sized request",
         }),
-        Operation::Move | Operation::Copy => Err(SimulateRefusal::NotRepresentable {
-            effect: "moves and copies need a destination vocabulary this model does not carry yet",
+        Operation::Move => Err(SimulateRefusal::NotRepresentable {
+            effect: "an unsized move has no destination; use the sized request",
+        }),
+        Operation::Copy => Err(SimulateRefusal::NotRepresentable {
+            effect: "a copy needs a destination vocabulary this model does not carry yet",
         }),
         Operation::Repair => Err(SimulateRefusal::NotRepresentable {
             effect: "repair outcomes are not predictable topology",
@@ -415,6 +468,18 @@ pub enum SizedRequest {
         target: NodeId,
         /// The requested final length.
         new_length: u64,
+    },
+    /// Move the target so its extent starts at `new_start` in its host's
+    /// address space, keeping its length (PART-005; ADR-0052 D1). An
+    /// authored byte offset, never a free-extent reference: free extents
+    /// are a derivation recomputed at use (ADR-0033) and an index into
+    /// one names a value that does not survive to the body. Whether the
+    /// move overlaps itself is derived from the two extents, not stored.
+    Move {
+        /// The target being moved.
+        target: NodeId,
+        /// The requested new start offset.
+        new_start: u64,
     },
 }
 
@@ -1006,7 +1071,104 @@ fn solve_sized(
                 material: ReversalMaterial::Impossible(ImpossibilityReason::DataDestroyed),
             })
         }
+        SizedRequest::Move { target, new_start } => solve_move(snapshot, target, new_start),
     }
+}
+
+/// The move's solved request (ADR-0052 D2): the whole source destroyed,
+/// the whole destination consumed — conservative, and the only shape
+/// that both seeds the closure over every rewritten byte and spells the
+/// reversal's target. The table extents a move rewrites are not carried
+/// by the facts this model has, so `written_table_extents` stays what
+/// every other sized request declares here.
+fn solve_move(
+    snapshot: &TopologySnapshot,
+    target: NodeId,
+    new_start: u64,
+) -> Result<SolvedRequest, PlanRefusal> {
+    let solved = move_relocation(snapshot, target, new_start)
+        .map_err(|refusal| PlanRefusal::SolveRefused { refusal })?;
+    let SolvedMove {
+        source,
+        destination,
+        end_placement,
+    } = solved;
+    let mut consequences = solved_consequences(
+        target,
+        destination.start + destination.length,
+        end_placement,
+        None,
+    );
+    consequences.extend(released_content(snapshot, target, source));
+    Ok(SolvedRequest {
+        operation: Operation::Move,
+        target,
+        ranges: StepRanges {
+            written_table_extents: vec![],
+            consumed: vec![destination],
+            destroyed: vec![source],
+        },
+        effects: Effects {
+            destroyed: vec![source],
+            relocated: Some(Relocation {
+                target,
+                source,
+                destination,
+            }),
+            ..Effects::default()
+        },
+        consequences,
+        material: ReversalMaterial::MoveDraft {
+            source,
+            destination,
+            released: solved.released(),
+        },
+    })
+}
+
+/// ADR-0052 D6's enumeration: every node whose extent lies on the host
+/// inside the source range and that is not named within the target — the
+/// content the move releases without carrying — as a typed consequence.
+/// The destination rule already refused anything of the kind inside the
+/// overlap, so what this finds lies in the released part of the source.
+fn released_content(
+    snapshot: &TopologySnapshot,
+    target: NodeId,
+    source: HostRange,
+) -> Vec<Consequence> {
+    let topology = snapshot.topology();
+    let mut released = Vec::new();
+    for (node, extent) in &snapshot.facts().extents {
+        if *node == target
+            || *node == source.host
+            || extent.host != source.host
+            || extent.start >= source.start + source.length
+            || source.start >= extent.start + extent.length
+            || partman_domain::model::protection::names_within(topology, *node, target)
+        {
+            continue;
+        }
+        let content = match topology.entries().iter().find(|entry| entry.id() == *node) {
+            Some(NodeEntry::Single { fields, .. } | NodeEntry::Group { fields, .. }) => {
+                match fields {
+                    NamingFields::FileSystem { kind, .. } => {
+                        ReleasedContent::FileSystem(kind.clone())
+                    }
+                    NamingFields::BackingSignature { family, .. } => {
+                        ReleasedContent::Signature(family.clone())
+                    }
+                    other => ReleasedContent::Other(other.kind_name()),
+                }
+            }
+            None => ReleasedContent::Other("unresolved"),
+        };
+        released.push(Consequence::RelocationReleases {
+            target,
+            node: *node,
+            content,
+        });
+    }
+    released
 }
 
 /// What [`plan_sized`] decided to emit as PLAN-008's output, before the
@@ -1026,6 +1188,17 @@ enum ReversalMaterial {
         extension: HostRange,
         /// The same tail in the target's own address space.
         reclaimed: HostRange,
+    },
+    /// The move's reversal (ADR-0052 D5): move back, its target spelled
+    /// as the forward step's output — which `consumed = [D]` resolves —
+    /// truthful while the released part of the source is unoccupied.
+    MoveDraft {
+        /// The forward source, S: the reversal's destination.
+        source: HostRange,
+        /// The forward destination, D: the reversal's source.
+        destination: HostRange,
+        /// S minus D: what the reversal needs empty.
+        released: HostRange,
     },
     /// No truthful reversal exists; say why.
     Impossible(ImpossibilityReason),
@@ -1079,6 +1252,26 @@ fn emit_reversal(
             },
             preconditions: vec![DraftPrecondition::Carried(Precondition::RegionUnoccupied {
                 region: reclaimed,
+            })],
+        }],
+        ReversalMaterial::MoveDraft {
+            source,
+            destination,
+            released,
+        } => vec![DraftStep {
+            target: DraftTarget::StepOutput(0),
+            // The mirror of the forward declaration under the same
+            // ADR-0052 exception: the reversal destroys its own source
+            // (D) and consumes its own destination (S).
+            ranges: StepRanges {
+                written_table_extents: vec![],
+                consumed: vec![source],
+                destroyed: vec![destination],
+            },
+            acknowledgments: vec![],
+            risk: canonical_risk(Operation::Move),
+            preconditions: vec![DraftPrecondition::Carried(Precondition::RegionUnoccupied {
+                region: released,
             })],
         }],
     };
