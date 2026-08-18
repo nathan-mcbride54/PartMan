@@ -3930,121 +3930,689 @@ fn wiping_a_disk_that_holds_a_loop_image_refuses_the_plan() {
 // but it is ADR-0047's named limit in a second layer, and it belongs on
 // issue #365 rather than in a test that cannot be constructed.
 
-// Requirements: PART-005, PLAN-002
-//   ADR-0018's hosted-signature duty — "Relocation classes (move,
-//   copy-then-commit) MUST either preserve hosted signatures byte-wise
-//   or enumerate their loss explicitly in the plan" — has no population
-//   to enumerate into. Issue #371 records that in prose; this pins it,
-//   because prose is what let the exemption ADR-0040 retired stand
-//   undelivered and uncited for six spec versions.
-//   Three legs. The two relocation classes produce no plan, and they
-//   fail at different layers, which is measured here rather than
-//   assumed: `Move` reaches simulation and refuses `NotRepresentable`
-//   for want of a destination vocabulary, while `Copy` is
-//   `OperationClass::Source` and is refused as not planning material at
-//   all — so the duty's "copy-then-commit" half has no mutating
-//   operation behind it, not merely an unrepresentable one. Second,
-//   every request the solver does back leaves every pre-existing
-//   structure's start and frame byte-identical, measured against the
-//   captured snapshot rather than argued from the request names, so
-//   nothing representable moves an existing byte. Third, no member of
-//   the consequence vocabulary states a hosted-signature outcome.
-//   The two exhaustive matches are the tripwire, and they are why this
-//   is a test rather than a comment. A `SizedRequest` variant carrying
-//   a destination, or a `Consequence` member naming a signature, stops
-//   this file compiling. That is the moment the duty becomes
-//   dischargeable and the moment to add the variant — not before, when
-//   nothing could construct it and the type would assert a discharge
-//   that had not happened.
-// Evidence: no_representable_request_relocates_bytes
-#[test]
-fn no_representable_request_relocates_bytes() {
-    // Leg 1: neither relocation class yields a plan, for two different
-    // reasons at two different layers.
-    let (unsized_snapshot, clean, _) = fixture();
-    let refuse = |operation| {
-        plan(
-            PlanRequest {
-                operation,
-                target: clean,
-            },
-            &unsized_snapshot,
-            &TechnologyLimits::default(),
-            &RuntimeFacts::clean(),
-            &identity(),
-        )
-        .expect_err("a relocation has no destination vocabulary to be planned into")
+// ---------------------------------------------------------------------
+// The move (ADR-0052): PART-005's destination vocabulary.
+// ---------------------------------------------------------------------
+
+use super::ReleasedContent;
+use super::solve::move_relocation;
+
+/// What sits on the device inside the created partition's range, named
+/// within nothing but the device — the occupant a move must not carry
+/// and must not overwrite, in the stale-content shape WP-020's captures
+/// record.
+#[derive(Clone, Copy)]
+enum Stray {
+    /// Nothing.
+    None,
+    /// A whole-disk XFS remnant: unprotected, `Clear` under the closure.
+    Xfs,
+    /// An mdraid member signature backing no aggregate: an orphan, and
+    /// `Indeterminate` under the closure.
+    OrphanSignature,
+}
+
+/// A device with a 32 MiB neighbour at [1 MiB, 33 MiB), the created
+/// partition at [65 MiB, 75 MiB) with its ext4 landed at its head
+/// (device-framed, as ADR-0046 requires of every containment child), free
+/// space on both sides of it, and the chosen stray at [72 MiB, 73 MiB).
+fn move_fixture(with_stray: Stray) -> (TopologySnapshot, NodeId, NodeId, NodeId, Option<NodeId>) {
+    let host = device(b"SLV-HOST");
+    let host_id = derive_id(&host).expect("derivable");
+    let table = NamingFields::PartitionTable {
+        parent: host_id,
+        role: TableRole::Gpt,
     };
-    assert!(
-        matches!(
-            refuse(Operation::Move),
-            PlanRefusal::SimulateRefused {
-                refusal: SimulateRefusal::NotRepresentable { .. }
-            }
-        ),
-        "Move reaches simulation and refuses there: the effect has no destination \
-         vocabulary to be expressed in"
+    let table_id = derive_id(&table).expect("derivable");
+    let aligned = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: DEFAULT_ALIGNMENT,
+    };
+    let aligned_id = derive_id(&aligned).expect("derivable");
+    let created = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: 65 * DEFAULT_ALIGNMENT,
+    };
+    let created_id = derive_id(&created).expect("derivable");
+    let fs = NamingFields::FileSystem {
+        host: created_id,
+        kind: partman_domain::model::naming::FileSystemKind::Ext4,
+        superblock_offset: 1024,
+    };
+    let fs_id = derive_id(&fs).expect("derivable");
+    let stray = match with_stray {
+        Stray::None | Stray::Xfs => NamingFields::FileSystem {
+            host: host_id,
+            kind: partman_domain::model::naming::FileSystemKind::Xfs,
+            superblock_offset: 72 * DEFAULT_ALIGNMENT,
+        },
+        Stray::OrphanSignature => NamingFields::BackingSignature {
+            host: host_id,
+            family: SignatureFamily::Mdraid1x,
+            primary_offset: 72 * DEFAULT_ALIGNMENT,
+        },
+    };
+    let stray_id = derive_id(&stray).expect("derivable");
+
+    let mut facts = Facts::default();
+    device_facts(&mut facts, host_id);
+    facts.extents.insert(
+        aligned_id,
+        HostRange {
+            host: host_id,
+            start: DEFAULT_ALIGNMENT,
+            length: 32 * DEFAULT_ALIGNMENT,
+        },
+    );
+    facts.extents.insert(
+        created_id,
+        HostRange {
+            host: host_id,
+            start: 65 * DEFAULT_ALIGNMENT,
+            length: 10 * DEFAULT_ALIGNMENT,
+        },
+    );
+    facts.extents.insert(
+        fs_id,
+        HostRange {
+            host: host_id,
+            start: 65 * DEFAULT_ALIGNMENT,
+            length: DEFAULT_ALIGNMENT,
+        },
+    );
+    let contains = |source, target| Edge {
+        kind: EdgeKind::Containment,
+        source,
+        target,
+    };
+    let mut nodes = vec![host, table, aligned, created, fs];
+    let mut edges = vec![
+        contains(host_id, table_id),
+        contains(table_id, aligned_id),
+        contains(table_id, created_id),
+        contains(created_id, fs_id),
+    ];
+    if !matches!(with_stray, Stray::None) {
+        facts.extents.insert(
+            stray_id,
+            HostRange {
+                host: host_id,
+                start: 72 * DEFAULT_ALIGNMENT,
+                length: DEFAULT_ALIGNMENT,
+            },
+        );
+        nodes.push(stray);
+        edges.push(contains(host_id, stray_id));
+    }
+    let snapshot = TopologySnapshot::assemble(SnapshotKind::Captured, false, nodes, edges, facts)
+        .expect("assembles");
+    let stray_id = (!matches!(with_stray, Stray::None)).then_some(stray_id);
+    (snapshot, host_id, created_id, fs_id, stray_id)
+}
+
+fn plan_move(
+    snapshot: &TopologySnapshot,
+    target: NodeId,
+    new_start: u64,
+) -> Result<Planned, PlanRefusal> {
+    plan_sized(
+        SizedRequest::Move { target, new_start },
+        snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+}
+
+// Requirements: PART-005, PLAN-002, PLAN-008
+//   The disjoint move end to end (ADR-0052 D1, D2, D5): a partition with
+//   its file system moves to free space. The step declares the whole
+//   source destroyed and the whole destination consumed; the simulation
+//   re-derives the partition's address at the destination and its file
+//   system's with it — a moved partition renames (ADR-0019), so its
+//   content renames — with the file system's device-framed extent
+//   translated by the move's offset; the old addresses are gone; and the
+//   reversal draft spells its target as the forward step's output, which
+//   `consumed = [D]` resolves under the unchanged step-output contract,
+//   with the released source as its truthfulness precondition. Nothing
+//   is released, so nothing is enumerated. The family's ADR-0025 and
+//   PLAN-005 declarations ride along: data-moving, not
+//   irreversible-after-start, checkpoint-cancellable.
+// Evidence: a_move_carries_the_target_and_what_it_names
+#[test]
+#[allow(clippy::too_many_lines)]
+fn a_move_carries_the_target_and_what_it_names() {
+    let (snapshot, host, created, fs, _) = move_fixture(Stray::None);
+    let planned = plan_move(&snapshot, created, 80 * DEFAULT_ALIGNMENT).expect("plans");
+    let step = &planned.plan.steps()[0];
+    let source = HostRange {
+        host,
+        start: 65 * DEFAULT_ALIGNMENT,
+        length: 10 * DEFAULT_ALIGNMENT,
+    };
+    let destination = HostRange {
+        host,
+        start: 80 * DEFAULT_ALIGNMENT,
+        length: 10 * DEFAULT_ALIGNMENT,
+    };
+    assert_eq!(
+        step.ranges().destroyed,
+        vec![source],
+        "D2: the whole source destroyed"
     );
     assert_eq!(
-        refuse(Operation::Copy),
-        PlanRefusal::NotAPlanningOperation {
-            operation: Operation::Copy
-        },
-        "Copy is source-class and never reaches simulation, so the duty's \
-         copy-then-commit half has no mutating operation behind it at all"
+        step.ranges().consumed,
+        vec![destination],
+        "D2: the whole destination consumed"
+    );
+    assert_eq!(step.risk().severity, Severity::DataMoving);
+    assert!(
+        !step.risk().flags.irreversible_after_start,
+        "ADR-0025's unflagged fixture"
+    );
+    assert_eq!(step.cancellation(), Cancellation::CheckpointCancellable);
+
+    // The simulation: renamed, translated, old addresses gone.
+    let table_id = derive_id(&NamingFields::PartitionTable {
+        parent: host,
+        role: TableRole::Gpt,
+    })
+    .expect("derivable");
+    let moved = NamingFields::Partition {
+        parent_table: table_id,
+        start_offset: 80 * DEFAULT_ALIGNMENT,
+    };
+    let moved_id = derive_id(&moved).expect("derivable");
+    let moved_fs = NamingFields::FileSystem {
+        host: moved_id,
+        kind: partman_domain::model::naming::FileSystemKind::Ext4,
+        superblock_offset: 1024,
+    };
+    let moved_fs_id = derive_id(&moved_fs).expect("derivable");
+    let after = planned.simulated.facts();
+    assert_eq!(
+        after.extents.get(&moved_id),
+        Some(&destination),
+        "the partition sits at D"
+    );
+    assert_eq!(
+        after.extents.get(&moved_fs_id),
+        Some(&HostRange {
+            host,
+            start: 80 * DEFAULT_ALIGNMENT,
+            length: DEFAULT_ALIGNMENT,
+        }),
+        "the file system renamed with its host and its extent translated by the offset"
+    );
+    assert!(
+        !after.extents.contains_key(&created),
+        "the old partition address is gone"
+    );
+    assert!(
+        !after.extents.contains_key(&fs),
+        "the old file-system address is gone"
+    );
+    assert!(
+        planned
+            .simulated
+            .topology()
+            .entries()
+            .iter()
+            .any(|entry| entry.id() == moved_fs_id),
+        "the renamed file system is a node of the simulated topology"
+    );
+    assert!(
+        planned
+            .simulated
+            .topology()
+            .edges()
+            .iter()
+            .any(|edge| edge.source == moved_id && edge.target == moved_fs_id),
+        "its containment edge followed the rename"
     );
 
-    // Leg 2: what the solver does back never moves a pre-existing start.
-    // The match is exhaustive by construction — a fourth `SizedRequest`
-    // fails to compile here, which is the point of writing it out.
-    let (snapshot, host, aligned, misaligned) = solver_fixture();
-    let requests = [
-        SizedRequest::Create {
+    // Nothing released, nothing enumerated; the end is on the default.
+    assert!(
+        planned.consequences.is_empty(),
+        "{:?}",
+        planned.consequences
+    );
+
+    // The reversal: move back, target spelled as the step's output.
+    let EmittedReversal::Draft(draft) = &planned.reversal else {
+        panic!("a move emits a draft, not an impossibility statement");
+    };
+    let back = &draft.steps()[0];
+    assert_eq!(back.target, DraftTarget::StepOutput(0));
+    assert_eq!(
+        back.ranges.consumed,
+        vec![source],
+        "the reversal consumes S"
+    );
+    assert_eq!(
+        back.ranges.destroyed,
+        vec![destination],
+        "the reversal destroys D"
+    );
+    assert_eq!(
+        back.preconditions,
+        vec![DraftPrecondition::Carried(Precondition::RegionUnoccupied {
+            region: source
+        })],
+        "disjoint: the whole source must be empty for the move back to be truthful"
+    );
+    assert!(
+        matches!(planned.plan.reversal(), Some(ReversalLinkage::Draft { .. })),
+        "the body carries the draft by ID and hash"
+    );
+}
+
+// Requirements: PART-005, PLAN-002, PLAN-008
+//   The overlapping move — the mode PART-005 mandates as journaled chunk
+//   copy — is the trilemma's case (ADR-0052 §Context). The declaration is
+//   the same conservative shape, so `consumed = [D]` intersects the
+//   target's own pre-move extent exactly as the amended ADR-0018 admits;
+//   the copy mode is a derivation over the two ranges, stored nowhere;
+//   the released range is one end of the source; and the reversal's
+//   precondition asks only that end to be empty. Moving down into a
+//   neighbour refuses as not free — the room is free space plus the
+//   source, and nothing else.
+// Evidence: an_overlapping_move_declares_the_whole_source_and_destination
+#[test]
+fn an_overlapping_move_declares_the_whole_source_and_destination() {
+    let (snapshot, host, created, _, _) = move_fixture(Stray::None);
+    let solved = move_relocation(&snapshot, created, 70 * DEFAULT_ALIGNMENT).expect("solves");
+    assert!(solved.overlaps(), "D4: the mode is derived from the ranges");
+    assert_eq!(
+        solved.released(),
+        HostRange {
             host,
-            size: 4 * DEFAULT_ALIGNMENT,
+            start: 65 * DEFAULT_ALIGNMENT,
+            length: 5 * DEFAULT_ALIGNMENT,
         },
-        SizedRequest::Grow {
-            target: aligned,
-            new_length: 80 * DEFAULT_ALIGNMENT,
+        "moving up releases the head of the source"
+    );
+    let disjoint = move_relocation(&snapshot, created, 80 * DEFAULT_ALIGNMENT).expect("solves");
+    assert!(!disjoint.overlaps());
+    assert_eq!(
+        disjoint.released(),
+        disjoint.source,
+        "disjoint: the whole source is released"
+    );
+
+    let planned = plan_move(&snapshot, created, 70 * DEFAULT_ALIGNMENT).expect("plans");
+    let step = &planned.plan.steps()[0];
+    let source = solved.source;
+    let destination = solved.destination;
+    assert_eq!(step.ranges().destroyed, vec![source]);
+    assert_eq!(step.ranges().consumed, vec![destination]);
+    assert!(
+        solved.overlaps(),
+        "the consumed range intersects the target's own extent: ADR-0052's exception in use"
+    );
+    let EmittedReversal::Draft(draft) = &planned.reversal else {
+        panic!("a move emits a draft");
+    };
+    assert_eq!(
+        draft.steps()[0].preconditions,
+        vec![DraftPrecondition::Carried(Precondition::RegionUnoccupied {
+            region: solved.released()
+        })],
+        "only the released end need be empty"
+    );
+
+    // Down, overlapping, over the partition's own file system at its
+    // head: the round's paradigm case. The literal "no other node" clause
+    // refused this; the scoped clause admits it, and the tail is what is
+    // released.
+    let down = move_relocation(&snapshot, created, 60 * DEFAULT_ALIGNMENT).expect("solves");
+    assert!(down.overlaps());
+    assert_eq!(
+        down.released(),
+        HostRange {
+            host,
+            start: 70 * DEFAULT_ALIGNMENT,
+            length: 5 * DEFAULT_ALIGNMENT,
         },
-        SizedRequest::Shrink {
-            target: aligned,
-            new_length: 32 * DEFAULT_ALIGNMENT,
+        "moving down releases the tail of the source"
+    );
+    let planned_down = plan_move(&snapshot, created, 60 * DEFAULT_ALIGNMENT)
+        .expect("D3 scoped: the partition's own file system is not in the way");
+    assert!(
+        planned_down.consequences.is_empty(),
+        "nothing not named within the target is released: {:?}",
+        planned_down.consequences
+    );
+
+    // Down into the neighbour: the destination leaves the room.
+    let refusal = plan_move(&snapshot, created, 30 * DEFAULT_ALIGNMENT).expect_err("refuses");
+    assert!(
+        matches!(
+            refusal,
+            PlanRefusal::SolveRefused {
+                refusal: SolveRefusal::DestinationNotFree { target, .. }
+            } if target == created
+        ),
+        "{refusal:?}"
+    );
+}
+
+// Requirements: PART-005, PLAN-002
+//   ADR-0052 D3's scoped clause and D6's enumeration, on the occupant
+//   they exist for: a device-hosted signature inside the partition's
+//   source range, named within nothing the move carries. Into the
+//   overlap it refuses typed — the destination would overwrite content
+//   the move does not carry. Out of the overlap, into free space, the
+//   move plans, and the signature — released with the source range,
+//   release being destruction (ADR-0018) — is enumerated as a typed
+//   consequence whose sentence states the loss, and is gone from the
+//   simulated topology. The literal "no other node" form of the clause
+//   would have refused the partition's own file system too; the scoped
+//   form admits it, and this is that admission measured.
+// Evidence: a_destination_over_content_the_move_does_not_carry_refuses_and_a_release_is_stated
+#[test]
+fn a_destination_over_content_the_move_does_not_carry_refuses_and_a_release_is_stated() {
+    let (snapshot, _, created, _, stray) = move_fixture(Stray::Xfs);
+    let stray = stray.expect("the fixture carries the stray file system");
+
+    // Into the overlap: [70, 80) covers the stray at [72, 73).
+    let refusal = plan_move(&snapshot, created, 70 * DEFAULT_ALIGNMENT).expect_err("refuses");
+    assert!(
+        matches!(
+            refusal,
+            PlanRefusal::SolveRefused {
+                refusal: SolveRefusal::DestinationOverlapsNode { target, node, .. }
+            } if target == created && node == stray
+        ),
+        "{refusal:?}"
+    );
+
+    // Out of the overlap: the partition's own file system is carried, the
+    // stray is released and stated.
+    let planned = plan_move(&snapshot, created, 80 * DEFAULT_ALIGNMENT)
+        .expect("plans past its own file system");
+    let released: Vec<&Consequence> = planned
+        .consequences
+        .iter()
+        .filter(|fact| matches!(fact, Consequence::RelocationReleases { .. }))
+        .collect();
+    assert_eq!(
+        released,
+        vec![&Consequence::RelocationReleases {
+            target: created,
+            node: stray,
+            content: ReleasedContent::FileSystem(
+                partman_domain::model::naming::FileSystemKind::Xfs
+            ),
+        }]
+    );
+    let sentence = released[0].to_string();
+    assert!(
+        sentence.contains("Xfs file system") && sentence.contains("released"),
+        "{sentence}"
+    );
+    assert!(
+        !planned.simulated.facts().extents.contains_key(&stray),
+        "the released signature is gone from the prediction"
+    );
+}
+
+// Requirements: PART-005, PLAN-002
+//   The authenticated closure, not the solver, is what reaches content
+//   inside the moved range (ADR-0052 D2, D6): with the whole source
+//   declared destroyed, a step built directly through the domain's sole
+//   constructor — the solver bypassed — reaches the partition's own file
+//   system and the stray alike. Where the stray is an orphan signature,
+//   Indeterminate under the closure, the conservative step refuses — and
+//   the same orphan makes the planned move refuse at the capability gate
+//   before any solver rule runs. The precise declaration, by contrast,
+//   constructs and reaches the stray by no arm: trilemma (i), the ground
+//   on which the conservative shape was chosen, measured.
+// Evidence: the_closure_reaches_what_a_move_declares_without_the_solver
+#[test]
+fn the_closure_reaches_what_a_move_declares_without_the_solver() {
+    let (snapshot, host, created, fs, stray) = move_fixture(Stray::Xfs);
+    let stray = stray.expect("stray");
+    let source = HostRange {
+        host,
+        start: 65 * DEFAULT_ALIGNMENT,
+        length: 10 * DEFAULT_ALIGNMENT,
+    };
+    let destination = HostRange {
+        host,
+        start: 70 * DEFAULT_ALIGNMENT,
+        length: 10 * DEFAULT_ALIGNMENT,
+    };
+    let step = PlanStep::mutating(
+        &snapshot,
+        created,
+        StepRanges {
+            written_table_extents: vec![],
+            consumed: vec![destination],
+            destroyed: vec![source],
         },
+        vec![],
+        StepRisk {
+            severity: Severity::DataMoving,
+            flags: StepFlags::default(),
+        },
+    )
+    .expect("nothing here is protected");
+    assert!(
+        step.affected().contains(&fs),
+        "the moved subtree is reached (ADR-0040)"
+    );
+    assert!(
+        step.affected().contains(&stray),
+        "the stray inside the source is reached"
+    );
+
+    // The orphan: reached, and refused — by the closure, and by the gate.
+    let (orphaned, _, created_o, _, orphan) = move_fixture(Stray::OrphanSignature);
+    let orphan = orphan.expect("orphan");
+    let refusal = PlanStep::mutating(
+        &orphaned,
+        created_o,
+        StepRanges {
+            written_table_extents: vec![],
+            consumed: vec![destination],
+            destroyed: vec![source],
+        },
+        vec![],
+        StepRisk {
+            severity: Severity::DataMoving,
+            flags: StepFlags::default(),
+        },
+    )
+    .expect_err("an indeterminate node inside the declared source refuses the step");
+    assert!(
+        matches!(refusal, partman_domain::model::step::StepRefusal::Reached { node, .. } if node == orphan),
+        "{refusal:?}"
+    );
+    assert!(
+        matches!(
+            plan_move(&orphaned, created_o, 80 * DEFAULT_ALIGNMENT).expect_err("refuses"),
+            PlanRefusal::CapabilityRefused { .. }
+        ),
+        "the planned move refuses at the gate: the closure decides before the solver does"
+    );
+
+    // The precise declaration would not have reached the orphan at all.
+    let precise = PlanStep::mutating(
+        &orphaned,
+        created_o,
+        StepRanges {
+            written_table_extents: vec![],
+            consumed: vec![HostRange {
+                host,
+                start: 75 * DEFAULT_ALIGNMENT,
+                length: 5 * DEFAULT_ALIGNMENT,
+            }],
+            destroyed: vec![HostRange {
+                host,
+                start: 65 * DEFAULT_ALIGNMENT,
+                length: 5 * DEFAULT_ALIGNMENT,
+            }],
+        },
+        vec![],
+        StepRisk {
+            severity: Severity::DataMoving,
+            flags: StepFlags::default(),
+        },
+    )
+    .expect(
+        "constructs: the orphan lies in the overlap, which the precise declaration never names",
+    );
+    assert!(
+        !precise.affected().contains(&orphan),
+        "trilemma (i): under the precise declaration the overlap is in neither set and the \
+         orphan inside it is reached by no arm"
+    );
+}
+
+// Requirements: PART-005, PART-009
+//   A move authors two boundaries. The start must sit on the default —
+//   nothing pre-existing coincides with a moved start — and a start equal
+//   to the current one is not a move; both refuse typed with the numbers
+//   judged.
+// Evidence: a_move_authors_an_aligned_start_and_is_a_move
+#[test]
+fn a_move_authors_an_aligned_start_and_is_a_move() {
+    let (snapshot, _, created, _, _) = move_fixture(Stray::None);
+    assert_eq!(
+        move_relocation(&snapshot, created, 65 * DEFAULT_ALIGNMENT),
+        Err(SolveRefusal::NotARelocation {
+            target: created,
+            start: 65 * DEFAULT_ALIGNMENT,
+        })
+    );
+    assert_eq!(
+        move_relocation(&snapshot, created, 80 * DEFAULT_ALIGNMENT + 512),
+        Err(SolveRefusal::UnalignedAuthoredBoundary {
+            target: created,
+            boundary: 80 * DEFAULT_ALIGNMENT + 512,
+            nearest_aligned_below: 80 * DEFAULT_ALIGNMENT,
+            coincident_candidate: 0,
+        })
+    );
+    // Off the end of the host's room: the tail region the scheme claims
+    // is not free.
+    let refusal =
+        move_relocation(&snapshot, created, 1020 * DEFAULT_ALIGNMENT).expect_err("refuses");
+    assert!(
+        matches!(refusal, SolveRefusal::DestinationNotFree { .. }),
+        "{refusal:?}"
+    );
+    // Exactly to the room's end: the destination may fill its room to
+    // the boundary of the region the scheme claims, and its end — on the
+    // default here — authors no consequence.
+    let planned = plan_move(&snapshot, created, 1013 * DEFAULT_ALIGNMENT).expect("fills the room");
+    assert!(
+        planned.consequences.is_empty(),
+        "{:?}",
+        planned.consequences
+    );
+}
+
+// Requirements: PART-005, PLAN-002
+//   The tripwire's successor. `no_representable_request_relocates_bytes`
+//   pinned that no sized request moved a pre-existing start and that no
+//   consequence named a signature; both were true until the vocabulary
+//   arrived, and ADR-0052 took the tripwire down in the same change as
+//   its producer. What survives is the property in its positive form,
+//   exhaustive over both vocabularies so a new request or consequence
+//   kind stops this compiling: the move is the **only** sized request
+//   that relocates a pre-existing start, and it relocates exactly the
+//   nodes it names — every other request leaves every start and frame
+//   byte-identical; and the release consequence is the **only** member
+//   of the vocabulary that states a hosted-content outcome. The
+//   silence of the other members is bounded here too: none of them says
+//   anything about a signature, and this vocabulary carries no partition
+//   type or role, so its silence is never a boot verdict.
+// Evidence: only_a_move_relocates_a_pre_existing_start
+#[test]
+#[allow(clippy::too_many_lines)]
+fn only_a_move_relocates_a_pre_existing_start() {
+    let (snapshot, host, aligned, misaligned) = solver_fixture();
+    let (move_snapshot, _, created, _, _) = move_fixture(Stray::None);
+    let requests = [
+        (
+            &snapshot,
+            SizedRequest::Create {
+                host,
+                size: 4 * DEFAULT_ALIGNMENT,
+            },
+        ),
+        (
+            &snapshot,
+            SizedRequest::Grow {
+                target: aligned,
+                new_length: 80 * DEFAULT_ALIGNMENT,
+            },
+        ),
+        (
+            &snapshot,
+            SizedRequest::Shrink {
+                target: aligned,
+                new_length: 32 * DEFAULT_ALIGNMENT,
+            },
+        ),
+        (
+            &move_snapshot,
+            SizedRequest::Move {
+                target: created,
+                new_start: 80 * DEFAULT_ALIGNMENT,
+            },
+        ),
     ];
-    for request in requests {
-        let ground = match request {
-            SizedRequest::Create { .. } => "placed in the host's free space",
-            SizedRequest::Grow { .. } => "extends the tail",
-            SizedRequest::Shrink { .. } => "truncates the tail",
+    for (base, request) in requests {
+        // Exhaustive: a fifth `SizedRequest` fails to compile here.
+        let relocates = match request {
+            SizedRequest::Create { .. }
+            | SizedRequest::Grow { .. }
+            | SizedRequest::Shrink { .. } => None,
+            SizedRequest::Move { target, new_start } => Some((target, new_start)),
         };
         let planned = plan_sized(
             request,
-            &snapshot,
+            base,
             &TechnologyLimits::default(),
             &RuntimeFacts::clean(),
             &identity(),
         )
-        .expect("the solver backs all three");
-
-        for (node, before) in &snapshot.facts().extents {
-            let Some(after) = planned.simulated.facts().extents.get(node) else {
-                continue;
-            };
-            assert_eq!(
-                before.start, after.start,
-                "{request:?} ({ground}) moved a pre-existing start; a request that \
-                 relocates bytes would give ADR-0018's duty its population"
-            );
-            assert_eq!(
-                before.host, after.host,
-                "{request:?} ({ground}) re-framed a pre-existing extent"
-            );
+        .expect("the solver backs all four");
+        for (node, before) in &base.facts().extents {
+            let after = planned.simulated.facts().extents.get(node);
+            match relocates {
+                Some((target, _))
+                    if *node == target
+                        || partman_domain::model::protection::names_within(
+                            base.topology(),
+                            *node,
+                            target,
+                        ) =>
+                {
+                    assert!(
+                        after.is_none(),
+                        "{request:?}: a relocated node renames — its old address is gone"
+                    );
+                }
+                _ => {
+                    let Some(after) = after else { continue };
+                    assert_eq!(
+                        before.start, after.start,
+                        "{request:?} moved a pre-existing start it does not name"
+                    );
+                    assert_eq!(
+                        before.host, after.host,
+                        "{request:?} re-framed a pre-existing extent"
+                    );
+                }
+            }
         }
     }
 
-    // Leg 3: nothing in the consequence vocabulary states a
-    // hosted-signature outcome. Exhaustive for the same reason as leg 2.
+    // The vocabulary: exhaustive for the same reason.
     let vocabulary = [
         Consequence::InheritedMisalignedStart {
             target: misaligned,
@@ -4055,16 +4623,26 @@ fn no_representable_request_relocates_bytes() {
             boundary: 65 * DEFAULT_ALIGNMENT,
             edge: StructuralEdge::HostEnd,
         },
+        Consequence::RelocationReleases {
+            target: created,
+            node: aligned,
+            content: ReleasedContent::Other("partition"),
+        },
     ];
     for fact in vocabulary {
-        let subject = match fact {
-            Consequence::InheritedMisalignedStart { .. } => "a start the plan leaves alone",
-            Consequence::CoincidentBoundary { .. } => "an authored boundary meeting an edge",
+        let states_hosted_content = match fact {
+            Consequence::InheritedMisalignedStart { .. }
+            | Consequence::CoincidentBoundary { .. } => false,
+            Consequence::RelocationReleases { .. } => true,
         };
+        assert_eq!(
+            fact.to_string().contains("released"),
+            states_hosted_content,
+            "{fact:?}: only the release consequence states a hosted-content outcome"
+        );
         assert!(
-            !fact.to_string().contains("signature"),
-            "{subject}: no consequence states a hosted-signature outcome, so the duty \
-             has nothing to be enumerated through until its producer exists"
+            !fact.to_string().contains("boot"),
+            "{fact:?}: this vocabulary is not a boot-consequence verdict, and says nothing that reads as one"
         );
     }
 }

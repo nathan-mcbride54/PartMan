@@ -30,7 +30,7 @@
 //! state, held by test.
 
 use partman_domain::model::naming::{NamingFields, NodeEntry, NodeId, TableRole};
-use partman_domain::model::protection::HostRange;
+use partman_domain::model::protection::{HostRange, names_within};
 use partman_domain::model::snapshot::TopologySnapshot;
 
 /// PART-009's default alignment: 1 MiB.
@@ -127,6 +127,61 @@ pub struct SolvedShrink {
     pub inherited_start: Option<InheritedFact>,
 }
 
+/// A solved move (ADR-0052): the source and destination extents in the
+/// host's address space, and how the authored end satisfies policy. The
+/// authored start is on the default by construction — it is refused
+/// otherwise — and the copy mode is a derivation over the two ranges
+/// (`source` and `destination` intersect, or they do not), never a
+/// stored value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SolvedMove {
+    /// The target's whole pre-move extent, S.
+    pub source: HostRange,
+    /// The target's whole post-move extent, D — same host, same length.
+    pub destination: HostRange,
+    /// The authored new end's placement.
+    pub end_placement: BoundaryPlacement,
+}
+
+impl SolvedMove {
+    /// Whether the two extents overlap: PART-005's journaled-chunk-copy
+    /// mode, derived from the ranges and stored nowhere (ADR-0052 D4).
+    #[must_use]
+    pub const fn overlaps(&self) -> bool {
+        self.source.start < self.destination.start + self.destination.length
+            && self.destination.start < self.source.start + self.source.length
+    }
+
+    /// The part of the source the move releases: S minus D, in the
+    /// host's address space. One contiguous range always — the two
+    /// extents have equal length, so their difference is the whole source
+    /// (disjoint) or one end of it (overlapping); an equal start is
+    /// refused before a `SolvedMove` exists.
+    #[must_use]
+    pub const fn released(&self) -> HostRange {
+        let source_end = self.source.start + self.source.length;
+        let destination_end = self.destination.start + self.destination.length;
+        if !self.overlaps() {
+            return self.source;
+        }
+        if self.destination.start > self.source.start {
+            // Moving up: the head of the source is released.
+            HostRange {
+                host: self.source.host,
+                start: self.source.start,
+                length: self.destination.start - self.source.start,
+            }
+        } else {
+            // Moving down: the tail of the source is released.
+            HostRange {
+                host: self.source.host,
+                start: destination_end,
+                length: source_end - destination_end,
+            }
+        }
+    }
+}
+
 /// Why the solver refused — each variant explaining itself with the
 /// numbers it judged.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -187,6 +242,39 @@ pub enum SolveRefusal {
         current: u64,
         /// The requested length.
         requested: u64,
+    },
+    /// A move to the start the target already has is not a move.
+    NotARelocation {
+        /// The target.
+        target: NodeId,
+        /// Its current start, which the request repeated.
+        start: u64,
+    },
+    /// The destination leaves the room available to it: it is not
+    /// contained in one contiguous run of the host's free space together
+    /// with the target's own source extent (ADR-0052 D3's
+    /// `D ⊆ free_extents(host) ∪ S`), so some of its bytes belong to
+    /// another node, to a scheme-claimed region, or to no host at all.
+    DestinationNotFree {
+        /// The target being moved.
+        target: NodeId,
+        /// The requested destination.
+        destination: HostRange,
+        /// The end of the contiguous room containing the destination's
+        /// start — zero where no room contains that start.
+        room_end: u64,
+    },
+    /// The destination intersects the extent of a node that is neither
+    /// the target nor named within it — content the move would overwrite
+    /// without carrying (ADR-0052 D3's scoped clause; the same
+    /// `names_within` predicate as D2's consumed-class exception).
+    DestinationOverlapsNode {
+        /// The target being moved.
+        target: NodeId,
+        /// The requested destination.
+        destination: HostRange,
+        /// The node in the way.
+        node: NodeId,
     },
     /// The host's own extent reaches past the device its own naming
     /// fields size, so the arithmetic's outer bound is not the device.
@@ -788,5 +876,124 @@ pub fn shrink_reduction(
         },
         end_placement: BoundaryPlacement::Aligned,
         inherited_start: inherited_start(target, own.start),
+    })
+}
+
+/// The source and destination extents for moving a target to
+/// `new_start` (ADR-0052 D1, D3). The destination is the target's own
+/// length placed at an authored start on the same host: the start must
+/// sit on PART-009's default (a start coincides with nothing pre-existing
+/// the way an end can — the target's own old start is not an edge the
+/// move keeps), the authored end is judged like every other authored
+/// end, and the destination must lie in one contiguous run of the host's
+/// free space **together with the source extent** — the source is room a
+/// move may reuse, which is what makes the overlapping mode PART-005
+/// mandates expressible — while intersecting no node that is neither the
+/// target nor named within it. Nothing here reads a stored copy mode: the
+/// mode is [`SolvedMove::overlaps`].
+///
+/// # Errors
+///
+/// [`SolveRefusal`], each variant carrying the numbers it judged.
+pub fn move_relocation(
+    snapshot: &TopologySnapshot,
+    target: NodeId,
+    new_start: u64,
+) -> Result<SolvedMove, SolveRefusal> {
+    let own = extent_of(snapshot, target).ok_or(SolveRefusal::TargetHasNoExtent { target })?;
+    if new_start == own.start {
+        return Err(SolveRefusal::NotARelocation {
+            target,
+            start: own.start,
+        });
+    }
+    if !new_start.is_multiple_of(DEFAULT_ALIGNMENT) {
+        return Err(SolveRefusal::UnalignedAuthoredBoundary {
+            target,
+            boundary: new_start,
+            nearest_aligned_below: (new_start / DEFAULT_ALIGNMENT) * DEFAULT_ALIGNMENT,
+            coincident_candidate: 0,
+        });
+    }
+    let destination = HostRange {
+        host: own.host,
+        start: new_start,
+        length: own.length,
+    };
+    let destination_end =
+        new_start
+            .checked_add(own.length)
+            .ok_or(SolveRefusal::DestinationNotFree {
+                target,
+                destination,
+                room_end: 0,
+            })?;
+
+    let geometry = host_geometry(snapshot, own.host)?;
+
+    // The room: the host's free ranges with the source added back,
+    // coalesced. `free` is ascending and disjoint by construction and the
+    // source is disjoint from every free range (it is a child extent the
+    // subtraction removed), so one sorted merge suffices.
+    let mut room: Vec<(u64, u64)> = geometry
+        .free
+        .iter()
+        .map(|range| (range.start, range.start + range.length))
+        .chain(std::iter::once((own.start, own.start + own.length)))
+        .collect();
+    room.sort_unstable();
+    let mut runs: Vec<(u64, u64)> = Vec::new();
+    for (start, end) in room {
+        match runs.last_mut() {
+            Some((_, run_end)) if start <= *run_end => *run_end = (*run_end).max(end),
+            _ => runs.push((start, end)),
+        }
+    }
+    let run = runs
+        .iter()
+        .copied()
+        .find(|(start, end)| *start <= new_start && new_start < *end);
+    let Some((_, room_end)) = run.filter(|(_, end)| destination_end <= *end) else {
+        return Err(SolveRefusal::DestinationNotFree {
+            target,
+            destination,
+            room_end: run.map_or(0, |(_, end)| end),
+        });
+    };
+
+    // The scoped clause: nothing the destination overlaps may belong to
+    // a node the move does not carry. Read over every extent framed on
+    // the host, so it is decided by the same facts the closure seeds
+    // from — a device-hosted signature inside the source is exactly the
+    // occupant the free-space subtraction cannot see once the source is
+    // added back.
+    let topology = snapshot.topology();
+    if let Some((node, _)) = snapshot.facts().extents.iter().find(|(node, extent)| {
+        **node != own.host
+            && **node != target
+            && extent.host == own.host
+            && extent.start < destination_end
+            && new_start < extent.start + extent.length
+            && !names_within(topology, **node, target)
+    }) {
+        return Err(SolveRefusal::DestinationOverlapsNode {
+            target,
+            destination,
+            node: *node,
+        });
+    }
+
+    let end_placement = authored_end_placement(
+        snapshot,
+        own.host,
+        target,
+        destination_end,
+        room_end,
+        geometry.ceiling,
+    )?;
+    Ok(SolvedMove {
+        source: own,
+        destination,
+        end_placement,
     })
 }

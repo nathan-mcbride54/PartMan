@@ -26,13 +26,21 @@
 //!   mutable identifiers, so at this granularity the topology
 //!   genuinely does not change, and identity is exact rather than
 //!   lazy.
-//! - **Everything else** — Move, Copy, Repair, Encrypt, Decrypt —
-//!   refuses as not representable until its vocabulary arrives
+//! - **Move** (sized, ADR-0052): the target and every node named within
+//!   it re-derive their addresses at the destination — a moved partition
+//!   renames (ADR-0019), so its content renames with it — with every
+//!   extent framed on the host translated by the move's offset; the
+//!   whole source range is destroyed for everything the move does not
+//!   carry, release being destruction (ADR-0018). Nothing the
+//!   destination overlaps survives that the solver did not already
+//!   refuse.
+//! - **Everything else** — unsized Move, Copy, Repair, Encrypt, Decrypt
+//!   — refuses as not representable until its vocabulary arrives
 //!   (encryption layers, copy destinations, and repair outcomes each
 //!   need model surface this increment does not invent).
 
 use partman_domain::model::naming::{NamingFields, NodeEntry, NodeId, derive_id};
-use partman_domain::model::protection::{Facts, HostRange};
+use partman_domain::model::protection::{Facts, HostRange, names_within};
 use partman_domain::model::snapshot::{SnapshotError, SnapshotKind, TopologySnapshot};
 use partman_domain::model::topology::Edge;
 
@@ -80,6 +88,215 @@ pub struct Effects {
     pub minted_partition: Option<HostRange>,
     /// Extent-length updates: (node, new length).
     pub resized: Vec<(NodeId, u64)>,
+    /// A relocation of one target and everything named within it
+    /// (ADR-0052). The moved set is exempt from `destroyed`, which for a
+    /// move carries the whole source range.
+    pub relocated: Option<Relocation>,
+}
+
+/// One relocation: the target moves from `source` to `destination` on
+/// the same host, carrying every node named within it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Relocation {
+    /// The moved node.
+    pub target: NodeId,
+    /// Its whole pre-move extent.
+    pub source: HostRange,
+    /// Its whole post-move extent.
+    pub destination: HostRange,
+}
+
+/// The nodes a relocation carries: the target and everything whose own
+/// name positions it inside the target, at any depth — read off the
+/// naming relation through the domain's own predicate, never the edge
+/// set.
+fn carried_by(capture: &TopologySnapshot, relocation: &Relocation) -> Vec<NodeId> {
+    let topology = capture.topology();
+    let mut carried = vec![relocation.target];
+    for entry in topology.entries() {
+        let id = entry.id();
+        if id != relocation.target && names_within(topology, id, relocation.target) {
+            carried.push(id);
+        }
+    }
+    carried
+}
+
+/// A node's naming fields with every referent in `map` replaced — the
+/// spelling of "renames with its host". Exhaustive over the variants that
+/// carry a referent, so a new referent-bearing kind stops this compiling
+/// rather than silently keeping a stale address.
+fn retarget(fields: &NamingFields, map: &[(NodeId, NodeId)]) -> NamingFields {
+    let swap = |id: &NodeId| {
+        map.iter()
+            .find(|(old, _)| old == id)
+            .map_or(*id, |(_, new)| *new)
+    };
+    match fields {
+        NamingFields::PhysicalDevice { .. }
+        | NamingFields::Aggregate { .. }
+        | NamingFields::MultipathNode { .. } => fields.clone(),
+        NamingFields::PartitionTable { parent, role } => NamingFields::PartitionTable {
+            parent: swap(parent),
+            role: role.clone(),
+        },
+        NamingFields::Partition {
+            parent_table,
+            start_offset,
+        } => NamingFields::Partition {
+            parent_table: swap(parent_table),
+            start_offset: *start_offset,
+        },
+        NamingFields::BackingSignature {
+            host,
+            family,
+            primary_offset,
+        } => NamingFields::BackingSignature {
+            host: swap(host),
+            family: family.clone(),
+            primary_offset: *primary_offset,
+        },
+        NamingFields::FileSystem {
+            host,
+            kind,
+            superblock_offset,
+        } => NamingFields::FileSystem {
+            host: swap(host),
+            kind: kind.clone(),
+            superblock_offset: *superblock_offset,
+        },
+        NamingFields::EncryptionLayer { backing_signature } => NamingFields::EncryptionLayer {
+            backing_signature: swap(backing_signature),
+        },
+        NamingFields::Volume {
+            producer,
+            name,
+            role,
+        } => NamingFields::Volume {
+            producer: swap(producer),
+            name: name.clone(),
+            role: role.clone(),
+        },
+        NamingFields::BackingExtent { host, locator } => NamingFields::BackingExtent {
+            host: swap(host),
+            locator: locator.clone(),
+        },
+        NamingFields::ConflictingTableEntry {
+            table,
+            view_role,
+            entry_start,
+        } => NamingFields::ConflictingTableEntry {
+            table: swap(table),
+            view_role: view_role.clone(),
+            entry_start: *entry_start,
+        },
+    }
+}
+
+/// The relocation applied to the node set: the moved partition takes its
+/// destination start, every carried node re-derives its address through
+/// the renamed referents to a fixpoint, and every carried extent framed
+/// on the host is translated by the move's offset. Returns the old→new
+/// address map, or the derivation error.
+fn relocate(
+    capture: &TopologySnapshot,
+    relocation: &Relocation,
+    nodes: &mut [(NodeId, NamingFields)],
+    facts: &mut Facts,
+) -> Result<Vec<(NodeId, NodeId)>, SimulateRefusal> {
+    let carried = carried_by(capture, relocation);
+    let derive = |fields: &NamingFields| {
+        derive_id(fields).map_err(|error| SimulateRefusal::Assembly {
+            error: format!("relocated node must derive an address: {error:?}"),
+        })
+    };
+
+    // The target itself: a partition renames by its start offset. Any
+    // other kind reaching here has no positional field to move, which is
+    // a refusal, not a silent no-op — the solver admits only extent-
+    // bearing targets, and the only extent-bearing kind whose address is
+    // its position is the partition.
+    let mut map: Vec<(NodeId, NodeId)> = Vec::new();
+    for (id, fields) in nodes.iter_mut() {
+        if *id != relocation.target {
+            continue;
+        }
+        let NamingFields::Partition { parent_table, .. } = fields else {
+            return Err(SimulateRefusal::NotRepresentable {
+                effect: "only a partition's address is its position; moving another kind renames nothing",
+            });
+        };
+        let renamed = NamingFields::Partition {
+            parent_table: *parent_table,
+            start_offset: relocation.destination.start,
+        };
+        let new_id = derive(&renamed)?;
+        map.push((*id, new_id));
+        *fields = renamed;
+        *id = new_id;
+    }
+
+    // Everything named within the target, to a fixpoint: a child renames
+    // once its referent has, and its own dependents follow.
+    loop {
+        let before = map.len();
+        for (id, fields) in nodes.iter_mut() {
+            if !carried.contains(id) || map.iter().any(|(old, _)| old == id) {
+                continue;
+            }
+            let renamed = retarget(fields, &map);
+            if renamed == *fields {
+                continue;
+            }
+            let new_id = derive(&renamed)?;
+            map.push((*id, new_id));
+            *fields = renamed;
+            *id = new_id;
+        }
+        if map.len() == before {
+            break;
+        }
+    }
+
+    // Facts: carried extents framed on the host translate; the target's
+    // own becomes the destination exactly. Everything else keyed by a
+    // renamed node re-keys.
+    let host = relocation.source.host;
+    let mut translated = Facts::default();
+    let rename = |id: &NodeId| {
+        map.iter()
+            .find(|(old, _)| old == id)
+            .map_or(*id, |(_, new)| *new)
+    };
+    for (node, extent) in &facts.extents {
+        let mut extent = *extent;
+        if *node == relocation.target {
+            extent = relocation.destination;
+        } else if carried.contains(node) && extent.host == host {
+            let end = extent.start + extent.length;
+            if relocation.destination.start >= relocation.source.start {
+                extent.start += relocation.destination.start - relocation.source.start;
+            } else {
+                extent.start -= relocation.source.start - relocation.destination.start;
+            }
+            debug_assert!(
+                end >= relocation.source.start,
+                "carried extent lies in the source"
+            );
+        }
+        translated.extents.insert(rename(node), extent);
+    }
+    for (node, transport) in &facts.transports {
+        translated.transports.insert(rename(node), *transport);
+    }
+    for (node, count) in &facts.member_counts {
+        translated.member_counts.insert(rename(node), *count);
+    }
+    for (node, state) in &facts.table_states {
+        translated.table_states.insert(rename(node), state.clone());
+    }
+    *facts = translated;
+    Ok(map)
 }
 
 fn overlaps(range: &HostRange, other: &HostRange) -> bool {
@@ -105,10 +322,19 @@ fn destroyed_closure(
     effects: &Effects,
     nodes: &[(NodeId, NamingFields)],
 ) -> Vec<NodeId> {
+    // A relocation's carried set is exempt from the destroyed sweep: the
+    // move declares its whole source destroyed (ADR-0052 D2, so the
+    // closure reaches everything there), and what it carries is re-minted
+    // at the destination rather than removed.
+    let carried: Vec<NodeId> = effects
+        .relocated
+        .as_ref()
+        .map_or_else(Vec::new, |relocation| carried_by(capture, relocation));
     let mut removed: Vec<NodeId> = Vec::new();
     for (node, extent) in &capture.facts().extents {
         let is_self_extent_of_host = *node == extent.host;
         if !is_self_extent_of_host
+            && !carried.contains(node)
             && effects
                 .destroyed
                 .iter()
@@ -219,10 +445,11 @@ pub fn simulate(
     }
 
     // Rebuild the node, edge, and fact sets.
-    let mut simulated_nodes: Vec<NamingFields> = nodes
+    let mut facts = surviving_facts(capture, effects, &removed);
+    let mut surviving: Vec<(NodeId, NamingFields)> = nodes
         .iter()
         .filter(|(id, _)| !removed.contains(id))
-        .map(|(_, fields)| fields.clone())
+        .cloned()
         .collect();
     let mut simulated_edges: Vec<Edge> = capture
         .topology()
@@ -232,7 +459,21 @@ pub fn simulate(
         .copied()
         .collect();
 
-    let mut facts = surviving_facts(capture, effects, &removed);
+    // The relocation: renamed nodes, translated facts, re-pointed edges.
+    if let Some(relocation) = &effects.relocated {
+        let map = relocate(capture, relocation, &mut surviving, &mut facts)?;
+        let rename = |id: NodeId| {
+            map.iter()
+                .find(|(old, _)| *old == id)
+                .map_or(id, |(_, new)| *new)
+        };
+        for edge in &mut simulated_edges {
+            edge.source = rename(edge.source);
+            edge.target = rename(edge.target);
+        }
+    }
+    let mut simulated_nodes: Vec<NamingFields> =
+        surviving.into_iter().map(|(_, fields)| fields).collect();
     if let Some((fields, table, placed)) = minted {
         let new_id = derive_id(&fields).map_err(|error| SimulateRefusal::Assembly {
             error: format!("minted partition must derive an address: {error:?}"),

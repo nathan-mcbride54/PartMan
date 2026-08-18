@@ -7,6 +7,21 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-060 increment 11: the move — PART-005's destination vocabulary
+  (ADR-0052, spec 17.3.0, on issue #371).** `SizedRequest::Move { target,
+  new_start }`; the solver's destination rule with the source counted as
+  room and the scoped not-named-within clause; the copy mode derived from
+  the ranges; the conservative `destroyed = S`, `consumed = D` declaration;
+  the simulation renaming the moved partition and what it names at the
+  destination; the `MoveDraft` reversal resolved under the unchanged
+  step-output contract; and `Consequence::RelocationReleases` enumerating
+  what a move releases without carrying, its negative space bounded. The
+  `no_representable_request_relocates_bytes` tripwire is replaced by
+  `only_a_move_relocates_a_pre_existing_start`, PART-005's traceability
+  rows now tracing to tests that exercise a move. Ten mutations, each
+  proven applied, all killed. `Copy` stays source-class and unplanned; the
+  unsized `Move` still refuses as not representable.
+
 - **WP-010: `names_within` is public, and the `consumed` doc-comment says
   what is enforced (ADR-0052; no spec change beyond 17.3.0's row).**
   ADR-0052 names `names_within` as the predicate for both halves of a
