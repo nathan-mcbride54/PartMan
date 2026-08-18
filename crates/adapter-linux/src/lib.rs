@@ -1,4 +1,4 @@
-//! The WP-L100 Linux read-only inventory adapter (increment 3a).
+//! The WP-L100 Linux read-only inventory adapter (increment 4a).
 //!
 //! The ordinary Linux client contract, as a pure library: a bounded read seam
 //! over sysfs attribute files and the udev database, the MODEL-004
@@ -12,11 +12,13 @@
 //! nothing.
 //!
 //! **What this adapter reads, and why only this.** The contract is the
-//! ordinary client's — attribute files under the sysfs block class and the
-//! udev database records — because those are the two **interfaces**
-//! `docs/quality/observability.md` establishes as client-readable on real
-//! hardware. Both are file reads. No block device is opened and no subprocess
-//! is launched, at any privilege.
+//! ordinary client's — attribute files under the sysfs block class, the udev
+//! database records, and (since increment 4a) the kernel's procfs mount and
+//! swap tables — because those are the three **interfaces**
+//! `docs/quality/observability.md` establishes as client-readable on a real
+//! host (the third by the 2026-08-18 detection-rows sitting, DR1 and DR2).
+//! All are file reads. No block device is opened and no subprocess is
+//! launched, at any privilege.
 //!
 //! The claim is about the interfaces, not about every field read through
 //! them, and the difference is load-bearing: a field can be read through a
@@ -49,14 +51,25 @@
 //!   position an authored value occupies rather than reading a client's guess.
 //! - **No layered topology.** Devices are addressed and absorbed (increment
 //!   3a), but nothing here builds a partition-table node, and therefore no
-//!   partition, file system, signature, or volume node either.
+//!   partition, file system, signature, or volume node either. Host-assembled
+//!   block nodes — device-mapper, mdraid, loop — are **recognised and
+//!   withdrawn** from the physical-device set (increment 4a, on DR3's
+//!   markers): reported with their kind, named nothing, not operands, until
+//!   a naming-designation round says which `NamingFields` kind each is and
+//!   from which source it names (increment 4b).
 //!   `NamingFields::PartitionTable` carries a `TableRole` — a scheme — and
 //!   this contract reads no table bytes. ADR-0036's forward obligation put
 //!   the choice to this increment in terms, and the package document records
 //!   the branch taken and the measured grounds for it. The rest of the
-//!   layered topology is increment 3b's, LIN-006's detection layer increment
-//!   4's, and the CAP-004 runtime facts increment 5's. The engine that judges
-//!   any of it is WP-050's.
+//!   layered topology is increment 3b's, LIN-006's detection layer's
+//!   topology half increment 4b's, and the CAP-004 runtime facts increment
+//!   5's. The engine that judges any of it is WP-050's.
+//! - **No mount node and no swap node.** The mount and swap tables are read
+//!   (increment 4a, `state`) and reported as attributed state-layer
+//!   observations keyed to admitted devices by `major:minor` — MODEL-005's
+//!   body-stability rule and ADR-0005 Rule 2 place them in the envelope, so
+//!   they are never topology and never body content (gitea#1004). The
+//!   Section 5 `Mount` type is WP-010's and arrives with its first consumer.
 //! - **No free-extent derivation.** INV-004 forbids presenting it "where the
 //!   host declares a table scheme the build cannot name", and this contract
 //!   declares none. It is offered as an explicit refusal rather than omitted,
@@ -91,6 +104,7 @@ pub mod devices;
 pub mod naming;
 pub mod observation;
 pub mod reach;
+pub mod state;
 
 #[cfg(test)]
 mod tests;

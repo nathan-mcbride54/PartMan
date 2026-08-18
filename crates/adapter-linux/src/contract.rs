@@ -50,6 +50,17 @@ pub fn udev_root() -> PathBuf {
     PathBuf::from("/run/udev/data")
 }
 
+/// The compiled procfs root the production contract reads (increment 4a).
+///
+/// The third interface, entered the way the first two were — by a row: the
+/// DR1/DR2 cells of the 2026-08-18 detection-rows sitting establish that
+/// `/proc/self/mountinfo` and `/proc/swaps` are client-readable in the
+/// documented shape.
+#[must_use]
+pub fn procfs_root() -> PathBuf {
+    PathBuf::from("/proc")
+}
+
 /// The injected read seam.
 ///
 /// Shaped on WP-035's `DeviceSource` rather than a second idiom: object-safe,
@@ -355,9 +366,31 @@ pub enum RecordRead {
 /// indistinguishable from one the interface never carried.
 pub const RECORD_LIMIT: usize = 65_536;
 
+/// Fail-closed bound on one state-table read, in bytes (increment 4a).
+///
+/// The mount table is a record with one line per mount rather than one
+/// device's keys, and a container host can carry hundreds of lines, so it
+/// has its own bound rather than borrowing [`RECORD_LIMIT`]. Exceeding it
+/// refuses: a truncated table would drop mounts silently, and a dropped
+/// mount is indistinguishable from an unmounted device — the fail-open
+/// SAFE-005 exists to prevent.
+pub const TABLE_LIMIT: usize = 1 << 20;
+
 /// Read one record file under [`RECORD_LIMIT`].
 #[must_use]
 pub fn read_record(source: &dyn ContractSource, path: &Path) -> RecordRead {
+    read_record_bounded(source, path, RECORD_LIMIT)
+}
+
+/// Read one state table under [`TABLE_LIMIT`]. The same three answers as
+/// [`read_record`], because a table that is not present is an interface
+/// that did not answer, never an empty table.
+#[must_use]
+pub fn read_table(source: &dyn ContractSource, path: &Path) -> RecordRead {
+    read_record_bounded(source, path, TABLE_LIMIT)
+}
+
+fn read_record_bounded(source: &dyn ContractSource, path: &Path, limit: usize) -> RecordRead {
     let raw = match source.read_bytes(path) {
         Ok(raw) => raw,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -369,7 +402,7 @@ pub fn read_record(source: &dyn ContractSource, path: &Path) -> RecordRead {
             };
         }
     };
-    if raw.len() > RECORD_LIMIT {
+    if raw.len() > limit {
         return RecordRead::OverLimit { seen: raw.len() };
     }
     let Ok(text) = String::from_utf8(raw) else {

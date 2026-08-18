@@ -138,10 +138,11 @@ const fn nothing_distinguished(contract: ContractStatement) -> ReachDeclaration 
 pub const REACH: ReachDeclaration = nothing_distinguished(ContractStatement {
     state: "implemented-reaches-no-table-state",
     reference: "a partition-table key entering this contract's field roster",
-    detail: "this contract reads sysfs block-class attributes and udev database records, and \
-             its roster carries no partition-table key at all — so no state above is \
-             distinguishable through it, and the state itself is authored by the privileged \
-             helper rather than determined here",
+    detail: "this contract reads sysfs block-class attributes, udev database records, and \
+             the kernel's procfs mount and swap tables, and its roster carries no \
+             partition-table key at all — so no state above is distinguishable through it, \
+             and the state itself is authored by the privileged helper rather than \
+             determined here",
 });
 
 /// Render the declaration as JSON.

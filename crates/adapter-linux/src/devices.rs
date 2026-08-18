@@ -17,6 +17,12 @@
 //! (`NamingFields::PartitionTable` and its role discriminant), increment 3's
 //! again. And it computes no removability, no boot role, and no identity
 //! strength.
+//!
+//! **What increment 4a adds here is one classification and one key.** Every
+//! admitted device carries a [`DeviceKind`] read from the DR3 markers, so a
+//! loop, dm, or md node is reported as host-assembled and is no longer named
+//! a physical device; and its `major:minor` rides along so the state tables
+//! (`crate::state`) can resolve a mount or a swap to it. Neither is a name.
 
 use std::path::Path;
 
@@ -80,8 +86,100 @@ pub const UDEV_KEYS: &[&str] = &[
 pub const PARTITION_ATTRIBUTE: &str = "partition";
 
 /// The attribute naming the device's major:minor pair, which locates its
-/// record in the database.
+/// record in the database — and, since increment 4a, keys the device to the
+/// state tables' `major:minor` field.
 pub const DEVICE_NUMBER_ATTRIBUTE: &str = "dev";
+
+/// The sysfs directories that positively mark a block node as host-assembled
+/// (increment 4a), in the order they are consulted.
+///
+/// **DR3** (the 2026-08-18 detection-rows sitting) establishes that `dm/`
+/// exists under a device-mapper node, `md/` under an mdraid array, `loop/`
+/// under a loop device, and none of the three under a plain whole disk, all
+/// readable to the client. A marker is a directory, so its presence is
+/// established by listing it — the same seam every other read here uses.
+pub const KIND_MARKERS: &[(&str, HostAssembledKind)] = &[
+    ("dm", HostAssembledKind::DeviceMapper),
+    ("md", HostAssembledKind::Mdraid),
+    ("loop", HostAssembledKind::Loop),
+];
+
+/// The host-assembled kinds this contract can positively mark.
+///
+/// Closed at three because DR3 measured three. A kind this build cannot
+/// mark is not "plain"; it is whatever the plain-disk admission below makes
+/// of it, which is why the plain arm is admission on the positively
+/// determined **absence** of every marker and nothing weaker.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HostAssembledKind {
+    /// A device-mapper node — a logical volume, an opened LUKS container, or
+    /// any other dm target. Which one is DR3's `dm/uuid` prefix and is
+    /// increment 4b's to read.
+    DeviceMapper,
+    /// An mdraid array.
+    Mdraid,
+    /// A loop device, backed by a file this contract reads by name only
+    /// (DR7; issue #94's standing).
+    Loop,
+}
+
+impl HostAssembledKind {
+    /// The marker's compile-time label, for reports.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::DeviceMapper => "device-mapper",
+            Self::Mdraid => "mdraid",
+            Self::Loop => "loop",
+        }
+    }
+}
+
+/// What kind of block node an admitted whole device is (increment 4a).
+///
+/// The rule is the `partition` discipline again, applied to three markers:
+/// a marker positively present makes the node host-assembled; every marker
+/// positively **absent** makes it plain; a marker whose presence could not
+/// be determined — a listing that failed for any reason other than
+/// not-found — makes the node indeterminate, because admitting it as plain
+/// would name a loop or dm device a physical device on the strength of a
+/// read that did not answer. Increment 3a admitted every such node as an
+/// operand-eligible `PhysicalDevice`; this is what withdraws that.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DeviceKind {
+    /// Every marker positively absent: a whole disk this adapter may name.
+    Plain,
+    /// A marker positively present: reported, never named as a physical
+    /// device, not a plan operand until a naming designation names its kind.
+    HostAssembled(HostAssembledKind),
+    /// A marker's presence could not be determined. Not plain, not an
+    /// operand — the fail-closed direction.
+    Indeterminate {
+        /// Which marker did not answer, and how.
+        reason: String,
+    },
+}
+
+/// Classify one admitted whole device by its kind markers.
+#[must_use]
+pub fn device_kind(source: &dyn ContractSource, directory: &Path) -> DeviceKind {
+    let mut undetermined: Option<String> = None;
+    for (marker, kind) in KIND_MARKERS {
+        match source.list_dir(&directory.join(marker)) {
+            Ok(_) => return DeviceKind::HostAssembled(*kind),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                if undetermined.is_none() {
+                    undetermined = Some(format!("the `{marker}` marker did not answer: {error}"));
+                }
+            }
+        }
+    }
+    match undetermined {
+        Some(reason) => DeviceKind::Indeterminate { reason },
+        None => DeviceKind::Plain,
+    }
+}
 
 /// The block class directory, relative to the sysfs root.
 pub const BLOCK_CLASS: &str = "class/block";
@@ -130,6 +228,12 @@ pub struct Device {
     pub properties: Vec<(String, PropertyObservations)>,
     /// ADR-0018's transport answer. Always [`transport_class`].
     pub transport: TransportClass,
+    /// The kind markers' verdict (increment 4a).
+    pub kind: DeviceKind,
+    /// The device's `major:minor` as the `dev` attribute reported it, or
+    /// `None` where the attribute did not answer. The key the state tables
+    /// resolve against; never a name and never body content.
+    pub device_number: Option<String>,
 }
 
 /// The outcome of one enumeration.
@@ -213,11 +317,18 @@ fn read_device(
             single(observe(Interface::Sysfs, &read)),
         ));
     }
-    read_database_half(source, directory, udev_root, answered, &mut properties);
+    let device_number =
+        match read_attribute(source, &directory.join(DEVICE_NUMBER_ATTRIBUTE), answered) {
+            AttributeRead::Text(number) => Some(number),
+            _ => None,
+        };
+    read_database_half(source, udev_root, device_number.as_deref(), &mut properties);
     Device {
         selector,
         properties,
         transport: transport_class(),
+        kind: device_kind(source, directory),
+        device_number,
     }
 }
 
@@ -229,14 +340,11 @@ fn read_device(
 /// answered and said nothing.
 fn read_database_half(
     source: &dyn ContractSource,
-    directory: &Path,
     udev_root: &Path,
-    answered: &InterfaceAnswered,
+    device_number: Option<&str>,
     properties: &mut Vec<(String, PropertyObservations)>,
 ) {
-    let AttributeRead::Text(number) =
-        read_attribute(source, &directory.join(DEVICE_NUMBER_ATTRIBUTE), answered)
-    else {
+    let Some(number) = device_number else {
         return unavailable_half("the device number attribute did not answer", properties);
     };
     let record = read_record(source, &udev_root.join(format!("b{number}")));
