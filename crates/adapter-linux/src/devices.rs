@@ -228,6 +228,11 @@ pub struct Device {
     pub properties: Vec<(String, PropertyObservations)>,
     /// ADR-0018's transport answer. Always [`transport_class`].
     pub transport: TransportClass,
+    /// The block-class entry this device was enumerated under — a
+    /// session-local **locator** for re-reading its directory (increment
+    /// 4b reads an array's `md/` attributes through it), never a name:
+    /// kernel entry names renumber across boots and carry no identity.
+    pub entry: String,
     /// The kind markers' verdict (increment 4a).
     pub kind: DeviceKind,
     /// The device's `major:minor` as the `dev` attribute reported it, or
@@ -296,6 +301,7 @@ pub fn enumerate(source: &dyn ContractSource, sysfs_root: &Path, udev_root: &Pat
             udev_root,
             &answered,
             selector(devices.len()),
+            name,
         ));
     }
     Enumeration::Listed { devices }
@@ -308,6 +314,7 @@ fn read_device(
     udev_root: &Path,
     answered: &InterfaceAnswered,
     selector: String,
+    entry: String,
 ) -> Device {
     let mut properties = Vec::new();
     for (property, relative) in SYSFS_FIELDS {
@@ -327,6 +334,7 @@ fn read_device(
         selector,
         properties,
         transport: transport_class(),
+        entry,
         kind: device_kind(source, directory),
         device_number,
     }

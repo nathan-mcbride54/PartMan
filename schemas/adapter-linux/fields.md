@@ -305,8 +305,12 @@ claim about a medium.
 | Kind markers | `dm/`, `md/`, `loop/` under the block-class node | **DR3** — present on a device-mapper node, an mdraid array, and a loop device respectively, absent on a plain disk, readable to the client. Read as directory listings; a listing that fails for any reason other than not-found leaves the kind **indeterminate**, and the node is refused rather than admitted as plain | VM (DR) |
 | The device number, as a key | `dev` | Read since increment 2 to locate the database record; since 4a also the key the mount table resolves against. **DR9** — byte-equal across a mount cycle with the rest of the roster and the record | VM (DR) |
 
+| The array's self-reported member count (4b, first slice) | `md/raid_disks` on an `md/`-marked device | **DR5** — `2` on both arrays, direct, agreeing with the database's `MD_DEVICES`; ADR-C5's self-reported count, never a count of members observed. A value that is not a decimal count is refused, never guessed | VM (DR) |
+| The kernel's membership listing (4b, first slice) | `slaves/` on an `md/`-marked device | **DR4** — names the array's members as the kernel reports them; a **per-mapping** relation (an LV over a two-PV VG listed one PV), so it is reported as an observation and never turned into an edge | VM (DR) |
+
 What this roster deliberately does **not** carry: `dm/name`, `dm/uuid`,
-`md/*`, `slaves/`, `holders/`, `loop/backing_file`, `/sys/fs/btrfs` — all
-measured (DR3–DR8, DR10) and all increment 4b's, because reading them
-serves the topology half, which waits on a naming-designation round; and
-no derived boot or system role.
+`md/uuid`, `holders/`, `loop/backing_file`, `/sys/fs/btrfs`,
+`ID_FS_VERSION`, `md/metadata_version` — the first five measured (DR3,
+DR4, DR7, DR8, DR10) and waiting on the naming-designation cells DR11–DR14
+(gitea#1007), the last two unmeasured and filed there; and no derived boot
+or system role.
