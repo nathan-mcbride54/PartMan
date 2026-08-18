@@ -488,7 +488,15 @@ fn frame_root(topology: &Topology, id: NodeId) -> Option<NodeId> {
 /// Whether `node`'s own name positions it inside `host`, at any depth: a
 /// file system naming a partition, a signature naming a partition whose
 /// table names a device. Never true of a node for itself.
-pub(crate) fn names_within(topology: &Topology, node: NodeId, host: NodeId) -> bool {
+///
+/// Public since ADR-0052, which names this predicate for both halves of a
+/// relocation: the consumed-class exception (a relocation's consumed
+/// range may intersect the extent of the step's own target and of the
+/// nodes named within it, and no other's) and the solver's destination
+/// rule that mirrors it. Read off the naming relation, never the edge
+/// set — the same reason [`validate_facts`]'s frame rule is.
+#[must_use]
+pub fn names_within(topology: &Topology, node: NodeId, host: NodeId) -> bool {
     named_ancestry(topology, node).contains(&host)
 }
 
@@ -617,7 +625,16 @@ pub enum IndeterminateGround {
 pub struct StepRanges {
     /// The exact table extents written (never the parent device).
     pub written_table_extents: Vec<HostRange>,
-    /// Free ranges consumed (verified free by the constructor).
+    /// Ranges consumed. ADR-0018 defines the class as free ranges
+    /// intersecting no existing node's extent — with ADR-0052's
+    /// exception for a relocation, whose consumed range is the moving
+    /// target's whole destination and may intersect the target's own
+    /// extent and those named within it. **The constructor verifies
+    /// neither**: freeness is the solver's judgment (WP-060's
+    /// destination and placement rules), and this type carries what the
+    /// solver decided. Corrected under ADR-0052; the earlier comment
+    /// claimed a check [`crate::model::step::PlanStep::mutating_declared`]
+    /// never performed.
     pub consumed: Vec<HostRange>,
     /// Ranges destroyed or released.
     pub destroyed: Vec<HostRange>,
