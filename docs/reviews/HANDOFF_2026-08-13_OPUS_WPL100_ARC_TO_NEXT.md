@@ -9,9 +9,17 @@ arc plans this session wrote before their first lines of code are
 `WP-L100_ASSIGNMENT_PLAN_2026-08-12.md` and
 `WP-L100_INCREMENT_2_PLAN_2026-08-13.md`.
 
-> Untracked local artifact, docs/reviews convention: never stage into a
-> commit; `verify-change-ownership` refuses it — and caught exactly that
-> mistake once this session, via `git add -A docs`.
+> Committed session record. `docs/reviews/**` is in WP-000's `owned-paths`
+> block (`docs/work-packages/WP-000.md`) and lands in its own `Work-Package:
+> WP-000` commit, never bundled with code. As first written this document
+> carried the banner "untracked local artifact, docs/reviews convention:
+> never stage into a commit; `verify-change-ownership` refuses it". That is
+> false — the gate refuses `docs/reviews` bundled into a code change under
+> another package, not the path itself — measured in
+> `HANDOFF_2026-08-15_OPUS_CLEANUP_TO_NEXT.md` §6.1 and swept 2026-08-18.
+> (What that session's `git add -A docs` tripped can only have been the
+> true rule — a WP-000 path staged into that session's WP-L100 code commit
+> — since the gate admits the path under its own package.)
 
 ## 0. Repository state
 
