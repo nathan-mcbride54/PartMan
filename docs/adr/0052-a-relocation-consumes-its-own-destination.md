@@ -226,9 +226,11 @@ bound snapshot can see it*; it carries no partition type or role, and its
 silence on a bios_grub partition or an ESP is **not** a boot-consequence
 verdict and asserts nothing. **The "checking boot consequences"
 justification is dropped**, not gated on a future INV-004 dependency.
-Carriage is *delivered-in-planner, pending-in-body*: "in the plan" is
-§6's hashed consequence-text item, whose arrival is the WP-010/WP-060
-joint slice already named at `plan.rs:11-13`.
+Carriage was *delivered-in-planner, pending-in-body* at this ADR's
+acceptance and is **delivered** since 2026-08-18: "in the plan" is §6's
+hashed consequence-text item, and the jointly-sequenced consequence-text
+slice (WP-010 slice 3p, plan body version 5; WP-060 increment 12) states
+the vocabulary's sentences into it as a canonical set.
 
 **D7 — where it lands.**
 
@@ -302,7 +304,12 @@ mutations proven applied and killed per the standing rule.
 
 ## What stays open
 
-- **#371** — the duty is delivered by the increment; the issue re-measures.
+- **#371** — the duty was delivered by WP-060 increment 11 and its
+  last rider — "in the plan" being the hashed body's §6 consequence text
+  — by the jointly-sequenced consequence-text slice (WP-010 slice 3p,
+  plan body version 5, and WP-060 increment 12; PRs #461/#462, arc head
+  `0378bd5`, 2026-08-18). D6's carriage sentence reads *delivered*;
+  the issue closed on that merge.
 - **#370** — unmoved; a byte-preserving relocation of a *protected*
   structure still refuses, and relief still needs a preservation proof
   this vocabulary does not supply.
