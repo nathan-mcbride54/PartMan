@@ -494,7 +494,7 @@ fn snapshot_for(name: &str) -> TopologySnapshot {
 }
 
 fn plan_for(name: &str) -> (OperationPlan, TopologySnapshot) {
-    if name == "plan-v4-table-repair-acknowledged" {
+    if name == "plan-v5-table-repair-acknowledged" {
         return table_repair_plan();
     }
     let (snapshot, dev_id) = plan_base();
@@ -502,7 +502,7 @@ fn plan_for(name: &str) -> (OperationPlan, TopologySnapshot) {
     let plan = match name {
         // The identity-record coverage the retired version-1 vectors
         // carried (SAFE-003, plan-body.md §2), on the live version.
-        "plan-v4-bound-identity-wipe" => {
+        "plan-v5-bound-identity-wipe" => {
             let mut identities = BTreeMap::new();
             identities.insert(
                 dev_id,
@@ -518,7 +518,11 @@ fn plan_for(name: &str) -> (OperationPlan, TopologySnapshot) {
                     witness: None,
                 },
             );
-            OperationPlan::assemble_linked(
+            // Two consequence sentences, given out of canonical order
+            // and once repeated, so the vector pins the set form the
+            // producer emits (slice 3p): sorted by canonical bytes,
+            // unique.
+            OperationPlan::assemble_linked_stated(
                 b"vec-plan-bound".to_vec(),
                 1_700_000_000,
                 &snapshot,
@@ -533,10 +537,16 @@ fn plan_for(name: &str) -> (OperationPlan, TopologySnapshot) {
                         reason: ImpossibilityReason::DataDestroyed,
                     }],
                 },
+                vec![
+                    "the whole device is wiped; every structure on it ceases to be referenced"
+                        .to_owned(),
+                    "no reversal restores destroyed bytes".to_owned(),
+                    "no reversal restores destroyed bytes".to_owned(),
+                ],
             )
             .expect("assembles")
         }
-        "plan-v4-wipe-impossible" => OperationPlan::assemble_linked(
+        "plan-v5-wipe-impossible" => OperationPlan::assemble_linked(
             b"vec-plan-v3".to_vec(),
             1_700_000_000,
             &snapshot,
@@ -553,7 +563,7 @@ fn plan_for(name: &str) -> (OperationPlan, TopologySnapshot) {
             },
         )
         .expect("assembles"),
-        "plan-v4-forward-create-draft-linked" => {
+        "plan-v5-forward-create-draft-linked" => {
             let draft = draft_create_reversal();
             OperationPlan::assemble_linked(
                 b"vec-plan-fwd".to_vec(),
@@ -702,9 +712,9 @@ fn print_new_vectors() {
         &indeterminate_table_snapshot().0.body_value().expect("body"),
     );
     for name in [
-        "plan-v4-wipe-impossible",
-        "plan-v4-forward-create-draft-linked",
-        "plan-v4-bound-identity-wipe",
+        "plan-v5-wipe-impossible",
+        "plan-v5-forward-create-draft-linked",
+        "plan-v5-bound-identity-wipe",
     ] {
         let (plan, _) = plan_for(name);
         entry(
@@ -715,7 +725,7 @@ fn print_new_vectors() {
     }
     let (repair, _) = table_repair_plan();
     entry(
-        "plan-v4-table-repair-acknowledged",
+        "plan-v5-table-repair-acknowledged",
         Some("snapshot-plan-base-indeterminate-table"),
         &repair.body_value().expect("body"),
     );

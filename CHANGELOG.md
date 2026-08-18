@@ -7,6 +7,24 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-010 slice 3p: plan body version 5 — Section 6's consequence text
+  rides the body (no spec change; ADR-0023's form applied).** The body
+  gains a required, set-valued `consequences` array of non-empty
+  sentences — sorted by canonical bytes (length-first) and unique,
+  empty where the planner has nothing to state, pinned empty in a reversal
+  draft — through the fully-stated `OperationPlan::assemble_linked_stated`;
+  the delegating `assemble_linked` states none, so every existing emitter
+  stays valid. The boundary requires the item and refuses an unsorted or
+  repeated set, an empty sentence, a non-text element, and a draft that
+  states any. Version 4 is retired on the v2/v3 precedent (one change
+  window, no emitter outside it, no surviving artifact) and refuses at
+  decode; the plan vectors are regenerated as v5 — the identity-bound
+  one now states two sentences so the set form is pinned cross-language
+  — and the TypeScript suite reproduces all forty-five unchanged. Seven
+  mutations, each proven applied, all killed. Jointly sequenced with
+  WP-060 increment 12, which states the planner's sentences into the
+  body; until it lands the planner emits version 5 with an empty set.
+
 - **WP-060 increment 11: the move — PART-005's destination vocabulary
   (ADR-0052, spec 17.3.0, on issue #371).** `SizedRequest::Move { target,
   new_start }`; the solver's destination rule with the source counted as

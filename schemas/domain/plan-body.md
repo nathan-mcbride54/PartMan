@@ -1,6 +1,6 @@
 # The operation-plan body format
 
-- Spec version: 12.9.1
+- Spec version: 17.3.0
 - Requirement IDs: MODEL-003, MODEL-005, MODEL-006, PLAN-004, PLAN-005,
   PLAN-006, PLAN-007, PLAN-008, SAFE-003, Section 6
 - Decided by: `docs/adr/0012-non-goal-protection-is-unrepresentable.md`
@@ -19,8 +19,10 @@
   delivered by WP-010 increment 3 slices 3h, 3i, and 3j (version 1,
   since retired), the jointly-sequenced ADR-0022 and ADR-0024 schema
   changes (slices 3l and 3m, version 3, since retired), the
-  jointly-sequenced PLAN-005 schema change (slice 3n, version 4), and
-  the slice-3o version-1 retirement
+  jointly-sequenced PLAN-005 schema change (slice 3n, version 4, since
+  retired), the slice-3o version-1 retirement, and the jointly-sequenced
+  consequence-text schema change (slice 3p, version 5, with WP-060
+  increment 12)
 - Underlying byte profile: `pce/1` (unchanged)
 - Shared vectors: `schemas/domain/body-vectors.json`, `plans` section
 
@@ -31,21 +33,25 @@ own (outcome text, privileges, environment requirements, backup actions,
 capability versions) are absent here and land as WP-050/WP-060 deliver
 them — their absence is the increment's recorded boundary, not an
 omission of this document. The reversal item is absent no longer: the
-linked form carries it (ADR-0022). Neither is the cancellation item:
-version 4 carries PLAN-005's per-step declaration (slice 3n, under the
-WP-060 recorded cancellation-class decision).
+linked form carries it (ADR-0022). Neither is the cancellation item
+(PLAN-005's per-step declaration, slice 3n, under the WP-060 recorded
+cancellation-class decision), nor the consequence text: version 5
+carries Section 6's user-facing consequence sentences as a set (slice
+3p, in ADR-0023's form — text, never typed hashed carriage of the
+facts).
 
 ## 0. The one live version, and the retired ones
 
-**Version 4** (the linked form, ADR-0022 + ADR-0024 + PLAN-005 under
-the WP-060 recorded cancellation-class decision) is the sole version
-the boundary emits or accepts: Section 6's required `reversal` linkage
-item, a required `preconditions` array on every step, a required
-`class` on every step (ADR-0024's typed repair family), and a required
-`cancellation` on every step (PLAN-005's declaration, closed at the
-requirement's own three words). A body with a Reversible step whose
-linkage is not a draft or reapply-forward statement refuses (**no
-draft, no Reversible**).
+**Version 5** (the linked form, ADR-0022 + ADR-0024 + PLAN-005 under
+the WP-060 recorded cancellation-class decision + Section 6's
+consequence text in ADR-0023's form) is the sole version the boundary
+emits or accepts: Section 6's required `reversal` linkage item, a
+required `consequences` set of sentences, a required `preconditions`
+array on every step, a required `class` on every step (ADR-0024's typed
+repair family), and a required `cancellation` on every step (PLAN-005's
+declaration, closed at the requirement's own three words). A body with
+a Reversible step whose linkage is not a draft or reapply-forward
+statement refuses (**no draft, no Reversible**).
 
 **Every other version is retired and refuses at decode** (MODEL-003's
 explicit-migration discipline — nothing is silently coerced), each
@@ -57,11 +63,15 @@ its last emitters (this crate's own tests and the two v1 vectors) were
 migrated, and `OperationPlan::assemble` went with it: a plan without a
 linkage is now unconstructible, not merely refused. The identity-bound
 vector's SAFE-003 coverage survived the retirement as
-`plan-v4-bound-identity-wipe`. **Versions 2 and 3** — the linked form
-without the class field, and without the cancellation field — each
-existed for exactly one change window (slices 3l and 3m), gained no
-emitter outside it and no surviving artifact (version 3's vectors were
-regenerated as version 4 in the change that retired it).
+`plan-v5-bound-identity-wipe`, which since slice 3p also states two
+consequence sentences so the set form is pinned cross-language.
+**Versions 2, 3 and 4** — the linked form without the class field,
+without the cancellation field, and without the consequence text —
+each existed for exactly one change window (slices 3l, 3m and 3n),
+gained no emitter outside it and no surviving artifact (each version's
+vectors were regenerated as the next in the change that retired it;
+version 4's emitter was the planner through the domain's own
+`assemble_linked`, which emits version 5 from the same call).
 
 **A prediction never binds.** `OperationPlan::from_canonical_body`
 refuses a `partman.topology-snapshot.simulated` snapshot as its binding
@@ -80,6 +90,7 @@ base before reading a single field.
 | `identities` | Map | Bound device identities keyed by the target's derived address in lowercase hex (Section 6; §2). Empty in a draft — a draft binds identities at validation, and carrying them in a prediction would be a client-authored claim. |
 | `steps` | Array | The step graph in dependency order — a semantic array, never a set (MODEL-006 distinguishes exactly this). One step map per step (§3). |
 | `reversal` | Map, required | Section 6's reversal linkage (§4). |
+| `consequences` | Array of Text, required, **set-valued** | Section 6's user-facing consequence text (slice 3p): the plan's consequence sentences, each non-empty, sorted by each sentence's complete canonical `pce/1` bytes — **length-first**, so a shorter sentence precedes a longer one whatever their letters — and unique (`canonical-collections.md`); the producer sorts and dedups, the consumer refuses an unsorted or repeated element as a set violation and an empty sentence outright. **Empty is lawful** and asserts nothing beyond it (ADR-0052 D6's bound). Text and only text: ADR-0023 rejected typed hashed carriage of the facts, which are in the bound snapshot already. In a reversal **draft** the set is **pinned empty** — a draft is a prediction whose consequences are authored when it binds — and a draft body claiming any refuses at decode. |
 
 Unknown keys refuse at the typed boundary.
 
@@ -195,8 +206,11 @@ sole constructor — the same closure over the snapshot's authenticated
 facts, the same acknowledgment law (ADR-0012's second verification row),
 and re-checks every precondition. A tampered range, a smuggled
 acknowledgment, a step whose reach the closure refuses, a severity-1
-claim with no reversal to stand on, or a decayed precondition never
-parses into a plan. The derived protection verdict is committed through
+claim with no reversal to stand on, a decayed precondition, or a
+malformed consequence set (unsorted, repeated, empty-sentenced, or
+absent) never parses into a plan. The sentences themselves are not
+recomputed here — they are prose for UI-005 and REC-010; what the
+helper recomputes under HLP-002 is the topology and the closure. The derived protection verdict is committed through
 the body-carried inputs the closure reads (topology, facts), not stored
 beside them — ADR-0016's substance in the anti-assertion shape ADR-C4
 set.
