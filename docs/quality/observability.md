@@ -11,7 +11,7 @@
   recorded harness defects, and **M10 taken the same day** in an ephemeral
   hosted runner, where the helper reads at byte level what the client is
   denied. Only M9 remains `not established`, Apple Silicon having no Fusion
-  Drive. **One preregistered set is `not yet taken`: the Linux detection rows DR1–DR10, filed by WP-L100 increment 4 as gitea#1005 and preregistered 2026-08-18 below; every other preregistered cell on every platform is taken.**
+  Drive. **No preregistered cell on any platform is now `not yet taken`** — the Linux detection rows DR1–DR10 (filed by WP-L100 increment 4 as gitea#1005) were preregistered and taken 2026-08-18, valid on the second invocation, all ten established.
   The macOS second-reader readback was discharged 2026-08-08 by an
   independent reader session: both sitting 2 transcripts and the M10
   transcript retrieved through their locators and rehashed, every digest
@@ -4344,7 +4344,7 @@ on the Proxmox host, recomputed on the workstation — all three
 agreeing. Instrument digests recorded in-transcript before any
 capture.
 
-### The detection-rows sitting — preregistered 2026-08-18; not yet taken
+### The detection-rows sitting — preregistered 2026-08-18; taken the same day; valid on its second invocation
 
 Ten cells, declared before execution per this document's method. They are
 the rows WP-L100 increment 4 filed on this package as gitea issue **#1005**
@@ -4389,16 +4389,16 @@ settles, and records each command's exit status:
 
 | # | Cell | Command / API | Privilege | Distinguishing condition | Invalidation conditions | Result |
 | --- | --- | --- | --- | --- | --- | --- |
-| DR1 | The mount table | `cat /proc/self/mountinfo`, double capture; the lines whose source is a provisioned object identified by `major:minor` against `/sys/class/block/*/dev` | client baseline | Readable to the client; one line per mount; the field shape as `proc(5)` documents it — mount id, parent id, `major:minor`, root, mount point, options, optional fields, `-`, fs type, source, super options — holding for the whole-disk, loop, LVM, and Btrfs mounts and for the guest's root; `major:minor` as the keying field | read denied; a provisioned mount missing; a line whose separator or field count departs from the shape | not yet taken |
-| DR2 | The swap table | `cat /proc/swaps`, double capture | client baseline | Readable; header line plus one row per active swap naming device path, type, size, used, priority; the provisioned swap present | read denied; the row absent | not yet taken |
-| DR3 | Kind markers | `ls /sys/class/block/<dev>/` on one dm, one md, one loop, and one plain whole device; `cat` of `dm/name`, `dm/uuid`, `dm/suspended` on every `dm-*`; double capture, exit statuses | client baseline | Which of `dm/`, `md/`, `loop/` exist on each kind and are absent on the plain device; `dm/uuid` carrying `LVM-` for a logical volume and `CRYPT-LUKS2-` for an opened container; readable to the client | a marker present on the plain device; a marker unreadable rather than absent | not yet taken |
-| DR4 | Membership, both directions | `ls /sys/class/block/<member>/holders/` and `ls /sys/class/block/<assembled>/slaves/` for every provisioned member and assembled device, double capture | client baseline | Each member's `holders/` names its assembled device and each assembled device's `slaves/` names its members, symmetrically; the LUKS device's `slaves/` names its disk; the loop's `slaves/` is empty | an asymmetry; a listing denied | not yet taken |
-| DR5 | The self-reported array count | `cat md/level`, `md/raid_disks`, `md/array_state` on each `md*`; the udev record `b<major>:<minor>` of each array read for `MD_LEVEL`, `MD_DEVICES`, `MD_UUID`; double capture | client baseline | `raid_disks` reporting the array's own member count (2) through sysfs, and the database carrying the same as `MD_DEVICES`; which of the two interfaces answers, and whether they agree | either interface unreadable; the values disagreeing | not yet taken |
-| DR6 | The cached signature view of members | udev record `b<major>:<minor>` of each LVM member, md member, LUKS disk, Btrfs member, and the ext4 disk, read for `ID_FS_TYPE`, `ID_FS_USAGE`, `ID_FS_UUID`; double capture | client baseline | `LVM2_member`, `linux_raid_member`, `crypto_LUKS`, `btrfs`, `ext4` as the cached type on the respective devices; whether the two Btrfs members carry one `ID_FS_UUID`; whether md members carry the array's UUID as `ID_FS_UUID` | a record absent (`unavailable`, recorded as such, never as a negative); a type other than the provisioned one | not yet taken |
-| DR7 | The loop surface | `cat loop/backing_file`, `loop/offset`, `loop/autoclear` on the file-backed loop and on one snapd loop; double capture | client baseline | Readable to the client; `backing_file` naming the path the setup actor attached; the snapd loop's `backing_file` naming a `.snap` path. **By-name evidence only, on #94's terms**: nothing binds the node to a verified handle, and the row claims what the client sees, not what the device is bound to | read denied; the value not the attached path | not yet taken |
-| DR8 | Btrfs multi-device | `ls /sys/fs/btrfs/`, then `ls /sys/fs/btrfs/<uuid>/devices/`; double capture | client baseline | One entry for the provisioned file system whose `devices/` names both members, keyed by the same UUID DR6 reads on each member | the directory denied or absent; the members not both listed | not yet taken |
-| DR9 | Byte stability across a mount cycle | For the ext4 whole disk: `dev`, `size`, `ro`, `removable`, `queue/logical_block_size`, `queue/physical_block_size`, `device/vendor`, `device/model`, `device/wwid` (the contract's own roster; `stat` and `inflight` are I/O counters and deliberately outside the claim) and the full udev record, captured mounted → after `umount` → after re-mount, `udevadm settle` before each | client baseline; root performs the cycle | Every captured byte equal across the three states — the input-layer half of ADR-0005 Rule 2's mount arm | any byte differing; a capture during which the mount state was not as declared | not yet taken |
-| DR10 | Per-unit distinctness and stability | `dm/uuid` of both logical volumes and both opened containers, `MD_UUID` of both arrays, `ID_FS_UUID` of the members and file systems; captured, then after root deactivates and re-assembles every unit (`vgchange -an`/`-ay`, `mdadm --stop`/`--assemble --scan`, `cryptsetup close`/`open`, unmount and remount), captured again — keyed by unit name, since minor numbers may move | client baseline; root performs the re-assembly | Distinct per unit; byte-equal across the re-assembly. ADR-0034's three criteria — value, stability, per-unit distinctness — for a designation round this sitting does not make | equal across two units; a value moving across re-assembly; a unit failing to re-assemble (that unit `void`, the others stand) | not yet taken |
+| DR1 | The mount table | `cat /proc/self/mountinfo`, double capture; the lines whose source is a provisioned object identified by `major:minor` against `/sys/class/block/*/dev` | client baseline | Readable to the client; one line per mount; the field shape as `proc(5)` documents it — mount id, parent id, `major:minor`, root, mount point, options, optional fields, `-`, fs type, source, super options — holding for the whole-disk, loop, LVM, and Btrfs mounts and for the guest's root; `major:minor` as the keying field | read denied; a provisioned mount missing; a line whose separator or field count departs from the shape | **Established.** Readable (`rc 0`, 35 lines); every line the declared shape with exactly one optional field on the provisioned mounts (`shared:N`); the whole-disk ext4 (`8:192`), the loop ext4 (`7:6`) and the LVM ext4 (`253:0`) each match one line by `major:minor`, the guest's root (`8:1`, `/dev/sda1`) and its `/boot/efi` (`8:15`) likewise. **One finding the plan must carry:** the Btrfs mount's `major:minor` is an anonymous device (`0:43`), not either member's — its line names the member only in the *source* field (`/dev/sdk`) — so a mount is keyed to a Btrfs file system by source path or by DR8's UUID, never by `major:minor` |
+| DR2 | The swap table | `cat /proc/swaps`, double capture | client baseline | Readable; header line plus one row per active swap naming device path, type, size, used, priority; the provisioned swap present | read denied; the row absent | **Established** on the second invocation: readable; header plus one row per active swap; the provisioned swap present as `/dev/sdn partition 1048572 0 -2`. The first invocation's setup actor mis-invoked `mkswap` (`-q` is not an option on util-linux 2.37) and enabled no swap, so DR2 was `void(instrument)` there and every other cell agreed byte-for-byte between the two invocations on every value that is not a fresh UUID |
+| DR3 | Kind markers | `ls /sys/class/block/<dev>/` on one dm, one md, one loop, and one plain whole device; `cat` of `dm/name`, `dm/uuid`, `dm/suspended` on every `dm-*`; double capture, exit statuses | client baseline | Which of `dm/`, `md/`, `loop/` exist on each kind and are absent on the plain device; `dm/uuid` carrying `LVM-` for a logical volume and `CRYPT-LUKS2-` for an opened container; readable to the client | a marker present on the plain device; a marker unreadable rather than absent | **Established.** `dm/` on the dm node, `md/` on the array, `loop/` on the loop device, none of the three on the plain disk; every marker readable; `dm/name` the mapper name; `dm/uuid` `LVM-<vg-uuid><lv-uuid>` on a logical volume and `CRYPT-LUKS2-<uuid>-<name>` on an opened container; `dm/suspended` `0` |
+| DR4 | Membership, both directions | `ls /sys/class/block/<member>/holders/` and `ls /sys/class/block/<assembled>/slaves/` for every provisioned member and assembled device, double capture | client baseline | Each member's `holders/` names its assembled device and each assembled device's `slaves/` names its members, symmetrically; the LUKS device's `slaves/` names its disk; the loop's `slaves/` is empty | an asymmetry; a listing denied | **Established, and narrower than the plan assumed.** Symmetric where a mapping exists: each md member's `holders/` names its array and the array's `slaves/` names both members; each LUKS disk's `holders/` names its `dm-N` and that node's `slaves/` names the disk; the loop's `slaves/` is empty. **But the relation is per *mapping*, not per aggregate:** the 256 MiB LV over a two-member VG lives on the first PV, so its `slaves/` names one disk and the second PV has *no* holder — `slaves/`/`holders/` report which devices a dm table currently maps, and VG membership is not derivable from them; DR6's `LVM2_member` view is what names a member. Btrfs members have no holder at all |
+| DR5 | The self-reported array count | `cat md/level`, `md/raid_disks`, `md/array_state` on each `md*`; the udev record `b<major>:<minor>` of each array read for `MD_LEVEL`, `MD_DEVICES`, `MD_UUID`; double capture | client baseline | `raid_disks` reporting the array's own member count (2) through sysfs, and the database carrying the same as `MD_DEVICES`; which of the two interfaces answers, and whether they agree | either interface unreadable; the values disagreeing | **Established through both interfaces, agreeing.** `md/level` `raid1`, `md/raid_disks` `2`, `md/array_state` `clean` on both arrays; the udev record carrying `MD_LEVEL=raid1`, `MD_DEVICES=2`, `MD_UUID`, `MD_NAME=<host>:<name>`; sysfs `raid_disks` and database `MD_DEVICES` equal |
+| DR6 | The cached signature view of members | udev record `b<major>:<minor>` of each LVM member, md member, LUKS disk, Btrfs member, and the ext4 disk, read for `ID_FS_TYPE`, `ID_FS_USAGE`, `ID_FS_UUID`; double capture | client baseline | `LVM2_member`, `linux_raid_member`, `crypto_LUKS`, `btrfs`, `ext4` as the cached type on the respective devices; whether the two Btrfs members carry one `ID_FS_UUID`; whether md members carry the array's UUID as `ID_FS_UUID` | a record absent (`unavailable`, recorded as such, never as a negative); a type other than the provisioned one | **Established.** `LVM2_member`/`raid` on the three PVs, `linux_raid_member`/`raid` on the four md members, `crypto_LUKS`/`crypto` on both LUKS disks, `btrfs`/`filesystem` on both Btrfs members, `ext4`/`filesystem` on the ext4 disk; the two Btrfs members carry **one** `ID_FS_UUID` (equal to DR8's directory name); each md member's `ID_FS_UUID` is the array's `MD_UUID` re-spelled (`55552071-2274-894e-…` beside `55552071:2274894e:…`); the plain disk's record is present with `ID_FS_TYPE=` **empty** and `ID_FS_USAGE`/`ID_FS_UUID` absent — a positively determined absence, never `unavailable` |
+| DR7 | The loop surface | `cat loop/backing_file`, `loop/offset`, `loop/autoclear` on the file-backed loop and on one snapd loop; double capture | client baseline | Readable to the client; `backing_file` naming the path the setup actor attached; the snapd loop's `backing_file` naming a `.snap` path. **By-name evidence only, on #94's terms**: nothing binds the node to a verified handle, and the row claims what the client sees, not what the device is bound to | read denied; the value not the attached path | **Established.** Readable: `backing_file` names the attached path verbatim (`/var/tmp/dr-loop.img`), `offset` `0`, `autoclear` `0`; the snapd loop's `backing_file` names its `.snap` path with `autoclear` `1`. By-name evidence on #94's terms, as declared |
+| DR8 | Btrfs multi-device | `ls /sys/fs/btrfs/`, then `ls /sys/fs/btrfs/<uuid>/devices/`; double capture | client baseline | One entry for the provisioned file system whose `devices/` names both members, keyed by the same UUID DR6 reads on each member | the directory denied or absent; the members not both listed | **Established.** `/sys/fs/btrfs/` lists the file-system UUID (beside `features`), and `<uuid>/devices/` names both members `sdk sdl`; the UUID equals DR6's `ID_FS_UUID` on each member |
+| DR9 | Byte stability across a mount cycle | For the ext4 whole disk: `dev`, `size`, `ro`, `removable`, `queue/logical_block_size`, `queue/physical_block_size`, `device/vendor`, `device/model`, `device/wwid` (the contract's own roster; `stat` and `inflight` are I/O counters and deliberately outside the claim) and the full udev record, captured mounted → after `umount` → after re-mount, `udevadm settle` before each | client baseline; root performs the cycle | Every captured byte equal across the three states — the input-layer half of ADR-0005 Rule 2's mount arm | any byte differing; a capture during which the mount state was not as declared | **Established.** The contract roster (`dev`, `size`, `ro`, `removable`, both block sizes, `device/vendor`, `device/model`) and the full udev record (1078 bytes, one SHA-256) **byte-equal across mounted → unmounted → remounted**, each state double-captured; the client's own mountinfo view moved 1 → 0 → 1 lines. `device/wwid` on this virtio-scsi disk is a **failed read** (`EINVAL`, `rc 1`) in every state — the attribute exists and reading it fails, ADR-0034's *unreadable* arm rather than its *absent* arm, and equally stable |
+| DR10 | Per-unit distinctness and stability | `dm/uuid` of both logical volumes and both opened containers, `MD_UUID` of both arrays, `ID_FS_UUID` of the members and file systems; captured, then after root deactivates and re-assembles every unit (`vgchange -an`/`-ay`, `mdadm --stop`/`--assemble --scan`, `cryptsetup close`/`open`, unmount and remount), captured again — keyed by unit name, since minor numbers may move | client baseline; root performs the re-assembly | Distinct per unit; byte-equal across the re-assembly. ADR-0034's three criteria — value, stability, per-unit distinctness — for a designation round this sitting does not make | equal across two units; a value moving across re-assembly; a unit failing to re-assemble (that unit `void`, the others stand) | **Established.** `dm/uuid` distinct per logical volume and per container, `MD_UUID` distinct per array, `ID_FS_UUID` distinct per member and per file system; every value **byte-equal across the full deactivate/re-assemble cycle** (`vgchange -an/-ay`, `cryptsetup close/open`, `mdadm --stop/--assemble --scan`, unmount/remount). Minor numbers **moved** (`lv_a` dm-0 → dm-1, `lv_b` dm-1 → dm-0), which is why the cell keys by unit; the md records' bytes changed across re-assembly while `MD_UUID` did not, so a whole-record digest is not a stable identity and the key is |
 
 Validity gates, all required: fresh VM and recorded environment (the
 `l-env.sh` lineage: distro, kernel, udev version and ruleset digest,
@@ -4425,6 +4425,59 @@ readback rows said of ADR-0034); no fixture media and no passthrough.
 Values recorded here are shapes, presence, and equality; no UUID, serial,
 or path from the guest is written into this document beyond what a cell's
 distinguishing condition needs.
+
+**The sitting, 2026-08-18 (UTC).** Two disposable VMs on the same
+Proxmox host, fresh jammy image against the pinned digest, kernel
+`5.15.0-186-generic` before and after on both, never rebooted, fourteen
+1 GiB virtio-scsi disks with serials `DR01`–`DR14` and no passthrough
+(asserted by `qm config`); `muser1` created with no supplementary groups
+(`CapEff` all-zero, recorded per capture) as the client baseline through
+`runuser`; the client instrument at `/usr/local/lib/dr-client.sh` and the
+setup actor's `dr-root.sh`/`dr-env.sh` with digests recorded in-transcript
+before any capture; the setup actor's packages (`lvm2 2.03.11`, `mdadm 4.2`,
+`cryptsetup 2.4.3`, `btrfs-progs 5.16.2`) installed after cloud-init
+settled and named in the environment record; every provisioning command's
+exit status in-transcript. **The first invocation (VMID 9467) is void for
+DR2 only** — the setup actor's `mkswap -q` is not an option on util-linux
+2.37, so no swap was enabled — and is retained under the keep-revisions
+practice; its nine other cells agree with the cited run on every value
+that is not a fresh UUID. **The cited run is the second invocation, VMID
+9468**, on the amended instrument (`dr-root.sh` `0b7dd41b…`, the client
+and environment instruments unchanged at `a747a3f4…` and `6288ddfa…`):
+every capture pair byte-stable, DR9's three states equal, DR10's
+re-assembly equal per unit, all ten cells established, `snapd` present
+and its loops recorded, `udisks2` inactive. Teardown verified
+2026-08-18T19:55:53Z: no VM config, no storage volume, no LVM volume;
+VMID 9467 likewise destroyed after its transcript was retrieved.
+
+**Custody.** Both transcripts, both host environment records, teardown
+proofs, drive logs and every instrument archived at
+`%USERPROFILE%\PartMan-evidence\2026-08-18-dr-vmid9467-9468\` on the
+operator workstation, custodian Nate McBride. Cited transcript SHA-256
+`89ce59acdea4ca51690a7729c9d6070122beac636fea18a051c8580450a90ac5`
+(48732 bytes), computed in the guest, recomputed on the Proxmox host by
+the teardown script, recomputed on the workstation — all three agreeing;
+the void first invocation's transcript
+`0f7cd58901abeb21ced9b4ce42a25a97cd5e6cdd4b850728b239b9b6b31e09b5`
+(48591 bytes), guest and workstation agreeing.
+
+**What these rows now let WP-L100 increment 4 do, and what they do
+not.** The state-layer half has its interfaces: `/proc/self/mountinfo`
+and `/proc/swaps` are client-readable in the documented shape, keyed by
+`major:minor` except for a Btrfs mount (DR1), and the contract's own
+roster and record are mount-cycle-stable (DR9). The withdrawal has its
+markers: `dm/`, `md/`, `loop/` positively present on host-assembled
+nodes and positively absent on a plain disk (DR3). The topology half has
+its inputs and one correction: `slaves/`/`holders/` is a per-mapping
+relation, not aggregate membership (DR4); the cached signature view
+names member technology and the array count travels through both
+interfaces (DR5, DR6); the loop and Btrfs surfaces read (DR7, DR8); and
+`dm/uuid`, `MD_UUID`, `ID_FS_UUID` are distinct per unit and stable
+across re-assembly (DR10) — the inputs a naming-designation round for
+host-assembled kinds can now rest on, which this record does not make.
+Values written here are shapes, presence, equality, and the two
+public-format examples the conditions needed; no serial or path from the
+guest beyond the declared `/var/tmp/dr-loop.img`.
 
 ## Reproducing this
 
