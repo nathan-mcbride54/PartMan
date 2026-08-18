@@ -314,6 +314,19 @@ claim about a medium.
 | The loop backing path (4b, second slice; reported, no node) | `loop/backing_file` on a `loop/`-marked device | **DR7**, **DR13** — the attached path verbatim; two loops on one file report equal bytes; **ADR-0053** designates it for the `BackingExtent` 3b's host node will let a loop have. By-name evidence on #94's terms | VM (DR, DR2) |
 
 What this roster deliberately does **not** carry: `holders/`,
-`/sys/fs/btrfs`, `ID_FS_VERSION`, `md/metadata_version` — measured (DR4,
-DR8, DR14) and waiting on the member-signature round (no interface reports
-a signature offset, DR14) and on 3b; and no derived boot or system role.
+`ID_FS_TYPE`/`ID_FS_USAGE`/`ID_FS_VERSION` as observations — measured
+(DR4, DR6, DR14), the third slice's, and waiting on DR15 (gitea#1009);
+`/sys/fs/btrfs`, `md/metadata_version` — measured (DR8, DR14) and waiting
+on 3b; and no derived boot or system role.
+
+**No signature node from this client, on any row.** The member-signature
+offset round (`docs/reviews/LINUX_MEMBER_SIGNATURE_OFFSET_ROUND_2026-08-18.md`)
+found that no client interface reports a signature's primary offset (DR14)
+and that the family is client-readable per member only from the udev cache,
+which reports exactly the stale signature on a stale pair (L4/L10). A
+`BackingSignature`'s two naming fields are the helper's byte layer's
+(ADR-0018; ADR-0019 `:252-256`), so this adapter builds no
+`BackingSignature`, no `Backing` edge and no `EncryptionLayer`; they enter
+the Linux inventory at HLP-002's re-discovery. `holders/` is what the client
+reads instead — a state-layer fact, never a name — and it is not in this
+roster until DR15 measures its liveness.
