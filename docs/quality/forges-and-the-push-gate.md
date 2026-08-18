@@ -20,17 +20,45 @@ and GitGuardian is a GitHub App with no Gitea equivalent. That is an
 arrangement, not a migration in progress: merges are decided by GitHub's eleven
 required contexts.
 
-## Issue and pull-request numbers
+## Where issues and pull requests live
 
-The migration preserved numbering. Issues and pull requests **1–434 carry the
-same number on both forges**, so every `#N` an ADR or work-package document
-cites resolves on either one.
+**Issues open on Gitea.** GitHub's issue tracker stays open and readable,
+because the record cites those numbers and they must keep resolving — but
+nothing new is filed there.
 
-Gitea's index was then advanced past GitHub's range, so a Gitea-native object
-cannot take a number GitHub has already used. This matters more than it looks:
-a record that says "the sitting was named in the pull request body before the
-merge" is a checkable claim, and a number that silently resolved to a different
-object on the wrong forge would make such a record **false rather than broken**.
+**Pull requests stay on GitHub**, because merges gate on its eleven required
+contexts. That is not a transitional state: the record permanently cites issues
+on one forge and pull requests on the other, and that is the price of gating
+where the runners are.
+
+## Reading a `#N` citation
+
+The migration preserved numbering, and Gitea's index was then advanced past
+GitHub's range. The three ranges are therefore **disjoint**, and the number
+alone says which forge holds the object:
+
+| Range | Where | What |
+| --- | --- | --- |
+| `#1`–`#434` | **both**, the same object | everything migrated |
+| `#435`–`#1001` | GitHub only | pull requests, and anything filed there after the migration |
+| `#1002`– | Gitea only | issues opened after the cut |
+
+No prefix syntax is needed and none is used: a bare `#N` is unambiguous, which
+is why every existing citation in the ADRs and work-package documents keeps
+working untouched.
+
+**The property has an expiry condition, and it is better stated than
+discovered.** It holds only while GitHub's counter stays below 1002. GitHub is
+at `#445`, so there are 556 numbers of headroom. If it ever approaches that,
+Gitea's `issue_index` must be advanced again **before** the ranges meet — after
+they meet, a bare `#N` is ambiguous, and no later renumbering repairs the
+citations already written.
+
+Why this matters more than it looks: a record that says "the sitting was named
+in the pull request body before the merge" is a checkable claim. A number that
+silently resolved to a different object on the wrong forge would make such a
+record **false rather than broken**, and a false record is the kind that
+survives review.
 
 ## CI runs in two tiers
 
