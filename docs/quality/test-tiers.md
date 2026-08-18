@@ -1,7 +1,8 @@
 # Test tiers
 
 The test-tier definitions come from Section 11.3 of
-`AGENT_BUILD_SPEC.md` 13.0.0.
+`AGENT_BUILD_SPEC.md` 13.0.0. That section has not changed since, so this is a
+pin rather than a version this page has fallen behind.
 
 ## Tier 1
 
