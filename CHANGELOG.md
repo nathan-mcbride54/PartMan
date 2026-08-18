@@ -7,6 +7,24 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **spec-change 17.4.0: the Linux host-assembled naming designations
+  (ADR-0053).** ADR-0034's revisit condition fired in its sanctioned
+  direction on the DR1–DR14 rows: the (Linux, Aggregate, mdraid)
+  designator is sysfs `md/uuid`, the (Linux, Volume, LVM2 logical volume)
+  name is `dm/name`, the (Linux, `BackingExtent`, loop) path is
+  `loop/backing_file` — each bytes verbatim, trailing newline included,
+  each a direct source measured for value, stability across re-assembly
+  and a reboot, and per-unit distinctness. The LVM2 volume-group id stays
+  undesignated (not client-readable, L7 — every volume group a
+  designator-absent aggregate, its volumes indeterminate non-operands
+  until the helper names it) and so does the dm-crypt mapping name (DR12:
+  the opener's argument). Rejected and recorded: udev `MD_UUID` (the
+  cache, spelling the same bits differently), `dm/uuid` as designator or
+  name, member `ID_FS_UUID`, the mapper name for dm-crypt, entry names
+  (renumbered across one reboot), and holding for the member-signature
+  question, which gets its own round (DR14: no interface reports an
+  offset). Minor under §0.1; no requirement text moves.
+
 - **WP-035: the naming-designation cells DR11–DR14, preregistered and
   taken 2026-08-18 (gitea#1007), all four established.** On the DR
   apparatus with one declared reboot leg (kernel pinned by `grub-reboot`,
