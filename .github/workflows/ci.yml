@@ -166,7 +166,33 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # `cargo install` rebuilds both tools from source on every run, and at
+      # these pinned versions that is byte-for-byte the same work every time.
+      # On `windows-2025` it took 11m33s of a 12m00s gate, which made this job
+      # the critical path of every pull request while the policy check it
+      # exists to run finishes in seconds. The key names both exact versions
+      # and the runner image, so a version bump or an image change misses and
+      # rebuilds: nothing here can serve a binary for a version the workflow
+      # no longer asks for.
+      #
+      # What is restored is a build of the pinned tool, never the policy input.
+      # `deny.toml`, the locked dependency graph, and the advisory database
+      # cargo-audit fetches at run time are all still read fresh by the step
+      # below, so a stale entry cannot hide a new advisory. A pull request that
+      # poisoned this entry would reach only its own branch's cache scope,
+      # which is code it already controls.
+      - name: Restore the pinned policy tools
+        id: policy-tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/bin/cargo-deny
+            ~/.cargo/bin/cargo-deny.exe
+            ~/.cargo/bin/cargo-audit
+            ~/.cargo/bin/cargo-audit.exe
+          key: policy-tools-${{ matrix.os }}-${{ runner.arch }}-deny-0.19.4-audit-0.22.2
       - name: Install pinned policy tools
+        if: steps.policy-tools.outputs.cache-hit != 'true'
         run: |
           cargo install cargo-deny --version 0.19.4 --locked
           cargo install cargo-audit --version 0.22.2 --locked
