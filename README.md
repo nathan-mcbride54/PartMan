@@ -247,8 +247,12 @@ measurement — **#347 → #360 → #354's kind half → #333's enforcement**.
 #333 with ADR-0046 (all 2026-08-16): the chain is closed. What remains
 is not a chain. #397 closed with ADR-0047 and #392 with ADR-0048;
 #409 closed with ADR-0049, which gave the closure a fourth arm rather
-than answering #365's frame question — so #365's remaining half is the
-nearest to the closure, and is now the only host-backed question left.
+than answering #365's frame question. #365 then closed entire with
+ADR-0050 and #319's authorization half with ADR-0051 (both 2026-08-17),
+so no host-backed question is open. What remains is what ADR-0040 split
+out of #348: #370 waits on a preservation proof that is not computable
+today, and #371 on a producer for a duty the spec states and nothing
+implements.
 
 | Issue | Package | Standing |
 | --- | --- | --- |
