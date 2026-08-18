@@ -11,7 +11,7 @@
   recorded harness defects, and **M10 taken the same day** in an ephemeral
   hosted runner, where the helper reads at byte level what the client is
   denied. Only M9 remains `not established`, Apple Silicon having no Fusion
-  Drive. **No preregistered cell on any platform is now `not yet taken`** — the Linux detection rows DR1–DR10 (filed by WP-L100 increment 4 as gitea#1005) were preregistered and taken 2026-08-18, valid on the second invocation, all ten established.
+  Drive. **One preregistered set is `not yet taken`: the Linux naming-designation cells DR11–DR14 (filed by WP-L100 increment 4b as gitea#1007, preregistered 2026-08-18 below); every other preregistered cell on every platform is taken** — the detection rows DR1–DR10 (gitea#1005) were preregistered and taken 2026-08-18, valid on the second invocation, all ten established.
   The macOS second-reader readback was discharged 2026-08-08 by an
   independent reader session: both sitting 2 transcripts and the M10
   transcript retrieved through their locators and rehashed, every digest
@@ -4398,7 +4398,7 @@ settles, and records each command's exit status:
 | DR7 | The loop surface | `cat loop/backing_file`, `loop/offset`, `loop/autoclear` on the file-backed loop and on one snapd loop; double capture | client baseline | Readable to the client; `backing_file` naming the path the setup actor attached; the snapd loop's `backing_file` naming a `.snap` path. **By-name evidence only, on #94's terms**: nothing binds the node to a verified handle, and the row claims what the client sees, not what the device is bound to | read denied; the value not the attached path | **Established.** Readable: `backing_file` names the attached path verbatim (`/var/tmp/dr-loop.img`), `offset` `0`, `autoclear` `0`; the snapd loop's `backing_file` names its `.snap` path with `autoclear` `1`. By-name evidence on #94's terms, as declared |
 | DR8 | Btrfs multi-device | `ls /sys/fs/btrfs/`, then `ls /sys/fs/btrfs/<uuid>/devices/`; double capture | client baseline | One entry for the provisioned file system whose `devices/` names both members, keyed by the same UUID DR6 reads on each member | the directory denied or absent; the members not both listed | **Established.** `/sys/fs/btrfs/` lists the file-system UUID (beside `features`), and `<uuid>/devices/` names both members `sdk sdl`; the UUID equals DR6's `ID_FS_UUID` on each member |
 | DR9 | Byte stability across a mount cycle | For the ext4 whole disk: `dev`, `size`, `ro`, `removable`, `queue/logical_block_size`, `queue/physical_block_size`, `device/vendor`, `device/model`, `device/wwid` (the contract's own roster; `stat` and `inflight` are I/O counters and deliberately outside the claim) and the full udev record, captured mounted → after `umount` → after re-mount, `udevadm settle` before each | client baseline; root performs the cycle | Every captured byte equal across the three states — the input-layer half of ADR-0005 Rule 2's mount arm | any byte differing; a capture during which the mount state was not as declared | **Established.** The contract roster (`dev`, `size`, `ro`, `removable`, both block sizes, `device/vendor`, `device/model`) and the full udev record (1078 bytes, one SHA-256) **byte-equal across mounted → unmounted → remounted**, each state double-captured; the client's own mountinfo view moved 1 → 0 → 1 lines. `device/wwid` on this virtio-scsi disk is a **failed read** (`EINVAL`, `rc 1`) in every state — the attribute exists and reading it fails, ADR-0034's *unreadable* arm rather than its *absent* arm, and equally stable |
-| DR10 | Per-unit distinctness and stability | `dm/uuid` of both logical volumes and both opened containers, `MD_UUID` of both arrays, `ID_FS_UUID` of the members and file systems; captured, then after root deactivates and re-assembles every unit (`vgchange -an`/`-ay`, `mdadm --stop`/`--assemble --scan`, `cryptsetup close`/`open`, unmount and remount), captured again — keyed by unit name, since minor numbers may move | client baseline; root performs the re-assembly | Distinct per unit; byte-equal across the re-assembly. ADR-0034's three criteria — value, stability, per-unit distinctness — for a designation round this sitting does not make | equal across two units; a value moving across re-assembly; a unit failing to re-assemble (that unit `void`, the others stand) | **Established.** `dm/uuid` distinct per logical volume and per container, `MD_UUID` distinct per array, `ID_FS_UUID` distinct per member and per file system; every value **byte-equal across the full deactivate/re-assemble cycle** (`vgchange -an/-ay`, `cryptsetup close/open`, `mdadm --stop/--assemble --scan`, unmount/remount). Minor numbers **moved** (`lv_a` dm-0 → dm-1, `lv_b` dm-1 → dm-0), which is why the cell keys by unit; the md records' bytes changed across re-assembly while `MD_UUID` did not, so a whole-record digest is not a stable identity and the key is |
+| DR10 | Per-unit distinctness and stability | `dm/uuid` of both logical volumes and both opened containers, `MD_UUID` of both arrays, `ID_FS_UUID` of the members and file systems; captured, then after root deactivates and re-assembles every unit (`vgchange -an`/`-ay`, `mdadm --stop`/`--assemble --scan`, `cryptsetup close`/`open`, unmount and remount), captured again — keyed by unit name, since minor numbers may move | client baseline; root performs the re-assembly | Distinct per unit; byte-equal across the re-assembly. ADR-0034's three criteria — value, stability, per-unit distinctness — for a designation round this sitting does not make | equal across two units; a value moving across re-assembly; a unit failing to re-assemble (that unit `void`, the others stand) | **Established.** `dm/uuid` distinct per logical volume and per container, `MD_UUID` distinct per array, `ID_FS_UUID` distinct per file system and per LVM member, and **equal across the two members of one md array** (the array's UUID re-spelled — an array identifier, not a per-member one; corrected 2026-08-18 on the designation round's adversarial pass); every value **byte-equal across the full deactivate/re-assemble cycle** (`vgchange -an/-ay`, `cryptsetup close/open`, `mdadm --stop/--assemble --scan`, unmount/remount). Minor numbers **moved** (`lv_a` dm-0 → dm-1, `lv_b` dm-1 → dm-0), which is why the cell keys by unit; the md records' bytes changed across re-assembly while `MD_UUID` did not, so a whole-record digest is not a stable identity and the key is |
 
 Validity gates, all required: fresh VM and recorded environment (the
 `l-env.sh` lineage: distro, kernel, udev version and ruleset digest,
@@ -4478,6 +4478,55 @@ host-assembled kinds can now rest on, which this record does not make.
 Values written here are shapes, presence, equality, and the two
 public-format examples the conditions needed; no serial or path from the
 guest beyond the declared `/var/tmp/dr-loop.img`.
+
+### The naming-designation cells DR11–DR14 — preregistered 2026-08-18; not yet taken
+
+Four cells, declared before execution per this document's method. They
+are the rows WP-L100 increment 4b filed on this package as gitea issue
+**#1007** (the WP-L100 record carries the same four under *Filed by
+increment 4b's first slice*), from the Linux host-assembled designation
+round (`docs/reviews/LINUX_HOST_ASSEMBLED_DESIGNATION_ROUND_2026-08-18.md`,
+D2, taken as recommended). That round found every measured Linux
+candidate for naming a host-assembled kind one cell short of ADR-0034's
+discipline — value, stability, per-unit distinctness, a direct source
+preferred over the udev cache — and the first slice of 4b could not build
+member signature nodes for want of a family source. These cells are those
+gaps and nothing else; the designation, if any, is a normative act landing
+only through its own ADR (the ADR-0035 shape), which this sitting does not
+make.
+
+Apparatus: the DR apparatus above (`dr-*` instruments,
+`PartMan-evidence/2026-08-18-dr-vmid9467-9468`; VMID 9470 next after the
+r43 acceptance guest), one disposable Proxmox VM, fourteen 1 GiB
+virtio-scsi disks, no passthrough, root as setup actor only, `muser1` as
+the client baseline through `runuser`, instrument digests recorded before
+the first capture, kernel recorded before and after. Root provisions the
+DR layouts again (two VGs, two arrays, two LUKS2 containers, the Btrfs
+pair, the whole-disk and loop ext4, the swap) plus, for DR13, a **second
+loop device attached to the same backing file** and one detach/re-attach
+of the first from the same path. **One declared reboot** of the guest
+(`qm reboot`, host side) after every other capture, followed by re-assembly
+and a final capture — a declared step of this protocol, on a disposable
+guest, touching no WP-020 acceptance and no kernel pin; the kernel is
+recorded on both sides of it, and a kernel change across it voids only the
+post-reboot legs.
+
+| # | Cell | Command / API | Privilege | Distinguishing condition | Invalidation conditions | Result |
+| --- | --- | --- | --- | --- | --- | --- |
+| DR11 | sysfs `md/uuid` | `cat /sys/class/block/<md>/md/uuid` on both arrays, double capture; again after re-assembly; again after the reboot | client baseline | Whether the attribute **exists** on the measured kernel (a positively determined absence is a result, recorded as such); if it does, its value's byte form beside the udev record's `MD_UUID`, byte-equal across re-assembly and reboot, distinct across the two arrays — ADR-0034's three criteria from a **direct** source | read denied where the attribute exists; a value moving; two arrays equal | not yet taken |
+| DR12 | `dm/name` stability | `cat /sys/class/block/dm-*/dm/name` keyed by `dm/uuid`, double capture; after re-assembly; after the reboot | client baseline | The mapper name byte-equal per unit across `vgchange -an/-ay`, `cryptsetup close/open`, and a reboot with automatic activation — the volume-name source's stability, which DR10 did not read | a name moving without an explicit rename; a unit failing to re-appear (that unit `void`) | not yet taken |
+| DR13 | Loop distinctness and re-attach | root attaches a second loop to `/var/tmp/dr-loop.img`, then detaches and re-attaches the first from the same path; `cat loop/backing_file`, `loop/offset` on each, double capture | client baseline; root performs the attach | Two loop devices on one file each report the same `backing_file` bytes (equal-name loops — the collision the `BackingExtent` locator would then group), and a re-attached loop reports the path verbatim again; whether anything a client reads distinguishes the two beyond the entry name | a value not the attached path; the second attach refused | not yet taken |
+| DR14 | Member-signature inputs | udev record `ID_FS_VERSION` on each md member; `cat /sys/class/block/<md>/md/metadata_version` on each array; the full udev record of an md member and of the LUKS disk read for any key naming an **offset** (`ID_FS_*OFFSET*`, `*_OFFSET`); double capture | client baseline | Whether the family (0.90 vs 1.x; LUKS1 vs LUKS2) is client-readable through either interface, and the recorded finding — expected **no** — that no client interface reports a signature's primary offset, which stays the helper's parser's fact | either family surface unreadable where it exists; an offset key present (a positive result, changing the next slice's shape) | not yet taken |
+
+Validity gates: those of the detection-rows sitting above, plus the
+reboot recorded on both sides (`uname -r`, the environment record) and
+every post-reboot capture labelled as such. Gate failures make cells
+`void(<gate>)`, never negatives.
+
+What this sitting deliberately does not do: no designation; no
+multipath; no partition-hosted member; no fixture media; no reading of a
+device's bytes at any privilege for the offset question — the question is
+whether an *interface* reports one, not whether one exists.
 
 ## Reproducing this
 
