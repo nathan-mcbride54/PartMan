@@ -7,6 +7,17 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-060 increment 12: the consequence text is stated into the body
+  (Section 6; slice 3p's plan body v5; no spec change).** Every planning
+  path assembles through `assemble_linked_stated` with the `Display`
+  sentences of its typed consequence facts, so the body's `consequences`
+  set is exactly those sentences (canonically sorted, so emission order
+  never reaches the hash) and the empty set where the vocabulary is
+  silent; the reversal draft carries the empty set. `Planned.consequences`
+  stays as the typed form beside the plan. ADR-0052 D6's
+  "pending-in-body" is delivered; issue #371's last rider closes. Two
+  mutations killed.
+
 - **WP-010 slice 3p: plan body version 5 — Section 6's consequence text
   rides the body (no spec change; ADR-0023's form applied).** The body
   gains a required, set-valued `consequences` array of non-empty

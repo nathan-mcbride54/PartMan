@@ -4646,3 +4646,115 @@ fn only_a_move_relocates_a_pre_existing_start() {
         );
     }
 }
+
+// ---------------------------------------------------------------------
+// Increment 12: the consequence text is stated into the body (slice 3p).
+// ---------------------------------------------------------------------
+
+/// The body's `consequences` set of a plan, read back through the
+/// domain's own decoder — the same bytes authorization would bind.
+fn body_consequences(planned: &Planned, world: &TopologySnapshot) -> Vec<String> {
+    let bytes = body_bytes(&planned.plan);
+    let rebuilt = OperationPlan::from_canonical_body(&bytes, world).expect("round-trips");
+    rebuilt.consequences().to_vec()
+}
+
+// Requirements: PLAN-002, PART-009, PART-005
+//   Section 6's consequence text is no longer planner-layer carriage:
+//   the body's `consequences` set is exactly the `Display` sentences of
+//   the typed facts the planner derived — measured on the release
+//   fixture, where a disjoint move past a stray file system states one
+//   release; on the create-to-a-structural-edge fixture, where a
+//   coincident boundary is stated; and on the plain move, where the
+//   vocabulary is silent and the body carries the empty set rather than
+//   being silent about silence. The set is the domain's canonical one,
+//   so the body hash is a function of which facts were stated and never
+//   of the order the planner emitted them in; a stated fact moves it.
+//   ADR-0052 D6's "delivered-in-planner, pending-in-body" is thereby
+//   delivered, and ADR-0023's form holds: text, no typed carriage in
+//   the hash — the typed facts stay beside the plan for the planner's
+//   own consumers.
+// Evidence: the_body_states_exactly_the_typed_consequences
+#[test]
+fn the_body_states_exactly_the_typed_consequences() {
+    // A release: one typed fact, one sentence, verbatim.
+    let (world, _, created, _, stray) = move_fixture(Stray::Xfs);
+    let stray = stray.expect("stray");
+    let planned = plan_move(&world, created, 80 * DEFAULT_ALIGNMENT).expect("plans");
+    assert_eq!(planned.consequences.len(), 1, "{:?}", planned.consequences);
+    let expected: Vec<String> = planned
+        .consequences
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert_eq!(body_consequences(&planned, &world), expected);
+    assert!(
+        expected[0].contains(&stray.to_string()),
+        "the sentence names the released node"
+    );
+
+    // Silence: no typed fact, an empty set — present.
+    let (quiet, _, created_q, _, _) = move_fixture(Stray::None);
+    let silent = plan_move(&quiet, created_q, 80 * DEFAULT_ALIGNMENT).expect("plans");
+    assert!(silent.consequences.is_empty());
+    assert!(body_consequences(&silent, &quiet).is_empty());
+    let Value::Map(map) = canonical::decode(&body_bytes(&silent.plan)).expect("decodes") else {
+        panic!("body is a map");
+    };
+    assert_eq!(map.get("consequences"), Some(&Value::Array(vec![])));
+
+    // A coincident boundary: the create that fills its room to the
+    // scheme's reserved region states it, and the sentence in the body is
+    // the typed fact's own.
+    let (snapshot, host, _, _) = solver_fixture();
+    let fill = plan_sized(
+        SizedRequest::Create {
+            host,
+            size: 35 * DEFAULT_ALIGNMENT,
+        },
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .expect("plans");
+    let stated = body_consequences(&fill, &snapshot);
+    assert_eq!(
+        stated,
+        fill.consequences
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+    );
+
+    // The hash follows the facts, not the planner's order: reordering the
+    // typed facts changes nothing the body carries.
+    let mut reordered = fill.consequences.clone();
+    reordered.reverse();
+    let mut sentences: Vec<String> = reordered.iter().map(ToString::to_string).collect();
+    let mut expected_sorted = stated.clone();
+    // The domain sorts by canonical bytes; whatever the emission order,
+    // the body's set is the same value.
+    sentences.sort_by_key(|s| canonical::encode(&Value::Text(s.clone())).expect("encodable"));
+    expected_sorted.sort_by_key(|s| canonical::encode(&Value::Text(s.clone())).expect("encodable"));
+    assert_eq!(sentences, expected_sorted);
+}
+
+// Requirements: PLAN-008, PLAN-002
+//   The reversal draft's body carries the empty consequence set: a draft
+//   is a prediction, its consequences are authored at its own planning
+//   when it binds, and the emitted draft claims none — the slice-3p pin,
+//   measured on the move's draft.
+// Evidence: the_drafts_body_states_no_consequence
+#[test]
+fn the_drafts_body_states_no_consequence() {
+    let (world, _, created, _, _) = move_fixture(Stray::None);
+    let planned = plan_move(&world, created, 80 * DEFAULT_ALIGNMENT).expect("plans");
+    let EmittedReversal::Draft(draft) = &planned.reversal else {
+        panic!("a move emits a draft");
+    };
+    let Value::Map(map) = draft.body_value() else {
+        panic!("draft body is a map");
+    };
+    assert_eq!(map.get("consequences"), Some(&Value::Array(vec![])));
+}
