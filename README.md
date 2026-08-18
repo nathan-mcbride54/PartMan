@@ -257,7 +257,7 @@ implements.
 | Issue | Package | Standing |
 | --- | --- | --- |
 | **#370** | WP-010 | A byte-preserving relocation of a protected structure refuses, and relief needs a preservation proof that is not computable today. Split from #348 by ADR-0040. |
-| **#371** | WP-010 | PART-005's hosted-signature duty is undelivered and has no plan vehicle — an exhaustive grep returns only the spec sentence stating it. Split from #348 by ADR-0040. |
+| **#371** | WP-010 | PART-005's hosted-signature duty is undelivered: no `Consequence` variant states a signature loss, and no representable request relocates bytes for one to attach to. Two claims this row carried are retired by measurement — a plan-carried enumeration vocabulary has existed since before the issue was filed, and the grep no longer returns only the spec sentence: PR #433 pinned the absence as a mutation-tested property with a compile-time tripwire, so the issue is now guarded while open. Re-measured at `12c13b5`. Split from #348 by ADR-0040. |
 
 Issues **#318**, **#338**, **#348** and **#355** closed on or before
 `6d743a3`; **#349** and **#356** closed with ADR-0041 (the body's facts
