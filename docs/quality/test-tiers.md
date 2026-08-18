@@ -158,7 +158,10 @@ nineteenth, named in the PR body before the merge, and on `91cd1c9`
 ADR-0044 — tripped it a twentieth, likewise named before the merge, and
 on `ee12af2` (2026-08-16 UTC) when issue #354's kind-half act — one Rust
 merge, PR #398, ADR-0045 — tripped it a twenty-first, likewise named, and
-on `2428134` (2026-08-17 UTC) when issue #371's structural pin — PR #433,
+on `5cf868d` (2026-08-18 UTC) when WP-000 PR #436 — the pinned
+supply-chain policy tools cached in `.github/workflows/ci.yml`, the first trip
+in this record that is neither Rust nor a Rust comment — tripped it; and
+before that on `2428134` (2026-08-17 UTC) when issue #371's structural pin — PR #433,
 WP-060, test-only — tripped it; and before that on `fed2d76` when issue
 #319's authorization half —
 PR #428, ADR-0051 at spec 17.2.0 — tripped it; and before that on
