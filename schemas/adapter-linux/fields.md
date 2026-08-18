@@ -308,9 +308,12 @@ claim about a medium.
 | The array's self-reported member count (4b, first slice) | `md/raid_disks` on an `md/`-marked device | **DR5** — `2` on both arrays, direct, agreeing with the database's `MD_DEVICES`; ADR-C5's self-reported count, never a count of members observed. A value that is not a decimal count is refused, never guessed | VM (DR) |
 | The kernel's membership listing (4b, first slice) | `slaves/` on an `md/`-marked device | **DR4** — names the array's members as the kernel reports them; a **per-mapping** relation (an LV over a two-PV VG listed one PV), so it is reported as an observation and never turned into an edge | VM (DR) |
 
-What this roster deliberately does **not** carry: `dm/name`, `dm/uuid`,
-`md/uuid`, `holders/`, `loop/backing_file`, `/sys/fs/btrfs`,
-`ID_FS_VERSION`, `md/metadata_version` — the first five measured (DR3,
-DR4, DR7, DR8, DR10) and waiting on the naming-designation cells DR11–DR14
-(gitea#1007), the last two unmeasured and filed there; and no derived boot
-or system role.
+| The mdraid designator (4b, second slice) | `md/uuid` on an `md/`-marked device | **DR11** — present on the measured kernel, client-readable, byte-equal across re-assembly and a reboot, distinct per array; **ADR-0053** designates it, bytes verbatim, trailing newline included, through the bytes-preserving path. The udev cache's `MD_UUID` (the same bits, colon-quartet) is not read for naming | VM (DR2) |
+| The dm classification (4b, second slice) | `dm/uuid` on a `dm/`-marked device | **DR3** — `LVM-` on a logical volume, `CRYPT-LUKS2-` on an opened container; read as a classification input, never a name; the 32 bytes after `LVM-` partition logical volumes into volume-group classes and enter no name (ADR-0053) | VM (DR) |
+| The LVM logical-volume name (4b, second slice) | `dm/name` on an `LVM-`-classified dm node | **DR12** — byte-equal across `vgchange -an/-ay` and a reboot with automatic activation; **ADR-0053** designates it, verbatim. For a dm-crypt mapping the same attribute is the opener's argument (DR12) and is **not** a name | VM (DR2) |
+| The loop backing path (4b, second slice; reported, no node) | `loop/backing_file` on a `loop/`-marked device | **DR7**, **DR13** — the attached path verbatim; two loops on one file report equal bytes; **ADR-0053** designates it for the `BackingExtent` 3b's host node will let a loop have. By-name evidence on #94's terms | VM (DR, DR2) |
+
+What this roster deliberately does **not** carry: `holders/`,
+`/sys/fs/btrfs`, `ID_FS_VERSION`, `md/metadata_version` — measured (DR4,
+DR8, DR14) and waiting on the member-signature round (no interface reports
+a signature offset, DR14) and on 3b; and no derived boot or system role.
