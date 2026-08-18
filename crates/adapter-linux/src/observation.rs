@@ -26,8 +26,10 @@ use crate::contract::AttributeRead;
 /// The interfaces the ordinary-client contract reads.
 ///
 /// Closed, and closed on purpose: an interface this crate cannot name is an
-/// interface it does not read, and increment 2's field lists are drawn from
-/// exactly these two.
+/// interface it does not read. Increment 2's field lists are drawn from the
+/// first two; increment 4a's state tables from the third, which entered the
+/// way the first two did — by an observability row (the 2026-08-18
+/// detection-rows sitting, DR1 and DR2), never by documentation.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Interface {
     /// Attribute files under the sysfs block class, read by this client.
@@ -36,6 +38,11 @@ pub enum Interface {
     /// computed at device-add time and cached, not observations this client
     /// made.
     UdevDatabase,
+    /// The kernel's own state tables under the procfs root — the mount table
+    /// (`self/mountinfo`) and the swap table (`swaps`), read by this client
+    /// (increment 4a). State-layer facts under MODEL-005's body-stability
+    /// rule, never topology and never body content.
+    Procfs,
 }
 
 impl Interface {
@@ -45,6 +52,7 @@ impl Interface {
         match self {
             Self::Sysfs => "linux-sysfs",
             Self::UdevDatabase => "linux-udev-db",
+            Self::Procfs => "linux-procfs",
         }
     }
 
@@ -64,10 +72,16 @@ impl Interface {
     /// stated, so this mapping is the whole of what makes the derivation
     /// honest. It is revisited only if a udev value is ever re-read from the
     /// interface it describes rather than from the cache.
+    ///
+    /// A procfs table is the kernel reporting its own current state to the
+    /// reader — no third party computed it and nothing cached it — so it is
+    /// [`Method::Direct`] like a sysfs attribute. What it reports is a state
+    /// fact, and a state fact's staleness is CONC-003's concern, not this
+    /// mapping's.
     #[must_use]
     pub const fn method(self) -> Method {
         match self {
-            Self::Sysfs => Method::Direct,
+            Self::Sysfs | Self::Procfs => Method::Direct,
             Self::UdevDatabase => Method::Heuristic,
         }
     }

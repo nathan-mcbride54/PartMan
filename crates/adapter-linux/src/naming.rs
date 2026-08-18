@@ -27,6 +27,8 @@ use std::path::{Path, PathBuf};
 
 use partman_domain::model::naming::{NamingError, NamingFields, NodeEntry, absorb};
 
+use crate::devices::{DeviceKind, HostAssembledKind, device_kind};
+
 use crate::contract::{ContractSource, InterfaceAnswered, NamingRead, read_naming_source};
 
 /// The sysfs `size` unit, in bytes.
@@ -241,6 +243,21 @@ pub enum DeviceNaming {
     },
     /// The device cannot be addressed.
     Refused(Unaddressable),
+    /// The device is host-assembled — a DR3 kind marker is positively
+    /// present — and is **withdrawn** from the physical-device set
+    /// (increment 4a). It is reported with its kind, is not a plan operand,
+    /// and derives no address here: which `NamingFields` kind it is, and
+    /// from which designated source it names, is a naming-designation
+    /// round's to decide (increment 4b), and until then the fail-closed
+    /// answer is that it is nothing this adapter names. Increment 3a named
+    /// every such node an operand-eligible `PhysicalDevice`; this variant is
+    /// the correction.
+    Withdrawn {
+        /// The device's session-local selector.
+        selector: String,
+        /// The marker that withdrew it.
+        kind: HostAssembledKind,
+    },
 }
 
 /// Parse a sysfs sector count into a byte total.
@@ -283,6 +300,19 @@ pub fn name_device(
     answered: &InterfaceAnswered,
     selector: String,
 ) -> DeviceNaming {
+    // The kind markers first (increment 4a): a host-assembled node never
+    // reaches the physical-device naming below, and an undetermined marker
+    // refuses rather than admits.
+    match device_kind(source, device_directory) {
+        DeviceKind::Plain => {}
+        DeviceKind::HostAssembled(kind) => return DeviceNaming::Withdrawn { selector, kind },
+        DeviceKind::Indeterminate { reason } => {
+            return refuse(
+                selector,
+                &format!("the device's kind is undetermined: {reason}"),
+            );
+        }
+    }
     let size = match read_naming_source(source, &device_directory.join(SIZE_ATTRIBUTE), answered) {
         NamingRead::Bytes(bytes) => bytes,
         NamingRead::Empty | NamingRead::NotPresent => {
@@ -340,7 +370,7 @@ pub fn absorb_devices(named: &[DeviceNaming]) -> Result<Vec<NodeEntry>, NamingEr
             .iter()
             .filter_map(|naming| match naming {
                 DeviceNaming::Addressed { fields, .. } => Some(fields.clone()),
-                DeviceNaming::Refused(_) => None,
+                DeviceNaming::Refused(_) | DeviceNaming::Withdrawn { .. } => None,
             })
             .collect(),
     )

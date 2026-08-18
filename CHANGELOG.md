@@ -7,6 +7,31 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-L100 increment 4a: the state layer and the withdrawal, on the
+  detection rows (LIN-006, INV-004; no spec change).** The kernel's procfs
+  mount and swap tables enter `crates/adapter-linux` as its third
+  interface (`linux-procfs`, direct), entered the way the first two were —
+  by the DR1/DR2 rows WP-035 took the same day — and read through the
+  bounded seam under a table bound of their own; every line is an
+  attributed observation carrying the kernel's line verbatim, parsed into
+  the recorded shape with no transformation, and one line off the shape
+  refuses the whole table rather than a partial one. Mounts key to the
+  admitted devices by `major:minor` and nothing else, so the whole-disk,
+  loop and dm mounts key and the anonymous Btrfs, pseudo and partition
+  entries stay unkeyed (DR1's finding). And DR3's `dm/`, `md/`, `loop/`
+  markers classify every admitted whole device: a marker positively
+  present makes the node host-assembled — reported, named nothing, not an
+  operand — every marker positively absent admits a plain disk, and a
+  marker whose listing did not answer refuses; increment 3a had admitted
+  every such node as an operand-eligible `PhysicalDevice`, and that is
+  withdrawn in the fail-closed direction. Four tests over authored trees
+  carrying the recorded shapes; six mutations killed. The reach
+  declaration names the third interface; `fields.md` §7 carries the
+  roster on its rows. Increment 4b — the topology half — waits on a
+  naming-designation round over DR3/DR5/DR6/DR10, since ADR-0034's table
+  designates no Linux source for any host-assembled kind. Rust: the
+  WP-020 sitting is r42.
+
 - **WP-035: the detection-rows sitting DR1–DR10, preregistered and taken
   2026-08-18 (gitea#1005), all ten established.** WP-L100 increment 4 filed
   ten Linux rows it could not author its detection layer without — the

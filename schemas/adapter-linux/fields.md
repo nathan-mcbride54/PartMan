@@ -2,7 +2,7 @@
 
 - Spec version: source of truth is `AGENT_BUILD_SPEC.md` §7.1 (INV-001,
   INV-002) and MODEL-004
-- Owner: WP-L100 (`docs/work-packages/WP-L100.md`), increments 2 and 3a
+- Owner: WP-L100 (`docs/work-packages/WP-L100.md`), increments 2, 3a and 4a
 - Decided semantics carried: ADR-C4 (a positively observed absence is a
   value, not an unavailability), ADR-0018 (the device-scope transport
   arm's closed positive-local list), ADR-0014 (the partition-table state
@@ -158,14 +158,16 @@ exactly the hardware class where the distinction matters.
   and the table *state* is authored by the privileged helper under
   ADR-0014 in any case. Their absence is what lets the published reach
   declaration say this contract carries no partition-table key.
-- **Every interface outside the two the contract closed**: no kernel
-  partition list, no mount table, no swap table, no firmware directory,
-  no symlink farm. The symlink farms are excluded on measured grounds as
-  well as scope: the collision row observed `by-uuid`, `by-partuuid` and
-  `by-label` all collapsing silently to the last-arriving device.
+- **Every interface outside the three the contract closed**: no kernel
+  partition list, no firmware directory, no symlink farm. (The mount and
+  swap tables entered as the third interface with increment 4a, on the
+  DR1/DR2 rows — §7.) The symlink farms are excluded on measured grounds
+  as well as scope: the collision row observed `by-uuid`, `by-partuuid`
+  and `by-label` all collapsing silently to the last-arriving device.
 - **Boot and system role.** INV-002 names it; its Linux route runs
-  through mounts, swap and firmware state, which is increment 4's
-  detection layer. No row measures it on Linux at all.
+  through mounts, swap and firmware state. The mount and swap halves are
+  now read (§7); the firmware half is not, and no derivation of a *role*
+  from any of them is made — that is a consumer's, on the state facts.
 - **Any derived value.** No removability boolean, no transport
   classification from a key's value, no byte capacity, no identity
   strength. Each is either another increment's or another package's. Three
@@ -285,3 +287,26 @@ a weaker name, never a guessed one. Nothing relies on the predicate being
 right — it can only ever *lose* a name — which is what keeps the
 shortfall priced. The row is filed as an obligation on WP-035, which owns
 `docs/quality/observability.md`.
+
+## 7. The state-layer and kind-marker roster (increment 4a)
+
+Every row here rests on the **detection-rows sitting** of 2026-08-18
+(`docs/quality/observability.md`, DR1–DR10; filed by this package as
+gitea#1005), taken on a disposable Proxmox guest — a real host for a
+kernel-interface claim, on the floor-rows precedent — by an ordinary
+client with no `disk` membership and no capability. Strength is
+therefore **VM (DR)**: real kernel, virtual disks; nothing here is a
+claim about a medium.
+
+| Surface | Path | Evidence | Strength |
+| --- | --- | --- | --- |
+| The mount table | `<procfs>/self/mountinfo` | **DR1** — readable, one line per mount, the documented shape (mount id, parent id, `major:minor`, root, mount point, options, optional fields, `-`, fs type, source, super options); keyed by `major:minor` for a whole-disk, loop and LVM mount and for the root; **a Btrfs mount's `major:minor` is anonymous** and names its member only in the source field | VM (DR) |
+| The swap table | `<procfs>/swaps` | **DR2** — readable; header, then one row per active swap (path, type, size, used, priority) | VM (DR) |
+| Kind markers | `dm/`, `md/`, `loop/` under the block-class node | **DR3** — present on a device-mapper node, an mdraid array, and a loop device respectively, absent on a plain disk, readable to the client. Read as directory listings; a listing that fails for any reason other than not-found leaves the kind **indeterminate**, and the node is refused rather than admitted as plain | VM (DR) |
+| The device number, as a key | `dev` | Read since increment 2 to locate the database record; since 4a also the key the mount table resolves against. **DR9** — byte-equal across a mount cycle with the rest of the roster and the record | VM (DR) |
+
+What this roster deliberately does **not** carry: `dm/name`, `dm/uuid`,
+`md/*`, `slaves/`, `holders/`, `loop/backing_file`, `/sys/fs/btrfs` — all
+measured (DR3–DR8, DR10) and all increment 4b's, because reading them
+serves the topology half, which waits on a naming-designation round; and
+no derived boot or system role.

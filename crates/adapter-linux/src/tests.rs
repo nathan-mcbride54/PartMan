@@ -636,7 +636,7 @@ fn the_adapter_opens_no_device_node_and_launches_no_process() {
 /// `every_shipped_module_is_covered_by_the_structural_guards`, because both
 /// SAFE-002 scans iterate it: a module added without an entry here would be
 /// exempt from both while leaving both tests green.
-fn shipped_sources() -> [(&'static str, &'static str); 7] {
+fn shipped_sources() -> [(&'static str, &'static str); 8] {
     [
         ("lib.rs", include_str!("lib.rs")),
         ("contract.rs", include_str!("contract.rs")),
@@ -645,6 +645,7 @@ fn shipped_sources() -> [(&'static str, &'static str); 7] {
         ("naming.rs", include_str!("naming.rs")),
         ("observation.rs", include_str!("observation.rs")),
         ("reach.rs", include_str!("reach.rs")),
+        ("state.rs", include_str!("state.rs")),
     ]
 }
 
@@ -1465,4 +1466,434 @@ fn every_shipped_module_is_covered_by_the_structural_guards() {
         "the guarded roster is the declared modules plus lib.rs itself; a stale extra entry \
          hides a deleted module and a missing one hides a new module"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Increment 4a: the kind markers, and the state layer.
+// ---------------------------------------------------------------------------
+
+/// A tree of five whole devices — a plain disk, a loop device, a dm node, an
+/// md array, and one whose `dm` marker cannot be listed — each with the
+/// attributes the naming path needs, so the same tree serves the withdrawal
+/// and the keying. Marker directories are DR3's; the values are shapes.
+fn assembled_tree() -> FakeSource {
+    let mut dirs = BTreeMap::new();
+    dirs.insert(
+        "/sys/class/block".to_owned(),
+        Ok(vec![
+            "dm-0".to_owned(),
+            "loop6".to_owned(),
+            "md127".to_owned(),
+            "sdm".to_owned(),
+            "shady".to_owned(),
+        ]),
+    );
+    dirs.insert(
+        "/sys/class/block/dm-0/dm".to_owned(),
+        Ok(vec!["name".to_owned(), "uuid".to_owned()]),
+    );
+    dirs.insert(
+        "/sys/class/block/loop6/loop".to_owned(),
+        Ok(vec!["backing_file".to_owned()]),
+    );
+    dirs.insert(
+        "/sys/class/block/md127/md".to_owned(),
+        Ok(vec!["level".to_owned(), "raid_disks".to_owned()]),
+    );
+    dirs.insert(
+        "/sys/class/block/shady/dm".to_owned(),
+        Err(std::io::ErrorKind::PermissionDenied),
+    );
+    let mut files = BTreeMap::new();
+    for (name, number) in [
+        ("dm-0", "253:0"),
+        ("loop6", "7:6"),
+        ("md127", "9:127"),
+        ("sdm", "8:192"),
+        ("shady", "253:9"),
+    ] {
+        files.insert(
+            format!("/sys/class/block/{name}/dev"),
+            Ok(format!("{number}\n").into_bytes()),
+        );
+        files.insert(
+            format!("/sys/class/block/{name}/size"),
+            Ok(b"2097152\n".to_vec()),
+        );
+    }
+    FakeSource { dirs, files }
+}
+
+fn named(source: &FakeSource, name: &str, selector: &str) -> crate::naming::DeviceNaming {
+    let token = answered(source);
+    crate::naming::name_device(
+        source,
+        &PathBuf::from(format!("/sys/class/block/{name}")),
+        &token,
+        selector.to_owned(),
+    )
+}
+
+// Requirements: INV-001, LIN-006, SAFE-005
+//   DR3 establishes that `dm/`, `md/`, and `loop/` positively mark a
+//   device-mapper node, an mdraid array, and a loop device, and that a plain
+//   disk carries none of them. Increment 3a admitted every one of those
+//   nodes as an operand-eligible `PhysicalDevice`; this withdraws them: a
+//   marker positively present reports the node as host-assembled and names
+//   it nothing, every marker positively absent admits a plain disk to the
+//   naming path, and a marker whose listing did not answer refuses — the
+//   `partition` discipline again, because admitting on a failed read would
+//   name a loop device a physical device on the strength of nothing.
+// Evidence: a_host_assembled_node_is_withdrawn_and_an_undetermined_marker_refuses
+#[test]
+fn a_host_assembled_node_is_withdrawn_and_an_undetermined_marker_refuses() {
+    use crate::devices::{DeviceKind, HostAssembledKind};
+    use crate::naming::DeviceNaming;
+
+    let source = assembled_tree();
+    let devices = devices_of(&source);
+    assert_eq!(
+        devices.len(),
+        5,
+        "every node lacking `partition` is enumerated"
+    );
+    let kind_of = |name: &str| {
+        devices
+            .iter()
+            .find(|d| d.device_number.as_deref() == Some(name))
+            .map(|d| d.kind.clone())
+            .expect("the device is enumerated")
+    };
+    assert_eq!(
+        kind_of("253:0"),
+        DeviceKind::HostAssembled(HostAssembledKind::DeviceMapper)
+    );
+    assert_eq!(
+        kind_of("7:6"),
+        DeviceKind::HostAssembled(HostAssembledKind::Loop)
+    );
+    assert_eq!(
+        kind_of("9:127"),
+        DeviceKind::HostAssembled(HostAssembledKind::Mdraid)
+    );
+    assert_eq!(kind_of("8:192"), DeviceKind::Plain);
+    assert!(
+        matches!(kind_of("253:9"), DeviceKind::Indeterminate { .. }),
+        "a marker that did not answer leaves the kind undetermined, never plain"
+    );
+
+    // The naming path honours the verdict.
+    assert!(matches!(
+        named(&source, "loop6", "device:1"),
+        DeviceNaming::Withdrawn {
+            kind: HostAssembledKind::Loop,
+            ..
+        }
+    ));
+    assert!(matches!(
+        named(&source, "dm-0", "device:0"),
+        DeviceNaming::Withdrawn {
+            kind: HostAssembledKind::DeviceMapper,
+            ..
+        }
+    ));
+    assert!(matches!(
+        named(&source, "sdm", "device:3"),
+        DeviceNaming::Addressed { .. }
+    ));
+    match named(&source, "shady", "device:4") {
+        DeviceNaming::Refused(refusal) => assert!(
+            refusal.reason.contains("undetermined"),
+            "the refusal names the undetermined kind: {}",
+            refusal.reason
+        ),
+        other => panic!("an undetermined marker must refuse, got {other:?}"),
+    }
+
+    // And absorption sees exactly the one plain disk.
+    let all: Vec<_> = ["dm-0", "loop6", "md127", "sdm", "shady"]
+        .iter()
+        .enumerate()
+        .map(|(i, name)| named(&source, name, &format!("device:{i}")))
+        .collect();
+    let entries = crate::naming::absorb_devices(&all).expect("absorption is total");
+    assert_eq!(
+        entries.len(),
+        1,
+        "withdrawn and refused devices derive no address; only the plain disk absorbs"
+    );
+}
+
+/// DR1's recorded lines: the guest's root, a pseudo file system, the
+/// whole-disk ext4, the loop ext4, the LVM ext4, and the Btrfs mount whose
+/// `major:minor` is anonymous.
+const MOUNTINFO: &str = "\
+30 1 8:1 / / rw,relatime shared:1 - ext4 /dev/sda1 rw,discard,errors=remount-ro
+26 30 0:24 / /proc rw,nosuid,nodev,noexec,relatime shared:13 - proc proc rw
+298 30 8:192 / /mnt/dr-ext4 rw,relatime shared:240 - ext4 /dev/sdm rw
+328 30 7:6 / /mnt/dr-loop rw,relatime shared:247 - ext4 /dev/loop6 rw
+343 30 253:0 / /mnt/dr-lv rw,relatime shared:254 - ext4 /dev/mapper/vg_dr_a-lv_a rw
+299 30 0:43 / /mnt/dr-btrfs rw,relatime shared:241 - btrfs /dev/sdk rw,space_cache=v2,subvolid=5,subvol=/
+";
+
+fn procfs(mountinfo: &[u8], swaps: &[u8]) -> FakeSource {
+    let mut source = assembled_tree();
+    source
+        .files
+        .insert("/proc/self/mountinfo".to_owned(), Ok(mountinfo.to_vec()));
+    source
+        .files
+        .insert("/proc/swaps".to_owned(), Ok(swaps.to_vec()));
+    source
+}
+
+// Requirements: INV-004, MODEL-004, LIN-006
+//   DR1 establishes the mount table's shape and its keying field for an
+//   ordinary client, and that a Btrfs mount's `major:minor` is an
+//   anonymous device that names its member only in the source field. Every
+//   line becomes one attributed procfs observation carrying the line
+//   verbatim, parsed into its documented fields with no transformation;
+//   keying to the admitted devices is by `major:minor` alone — a device
+//   without a device number keys nothing, a mount whose source path names a
+//   device but whose number is another's keys to the number — and the
+//   anonymous, partition, and pseudo entries stay unkeyed rather than being
+//   guessed at. Loop devices are withdrawn from naming and still key: the
+//   mount is a state fact about a node the adapter admits, not a name.
+// Evidence: the_mount_table_parses_in_the_recorded_shape_and_keys_by_major_minor
+#[test]
+fn the_mount_table_parses_in_the_recorded_shape_and_keys_by_major_minor() {
+    use crate::state::{Table, key_mounts, read_mounts};
+    use partman_domain::model::provenance::{Method, Outcome};
+
+    let source = procfs(
+        MOUNTINFO.as_bytes(),
+        b"Filename\tType\tSize\tUsed\tPriority\n",
+    );
+    let devices = devices_of(&source);
+    let Table::Listed { entries } = read_mounts(&source, &PathBuf::from("/proc")) else {
+        panic!("the recorded table parses")
+    };
+    assert_eq!(entries.len(), 6);
+    let ext4 = &entries[2];
+    assert_eq!((ext4.mount_id, ext4.parent_id), (298, 30));
+    assert_eq!((ext4.major, ext4.minor), (8, 192));
+    assert_eq!(ext4.mount_point, "/mnt/dr-ext4");
+    assert_eq!(ext4.optional_fields, vec!["shared:240".to_owned()]);
+    assert_eq!(ext4.fs_type, "ext4");
+    assert_eq!(ext4.source, "/dev/sdm");
+    assert_eq!(ext4.super_options, "rw");
+    assert_eq!(
+        ext4.observation.adapter,
+        "partman-adapter-linux/linux-procfs"
+    );
+    assert_eq!(ext4.observation.method, Method::Direct);
+    assert!(matches!(
+        &ext4.observation.outcome,
+        Outcome::Observed { value: partman_domain::canonical::Value::Text(line) }
+            if line == MOUNTINFO.lines().nth(2).unwrap()
+    ));
+    let btrfs = &entries[5];
+    assert_eq!(
+        (btrfs.major, btrfs.minor),
+        (0, 43),
+        "DR1: the Btrfs mount is anonymous"
+    );
+    assert_eq!(btrfs.source, "/dev/sdk");
+    assert_eq!(btrfs.super_options, "rw,space_cache=v2,subvolid=5,subvol=/");
+
+    let keyed = key_mounts(&entries, &devices);
+    let selectors: Vec<&str> = keyed.by_device.iter().map(|(s, _)| *s).collect();
+    let selector_of = |number: &str| {
+        devices
+            .iter()
+            .find(|d| d.device_number.as_deref() == Some(number))
+            .map(|d| d.selector.as_str())
+            .unwrap()
+    };
+    assert_eq!(
+        selectors,
+        vec![
+            selector_of("8:192"),
+            selector_of("7:6"),
+            selector_of("253:0")
+        ],
+        "the whole disk, the withdrawn loop, and the dm node each key their mount"
+    );
+    assert_eq!(keyed.by_device[0].1[0].mount_point, "/mnt/dr-ext4");
+    let unkeyed: Vec<&str> = keyed
+        .unkeyed
+        .iter()
+        .map(|e| e.mount_point.as_str())
+        .collect();
+    assert_eq!(
+        unkeyed,
+        vec!["/", "/proc", "/mnt/dr-btrfs"],
+        "the partition-backed root, the pseudo file system, and the anonymous Btrfs mount key to nothing"
+    );
+
+    // Keying is by number, never by the source path: a device that lost its
+    // `dev` attribute keys nothing even though a line's source names it, and
+    // a line whose source names one device but carries another's number
+    // keys to the number.
+    let mut renamed = procfs(
+        b"298 30 8:192 / /mnt/x rw shared:1 - ext4 /dev/loop6 rw\n",
+        b"Filename\n",
+    );
+    renamed.files.remove("/sys/class/block/loop6/dev");
+    let devices = devices_of(&renamed);
+    let Table::Listed { entries } = read_mounts(&renamed, &PathBuf::from("/proc")) else {
+        panic!("parses")
+    };
+    let keyed = key_mounts(&entries, &devices);
+    assert_eq!(keyed.by_device.len(), 1);
+    assert_eq!(
+        devices
+            .iter()
+            .find(|d| d.selector == keyed.by_device[0].0)
+            .and_then(|d| d.device_number.as_deref()),
+        Some("8:192"),
+        "the number wins over the name"
+    );
+    assert!(keyed.unkeyed.is_empty());
+}
+
+// Requirements: SAFE-005, MODEL-004
+//   A line off the recorded shape — no separator, the wrong count after
+//   it, a non-numeric id, a malformed `major:minor` — refuses the whole
+//   table as a `failed` observation naming the line, never a partial list:
+//   a partial mount set could present a mounted device as unmounted. An
+//   absent table is `unavailable`, never an empty table; an over-limit read
+//   refuses rather than truncating, under the table's own bound.
+// Evidence: a_mount_line_off_the_recorded_shape_refuses_the_whole_table
+#[test]
+fn a_mount_line_off_the_recorded_shape_refuses_the_whole_table() {
+    use crate::state::{Table, read_mounts};
+    use partman_domain::model::provenance::Outcome;
+
+    let good = "30 1 8:1 / / rw shared:1 - ext4 /dev/sda1 rw\n";
+    for (bad, what) in [
+        (
+            "26 30 0:24 / /proc rw shared:13 proc proc rw\n",
+            "no `-` separator",
+        ),
+        (
+            "26 30 0:24 / /proc rw shared:13 - proc proc\n",
+            "two fields after the separator",
+        ),
+        (
+            "26 x 0:24 / /proc rw shared:13 - proc proc rw\n",
+            "non-numeric parent id",
+        ),
+        (
+            "26 30 0-24 / /proc rw shared:13 - proc proc rw\n",
+            "malformed major:minor",
+        ),
+        (
+            "26 30 0:24 / - proc proc rw\n",
+            "fewer than six fields before the separator",
+        ),
+    ] {
+        let source = procfs(format!("{good}{bad}").as_bytes(), b"Filename\n");
+        match read_mounts(&source, &PathBuf::from("/proc")) {
+            Table::Refused { observation } => match observation.outcome {
+                Outcome::Failed { error } => assert!(
+                    error.contains("line 2") && error.contains("refused, not read partially"),
+                    "{what}: {error}"
+                ),
+                other => panic!("{what}: a malformed table is failed, got {other:?}"),
+            },
+            Table::Listed { .. } => panic!("{what}: a malformed line must refuse the table"),
+        }
+    }
+
+    // Absent: unavailable, never empty.
+    let absent = assembled_tree();
+    assert!(matches!(
+        read_mounts(&absent, &PathBuf::from("/proc")),
+        Table::Refused {
+            observation: partman_domain::model::provenance::Observation {
+                outcome: Outcome::Unavailable { .. },
+                ..
+            }
+        }
+    ));
+
+    // Over the table's own bound: refused, not truncated. The bound is the
+    // table's, wider than a device record's.
+    const { assert!(crate::contract::TABLE_LIMIT > crate::contract::RECORD_LIMIT) };
+    let big = procfs(&vec![b'x'; crate::contract::TABLE_LIMIT + 1], b"Filename\n");
+    match read_mounts(&big, &PathBuf::from("/proc")) {
+        Table::Refused { observation } => assert!(matches!(
+            observation.outcome,
+            Outcome::Failed { ref error } if error.contains("not truncated")
+        )),
+        Table::Listed { .. } => panic!("an over-limit table must refuse"),
+    }
+}
+
+// Requirements: LIN-006, MODEL-004, SAFE-005
+//   DR2 establishes the swap table's shape for an ordinary client: the
+//   header, then one row per active swap. A row parses into its five
+//   fields as an attributed observation; a table not opening with the
+//   header, or a row without exactly five fields, refuses.
+// Evidence: the_swap_table_parses_and_a_missing_header_refuses
+#[test]
+fn the_swap_table_parses_and_a_missing_header_refuses() {
+    use crate::state::{Table, read_swaps};
+    use partman_domain::model::provenance::Outcome;
+
+    let table = "Filename\t\t\t\tType\t\tSize\t\tUsed\t\tPriority\n\
+                 /dev/sdn                                partition\t1048572\t\t0\t\t-2\n";
+    let source = procfs(b"", table.as_bytes());
+    let Table::Listed { entries } = read_swaps(&source, &PathBuf::from("/proc")) else {
+        panic!("DR2's table parses")
+    };
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].path, "/dev/sdn");
+    assert_eq!(entries[0].kind, "partition");
+    assert_eq!(
+        (
+            entries[0].size_kib,
+            entries[0].used_kib,
+            entries[0].priority
+        ),
+        (1_048_572, 0, -2)
+    );
+    assert_eq!(
+        entries[0].observation.adapter,
+        "partman-adapter-linux/linux-procfs"
+    );
+
+    // Header only: an empty, lawful table.
+    let empty = procfs(b"", b"Filename\tType\tSize\tUsed\tPriority\n");
+    assert!(matches!(
+        read_swaps(&empty, &PathBuf::from("/proc")),
+        Table::Listed { entries } if entries.is_empty()
+    ));
+
+    for (bad, what) in [
+        ("/dev/sdn partition 1048572 0 -2\n", "no header"),
+        (
+            "Filename Type Size Used Priority\n/dev/sdn partition 1048572 0\n",
+            "four fields",
+        ),
+        (
+            "Filename Type Size Used Priority\n/dev/sdn partition big 0 -2\n",
+            "non-numeric size",
+        ),
+    ] {
+        let source = procfs(b"", bad.as_bytes());
+        assert!(
+            matches!(
+                read_swaps(&source, &PathBuf::from("/proc")),
+                Table::Refused {
+                    observation: partman_domain::model::provenance::Observation {
+                        outcome: Outcome::Failed { .. },
+                        ..
+                    }
+                }
+            ),
+            "{what} must refuse"
+        );
+    }
 }
