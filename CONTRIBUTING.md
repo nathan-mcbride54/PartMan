@@ -75,6 +75,27 @@ cargo xtask supply-chain
 
 Do not use an issue or a pull request. Follow `SECURITY.md`.
 
+## Where to push
+
+This repository lives on two forges, and a push can be refused by a gate that
+runs on neither your machine nor GitHub. `docs/quality/forges-and-the-push-gate.md`
+is the full arrangement; the part you need before your first push is short.
+
+`origin` carries two push URLs, so `git push origin <branch>` reaches both
+forges. Gitea is where work originates; GitHub holds the eleven required checks
+that decide whether a change may merge.
+
+A `gitleaks` pre-receive hook on the Gitea server refuses any push that
+introduces a detectable secret, so the value never enters the shared repository.
+If it refuses you, **rotate the credential first** — it existed in a commit you
+created, and the push being refused is not the same as the value never having
+existed — then rewrite the commits.
+
+For a false positive, a `gitleaks:allow` comment on the offending line works. A
+`.gitleaksignore` file does not: the hook scans a bare repository, which has no
+working tree to read one from. Anything broader needs a rule-level allowlist in
+the server-side configuration, which a push deliberately cannot change.
+
 ## Pull requests
 
 Use one pull request per work package or assigned subtask. Complete every field
