@@ -134,7 +134,13 @@ maps normatively to three range sets over host-qualified extents:
 EBR extents of the host's table node — never the parent device),
 *consumed free ranges* (verified by the constructor to intersect no
 existing node's extent — Section 11.2's overlap invariant enforced at
-construction), and *destroyed ranges*, where **release is
+construction *(amended in 17.3.0 by ADR-0052: a relocation's consumed
+range may additionally intersect the extent of the step's own target and
+of nodes named within it, and no other's — the moved partition's whole
+destination extent is its consumed range, so that closure reach and the
+delivered step-output contract both hold; the verification lives in the
+solver's destination rule, not the step constructor)*), and *destroyed
+ranges*, where **release is
 destruction**: a range freed from its owner — a deleted partition's
 extent, a shrink's truncated tail, a move's source extent at commit —
 is destroyed even though no byte is overwritten, because its content

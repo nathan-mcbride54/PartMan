@@ -1,7 +1,7 @@
 # PartMan
 
 PartMan is a safety-first, cross-platform disk partition manager defined by
-`AGENT_BUILD_SPEC.md` 17.2.0. The intended product is a dark-first Tauri desktop
+`AGENT_BUILD_SPEC.md` 17.3.0. The intended product is a dark-first Tauri desktop
 application plus a scriptable CLI, backed by a shared Rust domain, planner,
 validator, journal, image engine, and per-platform privileged helpers.
 
@@ -257,7 +257,7 @@ implements.
 | Issue | Package | Standing |
 | --- | --- | --- |
 | **#370** | WP-010 | A byte-preserving relocation of a protected structure refuses, and relief needs a preservation proof that is not computable today. Split from #348 by ADR-0040. |
-| **#371** | WP-010 | PART-005's hosted-signature duty is undelivered: no `Consequence` variant states a signature loss, and no representable request relocates bytes for one to attach to. Two claims this row carried are retired by measurement — a plan-carried enumeration vocabulary has existed since before the issue was filed, and the grep no longer returns only the spec sentence: PR #433 pinned the absence as a mutation-tested property with a compile-time tripwire, so the issue is now guarded while open. Re-measured at `12c13b5`. Split from #348 by ADR-0040. |
+| **#371** | WP-010 | PART-005's hosted-signature duty is undelivered: no `Consequence` variant states a signature loss, and no representable request relocates bytes for one to attach to. Two claims this row carried are retired by measurement — a plan-carried enumeration vocabulary has existed since before the issue was filed, and the grep no longer returns only the spec sentence: PR #433 pinned the absence as a mutation-tested property with a compile-time tripwire, so the issue is now guarded while open. Re-measured at `12c13b5`. **The destination vocabulary is decided** (ADR-0052, spec 17.3.0, 2026-08-18): `Move { target, new_start }`, the conservative `destroyed = S`, `consumed = D` declaration with ADR-0018's consumed class amended to admit it, and the hosted-signature enumeration by frame; WP-060's move increment delivers the duty and the issue re-measures against it. Split from #348 by ADR-0040. |
 
 Issues **#318**, **#338**, **#348** and **#355** closed on or before
 `6d743a3`; **#349** and **#356** closed with ADR-0041 (the body's facts
