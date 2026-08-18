@@ -203,14 +203,24 @@ validation. A moved partition renaming is decided, legitimate behaviour
 
 **D6 — the hosted-signature enumeration.** ADR-0018's relocation duty —
 "preserve hosted signatures byte-wise or enumerate their loss explicitly
-in the plan" — is discharged **by frame, not by family**: a signature or
-file system anchored in the moved node's own frame has host-relative
-offsets and is preserved by a byte-preserving copy; one framed on an
-ancestor (device-framed, admitted by `endpoint_pair_allowed` and
-committed in `snapshot_tests.rs:1560-1571`) inside S∩D **is destroyed,
-and the authenticated closure is what says so** under D2. The planner's
-`Consequence` vocabulary gains a variant for the loss, at kind level
-(`fs_kind`, signature family, frame). **Its negative space is bounded
+in the plan" — is discharged **by naming position, not by family**. The
+round said "by frame"; under ADR-0046 that word cannot carry the
+distinction, because every containment child's extent is expressed in
+the containment root's address space — a partition's own file system is
+device-framed exactly as a device-hosted signature is
+(`planner/src/tests.rs:1302-1304` says so of the solver fixture). What
+separates them is `names_within` (`protection.rs:491-493`), the same
+predicate D2 and D3 already use: a node **named within the moved
+target** — a file system or signature whose `host` chain reaches it —
+moves with it, its offsets relative to the target's content, and is
+preserved by a byte-preserving copy; a node **not named within it** whose
+extent lies in S is not carried — inside S∩D the destination rule (D3)
+refuses the move outright, and inside S\D it is released with the source
+range and, release being destruction (ADR-0018), **is destroyed, and the
+authenticated closure is what says so** under D2 wherever the solver is
+not the arbiter. The planner's `Consequence` vocabulary gains a variant
+enumerating exactly that release, at kind level (`fs_kind`, signature
+family, and the node's kind for anything else). **Its negative space is bounded
 here, explicitly:** the vocabulary names position dependence *where the
 bound snapshot can see it*; it carries no partition type or role, and its
 silence on a bios_grub partition or an ESP is **not** a boot-consequence
@@ -281,11 +291,12 @@ pass broke; this pricing rests on the sentence test instead.
 
 Owed by the increment, not this document: (1) the overlapping-move
 fixture with a device-framed signature in S∩D refuses through the
-closure, not the solver; (2) the same fixture with the signature in the
-moved node's own frame is `Clear` and preserves it; (3) `MoveDraft`
+closure, not the solver; (2) the same fixture with the signature named within the
+moved node is `Clear` and the simulation preserves it at the
+destination; (3) `MoveDraft`
 resolves under the unchanged `resolve_step_output`; (4) the D3 rule
-admits the ordinary partition-with-device-framed-ext4 downward move it
-was measured to refuse under the literal form; (5) the tripwire's
+admits the ordinary partition-with-its-own-ext4 downward move it was
+measured to refuse under the literal form; (5) the tripwire's
 successor row traces PART-005 to a test that exercises a move; (6)
 mutations proven applied and killed per the standing rule.
 
