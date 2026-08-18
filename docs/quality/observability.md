@@ -11,7 +11,7 @@
   recorded harness defects, and **M10 taken the same day** in an ephemeral
   hosted runner, where the helper reads at byte level what the client is
   denied. Only M9 remains `not established`, Apple Silicon having no Fusion
-  Drive. **No preregistered cell on any platform is now `not yet taken`.**
+  Drive. **One preregistered set is `not yet taken`: the Linux detection rows DR1–DR10, filed by WP-L100 increment 4 as gitea#1005 and preregistered 2026-08-18 below; every other preregistered cell on every platform is taken.**
   The macOS second-reader readback was discharged 2026-08-08 by an
   independent reader session: both sitting 2 transcripts and the M10
   transcript retrieved through their locators and rehashed, every digest
@@ -4343,6 +4343,88 @@ operator workstation, custodian Nate McBride. Cited transcript SHA-256
 on the Proxmox host, recomputed on the workstation — all three
 agreeing. Instrument digests recorded in-transcript before any
 capture.
+
+### The detection-rows sitting — preregistered 2026-08-18; not yet taken
+
+Ten cells, declared before execution per this document's method. They are
+the rows WP-L100 increment 4 filed on this package as gitea issue **#1005**
+(the filing half of the two-act bracket the 2026-08-13 grant names; the
+WP-L100 record carries the same ten under *Filed by increment 4*), from
+the arc's plan `docs/reviews/WP-L100_INCREMENT_4_PLAN_2026-08-18.md`. What
+they establish is whether, and in what shape, an ordinary Linux client can
+read the interfaces LIN-006's detection layer needs — the mount and swap
+tables, the sysfs markers and membership listings of host-assembled block
+devices, the cached signature view of their members, and the loop and
+Btrfs surfaces — none of which any row above measures. The claims are
+about **kernel interfaces, not a medium**: no fixture media, no
+passthrough, and a virtual disk is a real block device to the kernel that
+exposes these surfaces, on the same footing as the increment 6 Linux
+matrix's read-only device tree.
+
+Apparatus: one disposable Proxmox VM (fresh jammy image against the
+pinned digest, kernel verified `uname -r` before and after, never
+rebooted), **fourteen** additional 1 GiB virtio-scsi virtual disks and no
+USB or PCI passthrough (asserted by `qm config`); root as the **setup
+actor only**, `muser1` (created with no supplementary groups, no `disk`
+membership, `CapEff` all-zero, recorded) as the client-baseline
+measurement user through `runuser`; the client instrument staged
+world-readable under `/usr/local/lib` (the FR1 lesson) with every
+instrument's digest recorded in-transcript before the first capture.
+The setup actor provisions, from packages installed after the guest
+settles, and records each command's exit status:
+
+- two LVM volume groups — one over two whole-disk members, one over one —
+  each with one 256 MiB logical volume;
+- two mdraid RAID1 arrays, each over two whole-disk members;
+- two LUKS2 containers, each over one whole disk, opened with a
+  throwaway key file that is never printed;
+- one Btrfs file system over two whole-disk members, mounted;
+- one ext4 file system on a whole disk, mounted, and one ext4 file system
+  on a **file-backed loop device** attached by plain `losetup` — the row's
+  claim is what a client sees of the loop surface, and #94's by-name
+  standing is recorded beside DR7 rather than worked around — mounted;
+- one swap area on a whole disk, enabled;
+- the guest's own root and boot mounts, and its snapd loop devices, as
+  they are.
+
+| # | Cell | Command / API | Privilege | Distinguishing condition | Invalidation conditions | Result |
+| --- | --- | --- | --- | --- | --- | --- |
+| DR1 | The mount table | `cat /proc/self/mountinfo`, double capture; the lines whose source is a provisioned object identified by `major:minor` against `/sys/class/block/*/dev` | client baseline | Readable to the client; one line per mount; the field shape as `proc(5)` documents it — mount id, parent id, `major:minor`, root, mount point, options, optional fields, `-`, fs type, source, super options — holding for the whole-disk, loop, LVM, and Btrfs mounts and for the guest's root; `major:minor` as the keying field | read denied; a provisioned mount missing; a line whose separator or field count departs from the shape | not yet taken |
+| DR2 | The swap table | `cat /proc/swaps`, double capture | client baseline | Readable; header line plus one row per active swap naming device path, type, size, used, priority; the provisioned swap present | read denied; the row absent | not yet taken |
+| DR3 | Kind markers | `ls /sys/class/block/<dev>/` on one dm, one md, one loop, and one plain whole device; `cat` of `dm/name`, `dm/uuid`, `dm/suspended` on every `dm-*`; double capture, exit statuses | client baseline | Which of `dm/`, `md/`, `loop/` exist on each kind and are absent on the plain device; `dm/uuid` carrying `LVM-` for a logical volume and `CRYPT-LUKS2-` for an opened container; readable to the client | a marker present on the plain device; a marker unreadable rather than absent | not yet taken |
+| DR4 | Membership, both directions | `ls /sys/class/block/<member>/holders/` and `ls /sys/class/block/<assembled>/slaves/` for every provisioned member and assembled device, double capture | client baseline | Each member's `holders/` names its assembled device and each assembled device's `slaves/` names its members, symmetrically; the LUKS device's `slaves/` names its disk; the loop's `slaves/` is empty | an asymmetry; a listing denied | not yet taken |
+| DR5 | The self-reported array count | `cat md/level`, `md/raid_disks`, `md/array_state` on each `md*`; the udev record `b<major>:<minor>` of each array read for `MD_LEVEL`, `MD_DEVICES`, `MD_UUID`; double capture | client baseline | `raid_disks` reporting the array's own member count (2) through sysfs, and the database carrying the same as `MD_DEVICES`; which of the two interfaces answers, and whether they agree | either interface unreadable; the values disagreeing | not yet taken |
+| DR6 | The cached signature view of members | udev record `b<major>:<minor>` of each LVM member, md member, LUKS disk, Btrfs member, and the ext4 disk, read for `ID_FS_TYPE`, `ID_FS_USAGE`, `ID_FS_UUID`; double capture | client baseline | `LVM2_member`, `linux_raid_member`, `crypto_LUKS`, `btrfs`, `ext4` as the cached type on the respective devices; whether the two Btrfs members carry one `ID_FS_UUID`; whether md members carry the array's UUID as `ID_FS_UUID` | a record absent (`unavailable`, recorded as such, never as a negative); a type other than the provisioned one | not yet taken |
+| DR7 | The loop surface | `cat loop/backing_file`, `loop/offset`, `loop/autoclear` on the file-backed loop and on one snapd loop; double capture | client baseline | Readable to the client; `backing_file` naming the path the setup actor attached; the snapd loop's `backing_file` naming a `.snap` path. **By-name evidence only, on #94's terms**: nothing binds the node to a verified handle, and the row claims what the client sees, not what the device is bound to | read denied; the value not the attached path | not yet taken |
+| DR8 | Btrfs multi-device | `ls /sys/fs/btrfs/`, then `ls /sys/fs/btrfs/<uuid>/devices/`; double capture | client baseline | One entry for the provisioned file system whose `devices/` names both members, keyed by the same UUID DR6 reads on each member | the directory denied or absent; the members not both listed | not yet taken |
+| DR9 | Byte stability across a mount cycle | For the ext4 whole disk: `dev`, `size`, `ro`, `removable`, `queue/logical_block_size`, `queue/physical_block_size`, `device/vendor`, `device/model`, `device/wwid` (the contract's own roster; `stat` and `inflight` are I/O counters and deliberately outside the claim) and the full udev record, captured mounted → after `umount` → after re-mount, `udevadm settle` before each | client baseline; root performs the cycle | Every captured byte equal across the three states — the input-layer half of ADR-0005 Rule 2's mount arm | any byte differing; a capture during which the mount state was not as declared | not yet taken |
+| DR10 | Per-unit distinctness and stability | `dm/uuid` of both logical volumes and both opened containers, `MD_UUID` of both arrays, `ID_FS_UUID` of the members and file systems; captured, then after root deactivates and re-assembles every unit (`vgchange -an`/`-ay`, `mdadm --stop`/`--assemble --scan`, `cryptsetup close`/`open`, unmount and remount), captured again — keyed by unit name, since minor numbers may move | client baseline; root performs the re-assembly | Distinct per unit; byte-equal across the re-assembly. ADR-0034's three criteria — value, stability, per-unit distinctness — for a designation round this sitting does not make | equal across two units; a value moving across re-assembly; a unit failing to re-assemble (that unit `void`, the others stand) | not yet taken |
+
+Validity gates, all required: fresh VM and recorded environment (the
+`l-env.sh` lineage: distro, kernel, udev version and ruleset digest,
+package versions, base-image digest, the measurement user's `id` and
+`CapEff`); `udevadm settle` before every capture; double-capture byte
+stability for every cell except where the cell's own claim is a change
+across a declared state (DR9's cycle, DR10's re-assembly), where each
+state is itself double-captured; every provisioning command's exit
+status in-transcript; the kernel unchanged before and after; no reboot;
+custody identical to the matrices above — outside-repository archive
+with locator and custodian, SHA-256 digest and byte length, instrument
+digests recorded before first capture, guest/host/workstation digest
+agreement; teardown proof. Gate failures make cells `void(<gate>)`,
+never negatives.
+
+What this sitting deliberately does not do: no multipath (WP-L100's
+imported obligation 3 stays gated — two paths to one LUN are not this
+apparatus); no partition-hosted member or file system (WP-L100 3b's block
+stands, and a partition here would measure a partition-hosted arm the
+adapter cannot yet host); no transport-discrimination protocol; no
+naming designation (DR10 records inputs; the designation is a normative
+act landing only through its own round and ADR, exactly as the 2026-08-13
+readback rows said of ADR-0034); no fixture media and no passthrough.
+Values recorded here are shapes, presence, and equality; no UUID, serial,
+or path from the guest is written into this document beyond what a cell's
+distinguishing condition needs.
 
 ## Reproducing this
 
