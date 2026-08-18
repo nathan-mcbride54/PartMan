@@ -7,6 +7,16 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-010: `names_within` is public, and the `consumed` doc-comment says
+  what is enforced (ADR-0052; no spec change beyond 17.3.0's row).**
+  ADR-0052 names `names_within` as the predicate for both halves of a
+  relocation — the consumed-class exception and the solver's destination
+  rule — so the domain exposes it rather than having the planner re-derive
+  it from the naming relation. `StepRanges::consumed`'s comment claimed the
+  constructor verifies freeness; `PlanStep::mutating_declared` never has,
+  and the comment now says where the judgment lives. Behaviour unchanged;
+  no test moves.
+
 - **WP-L100 increment 3a: devices are addressed, and INV-004's presentable
   derivation lands (ADR-0019, ADR-0033, ADR-0034; no spec change).** The
   Linux adapter gains a bytes-preserving naming seam, ADR-0034's designated
