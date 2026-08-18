@@ -18,7 +18,9 @@ attractive.
 > `owned-paths` block (`docs/work-packages/WP-000.md`), so this record is
 > committable, and under a `Work-Package: WP-000` trailer the ownership gate
 > admits it rather than refusing it. The banner is repeated across several
-> round documents and is worth a sweep of its own.
+> round documents and is worth a sweep of its own. *(Swept 2026-08-18: the
+> twelve committed carriers now open with the true rule and a pointer to
+> `HANDOFF_2026-08-15_OPUS_CLEANUP_TO_NEXT.md` §6.1.)*
 
 ## 0. Why this is not a §1.11 filing
 
