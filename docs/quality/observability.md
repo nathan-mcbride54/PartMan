@@ -11,7 +11,7 @@
   recorded harness defects, and **M10 taken the same day** in an ephemeral
   hosted runner, where the helper reads at byte level what the client is
   denied. Only M9 remains `not established`, Apple Silicon having no Fusion
-  Drive. **One preregistered set is `not yet taken`: the Linux naming-designation cells DR11–DR14 (filed by WP-L100 increment 4b as gitea#1007, preregistered 2026-08-18 below); every other preregistered cell on every platform is taken** — the detection rows DR1–DR10 (gitea#1005) were preregistered and taken 2026-08-18, valid on the second invocation, all ten established.
+  Drive. **No preregistered cell on any platform is now `not yet taken`** — the Linux detection rows DR1–DR10 (gitea#1005) and the naming-designation cells DR11–DR14 (gitea#1007) were preregistered and taken 2026-08-18, all fourteen established (DR1–DR10 valid on a second invocation; DR11–DR14 valid with two recorded instrument amendments in the rebooted phase).
   The macOS second-reader readback was discharged 2026-08-08 by an
   independent reader session: both sitting 2 transcripts and the M10
   transcript retrieved through their locators and rehashed, every digest
@@ -4479,7 +4479,7 @@ Values written here are shapes, presence, equality, and the two
 public-format examples the conditions needed; no serial or path from the
 guest beyond the declared `/var/tmp/dr-loop.img`.
 
-### The naming-designation cells DR11–DR14 — preregistered 2026-08-18; not yet taken
+### The naming-designation cells DR11–DR14 — preregistered 2026-08-18; taken the same day; valid, with two recorded instrument amendments in the rebooted phase
 
 Four cells, declared before execution per this document's method. They
 are the rows WP-L100 increment 4b filed on this package as gitea issue
@@ -4513,10 +4513,10 @@ post-reboot legs.
 
 | # | Cell | Command / API | Privilege | Distinguishing condition | Invalidation conditions | Result |
 | --- | --- | --- | --- | --- | --- | --- |
-| DR11 | sysfs `md/uuid` | `cat /sys/class/block/<md>/md/uuid` on both arrays, double capture; again after re-assembly; again after the reboot | client baseline | Whether the attribute **exists** on the measured kernel (a positively determined absence is a result, recorded as such); if it does, its value's byte form beside the udev record's `MD_UUID`, byte-equal across re-assembly and reboot, distinct across the two arrays — ADR-0034's three criteria from a **direct** source | read denied where the attribute exists; a value moving; two arrays equal | not yet taken |
-| DR12 | `dm/name` stability | `cat /sys/class/block/dm-*/dm/name` keyed by `dm/uuid`, double capture; after re-assembly; after the reboot | client baseline | The mapper name byte-equal per unit across `vgchange -an/-ay`, `cryptsetup close/open`, and a reboot with automatic activation — the volume-name source's stability, which DR10 did not read | a name moving without an explicit rename; a unit failing to re-appear (that unit `void`) | not yet taken |
-| DR13 | Loop distinctness and re-attach | root attaches a second loop to `/var/tmp/dr-loop.img`, then detaches and re-attaches the first from the same path; `cat loop/backing_file`, `loop/offset` on each, double capture | client baseline; root performs the attach | Two loop devices on one file each report the same `backing_file` bytes (equal-name loops — the collision the `BackingExtent` locator would then group), and a re-attached loop reports the path verbatim again; whether anything a client reads distinguishes the two beyond the entry name | a value not the attached path; the second attach refused | not yet taken |
-| DR14 | Member-signature inputs | udev record `ID_FS_VERSION` on each md member; `cat /sys/class/block/<md>/md/metadata_version` on each array; the full udev record of an md member and of the LUKS disk read for any key naming an **offset** (`ID_FS_*OFFSET*`, `*_OFFSET`); double capture | client baseline | Whether the family (0.90 vs 1.x; LUKS1 vs LUKS2) is client-readable through either interface, and the recorded finding — expected **no** — that no client interface reports a signature's primary offset, which stays the helper's parser's fact | either family surface unreadable where it exists; an offset key present (a positive result, changing the next slice's shape) | not yet taken |
+| DR11 | sysfs `md/uuid` | `cat /sys/class/block/<md>/md/uuid` on both arrays, double capture; again after re-assembly; again after the reboot | client baseline | Whether the attribute **exists** on the measured kernel (a positively determined absence is a result, recorded as such); if it does, its value's byte form beside the udev record's `MD_UUID`, byte-equal across re-assembly and reboot, distinct across the two arrays — ADR-0034's three criteria from a **direct** source | read denied where the attribute exists; a value moving; two arrays equal | **Established — and the direct source exists.** `md/uuid` is present under both arrays' `md/` on the measured kernel and readable to the client; hyphenated form (`54b95c15-7548-d8fb-52b0-5c2ff4f5d9f2`) beside the udev record's colon-quartet `MD_UUID` (`54b95c15:7548d8fb:52b05c2f:f4f5d9f2`) — the same 128 bits, two spellings, which is exactly why ADR-0019 wants one named source; **byte-equal across re-assembly and the declared reboot** (three phases, each double-captured), distinct across the two arrays. ADR-0034's three criteria from a **direct** source: mdraid is designatable on the ADR-0035 shape |
+| DR12 | `dm/name` stability | `cat /sys/class/block/dm-*/dm/name` keyed by `dm/uuid`, double capture; after re-assembly; after the reboot | client baseline | The mapper name byte-equal per unit across `vgchange -an/-ay`, `cryptsetup close/open`, and a reboot with automatic activation — the volume-name source's stability, which DR10 did not read | a name moving without an explicit rename; a unit failing to re-appear (that unit `void`) | **Established for LVM, and a finding for dm-crypt.** Keyed by `dm/uuid`, both logical volumes' `dm/name` (`vg_dr_a-lv_a`, `vg_dr_b-lv_b`) are byte-equal across `vgchange -an/-ay` and across the reboot with automatic activation. Both containers' names are equal across `cryptsetup close/open` under the same name and after the reboot **when re-opened under the same name** — and the sitting itself measured the other case: the first post-reboot re-open (phase 2, addressed by the pre-reboot `sd` name, which the reboot had renumbered — `sdh`/`sdi` swapped roles) opened container A **as `cr_b`**, and `dm/name` followed the opener, not the container (`CRYPT-LUKS2-de5df2cc…` shown as `cr_b`, retained in the transcript's first four rebooted captures). A dm-crypt mapping's name is the opener's argument, not a stored property of the container; the LUKS2 header's own label field was not read. So `dm/name` qualifies as the volume-name source for **LVM logical volumes** (a stored name, activated by the platform), and does **not** qualify for opened containers |
+| DR13 | Loop distinctness and re-attach | root attaches a second loop to `/var/tmp/dr-loop.img`, then detaches and re-attaches the first from the same path; `cat loop/backing_file`, `loop/offset` on each, double capture | client baseline; root performs the attach | Two loop devices on one file each report the same `backing_file` bytes (equal-name loops — the collision the `BackingExtent` locator would then group), and a re-attached loop reports the path verbatim again; whether anything a client reads distinguishes the two beyond the entry name | a value not the attached path; the second attach refused | **Established.** Two loop devices attached to one file each report the same `backing_file` bytes (`/var/tmp/dr-loop.img`) and `offset` `0`, and carry the same `ID_FS_UUID` (one file system) — equal-name loops, the collision the `BackingExtent` locator would group; a loop detached and re-attached from the same path reports the path verbatim again (and took the freed entry name back); after the reboot both re-attach and report the same. Nothing a client reads distinguishes the two beyond the entry name |
+| DR14 | Member-signature inputs | udev record `ID_FS_VERSION` on each md member; `cat /sys/class/block/<md>/md/metadata_version` on each array; the full udev record of an md member and of the LUKS disk read for any key naming an **offset** (`ID_FS_*OFFSET*`, `*_OFFSET`); double capture | client baseline | Whether the family (0.90 vs 1.x; LUKS1 vs LUKS2) is client-readable through either interface, and the recorded finding — expected **no** — that no client interface reports a signature's primary offset, which stays the helper's parser's fact | either family surface unreadable where it exists; an offset key present (a positive result, changing the next slice's shape) | **Established, and the offset answer is no.** The family is client-readable through both interfaces: `ID_FS_VERSION` `1.2` on every md member and `2` on both LUKS disks (udev, cached), `md/metadata_version` `1.2` on both arrays (sysfs, direct). **No key of any md member's or LUKS disk's udev record names an offset** (zero `*OFFSET*` keys; the full key lists are in the transcript) — the primary signature offset stays the helper's parser's fact, and a client draft that carries a `BackingSignature` would be authoring it. The next slice's round starts from that |
 
 Validity gates: those of the detection-rows sitting above, plus the
 reboot recorded on both sides (`uname -r`, the environment record) and
@@ -4527,6 +4527,66 @@ What this sitting deliberately does not do: no designation; no
 multipath; no partition-hosted member; no fixture media; no reading of a
 device's bytes at any privilege for the offset question — the question is
 whether an *interface* reports one, not whether one exists.
+
+**The sitting, 2026-08-18 (UTC).** One disposable VM (VMID 9471), fresh
+jammy image against the pinned digest, fourteen 1 GiB virtio-scsi disks
+with serials `DR01`–`DR14`, no passthrough; `muser1` the client baseline
+through `runuser`, `CapEff` all-zero at every capture; the setup actor's
+`dr2-root.sh` and the client `dr2-client.sh` with digests recorded
+in-transcript before the first capture; every provisioning command's exit
+status in-transcript. Kernel `5.15.0-186-generic` before the run, before
+the reboot, and after it — the setup actor pinned the next boot to the
+running kernel with `grub-reboot` as a declared step, so the reboot leg
+measures the same kernel contract. Phase 1: provisioning, baseline
+captures (two), the DR10 re-assembly cycle plus the loop detach/re-attach,
+reassembled captures (two). The declared reboot. Phase 2: what came back
+by itself — both VGs activated, both arrays assembled as `md127`/`md126`
+without their `/dev/md/dr_*` names (the initramfs was not rebuilt after
+`mdadm.conf`), no container opened, no loop attached — then re-opening,
+and captures.
+
+**Two instrument amendments in the rebooted phase, both retained rather
+than erased.** The reboot **renumbered the disks**: `sdh` and `sdi`
+swapped roles (a LUKS disk and an md member), which phase 2's
+name-addressed state did not survive — it opened container A under the
+name `cr_b`, addressed the member lists by stale names, and resolved the
+arrays to nothing. That is a finding as much as a fault (kernel entry
+names carry no identity across boots — the property the adapter's
+`Device.entry` documents), and its first four rebooted captures are kept
+in the transcript as mis-addressed. **Phase 2b** re-resolved every disk by
+its serial (`/dev/disk/by-id`) and every array by its baseline `md/uuid`,
+and re-captured twice; **phase 2c** closed the mis-named mapping and
+re-opened both containers under their baseline names by serial, and
+re-captured twice — the cited rebooted values are 2c's, and every cell's
+result above says which phase established what. Each amendment's own
+digest is recorded in-transcript before its captures.
+
+Every capture pair is byte-stable; every DR11/DR12 value is equal across
+the three phases per unit; teardown verified 2026-08-18T22:17:53Z: no VM
+config, no storage volume, no LVM volume.
+
+**Custody.** Transcript (all phases appended, one file), the host
+environment record, teardown proof, drive log and every instrument
+including both amendments archived at
+`%USERPROFILE%\PartMan-evidence\2026-08-18-dr2-vmid9471\` on the operator
+workstation, custodian Nate McBride. Transcript SHA-256
+`20c0cee817ab0cd42b512d5661514cdb387165f5e0d71be551c7a1cdc9b0f029`
+(54990 bytes), computed in the guest after the last amendment, recomputed
+on the Proxmox host by the teardown script, recomputed on the workstation
+— all three agreeing.
+
+**What these rows now let the designation round say.** mdraid has a
+direct, stable, per-unit-distinct source — sysfs `md/uuid` — and is
+designatable on the ADR-0035 shape (DR11); the udev cache's `MD_UUID`
+spells the same bits differently, which is the divergence one named
+source exists to exclude. `dm/name` qualifies as the volume-name source
+for LVM logical volumes and not for opened LUKS containers, whose mapping
+name is the opener's (DR12). `loop/backing_file` is the loop locator's
+source, and equal-path loops are the group (DR13). The member-signature
+family is client-readable (DR14) but no interface reports an offset, so a
+client `BackingSignature` node would author its `primary_offset` — the
+question the next 4b slice's round must answer before any signature node
+is built client-side. No designation is made here.
 
 ## Reproducing this
 
