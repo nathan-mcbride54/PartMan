@@ -11,6 +11,7 @@ use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
+use std::thread;
 
 use partman_fixtures::{catalogue, interlock, prober, registry};
 
@@ -1422,6 +1423,26 @@ fn fuzz_engine_args(seconds: u32) -> [String; 5] {
 /// in `fuzz/artifacts/`, which is git-ignored: Section 11.3 keeps binary
 /// fixtures out of the repository, so a reproducer is attached to the report
 /// rather than committed.
+///
+/// The targets run **concurrently**, which buys about three quarters of the
+/// wall clock and costs nothing in coverage. `libFuzzer` is single-threaded per
+/// target unless `-workers` is passed, so the sequential form left three of the
+/// runner's four cores idle for the whole job while each target still got only
+/// its own `-max_total_time`. Running them together gives each a core, the same
+/// bounded time, and byte-identical engine arguments: the evidence is the same,
+/// measured in less wall clock. It is not a reduction in fuzzing.
+///
+/// Every target is built before any is run. Concurrent `cargo fuzz run`
+/// invocations each want cargo's target-directory lock to check freshness, and
+/// building first keeps that contention off the clock the engines are counting
+/// against.
+///
+/// Output is captured per target and replayed grouped, in declaration order, so
+/// a parallel run reads exactly like the sequential one did and a crash report
+/// is never interleaved with three other engines' progress lines. Every target
+/// is joined and **every** failure is named: a run in which two targets crash
+/// must not report only the first, which is what the sequential early return
+/// did.
 fn fuzz(seconds: u32) -> Result<(), TaskError> {
     let directory = repository_root().join("fuzz");
     if !directory.join("Cargo.toml").is_file() {
@@ -1433,25 +1454,79 @@ fn fuzz(seconds: u32) -> Result<(), TaskError> {
 
     verify_fuzz_lock()?;
 
+    let toolchain = format!("+{FUZZ_TOOLCHAIN}");
+
+    println!("fuzz: building {} target(s)", FUZZ_TARGETS.len());
+    let built = Command::new("cargo")
+        .args([toolchain.as_str(), "fuzz", "build"])
+        .current_dir(repository_root())
+        .status()
+        .map_err(|source| TaskError::Launch {
+            program: "cargo".to_owned(),
+            source,
+        })?;
+
+    if !built.success() {
+        return Err(TaskError::CommandFailed {
+            program: "cargo fuzz build".to_owned(),
+            code: built.code(),
+        });
+    }
+
+    let mut running = Vec::with_capacity(FUZZ_TARGETS.len());
     for target in FUZZ_TARGETS {
         println!("fuzz: {target} for {seconds}s");
-        let toolchain = format!("+{FUZZ_TOOLCHAIN}");
-        let status = Command::new("cargo")
-            .args([&toolchain, "fuzz", "run", target, "--"])
-            .args(fuzz_engine_args(seconds))
-            .current_dir(repository_root())
-            .status()
+        let toolchain = toolchain.clone();
+        let engine = fuzz_engine_args(seconds);
+        let root = repository_root();
+        running.push((
+            target,
+            thread::spawn(move || {
+                Command::new("cargo")
+                    .args([toolchain.as_str(), "fuzz", "run", target, "--"])
+                    .args(engine)
+                    .current_dir(root)
+                    .output()
+            }),
+        ));
+    }
+
+    let mut failed = Vec::new();
+    for (target, handle) in running {
+        let output = handle
+            .join()
+            .map_err(|_| {
+                TaskError::Policy(format!(
+                    "the {target} fuzz thread panicked; nothing was proven"
+                ))
+            })?
             .map_err(|source| TaskError::Launch {
                 program: "cargo".to_owned(),
                 source,
             })?;
 
-        if !status.success() {
-            return Err(TaskError::CommandFailed {
-                program: format!("cargo fuzz run {target}"),
-                code: status.code(),
+        println!("--- fuzz: {target} ---");
+        print!("{}", String::from_utf8_lossy(&output.stdout));
+        eprint!("{}", String::from_utf8_lossy(&output.stderr));
+
+        if !output.status.success() {
+            failed.push(match output.status.code() {
+                Some(code) => format!("{target} (exit {code})"),
+                None => format!("{target} (terminated by signal)"),
             });
         }
+    }
+
+    if !failed.is_empty() {
+        return Err(TaskError::CommandFailed {
+            program: format!(
+                "cargo fuzz run: {} of {} target(s) failed: {}",
+                failed.len(),
+                FUZZ_TARGETS.len(),
+                failed.join(", ")
+            ),
+            code: None,
+        });
     }
 
     Ok(())
