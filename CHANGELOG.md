@@ -7,6 +7,23 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-L100 increment 4b, second slice: naming what ADR-0053 designates
+  (LIN-006, INV-004; no spec change beyond 17.4.0's).** `arrays.rs` names
+  each mdraid array from sysfs `md/uuid`, bytes verbatim, trailing newline
+  included, through the bytes-preserving path — an absent or unreadable
+  source keeps the designator-absent name and standing; the udev cache's
+  `MD_UUID` is not read for naming. `volumes.rs` classifies device-mapper
+  nodes by their `dm/uuid` prefix (`LVM-`, `CRYPT-`, else unrecognized; a
+  silent uuid undetermined) as a classification input, never a name, and
+  names each LVM logical volume `Volume { producer, name: dm/name verbatim,
+  role: None }` under the designator-absent LVM2 aggregate as its producer
+  — volume-group classes partition the volumes and set the group count
+  without entering any name; a dm-crypt container yields no `Volume`; the
+  loop's `loop/backing_file` is reported and no node built until 3b's host
+  node exists. Two tests (the second closing under the domain closure:
+  a volume of a designator-absent group is indeterminate); five mutations
+  killed. Rust: the WP-020 sitting is r44.
+
 - **spec-change 17.4.0: the Linux host-assembled naming designations
   (ADR-0053).** ADR-0034's revisit condition fired in its sanctioned
   direction on the DR1–DR14 rows: the (Linux, Aggregate, mdraid)

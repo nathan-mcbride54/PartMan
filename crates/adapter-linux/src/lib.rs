@@ -1,4 +1,4 @@
-//! The WP-L100 Linux read-only inventory adapter (increment 4b, first slice).
+//! The WP-L100 Linux read-only inventory adapter (increment 4b, second slice).
 //!
 //! The ordinary Linux client contract, as a pure library: a bounded read seam
 //! over sysfs attribute files and the udev database, the MODEL-004
@@ -61,7 +61,12 @@
 //!   builds the one thing that needs no designation: each mdraid array as
 //!   a **designator-absent** `Aggregate` — indeterminate, not an operand
 //!   (ADR-0019; WP-010 slice 3q) — with its self-reported member count and
-//!   its membership listing reported, not edged.
+//!   its membership listing reported, not edged. The second slice names
+//!   what ADR-0053 designates: an mdraid array from `md/uuid`, an LVM
+//!   logical volume from `dm/name` under its designator-absent
+//!   volume-group aggregate (`volumes`), each verbatim through the
+//!   bytes-preserving path; a dm-crypt mapping and a loop device are
+//!   reported and not named.
 //!   `NamingFields::PartitionTable` carries a `TableRole` — a scheme — and
 //!   this contract reads no table bytes. ADR-0036's forward obligation put
 //!   the choice to this increment in terms, and the package document records
@@ -111,6 +116,7 @@ pub mod naming;
 pub mod observation;
 pub mod reach;
 pub mod state;
+pub mod volumes;
 
 #[cfg(test)]
 mod tests;

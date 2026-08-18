@@ -636,7 +636,7 @@ fn the_adapter_opens_no_device_node_and_launches_no_process() {
 /// `every_shipped_module_is_covered_by_the_structural_guards`, because both
 /// SAFE-002 scans iterate it: a module added without an entry here would be
 /// exempt from both while leaving both tests green.
-fn shipped_sources() -> [(&'static str, &'static str); 9] {
+fn shipped_sources() -> [(&'static str, &'static str); 10] {
     [
         ("lib.rs", include_str!("lib.rs")),
         ("arrays.rs", include_str!("arrays.rs")),
@@ -647,6 +647,7 @@ fn shipped_sources() -> [(&'static str, &'static str); 9] {
         ("observation.rs", include_str!("observation.rs")),
         ("reach.rs", include_str!("reach.rs")),
         ("state.rs", include_str!("state.rs")),
+        ("volumes.rs", include_str!("volumes.rs")),
     ]
 }
 
@@ -2031,4 +2032,302 @@ fn mdraid_arrays_are_reported_as_designator_absent_aggregates_and_never_operands
         ),
         "the designator-absent array is not an operand — the domain arm slice 3q added"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Increment 4b, second slice: ADR-0053's designations.
+// ---------------------------------------------------------------------------
+
+/// The arrays tree plus `md/uuid` on two arrays (one absent, one
+/// unreadable elsewhere), three dm nodes — two LVM logical volumes in two
+/// volume-group classes and one opened container — a dm node whose uuid
+/// does not answer, and the loop's backing path. Values are DR11/DR12/DR13
+/// shapes; the uuids are the sitting's own.
+fn designated_tree() -> FakeSource {
+    let mut source = arrays_tree();
+    source.dirs.insert(
+        "/sys/class/block".to_owned(),
+        Ok(vec![
+            "dm-0".to_owned(),
+            "dm-1".to_owned(),
+            "dm-2".to_owned(),
+            "dm-3".to_owned(),
+            "dm-9".to_owned(),
+            "loop6".to_owned(),
+            "md126".to_owned(),
+            "md127".to_owned(),
+            "md99".to_owned(),
+            "sdm".to_owned(),
+            "shady".to_owned(),
+        ]),
+    );
+    // DR11: md/uuid present on both arrays; the third array's is unreadable.
+    source.files.insert(
+        "/sys/class/block/md127/md/uuid".to_owned(),
+        Ok(b"54b95c15-7548-d8fb-52b0-5c2ff4f5d9f2\n".to_vec()),
+    );
+    source.files.insert(
+        "/sys/class/block/md126/md/uuid".to_owned(),
+        Ok(b"1bdd6d6c-70b6-a01f-48e0-9517d541c4db\n".to_vec()),
+    );
+    source.files.insert(
+        "/sys/class/block/md99/md/uuid".to_owned(),
+        Err(std::io::ErrorKind::PermissionDenied),
+    );
+    // dm nodes: two LVs in two VG classes, one container, one silent.
+    for (name, number, uuid, dmname) in [
+        (
+            "dm-0",
+            "253:0",
+            "LVM-ek99dYwwU1KaulyX1bqr3RJC2pGrYoWOcbq0yOdyE6EodBHuixHfFrHBIqyXf8Zw\n",
+            "vg_dr_a-lv_a\n",
+        ),
+        (
+            "dm-1",
+            "253:1",
+            "LVM-38AMHrVVxZ2ceGKT6AOPeP27yUz45eXZCozrUTTbf6F2hPbPclDK6IxcMF7eiEVw\n",
+            "vg_dr_b-lv_b\n",
+        ),
+        (
+            "dm-2",
+            "253:2",
+            "CRYPT-LUKS2-de5df2cca1a841ed94d64ebafb2b45e4-cr_a\n",
+            "cr_a\n",
+        ),
+        (
+            "dm-3",
+            "253:3",
+            "LVM-ek99dYwwU1KaulyX1bqr3RJC2pGrYoWOcbq0yOdyE6EodBHuixHfFrHBIqyXf8Zw\n",
+            "vg_dr_a-lv_c\n",
+        ),
+    ] {
+        source.dirs.insert(
+            format!("/sys/class/block/{name}/dm"),
+            Ok(vec!["name".to_owned(), "uuid".to_owned()]),
+        );
+        source.files.insert(
+            format!("/sys/class/block/{name}/dev"),
+            Ok(format!("{number}\n").into_bytes()),
+        );
+        source.files.insert(
+            format!("/sys/class/block/{name}/size"),
+            Ok(b"524288\n".to_vec()),
+        );
+        source.files.insert(
+            format!("/sys/class/block/{name}/dm/uuid"),
+            Ok(uuid.as_bytes().to_vec()),
+        );
+        source.files.insert(
+            format!("/sys/class/block/{name}/dm/name"),
+            Ok(dmname.as_bytes().to_vec()),
+        );
+    }
+    // dm-3 is an LV in dm-0's class; dm-9 has a dm marker but no readable uuid.
+    source.dirs.insert(
+        "/sys/class/block/dm-9/dm".to_owned(),
+        Ok(vec!["name".to_owned()]),
+    );
+    source.files.insert(
+        "/sys/class/block/dm-9/dev".to_owned(),
+        Ok(b"253:9\n".to_vec()),
+    );
+    source
+        .files
+        .insert("/sys/class/block/dm-9/size".to_owned(), Ok(b"8\n".to_vec()));
+    source.files.insert(
+        "/sys/class/block/dm-9/dm/name".to_owned(),
+        Ok(b"mystery\n".to_vec()),
+    );
+    // DR13: the loop's backing path.
+    source.files.insert(
+        "/sys/class/block/loop6/loop/backing_file".to_owned(),
+        Ok(b"/var/tmp/dr-loop.img\n".to_vec()),
+    );
+    source
+}
+
+// Requirements: LIN-006, INV-004, SAFE-005
+//   ADR-0053's mdraid cell: the designator is the array's `md/uuid` bytes
+//   verbatim, trailing newline included, read through the bytes-preserving
+//   path (DR11); an array whose source is unreadable keeps the
+//   designator-absent name and standing (ADR-0034's failed-read outcome),
+//   and the udev cache's `MD_UUID` is not read for naming. Two named
+//   arrays absorb as two nodes; the designator-absent one absorbs alone
+//   as an indeterminate non-operand.
+// Evidence: an_mdraid_array_names_from_md_uuid_verbatim_and_an_unreadable_one_stays_absent
+#[test]
+fn an_mdraid_array_names_from_md_uuid_verbatim_and_an_unreadable_one_stays_absent() {
+    use crate::arrays::{DesignatorRead, absorb_arrays, report_arrays};
+    use partman_domain::model::naming::{AggregateTechnology, NamingFields, NodeEntry};
+
+    let source = designated_tree();
+    let devices = devices_of(&source);
+    let reports = report_arrays(&source, &PathBuf::from("/sys"), &devices);
+    assert_eq!(reports.len(), 3);
+    let by_number = |number: &str| {
+        let selector = devices
+            .iter()
+            .find(|d| d.device_number.as_deref() == Some(number))
+            .map(|d| d.selector.clone())
+            .unwrap();
+        reports.iter().find(|r| r.selector == selector).unwrap()
+    };
+    let a = by_number("9:127");
+    assert_eq!(a.designator, DesignatorRead::Present);
+    assert_eq!(
+        a.fields,
+        NamingFields::Aggregate {
+            technology: AggregateTechnology::Mdraid,
+            designator: Some(b"54b95c15-7548-d8fb-52b0-5c2ff4f5d9f2\n".to_vec()),
+        },
+        "the designator is the md/uuid bytes verbatim — newline included, no colon-quartet re-spelling"
+    );
+    assert!(matches!(
+        by_number("9:99").designator,
+        DesignatorRead::Unreadable { .. }
+    ));
+    assert!(matches!(
+        by_number("9:99").fields,
+        NamingFields::Aggregate {
+            designator: None,
+            ..
+        }
+    ));
+    let entries = absorb_arrays(&reports).expect("absorption is total");
+    assert_eq!(
+        entries.len(),
+        3,
+        "two named arrays and one designator-absent: three addresses"
+    );
+    assert!(
+        entries
+            .iter()
+            .all(|e| matches!(e, NodeEntry::Single { .. }))
+    );
+}
+
+// Requirements: LIN-006, INV-004, SAFE-005
+//   ADR-0053's dm cells: a device-mapper node is classified by its
+//   `dm/uuid` prefix — `LVM-` a logical volume, `CRYPT-` a container,
+//   anything else unrecognized, a silent uuid undetermined — never by its
+//   entry name; a logical volume is a `Volume` named from `dm/name` bytes
+//   verbatim under the designator-absent LVM2 aggregate as its producer
+//   (role absent, no client-readable VG id); volume-group classes partition
+//   the volumes and set the group count, and enter no name; a container
+//   yields no `Volume`; the loop's `loop/backing_file` is reported and no
+//   node is built (3b's host node). Absorbed, the two group classes collapse
+//   into one collision group of count two, and each volume names under it;
+//   under the closure the volumes inherit their group's indeterminacy.
+// Evidence: dm_nodes_are_classified_by_uuid_prefix_and_only_lvm_volumes_are_named
+#[test]
+fn dm_nodes_are_classified_by_uuid_prefix_and_only_lvm_volumes_are_named() {
+    use crate::volumes::{
+        MappingKind, SourceRead, absorb_mappings, lvm_group_fields, report_mappings,
+    };
+    use partman_domain::model::naming::{NamingFields, NodeEntry, derive_id};
+    use partman_domain::model::protection::{Facts, Verdict, node_verdict};
+    use partman_domain::model::topology::{Edge, EdgeKind, Topology};
+
+    let source = designated_tree();
+    let devices = devices_of(&source);
+    let mappings = report_mappings(&source, &PathBuf::from("/sys"), &devices);
+    let selector_of = |number: &str| {
+        devices
+            .iter()
+            .find(|d| d.device_number.as_deref() == Some(number))
+            .map(|d| d.selector.clone())
+            .unwrap()
+    };
+    let kind_of = |number: &str| {
+        mappings
+            .mappings
+            .iter()
+            .find(|m| m.selector == selector_of(number))
+            .map(|m| m.kind.clone())
+            .unwrap()
+    };
+    assert!(matches!(
+        kind_of("253:0"),
+        MappingKind::LvmLogicalVolume { .. }
+    ));
+    assert_eq!(kind_of("253:2"), MappingKind::CryptMapping);
+    assert!(matches!(kind_of("253:9"), MappingKind::Undetermined { .. }));
+    assert_eq!(
+        mappings.mappings.len(),
+        5,
+        "every dm-marked node is classified and reported"
+    );
+
+    // Three volumes in two classes; the container is not a volume.
+    assert_eq!(mappings.volumes.len(), 3);
+    assert_eq!(mappings.groups.len(), 2, "two volume-group classes seen");
+    let producer = derive_id(&lvm_group_fields()).expect("derivable");
+    let lv_a = mappings
+        .volumes
+        .iter()
+        .find(|v| v.selector == selector_of("253:0"))
+        .unwrap();
+    assert_eq!(
+        lv_a.fields,
+        NamingFields::Volume {
+            producer,
+            name: b"vg_dr_a-lv_a\n".to_vec(),
+            role: None,
+        },
+        "the name is dm/name verbatim, newline included; the producer is the designator-absent LVM2 address"
+    );
+    assert!(
+        !mappings
+            .volumes
+            .iter()
+            .any(|v| v.selector == selector_of("253:2")),
+        "a dm-crypt mapping yields no Volume — its name is the opener's (ADR-0053)"
+    );
+    // The loop is reported, not built.
+    assert_eq!(mappings.loops.len(), 1);
+    assert_eq!(
+        mappings.loops[0].backing_path,
+        SourceRead::Present(b"/var/tmp/dr-loop.img\n".to_vec())
+    );
+
+    // Absorption: one group of count two, three volumes under its address.
+    let entries = absorb_mappings(&mappings).expect("absorption is total");
+    let groups: Vec<_> = entries
+        .iter()
+        .filter(|e| matches!(e, NodeEntry::Group { .. }))
+        .collect();
+    assert_eq!(groups.len(), 1);
+    assert!(matches!(groups[0], NodeEntry::Group { count: 2, .. }));
+    let volumes: Vec<_> = entries
+        .iter()
+        .filter(|e| {
+            matches!(
+                e,
+                NodeEntry::Single {
+                    fields: NamingFields::Volume { .. },
+                    ..
+                }
+            )
+        })
+        .collect();
+    assert_eq!(volumes.len(), 3, "three distinct names under one producer");
+
+    // Under the closure, a volume produced by a designator-absent group is
+    // indeterminate — never an operand.
+    let group_fields = lvm_group_fields();
+    let lv_fields = lv_a.fields.clone();
+    let lv_id = derive_id(&lv_fields).expect("derivable");
+    let topology = Topology::build(
+        vec![group_fields, lv_fields],
+        vec![Edge {
+            kind: EdgeKind::Production,
+            source: producer,
+            target: lv_id,
+        }],
+    )
+    .expect("builds");
+    assert!(matches!(
+        node_verdict(&topology, &Facts::default(), lv_id),
+        Verdict::Indeterminate { .. }
+    ));
 }
