@@ -254,12 +254,16 @@ pub struct Planned {
     /// hash); this field carries the draft itself for REC-010's
     /// advertisement and UI-005's display.
     pub reversal: EmittedReversal,
-    /// The typed consequence facts the plan's consequence text must
-    /// state (PART-009 via ADR-0023): inherited off-policy boundaries
-    /// the plan leaves byte-identical, and authored boundaries recorded
-    /// as coincident. Planner-layer carriage — the hashed consequence-
-    /// text vocabulary is a later jointly-sequenced body change, and
-    /// ADR-0023 rejected typed hashed carriage of these facts.
+    /// The typed consequence facts whose sentences the plan's body
+    /// states (Section 6's consequence text; PART-009 via ADR-0023;
+    /// ADR-0052 D6): inherited off-policy boundaries the plan leaves
+    /// byte-identical, authored boundaries recorded as coincident, and
+    /// content a move releases without carrying. Since WP-060 increment
+    /// 12 the body carries exactly these facts' `Display` sentences as
+    /// its `consequences` set (slice 3p); this field is the typed form
+    /// beside the plan for the planner's own consumers, and ADR-0023
+    /// keeps typed carriage out of the hash — the facts are in the bound
+    /// snapshot already.
     pub consequences: Vec<Consequence>,
     /// PART-013's planning-half output (ADR-0024): the protection
     /// obligation per table-bearing device the plan touches, in device
@@ -374,6 +378,14 @@ impl std::fmt::Display for Consequence {
             ),
         }
     }
+}
+
+/// The body's consequence text for a set of typed facts: each fact's
+/// user-facing sentence, in emission order — the domain sorts them into
+/// the body's canonical set and drops repeats, so order and repetition
+/// here never reach the hash.
+fn sentences(consequences: &[Consequence]) -> Vec<String> {
+    consequences.iter().map(ToString::to_string).collect()
 }
 
 /// The consequence facts one solved request contributes: the coincident
@@ -839,8 +851,12 @@ pub fn plan(
         step: 0,
         reason: impossibility(request.operation),
     }];
+    // This path states no consequence: its vocabulary has nothing to
+    // say about a canonical entry, and the body carries the empty set
+    // (slice 3p) rather than being silent about silence.
+    let consequences: Vec<Consequence> = vec![];
     let protection = protection_obligations(snapshot, std::slice::from_ref(&step));
-    OperationPlan::assemble_linked(
+    OperationPlan::assemble_linked_stated(
         identity.plan_id.clone(),
         identity.created_at,
         snapshot,
@@ -850,12 +866,13 @@ pub fn plan(
         ReversalLinkage::Impossible {
             statements: statements.clone(),
         },
+        sentences(&consequences),
     )
     .map(|plan| Planned {
         plan,
         simulated,
         reversal: EmittedReversal::Impossible(statements),
-        consequences: vec![],
+        consequences,
         protection,
     })
     .map_err(|error| PlanRefusal::PlanRefused { error })
@@ -936,7 +953,7 @@ pub fn plan_sized(
     };
 
     let protection = protection_obligations(snapshot, std::slice::from_ref(&step));
-    OperationPlan::assemble_linked(
+    OperationPlan::assemble_linked_stated(
         identity.plan_id.clone(),
         identity.created_at,
         snapshot,
@@ -944,6 +961,7 @@ pub fn plan_sized(
         std::collections::BTreeMap::new(),
         vec![step],
         linkage,
+        sentences(&consequences),
     )
     .map(|plan| Planned {
         plan,
@@ -1383,8 +1401,12 @@ pub fn plan_set(
     let simulated = simulate(snapshot, &combined)
         .map_err(|refusal| PlanRefusal::SimulateRefused { refusal })?;
 
+    // This path states no consequence: its vocabulary has nothing to
+    // say about a canonical entry, and the body carries the empty set
+    // (slice 3p) rather than being silent about silence.
+    let consequences: Vec<Consequence> = vec![];
     let protection = protection_obligations(snapshot, &steps);
-    OperationPlan::assemble_linked(
+    OperationPlan::assemble_linked_stated(
         identity.plan_id.clone(),
         identity.created_at,
         snapshot,
@@ -1394,12 +1416,13 @@ pub fn plan_set(
         ReversalLinkage::Impossible {
             statements: statements.clone(),
         },
+        sentences(&consequences),
     )
     .map(|plan| Planned {
         plan,
         simulated,
         reversal: EmittedReversal::Impossible(statements),
-        consequences: vec![],
+        consequences,
         protection,
     })
     .map_err(|error| PlanRefusal::PlanRefused { error })
@@ -1526,8 +1549,12 @@ pub fn plan_repair(
         step: 0,
         reason: ImpossibilityReason::PreStatePreservedForRecovery,
     }];
+    // This path states no consequence: its vocabulary has nothing to
+    // say about a canonical entry, and the body carries the empty set
+    // (slice 3p) rather than being silent about silence.
+    let consequences: Vec<Consequence> = vec![];
     let protection = protection_obligations(snapshot, std::slice::from_ref(&step));
-    OperationPlan::assemble_linked(
+    OperationPlan::assemble_linked_stated(
         identity.plan_id.clone(),
         identity.created_at,
         snapshot,
@@ -1537,12 +1564,13 @@ pub fn plan_repair(
         ReversalLinkage::Impossible {
             statements: statements.clone(),
         },
+        sentences(&consequences),
     )
     .map(|plan| Planned {
         plan,
         simulated,
         reversal: EmittedReversal::Impossible(statements),
-        consequences: vec![],
+        consequences,
         protection,
     })
     .map_err(|error| PlanRefusal::PlanRefused { error })
