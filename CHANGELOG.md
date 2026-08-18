@@ -7,6 +7,22 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-L100 increment 4b, first slice: mdraid arrays as designator-absent
+  aggregates (LIN-006, INV-004; no spec change).** The Linux host-assembled
+  designation round found no measured source that may name a host-assembled
+  kind under ADR-0034's discipline and was taken as recommended — designate
+  nothing on today's rows, file the missing cells (DR11–DR14, gitea#1007),
+  and start 4b on what needs no designation once the closure enforces the
+  designator-absent rule (WP-010 slice 3q, gitea#1006, the domain act first
+  in one arc). `crates/adapter-linux/src/arrays.rs`: every `md/`-marked
+  device is an `Aggregate { Mdraid, designator: None }` carrying its
+  self-reported member count from `md/raid_disks` (DR5; a decimal or a
+  refusal) and the kernel's `slaves/` listing reported, not edged (DR4);
+  two arrays absorb into one collision group, one alone is indeterminate
+  and not an operand through the 3q arm — one test asserts both halves.
+  Three mutations killed. `fields.md` §7 rows; the 4b record. Rust: r43 at
+  the arc's head.
+
 - **WP-010 slice 3q: a designator-absent aggregate is `Indeterminate` and
   not an operand, as ADR-0019 decides (gitea#1006; no spec change).** The
   closure's aggregate own-arm matched on technology alone and returned

@@ -636,9 +636,10 @@ fn the_adapter_opens_no_device_node_and_launches_no_process() {
 /// `every_shipped_module_is_covered_by_the_structural_guards`, because both
 /// SAFE-002 scans iterate it: a module added without an entry here would be
 /// exempt from both while leaving both tests green.
-fn shipped_sources() -> [(&'static str, &'static str); 8] {
+fn shipped_sources() -> [(&'static str, &'static str); 9] {
     [
         ("lib.rs", include_str!("lib.rs")),
+        ("arrays.rs", include_str!("arrays.rs")),
         ("contract.rs", include_str!("contract.rs")),
         ("derivation.rs", include_str!("derivation.rs")),
         ("devices.rs", include_str!("devices.rs")),
@@ -1896,4 +1897,138 @@ fn the_swap_table_parses_and_a_missing_header_refuses() {
             "{what} must refuse"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// Increment 4b, first slice: mdraid arrays as designator-absent aggregates.
+// ---------------------------------------------------------------------------
+
+/// The assembled tree plus a second array, both with DR5's `md/raid_disks`
+/// and DR4's `slaves/`, and one array whose count is not a count.
+fn arrays_tree() -> FakeSource {
+    let mut source = assembled_tree();
+    source.dirs.insert(
+        "/sys/class/block".to_owned(),
+        Ok(vec![
+            "dm-0".to_owned(),
+            "loop6".to_owned(),
+            "md126".to_owned(),
+            "md127".to_owned(),
+            "md99".to_owned(),
+            "sdm".to_owned(),
+            "shady".to_owned(),
+        ]),
+    );
+    for (name, number, count, members) in [
+        ("md127", "9:127", "2\n", vec!["sde", "sdf"]),
+        ("md126", "9:126", "2\n", vec!["sdg", "sdh"]),
+        ("md99", "9:99", "two\n", vec!["sdi"]),
+    ] {
+        source.dirs.insert(
+            format!("/sys/class/block/{name}/md"),
+            Ok(vec!["level".to_owned(), "raid_disks".to_owned()]),
+        );
+        source.dirs.insert(
+            format!("/sys/class/block/{name}/slaves"),
+            Ok(members.iter().map(|m| (*m).to_owned()).collect()),
+        );
+        source.files.insert(
+            format!("/sys/class/block/{name}/dev"),
+            Ok(format!("{number}\n").into_bytes()),
+        );
+        source.files.insert(
+            format!("/sys/class/block/{name}/size"),
+            Ok(b"2093056\n".to_vec()),
+        );
+        source.files.insert(
+            format!("/sys/class/block/{name}/md/raid_disks"),
+            Ok(count.as_bytes().to_vec()),
+        );
+    }
+    source
+}
+
+// Requirements: LIN-006, INV-004, SAFE-005
+//   The Linux host-assembled designation round found no source that may
+//   name an mdraid array under ADR-0034's discipline, so this slice names
+//   none: every array admitted by DR3's `md/` marker is reported as an
+//   `Aggregate { Mdraid, designator: None }` — the fail-closed
+//   representation ADR-0019 decides and slice 3q enforces — carrying its
+//   self-reported member count read from DR5's `md/raid_disks` (a decimal
+//   or a refusal, never a guess) and the kernel's `slaves/` listing as a
+//   report, not an edge (DR4: per-mapping). Only marker-admitted arrays
+//   are reported: the plain disk, the dm node, the loop, and the
+//   undetermined device are not arrays whatever their entries say. Two
+//   arrays absorb into one collision group; and the domain's closure gives
+//   the lone designator-absent aggregate the missing-fact indeterminacy
+//   slice 3q added — the arc's two halves meeting in one assertion.
+// Evidence: mdraid_arrays_are_reported_as_designator_absent_aggregates_and_never_operands
+#[test]
+fn mdraid_arrays_are_reported_as_designator_absent_aggregates_and_never_operands() {
+    use crate::arrays::{MemberCount, Members, absorb_arrays, report_arrays};
+    use partman_domain::model::naming::{AggregateTechnology, NamingFields, NodeEntry, derive_id};
+    use partman_domain::model::protection::{Facts, IndeterminateGround, Verdict, node_verdict};
+    use partman_domain::model::topology::Topology;
+
+    let source = arrays_tree();
+    let devices = devices_of(&source);
+    let reports = report_arrays(&source, &PathBuf::from("/sys"), &devices);
+    assert_eq!(
+        reports.len(),
+        3,
+        "exactly the marker-admitted arrays are reported"
+    );
+    for report in &reports {
+        assert_eq!(
+            report.fields,
+            NamingFields::Aggregate {
+                technology: AggregateTechnology::Mdraid,
+                designator: None,
+            },
+            "this slice names nothing"
+        );
+    }
+    let by_selector = |number: &str| {
+        let selector = devices
+            .iter()
+            .find(|d| d.device_number.as_deref() == Some(number))
+            .map(|d| d.selector.clone())
+            .unwrap();
+        reports.iter().find(|r| r.selector == selector).unwrap()
+    };
+    assert_eq!(by_selector("9:127").member_count, MemberCount::Reported(2));
+    assert_eq!(
+        by_selector("9:127").members,
+        Members::Listed(vec!["sde".to_owned(), "sdf".to_owned()])
+    );
+    assert_eq!(by_selector("9:126").member_count, MemberCount::Reported(2));
+    assert!(
+        matches!(
+            by_selector("9:99").member_count,
+            MemberCount::Refused { .. }
+        ),
+        "a count that is not a count is refused, never guessed"
+    );
+
+    // Two or more absorb into one indeterminate group; alone, the closure
+    // refuses through slice 3q's arm.
+    let entries = absorb_arrays(&reports).expect("absorption is total");
+    assert_eq!(entries.len(), 1);
+    assert!(matches!(entries[0], NodeEntry::Group { count: 3, .. }));
+
+    let lone = absorb_arrays(&reports[..1]).expect("absorption is total");
+    let NodeEntry::Single { ref fields, .. } = lone[0] else {
+        panic!("one array absorbs alone")
+    };
+    let id = derive_id(fields).expect("derivable");
+    let topology = Topology::build(vec![fields.clone()], vec![]).expect("builds");
+    assert!(
+        matches!(
+            node_verdict(&topology, &Facts::default(), id),
+            Verdict::Indeterminate {
+                cause: IndeterminateGround::MissingFact
+            }
+        ),
+        "the designator-absent array is not an operand — the domain arm slice 3q added"
+    );
 }
