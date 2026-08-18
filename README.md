@@ -211,11 +211,12 @@ Run `cargo xtask help` for the full command list.
 
 ## Open issues
 
-Two are open, and one of them narrowed on 2026-08-18: ADR-0052 (spec
-17.3.0) decided PART-005's destination vocabulary and WP-060 increment
-11 delivered it, so #371's enumeration now exists in the planner and
-what remains of the issue is the §6 consequence-text body carriage the
-record already tracks. **#366 closed on 2026-08-17 without an ADR** — a
+One is open. **#371 closed on 2026-08-18**: ADR-0052 (spec 17.3.0)
+decided PART-005's destination vocabulary, WP-060 increment 11 delivered
+it, and the consequence-text body slice (WP-010 slice 3p, plan body
+version 5; WP-060 increment 12) put the enumeration into the hashed body
+— the rider the 2026-08-17 reading named, closed by the same reading.
+**#366 closed on 2026-08-17 without an ADR** — a
 decision-owner call re-pointing a deferral clause's addressee, the first
 closure in this record that changed no code, no requirement and no
 decision, only which package a deferral was addressed to. Before it
@@ -261,7 +262,7 @@ implements.
 | Issue | Package | Standing |
 | --- | --- | --- |
 | **#370** | WP-010 | A byte-preserving relocation of a protected structure refuses, and relief needs a preservation proof that is not computable today. Split from #348 by ADR-0040. |
-| **#371** | WP-010 | **Narrowed 2026-08-18.** Both parts the issue filed are delivered: WP-060 increment 11 (PR #457, under ADR-0052, spec 17.3.0) gives the model a representable relocation — `SizedRequest::Move { target, new_start }` — and a `Consequence::RelocationReleases` variant that enumerates what a move releases without carrying, kind-level, its negative space bounded (no partition type or role; silence is not a boot verdict); the tripwire PR #433 pinned came down in the same change, and PART-005 traces to six move tests. What remains is the rider the 2026-08-17 reading named: "in the plan" is the hashed body's §6 consequence-text item, and the enumeration is planner-layer carriage until that jointly-sequenced WP-010/WP-060 slice lands (`crates/domain/src/model/plan.rs:11-13`, `docs/work-packages/WP-060.md`). The issue stays open on that rider alone, and closing it by assertion would still be wrong. Split from #348 by ADR-0040. |
+| ~~**#371**~~ | WP-010 | **Closed 2026-08-18.** Both filed parts were delivered by WP-060 increment 11 (PR #457, ADR-0052) and the last rider — "in the plan" is the hashed body's §6 consequence text — by the consequence-text slice: WP-010 slice 3p (PR #461, plan body version 5, `consequences` as a canonical set) and WP-060 increment 12 (PR #462, every planning path stating its sentences into it), arc head `0378bd5`. Kept in this table for one round so the closure is findable from the row that tracked it. Split from #348 by ADR-0040. |
 
 Issues **#318**, **#338**, **#348** and **#355** closed on or before
 `6d743a3`; **#349** and **#356** closed with ADR-0041 (the body's facts
