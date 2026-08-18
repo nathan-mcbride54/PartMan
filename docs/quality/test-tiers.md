@@ -158,6 +158,10 @@ nineteenth, named in the PR body before the merge, and on `91cd1c9`
 ADR-0044 — tripped it a twentieth, likewise named before the merge, and
 on `ee12af2` (2026-08-16 UTC) when issue #354's kind-half act — one Rust
 merge, PR #398, ADR-0045 — tripped it a twenty-first, likewise named, and
+on `e96e46a` (2026-08-18 UTC) when WP-000 PR #439 — an arc of two: the
+Section 11.4 fuzz targets run concurrently, and Tier 1 restores only its dependency
+build from cache — tripped it, the first trip carrying both the instrument
+that measures and the tool that runs it; and before that
 on `5cf868d` (2026-08-18 UTC) when WP-000 PR #436 — the pinned
 supply-chain policy tools cached in `.github/workflows/ci.yml`, the first trip
 in this record that is neither Rust nor a Rust comment — tripped it; and
