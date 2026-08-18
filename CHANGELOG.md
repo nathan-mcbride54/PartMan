@@ -7,6 +7,19 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-010 slice 3q: a designator-absent aggregate is `Indeterminate` and
+  not an operand, as ADR-0019 decides (gitea#1006; no spec change).** The
+  closure's aggregate own-arm matched on technology alone and returned
+  `Permitted` for a lone designator-absent LVM2 or mdraid aggregate — the
+  sentence ADR-0019 decided (`:159-161`) and the naming type's doc-comment
+  restated, over an arm that never read the field; found by the adversarial
+  pass on the Linux host-assembled designation round. Now a designator-absent
+  APFS, LVM2 or mdraid aggregate is `Indeterminate { MissingFact }` before
+  any of their own arms run, the class refusals standing above it; a step
+  reaching such an aggregate does not construct. One test (alone, through a
+  member's signature, and with the class refusal), one mutation killed. Rust:
+  one arc with WP-L100 increment 4b's first slice, r43 at its head.
+
 - **WP-L100 increment 4a: the state layer and the withdrawal, on the
   detection rows (LIN-006, INV-004; no spec change).** The kernel's procfs
   mount and swap tables enter `crates/adapter-linux` as its third

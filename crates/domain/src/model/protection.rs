@@ -612,7 +612,9 @@ pub enum IndeterminateGround {
     OrphanSignature,
     /// A collision group: no member is individually addressable.
     CollisionGroup,
-    /// A fact the arm needs is absent (transport, member count).
+    /// A fact the arm needs is absent (transport, member count) — or, for
+    /// an aggregate, its native designator (ADR-0019: designator-absent is
+    /// `Indeterminate`, not an operand; gitea#1006).
     MissingFact,
     /// The node inherits its root device's device-scope indeterminacy.
     InheritedDeviceScope,
@@ -1184,7 +1186,10 @@ fn own_arm(topology: &Topology, facts: &Facts, id: NodeId, fields: &NamingFields
                 cause: IndeterminateGround::MissingFact,
             },
         },
-        NamingFields::Aggregate { technology, .. } => match technology {
+        NamingFields::Aggregate {
+            technology,
+            designator,
+        } => match technology {
             AggregateTechnology::Zfs => Verdict::Refused {
                 ground: RefusalGround::Zfs,
             },
@@ -1194,6 +1199,21 @@ fn own_arm(topology: &Topology, facts: &Facts, id: NodeId, fields: &NamingFields
             AggregateTechnology::Ldm => Verdict::Refused {
                 ground: RefusalGround::Ldm,
             },
+            // ADR-0019: "an aggregate whose native designator is unreadable
+            // derives a designator-absent name, is `Indeterminate`, and is
+            // not a plan operand." The class refusals above are stronger
+            // and stand; every technology that could otherwise reach
+            // `Permitted` is caught here first (gitea#1006 — until
+            // 2026-08-18 a lone designator-absent LVM2 or mdraid aggregate
+            // was `Permitted`, the sentence restated in the naming type's
+            // doc-comment over an arm that never read the field).
+            AggregateTechnology::Apfs | AggregateTechnology::Lvm2 | AggregateTechnology::Mdraid
+                if designator.is_none() =>
+            {
+                Verdict::Indeterminate {
+                    cause: IndeterminateGround::MissingFact,
+                }
+            }
             AggregateTechnology::Apfs => match facts.member_counts.get(&id) {
                 Some(count) if *count >= 2 => Verdict::Refused {
                     ground: RefusalGround::Fusion,
