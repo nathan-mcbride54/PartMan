@@ -199,6 +199,7 @@ fn execute(task: &Task) -> Result<(), TaskError> {
             verify_manifest_licenses(&repository_root())?;
             verify_workspace_lints(&repository_root())?;
             verify_path_ownership(&repository_root())?;
+            verify_spec_version_claims(&repository_root())?;
             audit_tokens()?;
             verify_slint_report(false)?;
             cargo(&["fmt", "--all", "--", "--check"])?;
@@ -2379,6 +2380,157 @@ impl OwnershipClaim {
 /// the tool that defines it instead of being reimplemented. Fails closed: no
 /// git, no output, or an empty list is an error, because a check that verifies
 /// ownership of nothing would pass.
+/// Documents whose specification citation is a deliberate pin rather than a
+/// version they have fallen behind, with the reason each one is sound.
+///
+/// A citation scoped to one section or requirement is correct at the version
+/// that section last changed, and bumping it would assert a review nobody did.
+/// The list is checked in **both** directions: an entry whose file no longer
+/// cites a version at all is a stale exemption and refuses, so this cannot
+/// outlive the reason it was granted.
+const PINNED_SPEC_CITATIONS: [(&str, &str); 2] = [
+    (
+        "docs/quality/test-tiers.md",
+        "scoped to Section 11.3, unchanged since 13.0.0",
+    ),
+    (
+        "docs/quality/dependency-policy.md",
+        "scoped to SEC-010, unchanged since 4.1.0",
+    ),
+];
+
+/// The version a citation names, if the text immediately after a reference to
+/// the specification is one.
+///
+/// Deliberately tolerant of a line break between the file name and the version,
+/// because Markdown reflows and a citation split across two lines is the same
+/// claim. Returns `None` for prose that merely mentions the file.
+fn cited_spec_version(after: &str) -> Option<&str> {
+    let rest = after.trim_start_matches('`').trim_start();
+    let end = rest
+        .find(|c: char| !c.is_ascii_digit() && c != '.')
+        .unwrap_or(rest.len());
+    // A citation almost always ends a sentence, so the scan above takes the
+    // full stop with it: `13.0.0.` splits into four parts and matches nothing.
+    // Dropping trailing separators is what makes this find anything at all --
+    // without it the first form of this check passed by examining zero
+    // citations, which is the failure mode it exists to prevent.
+    let candidate = rest.get(..end)?.trim_end_matches('.');
+    let parts: Vec<&str> = candidate.split('.').collect();
+    let numeric = parts.len() == 3
+        && parts
+            .iter()
+            .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()));
+    numeric.then_some(candidate)
+}
+
+/// Refuse a document that claims a superseded specification version.
+///
+/// The drift this exists to catch ran **nine versions, four of them major**:
+/// `README.md` and `CONTRIBUTING.md` said the repository implemented 13.0.0
+/// while it implemented 17.2.0. Every spec-change commit had historically
+/// bumped those lines, so the claim was meant to track; the practice simply
+/// lapsed, and nothing compared the two. A documentation claim no gate reads is
+/// a claim that will eventually be false.
+///
+/// `docs/reviews/` is excluded: those are dated records of what was true when
+/// written, and rewriting them would destroy the evidence they exist to hold.
+fn verify_spec_version_claims(root: &Path) -> Result<(), TaskError> {
+    verify_spec_version_claims_with(root, &PINNED_SPEC_CITATIONS)
+}
+
+fn verify_spec_version_claims_with(root: &Path, pinned: &[(&str, &str)]) -> Result<(), TaskError> {
+    const SPEC: &str = "AGENT_BUILD_SPEC.md";
+    const MARKER: &str = "- **Spec version:** ";
+
+    let spec_path = root.join(SPEC);
+    let spec_text = fs::read_to_string(&spec_path).map_err(|source| TaskError::Io {
+        path: spec_path.clone(),
+        source,
+    })?;
+    let current = spec_text
+        .lines()
+        .find_map(|line| line.trim().strip_prefix(MARKER))
+        .map(str::trim)
+        .ok_or_else(|| {
+            TaskError::Policy(format!(
+                "{SPEC} has no `{}` line, so no citation can be checked against it",
+                MARKER.trim()
+            ))
+        })?;
+
+    let mut violations = Vec::new();
+    let mut pinned_seen = BTreeSet::new();
+    let mut checked = 0_usize;
+
+    for relative in tracked_files(root)? {
+        let markdown = Path::new(&relative)
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("md"));
+        if !markdown || relative == SPEC || relative.starts_with("docs/reviews/") {
+            continue;
+        }
+        let path = root.join(&relative);
+        let text = fs::read_to_string(&path).map_err(|source| TaskError::Io {
+            path: path.clone(),
+            source,
+        })?;
+
+        let mut offset = 0_usize;
+        while let Some(found) = text[offset..].find(SPEC) {
+            let at = offset + found;
+            offset = at + SPEC.len();
+            let Some(version) = cited_spec_version(&text[offset..]) else {
+                continue;
+            };
+            checked += 1;
+            if pinned.iter().any(|(path, _)| *path == relative) {
+                pinned_seen.insert(relative.clone());
+                continue;
+            }
+            if version != current {
+                let line = text[..at].lines().count();
+                violations.push(format!(
+                    "{relative}:{line} cites {SPEC} {version}, but the specification is at {current}"
+                ));
+            }
+        }
+    }
+
+    for (path, reason) in pinned {
+        if !pinned_seen.contains(*path) {
+            violations.push(format!(
+                "{path} is exempt as a pinned citation ({reason}) but cites no version; \
+                 remove the exemption rather than leaving it to outlive its reason"
+            ));
+        }
+    }
+
+    // A gate that examined nothing is not a gate. This repository cites its own
+    // specification in its front-door documents and always will, so zero
+    // citations means the scan broke rather than that the tree is clean.
+    if checked == 0 {
+        return Err(TaskError::Policy(format!(
+            "no {SPEC} version citation was found in any tracked Markdown file; \
+             the scan is broken, not the tree clean"
+        )));
+    }
+
+    if !violations.is_empty() {
+        return Err(TaskError::Policy(format!(
+            "specification-version claims disagree with {SPEC} {current}:\n  {}",
+            violations.join("\n  ")
+        )));
+    }
+
+    println!(
+        "verify-spec-version: {checked} citation(s) checked against {SPEC} {current}; \
+         {} pinned by scope",
+        pinned.len()
+    );
+    Ok(())
+}
+
 fn tracked_files(root: &Path) -> Result<Vec<String>, TaskError> {
     let output = Command::new("git")
         .args(["ls-files", "-z"])
@@ -5056,7 +5208,7 @@ mod tests {
         is_pinned, parse, parse_test, relative_to_root, repository_root, run_tier,
         validate_claim_pattern, validate_derived_pattern, verify_action_pins,
         verify_change_ownership, verify_manifest_licenses, verify_path_ownership,
-        verify_workspace_lints, workspace_manifests,
+        verify_spec_version_claims_with, verify_workspace_lints, workspace_manifests,
     };
     use std::collections::BTreeSet;
     use std::ffi::{OsStr, OsString};
@@ -8283,6 +8435,99 @@ Mention Section 1.99 in prose.
             source.contains("fn verify_fuzz_lock()"),
             "the preflight is a shared function, not duplicated logic"
         );
+    }
+
+    #[test]
+    fn a_specification_version_claim_that_falls_behind_is_refused() {
+        // The drift this closes ran nine versions, four of them major: README
+        // and CONTRIBUTING said 13.0.0 while the specification said 17.2.0.
+        // Every spec-change commit had historically bumped those lines, so the
+        // claim was meant to track -- the practice lapsed and nothing compared
+        // the two. Each mutation below must fail, and the passing tree proves
+        // the check is not vacuous.
+        let root =
+            std::env::temp_dir().join(format!("partman-xtask-specver-{}", std::process::id()));
+        init_test_git_repository(&root);
+        let write = |relative: &str, contents: &str| {
+            let path = root.join(relative);
+            fs::create_dir_all(path.parent().expect("parent")).expect("create parent");
+            fs::write(path, contents).expect("write document");
+        };
+        let stage = || {
+            super::git(&root, &["add", "-A"]).expect("stage the fixture tree");
+        };
+
+        write(
+            "AGENT_BUILD_SPEC.md",
+            "# Spec\n\n- **Spec version:** 9.9.9\n",
+        );
+        write(
+            "README.md",
+            "This repository implements `AGENT_BUILD_SPEC.md` 9.9.9. Then prose.\n",
+        );
+        stage();
+        verify_spec_version_claims_with(&root, &[]).expect("a current claim passes");
+
+        // The exact shape that made the first form of this check vacuous: the
+        // citation ends a sentence, and a greedy scan takes the full stop with
+        // it. `9.9.9.` must still parse as a version, or nothing is examined.
+        write(
+            "README.md",
+            "Implements\n`AGENT_BUILD_SPEC.md` 9.9.9. A citation may wrap.\n",
+        );
+        stage();
+        verify_spec_version_claims_with(&root, &[])
+            .expect("a citation split across a line break is the same claim");
+
+        // A superseded version is a violation, not a variation.
+        write(
+            "README.md",
+            "This repository implements `AGENT_BUILD_SPEC.md` 8.0.0. Then prose.\n",
+        );
+        stage();
+        verify_spec_version_claims_with(&root, &[]).expect_err("a superseded claim must refuse");
+
+        // A dated review record cites what was true when it was written.
+        // Rewriting one would destroy the evidence it exists to hold.
+        write(
+            "README.md",
+            "This repository implements `AGENT_BUILD_SPEC.md` 9.9.9. Then prose.\n",
+        );
+        write(
+            "docs/reviews/OLD.md",
+            "measured against `AGENT_BUILD_SPEC.md` 1.0.0.\n",
+        );
+        stage();
+        verify_spec_version_claims_with(&root, &[]).expect("a dated review record is not swept up");
+
+        // A scoped citation is exempt at the version its subject last changed.
+        write(
+            "docs/quality/pinned.md",
+            "Scoped to one section of `AGENT_BUILD_SPEC.md` 1.0.0. Unchanged since.\n",
+        );
+        stage();
+        let pinned = [("docs/quality/pinned.md", "scoped, unchanged since 1.0.0")];
+        verify_spec_version_claims_with(&root, &pinned).expect("a pinned citation is exempt");
+
+        // But the exemption may not outlive the reason it was granted.
+        write(
+            "docs/quality/pinned.md",
+            "This page cites no version at all.\n",
+        );
+        stage();
+        verify_spec_version_claims_with(&root, &pinned)
+            .expect_err("an exemption whose file no longer cites a version must refuse");
+
+        // And a tree in which nothing was examined is a broken scan, not a
+        // clean tree -- which is how the first form of this check passed.
+        write("README.md", "No citation here.\n");
+        write("docs/quality/pinned.md", "None here either.\n");
+        fs::remove_file(root.join("docs/reviews/OLD.md")).expect("remove the review record");
+        stage();
+        verify_spec_version_claims_with(&root, &[])
+            .expect_err("examining zero citations must refuse");
+
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
