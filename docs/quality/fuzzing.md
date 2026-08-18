@@ -162,6 +162,22 @@ Runs each target for 60 seconds. `--seconds <n>` overrides that for a longer
 local run. The command is deliberately not part of `cargo xtask ci`, because it
 needs a toolchain the rest of the repository does not.
 
+The targets are built first and then run **concurrently**, one process each, so
+a run takes about as long as one target rather than the sum of four. Budget the
+machine accordingly: four engines run at once, each single-threaded, so a
+four-core machine is saturated for the duration.
+
+This changes how the evidence is produced, not how much of it there is. Every
+target still receives its own full `--seconds` budget and the same resource
+contract below; no budget is shared or divided. The one honest caveat is that
+concurrent engines share memory bandwidth, so a target may complete marginally
+fewer iterations within its seconds than it would with the machine to itself.
+
+Output is captured per target and printed grouped, in the order the targets are
+declared, so a crash report is never interleaved with three other engines'
+progress lines. Every target is waited on and every failure is reported: a run
+in which two targets crash names both.
+
 Every invocation also passes an explicit resource contract to libFuzzer:
 
 - inputs are limited to 4,096 bytes;
