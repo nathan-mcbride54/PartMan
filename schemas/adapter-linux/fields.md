@@ -2,7 +2,7 @@
 
 - Spec version: source of truth is `AGENT_BUILD_SPEC.md` §7.1 (INV-001,
   INV-002) and MODEL-004
-- Owner: WP-L100 (`docs/work-packages/WP-L100.md`), increment 2
+- Owner: WP-L100 (`docs/work-packages/WP-L100.md`), increments 2 and 3a
 - Decided semantics carried: ADR-C4 (a positively observed absence is a
   value, not an unavailability), ADR-0018 (the device-scope transport
   arm's closed positive-local list), ADR-0014 (the partition-table state
@@ -230,3 +230,58 @@ of the earlier text can find what answered it:
   independent of the measurement: an unreadable attribute admits nothing.
 - **`removable` and a real-hardware `physical_block_size`** — answered by
   **FR1** and **FR2**, and moved into §2's table.
+
+## 6. The naming roster (increment 3a)
+
+The rosters above are the **observation** rosters: every field there is
+read for its own sake, published as an attributed observation, and
+elected for nothing. This section records a second, disjoint roster —
+the reads that feed ADR-0019 node addressing — because the two answer to
+different rules and conflating them is how a value with no evidence
+behind it ends up inside a hash.
+
+Three differences hold for every row here.
+
+- **They travel the bytes path.** ADR-0034 records that the delivered
+  `read_attribute` "is therefore **not a lawful naming-input path**",
+  because it validates UTF-8, refuses non-text, and strips one trailing
+  newline. Naming reads go through `read_naming_source`, which does none
+  of those, and a source-text guard holds that the naming module calls
+  neither the text path nor its result type.
+- **A miss is not a gap to be filled later.** An undesignated cell means
+  the field is absent, the name is weaker, and any resulting collision
+  fails closed through ADR-0019's group. Nothing here is read
+  speculatively against a source the designation does not name.
+- **They are not published as observations.** A naming input is consumed
+  by the address derivation, not reported. Where the same underlying
+  attribute is *also* an observation row it appears in §2 as well, read
+  separately through the text path, and the two readings are deliberately
+  not shared.
+
+| Naming input | Path | Evidence | Strength |
+| --- | --- | --- | --- |
+| serial (USB-attached) | the `serial` attribute of the nearest sysfs ancestor that is a USB device node | **R1** — the only serial any qualifying Linux record has observed, `A20036CA8695D921`, stable across replug and reboot (L8) and per-unit distinct on the measured pair (L9); **FR4** resolved the traversal to `/sys/devices/…/usb10/10-1/serial` and discharged ADR-0034's evidence obligation 1 | real-hardware |
+| the USB-device-node predicate | `idVendor` and `idProduct` on a candidate ancestor | **none** — see the note below | none |
+| `size`, as the `total_bytes` input | `size` | **FR5** on the whole-device node: `244457472` × 512 = `blockdev --getsize64`'s `125162225664` exactly | real-hardware |
+| WWN | *no path* | ADR-0034 leaves the cell **undesignated** on Linux for every attachment class; **R2** records `device/wwid`'s `ENXIO` failed read, and no WWN-class value has ever been observed on Linux | not read |
+
+**The predicate row is the gap this increment adds, and it is stated
+rather than implied.** ADR-0034's rule is structural — "the nearest
+ancestor sysfs node that is a USB device node" — and **FR4** establishes
+that the measured traversal *reaches* one. No row establishes what a
+client may read to *recognize* one, which is a different claim and the
+one the predicate makes. The contrast is ADR-0035's mmc cell, whose
+structural rule **S5c** measured directly (`/sys/block/mmcblk0/device`
+resolving under `mmc_host/*`), which is why that designation needs no
+ancestor search at all.
+
+The rule is therefore written the way increment 2 wrote the
+`partition`-attribute admission under the same shortfall, and discharged
+the same way afterwards: fail-closed, so the unmeasured direction is the
+safe one. Recognition requires **both** markers to answer with a value;
+an unreadable marker recognizes nothing and the walk continues; and a
+device whose USB ancestor is never identified yields an absent serial and
+a weaker name, never a guessed one. Nothing relies on the predicate being
+right — it can only ever *lose* a name — which is what keeps the
+shortfall priced. The row is filed as an obligation on WP-035, which owns
+`docs/quality/observability.md`.
