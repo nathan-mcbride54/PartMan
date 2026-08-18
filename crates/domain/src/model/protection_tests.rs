@@ -4029,3 +4029,141 @@ fn an_authored_backing_frame_is_refused_rather_than_suppressing_the_arm() {
         "the honest body, framed on the named host, is unaffected"
     );
 }
+
+// Requirements: MODEL-002, SAFE-005
+//   ADR-0019: "an aggregate whose native designator is unreadable derives
+//   a designator-absent name, is `Indeterminate`, and is not a plan
+//   operand." Until 2026-08-18 the closure's aggregate arm matched on
+//   technology alone and returned Permitted for a lone designator-absent
+//   LVM2 or mdraid aggregate — the sentence restated in the naming type's
+//   doc-comment over an arm that never read the field (gitea#1006). Now:
+//   a designator-absent LVM2, mdraid, or APFS aggregate is Indeterminate
+//   with the missing-fact cause on its own arm, whether alone or reached
+//   through a member's signature; the class refusals (ZFS, Storage Spaces,
+//   LDM) stand above it; and a step targeting the member fails to
+//   construct because the reached aggregate is not Permitted — the
+//   non-operand half, held by the constructor rather than by a flag.
+// Evidence: a_designator_absent_aggregate_is_indeterminate_and_not_an_operand
+#[test]
+#[allow(clippy::too_many_lines)]
+fn a_designator_absent_aggregate_is_indeterminate_and_not_an_operand() {
+    // Alone: no member, no edge — the arm alone decides.
+    for technology in [
+        AggregateTechnology::Lvm2,
+        AggregateTechnology::Mdraid,
+        AggregateTechnology::Apfs,
+    ] {
+        let bare = NamingFields::Aggregate {
+            technology: technology.clone(),
+            designator: None,
+        };
+        let bare_id = derive_id(&bare).expect("derivable");
+        let topology = Topology::build(vec![bare], vec![]).expect("builds");
+        let mut facts = Facts::default();
+        // Even a present member count does not rescue APFS: the designator
+        // is checked first.
+        facts.member_counts.insert(bare_id, 1);
+        assert!(
+            matches!(
+                node_verdict(&topology, &facts, bare_id),
+                Verdict::Indeterminate {
+                    cause: IndeterminateGround::MissingFact
+                }
+            ),
+            "{technology:?} without a designator is Indeterminate, never Permitted"
+        );
+    }
+
+    // The class refusals stand above the designator check.
+    let pool = NamingFields::Aggregate {
+        technology: AggregateTechnology::Zfs,
+        designator: None,
+    };
+    let pool_id = derive_id(&pool).expect("derivable");
+    let topology = Topology::build(vec![pool], vec![]).expect("builds");
+    assert!(matches!(
+        node_verdict(&topology, &Facts::default(), pool_id),
+        Verdict::Refused {
+            ground: RefusalGround::Zfs
+        }
+    ));
+
+    // Reached through a member: the whole-disk host carries an LVM2
+    // signature backing a designator-absent VG. The signature's arm follows
+    // its consumer, and a step over the host does not construct.
+    let host = device(b"H");
+    let host_id = derive_id(&host).expect("derivable");
+    let lvm_sig = NamingFields::BackingSignature {
+        host: host_id,
+        family: SignatureFamily::Lvm2,
+        primary_offset: 4096,
+    };
+    let lvm_sig_id = derive_id(&lvm_sig).expect("derivable");
+    let vg = NamingFields::Aggregate {
+        technology: AggregateTechnology::Lvm2,
+        designator: None,
+    };
+    let vg_id = derive_id(&vg).expect("derivable");
+    let topology = Topology::build(
+        vec![host, lvm_sig, vg],
+        vec![Edge {
+            kind: EdgeKind::Backing,
+            source: lvm_sig_id,
+            target: vg_id,
+        }],
+    )
+    .expect("builds");
+    let mut facts = Facts::default();
+    facts.transports.insert(host_id, TransportClass::Usb);
+    facts.extents.insert(
+        host_id,
+        HostRange {
+            host: host_id,
+            start: 0,
+            length: 1 << 30,
+        },
+    );
+    facts.extents.insert(
+        lvm_sig_id,
+        HostRange {
+            host: host_id,
+            start: 4096,
+            length: 1 << 20,
+        },
+    );
+    assert!(matches!(
+        node_verdict(&topology, &facts, vg_id),
+        Verdict::Indeterminate {
+            cause: IndeterminateGround::MissingFact
+        }
+    ));
+    assert!(
+        matches!(
+            node_verdict(&topology, &facts, lvm_sig_id),
+            Verdict::Indeterminate { .. }
+        ),
+        "the member's signature follows its designator-absent consumer"
+    );
+    let ranges =
+        super::capability::canonical_ranges(super::capability::Operation::Shrink, host_id, &facts);
+    let refusal = step_constructs(&topology, &facts, host_id, &ranges)
+        .expect_err("a release over the host reaches the VG and does not construct");
+    assert_eq!(
+        refusal.verdict,
+        Verdict::Indeterminate {
+            cause: IndeterminateGround::MissingFact
+        }
+    );
+
+    // And a present designator restores the delivered answer.
+    let named = NamingFields::Aggregate {
+        technology: AggregateTechnology::Mdraid,
+        designator: Some(b"27642121:0f8e15dd:ff2155a8:c2414550".to_vec()),
+    };
+    let named_id = derive_id(&named).expect("derivable");
+    let topology = Topology::build(vec![named], vec![]).expect("builds");
+    assert_eq!(
+        node_verdict(&topology, &Facts::default(), named_id),
+        Verdict::Permitted
+    );
+}
