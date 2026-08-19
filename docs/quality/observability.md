@@ -11,7 +11,7 @@
   recorded harness defects, and **M10 taken the same day** in an ephemeral
   hosted runner, where the helper reads at byte level what the client is
   denied. Only M9 remains `not established`, Apple Silicon having no Fusion
-  Drive. **No preregistered cell on any platform is now `not yet taken`** — the whole-device byte-window cell DR21 (gitea#1013) was preregistered and taken 2026-08-19 UTC on one jammy guest (VMID 9492), established, valid on the second invocation with one recorded instrument amendment. Every other preregistered cell is taken — the polkit-and-launch cell DR20 (gitea#1012) was preregistered and taken 2026-08-19 UTC on all three tiers (jammy VMID 9488, Debian 12 VMID 9489, Arch VMID 9490), established, no amendment. The USB-device-node recognition cell FR6 (gitea#1002) was preregistered and taken 2026-08-19 UTC in both legs (the FR4 unit on the Proxmox node's own XHCI chain as `nobody`, and the same unit passed through to a jammy guest as `muser1`), established, with one recorded instrument amendment on the guest leg. The Debian 12 `os-release` cell DR19 (gitea#1011) was preregistered and taken 2026-08-19 UTC on the **first Debian guest in the record**, established, with one recorded apparatus amendment (the first create, VMID 9481, void(apparatus); the cited run VMID 9482). The floor-input cells DR16–DR18 (gitea#1010) were preregistered and taken 2026-08-19 UTC, all three established (DR16/DR17 on a jammy guest across the pinned reboot, no amendment; DR18 on the **first Arch guest in the record**, valid with two recorded instrument amendments). The held-standing cell DR15 (gitea#1009) was preregistered 2026-08-18 and taken 2026-08-19 UTC, established on a single guest with no amendment. The Linux detection rows DR1–DR10 (gitea#1005) and the naming-designation cells DR11–DR14 (gitea#1007) were preregistered and taken 2026-08-18, all fourteen established (DR1–DR10 valid on a second invocation; DR11–DR14 valid with two recorded instrument amendments in the rebooted phase).
+  Drive. **Three preregistered cells are `not yet taken`: the apply-ceremony cells DR22–DR24 (gitea#1014), preregistered 2026-08-19 for WP-L110 increment 3's authorization ladder.** Every other preregistered cell is taken — the whole-device byte-window cell DR21 (gitea#1013) was preregistered and taken 2026-08-19 UTC on one jammy guest (VMID 9492), established, valid on the second invocation with one recorded instrument amendment. Before it — the polkit-and-launch cell DR20 (gitea#1012) was preregistered and taken 2026-08-19 UTC on all three tiers (jammy VMID 9488, Debian 12 VMID 9489, Arch VMID 9490), established, no amendment. The USB-device-node recognition cell FR6 (gitea#1002) was preregistered and taken 2026-08-19 UTC in both legs (the FR4 unit on the Proxmox node's own XHCI chain as `nobody`, and the same unit passed through to a jammy guest as `muser1`), established, with one recorded instrument amendment on the guest leg. The Debian 12 `os-release` cell DR19 (gitea#1011) was preregistered and taken 2026-08-19 UTC on the **first Debian guest in the record**, established, with one recorded apparatus amendment (the first create, VMID 9481, void(apparatus); the cited run VMID 9482). The floor-input cells DR16–DR18 (gitea#1010) were preregistered and taken 2026-08-19 UTC, all three established (DR16/DR17 on a jammy guest across the pinned reboot, no amendment; DR18 on the **first Arch guest in the record**, valid with two recorded instrument amendments). The held-standing cell DR15 (gitea#1009) was preregistered 2026-08-18 and taken 2026-08-19 UTC, established on a single guest with no amendment. The Linux detection rows DR1–DR10 (gitea#1005) and the naming-designation cells DR11–DR14 (gitea#1007) were preregistered and taken 2026-08-18, all fourteen established (DR1–DR10 valid on a second invocation; DR11–DR14 valid with two recorded instrument amendments in the rebooted phase).
   The macOS second-reader readback was discharged 2026-08-08 by an
   independent reader session: both sitting 2 transcripts and the M10
   transcript retrieved through their locators and rehashed, every digest
@@ -5159,6 +5159,64 @@ geometry is the block layer's. The helper's reach declaration cites this
 heading for every distinguished INV-003 state; the states themselves are
 the parser's Tier-1 property and the increment's Tier-2 acceptance, not
 this row's.
+
+### The apply-ceremony cells DR22–DR24 — preregistered 2026-08-19; not yet taken
+
+Three cells over the three pinned tier images, declared before execution
+per this document's method. They are the row WP-L110's launch round left
+open in terms and increment 3 files as gitea issue **#1014**
+(`docs/reviews/LINUX_HELPER_LAUNCH_ROUND_2026-08-19.md` §1.5: *"Unmeasured,
+and said so: `pkttyagent` presence per tier (a text agent a CLI could run
+for the ceremony); whether D-Bus activation of `polkitd` works from a root
+caller with no session"*; and §2's L2 note that *"the apply-time ceremony
+(HLP-003) is a **second**, separate polkit ask the helper makes per plan"*).
+
+**Why these cells and not DR20's.** DR20 established what a *client* sees
+when it runs `pkexec` with no agent, and that a `runuser` client has no
+logind session. It did not ask the question ADR-0021's ceremony actually
+turns on: **what a root daemon can learn from polkit about a *different*
+process — its client — and whether an `auth_admin` challenge can be
+delivered to that client at all.** DR20 probed `pkcheck` for existence
+only, never ran it against another process, never touched `pkttyagent`,
+and never reached polkit's D-Bus authority interface. Increment 3's
+ceremony stands entirely on those unmeasured facts, so they are measured
+before the route is decided, not after.
+
+Apparatus: the pinned jammy, Debian 12 and Arch images through their
+existing create scripts, nothing from a previous sitting reused; `muser1`
+the unprivileged client, in **three subject classes** whose difference is
+the point — (S1) session-less (`runuser`, DR20's shape), (S2) a real
+`ssh` login session, (S3) the same after an agent is registered; root the
+setup actor and the *measuring* actor, because the daemon's view is the
+cell's subject (SAFE-002 context 1). The setup actor installs **one test
+policy file** carrying two actions with declared implicit values —
+`org.partman.test.admin` (`auth_admin` for any/inactive/active, ADR-0021's
+"without retained grants" shape: never `auth_admin_keep`) and
+`org.partman.test.yes` (`yes` throughout, the control) — and, where the
+tier ships `pkttyagent`, may set a password on an administrator-group test
+user so a challenge has an identity to name. **No password is ever typed
+into a prompt and none is recorded**; what the cells establish is whether a
+challenge is *offered*, which is the fact the route turns on. Nothing else
+is installed; no reboot; double capture; instruments `dr8-root.sh`,
+`dr8-client.sh`, `drive-dr8.sh`, digests recorded in-transcript before the
+first capture. No guest exists before this preregistration lands.
+
+| # | Cell | Command / API | Privilege | Distinguishing condition | Invalidation conditions | Result |
+| --- | --- | --- | --- | --- | --- | --- |
+| DR22 | The ceremony's tooling, per tier | Root, package manager and filesystem: `pkcheck`, `pkttyagent`, `polkit-agent-helper-1`, `busctl`, `dbus-send`, `gdbus` — installed by default? which package? version banner (bounded, one launch each)? mode and setuid bit? Which policy dialect directory exists (`/etc/polkit-1/localauthority` for the 0.105 line, `/etc/polkit-1/rules.d` for the 12x line)? Is the D-Bus authority service file present and is `polkitd` running before anything asks? | root | Whether the two candidate mechanisms for "the helper asks polkit about its client" — a `pkcheck` invocation and a D-Bus call — have any implementation present on a default image, and whether a text agent exists to answer a challenge | a tier image failing to boot with cloud-init (`void(apparatus)`); a version probe hanging past its 5 s bound (a finding, capture still valid); the two captures differing | *not yet taken* |
+| DR23 | **The authorization matrix**: what polkit answers a root daemon asking about another process | With the test policy installed: as **root**, `pkcheck --action-id <id> --process <pid>` for each subject (S1 session-less `sleep`, S2 `ssh`-session `sleep`, root's own shell), for each action (`auth_admin`, `yes`), with and without `--allow-user-interaction`, each bounded to 10 s — recording **exit status and stderr verbatim**; beside each, `loginctl show-session`/`loginctl show-user` for that subject (session id, class, `Active`, `Remote`, seat) and `ps -o pid,lstart` so the subject is identified the way polkit identifies it | root measures; the client only holds the subject processes | (1) Whether `pkcheck` can answer *about another process* at all; (2) what an `auth_admin` action returns for a session-less subject, for an `ssh`-session subject, and for root itself; (3) whether `--allow-user-interaction` with no agent returns a refusal or a hang; (4) **whether an `ssh` login session is `Active` to logind** — the fact that decides whether `allow_active` can ever cover a headless caller, or whether the action must declare `allow_inactive`/`allow_any` | a subject process exiting before it is checked (that arm `void(apparatus)`, re-run); `pkcheck` hanging past its bound (recorded as the finding it is, capture still valid); the two captures differing on any line | *not yet taken* |
+| DR24 | The text agent and the D-Bus authority | As the client (S2, with a session): `pkttyagent --process <pid>` bounded to 10 s, registered in the background, then root re-runs the DR23 `auth_admin` check **with** `--allow-user-interaction` — recording whether a challenge is offered (and to which identity), verbatim, with no password typed; as the client (S1, no session) the same, expecting a registration refusal recorded verbatim. Separately, as root with no session: `busctl call org.freedesktop.PolicyKit1 /org/freedesktop/PolicyKit1/Authority org.freedesktop.PolicyKit1.Authority EnumerateActions` (bounded) and an introspection of `CheckAuthorization`'s signature — does D-Bus activation of `polkitd` work from a root caller with no session (the launch round's second unmeasured item), and what subject shape does the method require? | root and client | Whether a challenge can be delivered to a headless-but-sessioned caller through a text agent; whether it can be delivered to a session-less one; and whether the D-Bus route is reachable from the helper's own context without a session — the three facts the ceremony route is chosen on | `pkttyagent` absent on a tier (that tier's arm is *absent*, a result, not a void); a bounded call hanging (recorded); the two captures differing | *not yet taken* |
+
+Validity gates: those of the DR sittings above (double capture, instrument
+digests recorded before the first capture, every exit status in-transcript,
+each tier's image verified against its pin before creation). A gate failure
+makes a tier `void(<gate>)`, never a negative. What these sittings
+deliberately do **not** do: decide the route (that is WP-L110's round, on
+these rows); ship the test policy file as product (it is named
+`org.partman.test.*` precisely so it can never be mistaken for
+`org.partman.helper.serve`, and it is removed before teardown); type or
+record any password; or measure anything about the helper itself — no
+helper binary runs in these guests.
 
 ## Reproducing this
 
