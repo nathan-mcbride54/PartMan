@@ -7,6 +7,13 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-010 slice 3r: the ADR-0014 authoring entry and the HLP-004 window
+  accessor (SAFE-003, PLAN-007; sequenced with WP-L110 increment 2).**
+  `TableState::present(checksum)` — the helper parser's copy-invariant
+  digest enters the `Present` state through one documented path — and
+  `OperationPlan::validity()` for the helper that enforces the window.
+  Two tests; two mutations killed. Rust: one arc with WP-L110
+  increment 2, its sitting at the arc head.
 - **WP-L110 increment 1: the Linux helper process and its closed surface
   (HLP-001, HLP-005, HLP-006, HLP-007, RPC-005; on ADR-0055 and the launch
   round).** `services/helper-linux` — reached over the Linux transport,

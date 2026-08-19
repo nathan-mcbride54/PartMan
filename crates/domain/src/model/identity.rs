@@ -62,6 +62,23 @@ impl TableState {
     pub const fn positively_determined(&self) -> bool {
         matches!(self, Self::Present { .. } | Self::Absent)
     }
+
+    /// ADR-0014's authoring entry (slice 3r): the privileged helper's own
+    /// parser (`crates/table-parser`) computed `checksum` over the table's
+    /// copy-invariant content per `schemas/table-checksum.md`, and this is
+    /// the one path that carries it into a body as the `Present` state.
+    /// The digest is content the helper authored from the bytes it read —
+    /// not an artifact hash it rebuilt from a decoded record — so this
+    /// does not weaken the rule that every artifact hash in this crate is
+    /// recomputed at its decode boundary, and [`Hash`]'s byte constructor
+    /// stays crate-internal. The client has no parser and no use for this
+    /// entry: INV-003 says it emits no table state on any platform.
+    #[must_use]
+    pub const fn present(checksum: [u8; 32]) -> Self {
+        Self::Present {
+            checksum: Hash::from_bytes(checksum),
+        }
+    }
 }
 
 /// ADR-0017's continuity witness: an epoch token and a media-event
