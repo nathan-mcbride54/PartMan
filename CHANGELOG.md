@@ -7,6 +7,15 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-L100: the floor finished on ADR-0054 (CAP-004, INV-002; spec
+  18.0.0).** The Debian/Ubuntu row composes from its two measured
+  conjuncts — distribution and kernel — and the UDisks2 number is a CAP-006
+  tool floor, entered by the first package that invokes UDisks2, not this
+  adapter's to determine; `compose` takes two; `FloorReport` loses its
+  `udisks2` field; every measured guest (DR16–DR19) answers
+  `MeetsFloor`; `Undetermined` remains for the shapes no row measured.
+  Three tests renamed or revised; five mutations killed. Rust: the
+  WP-020 sitting is r51.
 - **WP-L100 obligation 4 discharged: the Debian arm of the floor
   determination on DR19 (CAP-004, INV-002; no spec change).** The first
   Debian guest measured `VERSION_ID="12"` — double-quoted, one numeric

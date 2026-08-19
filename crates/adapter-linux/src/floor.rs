@@ -17,13 +17,19 @@
 //! this module claims to read; everything else it answers undetermined.
 //!
 //! **The row it determines against** is Section 9's, verbatim
-//! (`AGENT_BUILD_SPEC.md`, "Platform support floors"): Debian/Ubuntu —
-//! "Debian 12 / Ubuntu 22.04 LTS; kernel ≥ 5.15; `UDisks2` ≥ 2.9"; Arch —
-//! "Current rolling … tool-version-gated". Floors change only via ADR; "the
-//! capability engine may narrow further at runtime (CAP-004); it may never
-//! widen below these floors."
+//! (`AGENT_BUILD_SPEC.md` 18.0.0, "Platform support floors"): Debian/Ubuntu
+//! — "Debian 12 / Ubuntu 22.04 LTS; kernel ≥ 5.15"; Arch — "Current rolling …
+//! tool-version-gated". Floors change only via ADR; "the capability engine
+//! may narrow further at runtime (CAP-004); it may never widen below these
+//! floors." **`UDisks2` ≥ 2.9 is not a conjunct of this row since ADR-0054**
+//! (spec 18.0.0, on the Linux `UDisks2` route round): it is a per-tool floor
+//! in the CAP-006 store, entered by the first package that invokes
+//! `UDisks2` and gating the operations that use it, through CAP-004's
+//! `ToolFloor`/`tool_state` machinery — not this module's to determine.
+//! Until that ADR this module carried it as a third conjunct, undetermined
+//! by construction, and every Debian/Ubuntu host answered `Undetermined`.
 //!
-//! **Three conjuncts, three honest answers.** The distribution conjunct
+//! **Two conjuncts, two honest answers.** The distribution conjunct
 //! reads `ID` and, for Ubuntu, `VERSION_ID`, stripping exactly the double
 //! quotes DR16 measured and comparing the release numerically against the
 //! row (`22.04` is the floor; a later release is above it — that much
@@ -37,10 +43,7 @@
 //! shape; the evidence rule will not let a spec sentence stand in for a
 //! measured byte). The kernel conjunct parses `major.minor` from
 //! `osrelease` and compares against `5.15`; a string that does not parse
-//! is undetermined, never assumed. **The `UDisks2` conjunct is undetermined
-//! by construction**: no file under this contract carries the daemon's
-//! version, LIN-001's route is undecided, and DR18 measured the second tier
-//! shipping without the daemon at all. Under Section 9's own sentence an
+//! is undetermined, never assumed. Under Section 9's own sentence an
 //! undetermined conjunct is not met and was not measured below, which is
 //! exactly what [`PlatformFact::Undetermined`] (WP-050 increment 5) exists
 //! to carry: the engine blocks and names the conjunct.
@@ -48,12 +51,12 @@
 //! **Composition, fail-closed.** Any conjunct measured **unmet** makes the
 //! floor [`PlatformFact::BelowFloor`] — a shortfall somebody measured;
 //! otherwise any undetermined conjunct makes it
-//! [`PlatformFact::Undetermined`], naming the first; only three met
-//! conjuncts (Arch: the one its row states) reach [`PlatformFact::MeetsFloor`].
-//! On every measured host today the Debian/Ubuntu answer is therefore
-//! `Undetermined` on the `UDisks2` conjunct — the honest answer, and the same
-//! one the WP-020 acceptance environments would get, since they run without
-//! `udisks2` (recorded there in terms).
+//! [`PlatformFact::Undetermined`], naming the first; only every conjunct
+//! met or not in the row (Arch: the one its row states) reaches
+//! [`PlatformFact::MeetsFloor`]. On every measured guest (DR16/DR17,
+//! DR18, DR19) the answer is therefore `MeetsFloor`; `Undetermined` remains
+//! for the shapes no row measured — an unlisted or absent `ID`, an
+//! unreadable file, an unparsable release or kernel string.
 //!
 //! **What this reads and nothing else.** Two files, through the bounded
 //! record seam; no process, no D-Bus, no `uname` call — the SAFE-002
@@ -132,10 +135,8 @@ pub struct FloorReport {
     pub distribution: Conjunct,
     /// The kernel conjunct.
     pub kernel: Conjunct,
-    /// The `UDisks2` conjunct — undetermined by construction on the
-    /// Debian/Ubuntu row, not in the Arch row.
-    pub udisks2: Conjunct,
-    /// WP-050's fact, composed fail-closed from the three.
+    /// WP-050's fact, composed fail-closed from the two (ADR-0054: the
+    /// `UDisks2` floor is a tool floor, not a conjunct of this row).
     pub platform: PlatformFact,
     /// MODEL-004 observations: each `os-release` key read (on the
     /// OS-release interface) and the kernel release (on procfs).
@@ -193,20 +194,11 @@ pub fn platform_floor(
             },
         },
     };
-    let udisks2 = match tier {
-        Tier::Arch => Conjunct::NotInRow,
-        _ => Conjunct::Undetermined {
-            reason: "UDisks2 >= 2.9: no client-readable source under this contract, and LIN-001's \
-                     route is undecided"
-                .to_owned(),
-        },
-    };
-    let platform = compose(&distribution, &kernel, &udisks2);
+    let platform = compose(&distribution, &kernel);
     FloorReport {
         tier,
         distribution,
         kernel,
-        udisks2,
         platform,
         observations,
     }
@@ -266,8 +258,8 @@ fn distribution_conjunct(
 /// Fail-closed composition: a measured shortfall is below; else an
 /// undetermined conjunct is undetermined, naming the first; else met.
 #[must_use]
-pub fn compose(distribution: &Conjunct, kernel: &Conjunct, udisks2: &Conjunct) -> PlatformFact {
-    let all = [distribution, kernel, udisks2];
+pub fn compose(distribution: &Conjunct, kernel: &Conjunct) -> PlatformFact {
+    let all = [distribution, kernel];
     if all.iter().any(|c| matches!(c, Conjunct::Unmet { .. })) {
         return PlatformFact::BelowFloor;
     }
