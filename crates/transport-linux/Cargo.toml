@@ -1,0 +1,21 @@
+[package]
+name = "partman-transport-linux"
+description = "The WP-040 Linux transport (ADR-0055): a Unix domain socket endpoint in a root-owned 0711 directory with a user-owned 0600 node, peer credentials verified before any byte is read, and the RPC-002 handshake over RPC-004's bounded frames"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+partman-rpc = { path = "../rpc" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Deliberate (ADR-0055, route T1): std's UnixStream::peer_cred is unstable on
+# the pinned toolchain, and rustix -- already a Linux-only dependency of
+# ffi-linux-loop -- exports socket_peercred as a safe function. The unsafe
+# lives in rustix; this crate inherits the workspace's unsafe_code denial.
+rustix = { version = "1.1.4", default-features = false, features = ["net", "process", "std"] }
+
+[lints]
+workspace = true

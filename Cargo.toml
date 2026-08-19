@@ -12,6 +12,7 @@ members = [
     "crates/statemachine",
     "crates/table-parser",
     "crates/tokens",
+    "crates/transport-linux",
     "tools/slint-feasibility",
     "tools/xtask",
 ]

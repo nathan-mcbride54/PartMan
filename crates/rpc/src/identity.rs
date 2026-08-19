@@ -14,7 +14,10 @@
 //! recorded route decision — the platform reach a verifier needs is
 //! exactly the reach the route decision exists to cost out.
 //! [`IdentityClaim::waits_on`] says which decision each claim waits
-//! on, and `schemas/rpc/authentication.md` records the same mapping.
+//! on — or, once recorded, which decision and which crate carry its
+//! verifier (the Linux claim's since ADR-0055: `partman-transport-linux`,
+//! WP-040 increment 5) — and `schemas/rpc/authentication.md` records the
+//! same mapping.
 //!
 //! **No authorization vocabulary exists here, deliberately.** SI-18
 //! holds open whether a severity-1 plan needs fresh interactive
@@ -44,11 +47,14 @@ pub enum IdentityClaim {
     /// endpoint creation; this claim names the restriction, not a
     /// value.
     WindowsPipeSddl,
-    /// Linux: the Unix domain socket (0700, root-owned directory)
-    /// verifies peer credentials — the kernel-reported identity of the
-    /// connecting process. Reading them needs `SO_PEERCRED` beyond
-    /// std's surface, which is precisely why the verifier waits on the
-    /// route decision.
+    /// Linux: the Unix domain socket in a root-owned `0711` directory,
+    /// its node owned by the authorizing user and `0600` (RPC-001 since
+    /// 19.0.0, ADR-0055), verifies peer credentials — the kernel-reported
+    /// identity of the connecting process. Reading them needs
+    /// `SO_PEERCRED` beyond std's surface, which is why the verifier
+    /// waited on the route decision; recorded 2026-08-19, the verifier is
+    /// `partman-transport-linux`'s `verify_peer`, applied before any byte
+    /// is read.
     UnixPeerCredentials,
     /// macOS: the XPC connection checks a code-signing requirement —
     /// or an equivalently verified Unix domain socket does — so the
@@ -94,9 +100,11 @@ impl IdentityClaim {
         }
     }
 
-    /// The recorded route decision this claim's verifier arrives with.
-    /// None is recorded yet: the protocol layer is complete and
-    /// endpoint-less, which is a truthful state, not a gap.
+    /// The route decision this claim's verifier arrives with — unrecorded,
+    /// or recorded and named with the crate that carries the verifier.
+    /// Windows and macOS are unrecorded: the protocol layer is complete
+    /// and endpoint-less there, a truthful state, not a gap. Linux was
+    /// recorded 2026-08-19 (ADR-0055).
     #[must_use]
     pub const fn waits_on(self) -> &'static str {
         match self {
@@ -104,7 +112,9 @@ impl IdentityClaim {
                 "the windows transport route decision (Win32 security APIs; unrecorded)"
             }
             Self::UnixPeerCredentials => {
-                "the linux transport route decision (SO_PEERCRED beyond std; unrecorded)"
+                "the linux transport route decision (SO_PEERCRED beyond std; recorded: ADR-0055, \
+                 spec 19.0.0; the verifier is partman-transport-linux::verify_peer, WP-040 \
+                 increment 5)"
             }
             Self::MacosCodeSigning => {
                 "the macos transport route decision (platform frameworks; unrecorded)"

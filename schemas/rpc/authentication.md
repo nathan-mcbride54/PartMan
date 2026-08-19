@@ -23,13 +23,15 @@ WP-070's). The vocabulary is closed at exactly these three:
 | Claim | Transport | The peer proves |
 | --- | --- | --- |
 | `WindowsPipeSddl` | Windows named pipe | The connection was admitted by an SDDL restricting the pipe to SYSTEM and the authorizing interactive user. The authorizing user is runtime data the transport learns at endpoint creation; the claim names the restriction, not a value. |
-| `UnixPeerCredentials` | Linux Unix domain socket (0700, root-owned directory) | The kernel-reported credentials of the connecting process match the peer the socket was created to serve. |
+| `UnixPeerCredentials` | Linux Unix domain socket (root-owned `0711` directory, `0600` node owned by the authorizing user — RPC-001 since 19.0.0, ADR-0055) | The kernel-reported credentials of the connecting process match the peer the socket was created to serve. |
 | `MacosCodeSigning` | macOS XPC, or an equivalently verified Unix domain socket | The connecting binary satisfies the helper's code-signing requirement. |
 
 ## 2. Which claim waits on which route
 
-**No claim has a verifier in this package.** Every RPC-001 transport
-is route-decision-gated — no route is simultaneously dependency-free,
+**No claim has a verifier in this package.** (The Linux claim's
+verifier exists since 2026-08-19 — in `partman-transport-linux`, WP-040
+increment 5, on ADR-0055 — and this package still carries only the
+claim.) Every RPC-001 transport is route-decision-gated — no route is simultaneously dependency-free,
 `unsafe`-free, and clean against the workspace rules (the WP-035
 increment-10 triangle, three times over) — and a claim's verifier
 needs exactly the platform reach its route decision exists to cost
@@ -38,7 +40,7 @@ out. Each claim therefore waits, by name:
 | Claim | Waits on | The reach a verifier needs |
 | --- | --- | --- |
 | `WindowsPipeSddl` | The Windows transport route decision (unrecorded) | Win32 security APIs to build and apply the SDDL. |
-| `UnixPeerCredentials` | The Linux transport route decision (unrecorded) | `SO_PEERCRED` beyond std's surface. |
+| `UnixPeerCredentials` | **Recorded 2026-08-19: ADR-0055, spec 19.0.0** — the verifier is `partman-transport-linux::verify_peer`, applied on accept before any byte is read (route T1: `std` plus `rustix`'s safe `socket_peercred`) | `SO_PEERCRED` beyond std's surface — `std`'s `peer_cred` is unstable on the pinned toolchain; `rustix` wraps it safely. |
 | `MacosCodeSigning` | The macOS transport route decision (unrecorded) | Platform frameworks for XPC and code-signing evaluation. |
 
 Until a decision is recorded, the protocol layer is complete and
