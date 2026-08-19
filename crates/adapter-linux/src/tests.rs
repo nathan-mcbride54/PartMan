@@ -636,13 +636,14 @@ fn the_adapter_opens_no_device_node_and_launches_no_process() {
 /// `every_shipped_module_is_covered_by_the_structural_guards`, because both
 /// SAFE-002 scans iterate it: a module added without an entry here would be
 /// exempt from both while leaving both tests green.
-fn shipped_sources() -> [(&'static str, &'static str); 12] {
+fn shipped_sources() -> [(&'static str, &'static str); 13] {
     [
         ("lib.rs", include_str!("lib.rs")),
         ("arrays.rs", include_str!("arrays.rs")),
         ("contract.rs", include_str!("contract.rs")),
         ("derivation.rs", include_str!("derivation.rs")),
         ("devices.rs", include_str!("devices.rs")),
+        ("floor.rs", include_str!("floor.rs")),
         ("held.rs", include_str!("held.rs")),
         ("naming.rs", include_str!("naming.rs")),
         ("observation.rs", include_str!("observation.rs")),
@@ -2796,5 +2797,246 @@ fn tool_state_follows_acc_009_and_fails_closed_where_the_text_is_open() {
     assert!(
         v(3, 0, 0) > v(2, 41, 7) && v(2, 41, 0) > v(2, 37, 9),
         "ordered by (major, minor, patch)"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Increment 5b: the Section 9 floor determination.
+// ---------------------------------------------------------------------------
+
+/// DR16/DR17's jammy shapes and DR18's Arch shapes, byte for byte as the
+/// transcripts carry them (the os-release bodies are the measured files;
+/// the kernel strings are the measured `osrelease` contents).
+const JAMMY_OS_RELEASE: &str = "PRETTY_NAME=\"Ubuntu 22.04.5 LTS\"\nNAME=\"Ubuntu\"\nVERSION_ID=\"22.04\"\nVERSION=\"22.04.5 LTS (Jammy Jellyfish)\"\nVERSION_CODENAME=jammy\nID=ubuntu\nID_LIKE=debian\nHOME_URL=\"https://www.ubuntu.com/\"\nSUPPORT_URL=\"https://help.ubuntu.com/\"\nBUG_REPORT_URL=\"https://bugs.launchpad.net/ubuntu/\"\nPRIVACY_POLICY_URL=\"https://www.ubuntu.com/legal/terms-and-policies/privacy-policy\"\nUBUNTU_CODENAME=jammy\n";
+const ARCH_OS_RELEASE: &str = "NAME=\"Arch Linux\"\nPRETTY_NAME=\"Arch Linux\"\nID=arch\nBUILD_ID=rolling\nANSI_COLOR=\"38;2;23;147;209\"\nHOME_URL=\"https://archlinux.org/\"\nDOCUMENTATION_URL=\"https://wiki.archlinux.org/\"\nSUPPORT_URL=\"https://bbs.archlinux.org/\"\nBUG_REPORT_URL=\"https://gitlab.archlinux.org/groups/archlinux/-/issues\"\nPRIVACY_POLICY_URL=\"https://terms.archlinux.org/docs/privacy-policy/\"\nLOGO=archlinux-logo\n";
+
+fn floor_source(os_release: Option<&[u8]>, kernel: Option<&[u8]>) -> FakeSource {
+    let mut source = FakeSource::empty();
+    if let Some(bytes) = os_release {
+        source
+            .files
+            .insert("/etc/os-release".to_owned(), Ok(bytes.to_vec()));
+    }
+    if let Some(bytes) = kernel {
+        source
+            .files
+            .insert("/proc/sys/kernel/osrelease".to_owned(), Ok(bytes.to_vec()));
+    }
+    source
+}
+
+fn floor_of(source: &FakeSource) -> crate::floor::FloorReport {
+    crate::floor::platform_floor(source, &PathBuf::from("/etc"), &PathBuf::from("/proc"))
+}
+
+// Requirements: CAP-004, INV-002, SAFE-005
+//   Section 9's Debian/Ubuntu floor determined from the two files DR16 and
+//   DR17 measured on the jammy guest, byte for byte: `ID=ubuntu` and a
+//   double-quoted `VERSION_ID="22.04"` (the quotes stripped and nothing
+//   else) meet the release row, `5.15.0-186-generic` parses to `5.15` and
+//   meets the kernel row exactly, and the UDisks2 conjunct is undetermined
+//   by construction — so the composed fact is `Undetermined`, naming
+//   UDisks2, which is the honest answer for every measured acceptance
+//   environment (they run without the daemon) and never `MeetsFloor` (a
+//   widening Section 9 forbids) or `BelowFloor` (unmeasured). Each key
+//   read is an observation on the fourth interface, direct; the kernel
+//   on procfs.
+// Evidence: the_ubuntu_floor_is_undetermined_on_udisks2_alone_with_release_and_kernel_met
+#[test]
+fn the_ubuntu_floor_is_undetermined_on_udisks2_alone_with_release_and_kernel_met() {
+    use crate::floor::{Conjunct, Tier};
+    use partman_capability::engine::PlatformFact;
+    use partman_domain::model::provenance::{Method, Outcome};
+
+    let source = floor_source(
+        Some(JAMMY_OS_RELEASE.as_bytes()),
+        Some(b"5.15.0-186-generic\n"),
+    );
+    let report = floor_of(&source);
+    assert_eq!(report.tier, Tier::Ubuntu);
+    assert_eq!(report.distribution, Conjunct::Met, "22.04 is the row");
+    assert_eq!(report.kernel, Conjunct::Met, "5.15 is the row, exactly");
+    assert!(matches!(report.udisks2, Conjunct::Undetermined { .. }));
+    match &report.platform {
+        PlatformFact::Undetermined { conjunct } => {
+            assert!(
+                conjunct.contains("UDisks2"),
+                "names the conjunct: {conjunct}"
+            );
+        }
+        other => panic!("undetermined on UDisks2, got {other:?}"),
+    }
+    // Observations: ID and VERSION_ID on the fourth interface, the kernel on procfs, all direct.
+    let os_release: Vec<_> = report
+        .observations
+        .iter()
+        .filter(|o| o.adapter == "partman-adapter-linux/linux-os-release")
+        .collect();
+    assert_eq!(os_release.len(), 2);
+    assert!(os_release.iter().all(|o| o.method == Method::Direct));
+    assert!(os_release.iter().any(|o| matches!(&o.outcome,
+        Outcome::Observed { value: partman_domain::canonical::Value::Text(t) } if t == "VERSION_ID=22.04")),
+        "the quotes are stripped, nothing else");
+    assert!(report.observations.iter().any(|o| o.adapter == "partman-adapter-linux/linux-procfs"
+        && matches!(&o.outcome, Outcome::Observed { value: partman_domain::canonical::Value::Text(t) } if t == "5.15.0-186-generic")));
+}
+
+// Requirements: CAP-004, SAFE-005
+//   DR18's Arch shape: `ID=arch` with no `VERSION_ID`, on the row that
+//   names no version, no kernel and no UDisks2 conjunct — the only tier
+//   that reaches `MeetsFloor`, on `ID` alone, with the absent key a
+//   positively determined absence. And the shapes nobody measured are
+//   undetermined, never assumed: Debian (recognized, its release shape
+//   unmeasured), an unlisted `ID`, a missing `ID`, an absent file.
+// Evidence: arch_meets_its_row_on_id_alone_and_unmeasured_shapes_are_undetermined
+#[test]
+fn arch_meets_its_row_on_id_alone_and_unmeasured_shapes_are_undetermined() {
+    use crate::floor::{Conjunct, Tier};
+    use partman_capability::engine::PlatformFact;
+    use partman_domain::model::provenance::Outcome;
+
+    let arch = floor_of(&floor_source(
+        Some(ARCH_OS_RELEASE.as_bytes()),
+        Some(b"7.1.8-arch1-3\n"),
+    ));
+    assert_eq!(arch.tier, Tier::Arch);
+    assert_eq!(arch.distribution, Conjunct::Met);
+    assert_eq!(arch.kernel, Conjunct::NotInRow);
+    assert_eq!(arch.udisks2, Conjunct::NotInRow);
+    assert_eq!(arch.platform, PlatformFact::MeetsFloor);
+    assert!(
+        arch.observations
+            .iter()
+            .any(|o| o.adapter == "partman-adapter-linux/linux-os-release"
+                && o.outcome == Outcome::ObservedAbsent),
+        "VERSION_ID absent on Arch is a positively determined absence"
+    );
+
+    let debian = floor_of(&floor_source(
+        Some(b"ID=debian\nVERSION_ID=\"12\"\n"),
+        Some(b"6.1.0-1-amd64\n"),
+    ));
+    assert_eq!(debian.tier, Tier::Debian);
+    assert!(
+        matches!(debian.distribution, Conjunct::Undetermined { .. }),
+        "no Debian row measured"
+    );
+    assert!(matches!(debian.platform, PlatformFact::Undetermined { .. }));
+
+    let other = floor_of(&floor_source(
+        Some(b"ID=fedora\nVERSION_ID=40\n"),
+        Some(b"6.8.0\n"),
+    ));
+    assert_eq!(
+        other.tier,
+        Tier::Unrecognized {
+            id: "fedora".to_owned()
+        }
+    );
+    assert!(matches!(other.platform, PlatformFact::Undetermined { .. }));
+
+    let no_id = floor_of(&floor_source(
+        Some(b"NAME=\"Something\"\n"),
+        Some(b"6.8.0\n"),
+    ));
+    assert!(matches!(no_id.tier, Tier::Unknown { .. }));
+    assert!(matches!(no_id.platform, PlatformFact::Undetermined { .. }));
+
+    let absent = floor_of(&floor_source(None, Some(b"6.8.0\n")));
+    assert!(matches!(absent.tier, Tier::Unknown { .. }));
+    assert!(matches!(absent.platform, PlatformFact::Undetermined { .. }));
+    assert!(
+        absent
+            .observations
+            .iter()
+            .any(|o| matches!(o.outcome, Outcome::Unavailable { .. }))
+    );
+}
+
+// Requirements: CAP-004, SAFE-005
+//   The composition is fail-closed on every arm: a measured shortfall in
+//   release or kernel is `BelowFloor` even beside undetermined conjuncts;
+//   an unparsable release or kernel string is undetermined, never
+//   compared; a release above the row is met (that much arithmetic the
+//   word "floor" states); an absent kernel file is undetermined; and
+//   `MeetsFloor` needs every conjunct met or not in the row.
+// Evidence: the_floor_composes_fail_closed_and_a_measured_shortfall_is_below
+#[test]
+fn the_floor_composes_fail_closed_and_a_measured_shortfall_is_below() {
+    use crate::floor::{Conjunct, compose, parse_major_minor};
+    use partman_capability::engine::PlatformFact;
+
+    let old_release = floor_of(&floor_source(
+        Some(b"ID=ubuntu\nVERSION_ID=\"20.04\"\n"),
+        Some(b"5.15.0-186-generic\n"),
+    ));
+    assert!(matches!(old_release.distribution, Conjunct::Unmet { .. }));
+    assert_eq!(
+        old_release.platform,
+        PlatformFact::BelowFloor,
+        "a measured shortfall wins over undetermined"
+    );
+    let old_kernel = floor_of(&floor_source(
+        Some(JAMMY_OS_RELEASE.as_bytes()),
+        Some(b"5.4.0-150-generic\n"),
+    ));
+    assert!(matches!(old_kernel.kernel, Conjunct::Unmet { .. }));
+    assert_eq!(old_kernel.platform, PlatformFact::BelowFloor);
+    let newer = floor_of(&floor_source(
+        Some(b"ID=ubuntu\nVERSION_ID=\"24.04\"\n"),
+        Some(b"6.8.0-45-generic\n"),
+    ));
+    assert_eq!(newer.distribution, Conjunct::Met);
+    assert_eq!(newer.kernel, Conjunct::Met);
+    let unparsable = floor_of(&floor_source(
+        Some(b"ID=ubuntu\nVERSION_ID=\"jammy\"\n"),
+        Some(b"custom\n"),
+    ));
+    assert!(matches!(
+        unparsable.distribution,
+        Conjunct::Undetermined { .. }
+    ));
+    assert!(matches!(unparsable.kernel, Conjunct::Undetermined { .. }));
+    assert!(matches!(
+        unparsable.platform,
+        PlatformFact::Undetermined { .. }
+    ));
+    let no_kernel = floor_of(&floor_source(Some(JAMMY_OS_RELEASE.as_bytes()), None));
+    assert!(matches!(no_kernel.kernel, Conjunct::Undetermined { .. }));
+
+    assert_eq!(parse_major_minor("22.04"), Some((22, 4)));
+    assert_eq!(parse_major_minor("5.15.0-186-generic"), Some((5, 15)));
+    assert_eq!(parse_major_minor("7.1.8-arch1-3"), Some((7, 1)));
+    assert_eq!(parse_major_minor("jammy"), None);
+    assert_eq!(parse_major_minor("5"), None);
+    assert_eq!(
+        compose(&Conjunct::Met, &Conjunct::Met, &Conjunct::Met),
+        PlatformFact::MeetsFloor
+    );
+    assert_eq!(
+        compose(&Conjunct::Met, &Conjunct::NotInRow, &Conjunct::NotInRow),
+        PlatformFact::MeetsFloor
+    );
+    assert!(matches!(
+        compose(
+            &Conjunct::Met,
+            &Conjunct::Met,
+            &Conjunct::Undetermined {
+                reason: "u".to_owned()
+            }
+        ),
+        PlatformFact::Undetermined { .. }
+    ));
+    assert_eq!(
+        compose(
+            &Conjunct::Unmet {
+                measured: "x".to_owned()
+            },
+            &Conjunct::Undetermined {
+                reason: "u".to_owned()
+            },
+            &Conjunct::Met
+        ),
+        PlatformFact::BelowFloor
     );
 }
