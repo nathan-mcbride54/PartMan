@@ -76,7 +76,7 @@
 //!   standing from sysfs `holders/`, keyed by the holder's own uuid (DR15:
 //!   live from both ends; entry names moved, identities held), a
 //!   state-layer observation that enters no name and changes no verdict
-//!   until WP-010's consumed-member arm consumes it (gitea#1008); and the
+//!   (its consumer is the helper's capture, WP-L110); and the
 //!   cached signature view (`ID_FS_TYPE`/`ID_FS_USAGE`/`ID_FS_VERSION`),
 //!   reported as `Heuristic`/`inferred` and consulted by nothing.
 //!   `NamingFields::PartitionTable` carries a `TableRole` — a scheme — and
