@@ -7,6 +7,15 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-L100: the USB-device-node predicate's evidence moves from none to
+  FR6 (ADR-0034; no rule change).** gitea#1002's row, taken 2026-08-19 on
+  the FR4 unit in two legs (a real XHCI chain on the Proxmox node; the
+  passthrough chain on a jammy guest): `idVendor` and `idProduct` are both
+  readable exactly on the ancestors the kernel classes `usb_device` and on
+  no interface, SCSI, PCI, virtio or NVMe node; nearest-first selects the
+  unit's node over the root hub; the serial is FR4's. `naming.rs`'s doc and
+  `fields.md` say so; the predicate itself is unchanged. Rust (a doc
+  comment): the WP-020 sitting is r52.
 - **WP-L100: the floor finished on ADR-0054 (CAP-004, INV-002; spec
   18.0.0).** The Debian/Ubuntu row composes from its two measured
   conjuncts — distribution and kernel — and the UDisks2 number is a CAP-006

@@ -286,30 +286,35 @@ Three differences hold for every row here.
 | Naming input | Path | Evidence | Strength |
 | --- | --- | --- | --- |
 | serial (USB-attached) | the `serial` attribute of the nearest sysfs ancestor that is a USB device node | **R1** — the only serial any qualifying Linux record has observed, `A20036CA8695D921`, stable across replug and reboot (L8) and per-unit distinct on the measured pair (L9); **FR4** resolved the traversal to `/sys/devices/…/usb10/10-1/serial` and discharged ADR-0034's evidence obligation 1 | real-hardware |
-| the USB-device-node predicate | `idVendor` and `idProduct` on a candidate ancestor | **none** — see the note below | none |
+| the USB-device-node predicate | `idVendor` and `idProduct` on a candidate ancestor | **FR6** — on the FR4 unit, both markers readable (mode `444`) exactly on the ancestors the kernel classes `usb_device` (the unit's node and the root hub above it) and on no USB interface, SCSI, PCI or virtio node, on a real XHCI chain (leg A, the Proxmox node, as `nobody`) and through a passthrough chain (leg B, jammy, client baseline); nearest-first lands on the unit's node (`bDeviceClass=00`, `devpath` non-zero; the hub is `09`/`0`) and its `serial` is FR4's; the NVMe and virtio contrast chains carry neither marker | real-hardware |
 | `size`, as the `total_bytes` input | `size` | **FR5** on the whole-device node: `244457472` × 512 = `blockdev --getsize64`'s `125162225664` exactly | real-hardware |
 | WWN | *no path* | ADR-0034 leaves the cell **undesignated** on Linux for every attachment class; **R2** records `device/wwid`'s `ENXIO` failed read, and no WWN-class value has ever been observed on Linux | not read |
 
-**The predicate row is the gap this increment adds, and it is stated
-rather than implied.** ADR-0034's rule is structural — "the nearest
-ancestor sysfs node that is a USB device node" — and **FR4** establishes
-that the measured traversal *reaches* one. No row establishes what a
-client may read to *recognize* one, which is a different claim and the
-one the predicate makes. The contrast is ADR-0035's mmc cell, whose
-structural rule **S5c** measured directly (`/sys/block/mmcblk0/device`
-resolving under `mmc_host/*`), which is why that designation needs no
-ancestor search at all.
+**The predicate row was the gap increment 3a added and stated rather
+than implied; FR6 closed it 2026-08-19.** ADR-0034's rule is structural —
+"the nearest ancestor sysfs node that is a USB device node" — and **FR4**
+established that the measured traversal *reaches* one. What a client may
+read to *recognize* one is a different claim, the one the predicate makes,
+and FR6 measured it on the same unit in two legs: the predicate's YES set
+equals the kernel's `DEVTYPE=usb_device` set on every ancestor of a real
+XHCI chain and of a passthrough chain; a USB interface node carries
+`bInterfaceClass`/`modalias` and neither marker; SCSI, PCI, virtio and
+NVMe nodes carry neither; the root hub is also a `usb_device` node, and
+nearest-first is what selects the unit's node over it (`bDeviceClass`
+`00` vs `09`, `devpath` non-zero vs `0`). The contrast with ADR-0035's mmc
+cell stands (**S5c** measured its structural rule directly, so that
+designation needs no ancestor search).
 
-The rule is therefore written the way increment 2 wrote the
-`partition`-attribute admission under the same shortfall, and discharged
-the same way afterwards: fail-closed, so the unmeasured direction is the
-safe one. Recognition requires **both** markers to answer with a value;
-an unreadable marker recognizes nothing and the walk continues; and a
-device whose USB ancestor is never identified yields an absent serial and
-a weaker name, never a guessed one. Nothing relies on the predicate being
-right — it can only ever *lose* a name — which is what keeps the
-shortfall priced. The row is filed as an obligation on WP-035, which owns
-`docs/quality/observability.md`.
+The rule was written fail-closed on increment 2's `partition`-attribute
+precedent while the evidence was none, and **the row did not change it**:
+recognition requires **both** markers to answer with a value; an
+unreadable marker recognizes nothing and the walk continues; a device
+whose USB ancestor is never identified yields an absent serial and a
+weaker name, never a guessed one. Unmeasured and said so: a device behind
+a hub (the order handles it by construction); `removable` on a passthrough
+device node reads `unknown` where the host reads `removable` — an
+attribute the predicate does not read, recorded because the legs differed
+on it.
 
 ## 7. The state-layer and kind-marker roster (increment 4a)
 

@@ -58,21 +58,30 @@ pub const ANCESTOR_LIMIT: usize = 16;
 /// The attributes whose joint presence marks a sysfs node as a USB **device**
 /// node, as opposed to a USB interface node or any other ancestor.
 ///
-/// **This predicate has no qualifying observability row, and the gap is
-/// recorded rather than papered over.** ADR-0034's evidence obligation 1 —
-/// capturing the resolved canonical path — is discharged by **FR4**, which
-/// establishes that the measured traversal *reaches* a USB device node. No
-/// row establishes what a client may read to *recognize* one, which is a
-/// different claim and the one this predicate makes. Contrast ADR-0035's mmc
-/// cell, whose structural rule **S5c** measured directly.
-///
-/// So the rule is written the way increment 2 wrote [`PARTITION_ATTRIBUTE`]'s
-/// under the same shortfall: fail-closed, so the unmeasured direction is the
-/// safe one. Recognition requires **both** markers to answer with a value;
-/// an unreadable marker recognizes nothing, and an unrecognized ancestor
-/// yields an absent serial and a weaker name rather than a guessed one. The
-/// row is filed as an obligation on WP-035, which owns
-/// `docs/quality/observability.md`.
+/// **Measured: FR6** (`docs/quality/observability.md`, the USB-device-node
+/// recognition cell, 2026-08-19, on the same physical unit FR4 resolved, in
+/// two legs — a real XHCI chain on the Proxmox node as `nobody`, and the
+/// passthrough chain on a jammy guest as the client baseline). ADR-0034's
+/// evidence obligation 1 — the resolved canonical path — was discharged
+/// by **FR4**, which established that the walk *reaches* a USB device node;
+/// FR6 establishes what a client may read to *recognize* one, the claim this
+/// predicate makes: on every ancestor of both chains, `idVendor` and
+/// `idProduct` are both readable (mode `444`) **exactly** where the kernel's
+/// own `uevent` says `DEVTYPE=usb_device` — the unit's device node and the
+/// root hub above it — and on no USB *interface* node (which carries
+/// `bInterfaceClass` and `modalias` but neither marker), no SCSI target or
+/// host, and no PCI or virtio node; the `NVMe` and virtio contrast chains
+/// carry neither marker at any level. Nearest-first lands on the unit's node
+/// (`bDeviceClass=00`, `devpath` non-zero) rather than the root hub
+/// (`bDeviceClass=09`, `devpath=0`), and its `serial` is FR4's recorded
+/// `A20036CA8695D921`. Until FR6 this predicate carried evidence **none** and
+/// was written fail-closed on increment 2's [`PARTITION_ATTRIBUTE`]
+/// precedent; the rule is unchanged by the row — it was measured right, not
+/// rewritten. Recognition still requires **both** markers to answer with a
+/// value; an unreadable marker recognizes nothing, and an unrecognized
+/// ancestor yields an absent serial and a weaker name rather than a guessed
+/// one. Unmeasured, and said so: a device behind a hub (nearest-first
+/// handles it by construction).
 ///
 /// [`PARTITION_ATTRIBUTE`]: crate::devices::PARTITION_ATTRIBUTE
 pub const USB_DEVICE_MARKERS: [&str; 2] = ["idVendor", "idProduct"];
