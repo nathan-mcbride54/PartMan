@@ -11,7 +11,7 @@
   recorded harness defects, and **M10 taken the same day** in an ephemeral
   hosted runner, where the helper reads at byte level what the client is
   denied. Only M9 remains `not established`, Apple Silicon having no Fusion
-  Drive. **One preregistered cell is `not yet taken`: the held-standing cell DR15** (gitea#1009, preregistered 2026-08-18, below). The Linux detection rows DR1–DR10 (gitea#1005) and the naming-designation cells DR11–DR14 (gitea#1007) were preregistered and taken 2026-08-18, all fourteen established (DR1–DR10 valid on a second invocation; DR11–DR14 valid with two recorded instrument amendments in the rebooted phase).
+  Drive. **No preregistered cell on any platform is now `not yet taken`** — the held-standing cell DR15 (gitea#1009) was preregistered 2026-08-18 and taken 2026-08-19 UTC, established on a single guest with no amendment. The Linux detection rows DR1–DR10 (gitea#1005) and the naming-designation cells DR11–DR14 (gitea#1007) were preregistered and taken 2026-08-18, all fourteen established (DR1–DR10 valid on a second invocation; DR11–DR14 valid with two recorded instrument amendments in the rebooted phase).
   The macOS second-reader readback was discharged 2026-08-08 by an
   independent reader session: both sitting 2 transcripts and the M10
   transcript retrieved through their locators and rehashed, every digest
@@ -4588,7 +4588,7 @@ client `BackingSignature` node would author its `primary_offset` — the
 question the next 4b slice's round must answer before any signature node
 is built client-side. No designation is made here.
 
-### The held-standing cell DR15 — preregistered 2026-08-18; not yet taken
+### The held-standing cell DR15 — preregistered 2026-08-18; taken 2026-08-19 UTC; valid, single guest, no amendment
 
 One cell, declared before execution per this document's method. It is
 the row WP-L100 increment 4b filed on this package as gitea issue
@@ -4625,7 +4625,7 @@ every other capture, the next boot pinned to the running kernel with
 
 | # | Cell | Command / API | Privilege | Distinguishing condition | Invalidation conditions | Result |
 | --- | --- | --- | --- | --- | --- | --- |
-| DR15 | `holders/` and `slaves/`, both sides, across the assembly cycle | `ls /sys/class/block/<member>/holders/` on **every** provisioned member (each md member, each LUKS disk, each PV including the unmapped one) and `ls /sys/class/block/<assembled>/slaves/` on every assembled node (each array, each LV mapping, each opened container); double capture at each of four phases: **baseline**; **stopped** (`vgchange -an`, `cryptsetup close`, `mdadm --stop`, captured before any re-assembly); **re-assembled**; **rebooted** (automatic activation, containers re-opened under their baseline names by serial); each phase labelled | client baseline; root performs the stops and re-assembly | Whether `holders/` is a **live** fact: positively empty on every member in the stopped phase (a stopped array's members, a closed container's disk, a deactivated VG's PVs), naming the consumer again after re-assembly and after the reboot; whether the two sides agree in every phase where a mapping exists (DR4's symmetry); whether the unmapped PV of an active VG stays unheld in every phase while its sibling PV is held | a holder surviving a stop, or absent after re-assembly (a positive result either way, recorded, and it changes the third slice); a listing denied where the entry exists; a unit failing to re-appear after the reboot (that unit `void`) | *not yet taken* |
+| DR15 | `holders/` and `slaves/`, both sides, across the assembly cycle | `ls /sys/class/block/<member>/holders/` on **every** provisioned member (each md member, each LUKS disk, each PV including the unmapped one) and `ls /sys/class/block/<assembled>/slaves/` on every assembled node (each array, each LV mapping, each opened container); double capture at each of four phases: **baseline**; **stopped** (`vgchange -an`, `cryptsetup close`, `mdadm --stop`, captured before any re-assembly); **re-assembled**; **rebooted** (automatic activation, containers re-opened under their baseline names by serial); each phase labelled | client baseline; root performs the stops and re-assembly | Whether `holders/` is a **live** fact: positively empty on every member in the stopped phase (a stopped array's members, a closed container's disk, a deactivated VG's PVs), naming the consumer again after re-assembly and after the reboot; whether the two sides agree in every phase where a mapping exists (DR4's symmetry); whether the unmapped PV of an active VG stays unheld in every phase while its sibling PV is held | a holder surviving a stop, or absent after re-assembly (a positive result either way, recorded, and it changes the third slice); a listing denied where the entry exists; a unit failing to re-appear after the reboot (that unit `void`) | **Established — `holders/` is a live fact, from both ends.** Ten captures in five labelled phases (the four declared plus one extra, *rebooted-auto*, below), every pair byte-equal, kernel `5.15.0-186-generic` in every capture. **Stopped:** every member's `holders/` positively empty — both PVs of the deactivated VG, the closed containers' disks, the stopped arrays' four members — and every assembled node absent. **Baseline, re-assembled, rebooted:** every consuming member held by exactly its consumer, and the two sides agree **by identity** in every phase: each holder entry's own `md/uuid`/`dm/uuid` is the assembled node's, and that node's `slaves/` names the member back — while the *entry names* moved under it (the two LVs swapped `dm-0`/`dm-1` at re-assembly, the two arrays swapped `md126`/`md127` at the reboot); no `sd` name moved this time. **The unmapped PV of the active VG is unheld in every phase** while its sibling PV is held (root's `lvs` shows `lv_a` on `/dev/sdb(0)` alone); the Btrfs pair, the ext4 disk and the plain disk are unheld in every phase; the loop's `slaves/` is empty. **A finding beside the cell:** in the extra *rebooted-auto* phase (what the guest came back with by itself: VGs activated, arrays assembled under swapped names, containers not opened, loop not attached) both LUKS disks are **unheld** — a live container with no opener has no holder, so the held standing reports exactly assembly, not what the disk carries; that is the fail-open-at-draft posture the round's §5.1 named, now with a measured instance. Nothing lagged and nothing survived a stop; the third slice lands as drafted |
 
 Validity gates: those of the DR11–DR14 sitting above (double capture,
 digests before the first capture, `CapEff` all-zero at every client
@@ -4636,6 +4636,57 @@ What this sitting deliberately does not do: no designation; no reading of
 device bytes at any privilege; no signature node; no multipath; no
 partition-hosted member; no fixture media. It measures whether one
 kernel-reported relation is live, from both ends, and nothing else.
+
+**The sitting, 2026-08-19 (UTC).** One disposable VM (VMID 9473), fresh
+jammy image against the pinned digest, fourteen 1 GiB virtio-scsi disks
+with serials `DR01`–`DR14`, no passthrough; `muser1` the client baseline
+through `runuser`, `CapEff` all-zero at every capture; the setup actor's
+`dr3-root.sh`/`dr3-root-phase2.sh` and the client `dr3-client.sh` with
+digests recorded in-transcript before the first capture; every
+provisioning command's exit status in-transcript (the package install's
+own status line was swallowed by the instrument's `>/dev/null` — the DR2
+instrument's wart, carried — and the packages' presence is proven by the
+`dpkg-query` lines and by every provisioning `rc: 0` that follows). Kernel
+`5.15.0-186-generic` before the run, before the reboot, and after it, the
+next boot pinned with `grub-reboot`. Phase 1: provisioning (two VGs, `lv_a`
+on one of `vg_dr_a`'s two PVs, two arrays, two LUKS2 containers, the Btrfs
+pair, the whole-disk and loop ext4; DR13 not needed and swap not
+provisioned), baseline captures (two), the stop — `vgchange -an`,
+`cryptsetup close`, `mdadm --stop`, unmounts, `losetup -d` — with the
+manifest re-resolved and every assembled node recorded absent, stopped
+captures (two), the re-assembly by serial and by scan, re-assembled
+captures (two). The declared reboot. Phase 2: the *rebooted-auto* captures
+(two, extra and labelled), then containers re-opened under their baseline
+names by serial, loop re-attached, everything re-mounted, rebooted captures
+(two). Every disk was addressed by serial and every array by its baseline
+`md/uuid` from the first capture; no `sd` name was carried across the
+reboot, and none moved. The transcript was evaluated mechanically before
+teardown (`dr3-eval.py`, archived with the scripts): pair equality per
+phase, the stopped-phase emptiness, the held/unheld expectation per role
+per phase, and both-sides agreement by identity — all pass. Teardown
+verified 2026-08-19T00:10:14Z: no VM config, no storage volume, no LVM
+volume.
+
+**Custody.** Transcript (one file, both phases), the host environment
+record, teardown proof, drive/create/teardown logs, every instrument and
+the evaluator archived at
+`%USERPROFILE%\PartMan-evidence\2026-08-18-dr3-vmid9473\` on the operator
+workstation, custodian Nate McBride. Transcript SHA-256
+`9355e49917780f1640b853789ab06ad4e1c1a80385261cda9cc5ff3ce21cac83`
+(57689 bytes), computed in the guest, recomputed on the Proxmox host by the
+teardown script, recomputed on the workstation — all three agreeing.
+
+**What this row now lets the third slice say.** `holders/` on a whole
+device is a live, client-readable, kernel-reported fact — empty the moment
+the consumer is stopped, naming it again after re-assembly and after a
+reboot — and it agrees with the assembled node's `slaves/` by identity in
+every phase, so a held standing keyed by the holder's own uuid (never its
+entry name) is measured rather than assumed, and the *unheld* standing of
+an unmapped PV, of a Btrfs member, and of a live-but-unopened LUKS disk is
+exactly what the relation reports. For Linux mdraid this discharges
+ADR-0018's measurement obligation (4) — the assembled-state fact, from the
+holders topology the ADR names — at the client baseline; the closure arm
+that consumes it is gitea#1008 (WP-010). No designation is made here.
 
 ## Reproducing this
 
