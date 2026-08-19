@@ -70,6 +70,17 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **spec-change 19.0.0: SI-41 resolved — RPC-001's Linux clause is revised
+  (ADR-0055).** On the Linux transport route round
+  (`docs/reviews/LINUX_TRANSPORT_ROUTE_ROUND_2026-08-19.md`) and its
+  measurement: a `0700` root-owned directory refuses the SAFE-002 client
+  (`EACCES`); the clause now requires a root-owned `0711` directory, a
+  socket node owned by the authorizing user and `0600`, and
+  peer-credential verification of the connecting process against that
+  user — two kernel gates, the Windows SDDL's analog. Route T1 (`std` +
+  `rustix`'s safe `socket_peercred`), flat per-user nodes, per-message
+  credentials deferred, the transport in its own crate under WP-040.
+  Major: a MUST's sentence changes meaning. No code changes here.
 - **spec-change 18.0.0: LIN-001's discovery route is decided, and the
   UDisks2 floor moves to the tool it gates (ADR-0054).** On the Linux
   UDisks2 route round (`docs/reviews/LINUX_UDISKS2_ROUTE_ROUND_2026-08-19.md`)

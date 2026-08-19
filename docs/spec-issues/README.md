@@ -86,11 +86,11 @@ increment 3 as a property test. SI-36 is withdrawn and gates nothing.
 
 | Class | Meaning | Issues |
 | --- | --- | --- |
-| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-11, SI-12, SI-14, SI-15, SI-16, SI-17, SI-18, SI-19, SI-20, SI-21, SI-22, SI-23, SI-24, SI-25, SI-26, SI-27, SI-29, SI-30, SI-31, SI-32, SI-33, SI-34, SI-35, SI-38, SI-39, SI-40 (by ADR-0020 with no spec change — the decision amends no normative text, recorded in its banner so the absent spec change reads as deliberate, not forgotten) |
+| **Resolved** | An ADR and spec change landed the decision | SI-01, SI-02, SI-03, SI-04, SI-05, SI-06, SI-07, SI-08, SI-09, SI-10, SI-11, SI-12, SI-14, SI-15, SI-16, SI-17, SI-18, SI-19, SI-20, SI-21, SI-22, SI-23, SI-24, SI-25, SI-26, SI-27, SI-29, SI-30, SI-31, SI-32, SI-33, SI-34, SI-35, SI-38, SI-39, SI-41 (by ADR-0055 in spec 19.0.0, the same day it was filed), SI-40 (by ADR-0020 with no spec change — the decision amends no normative text, recorded in its banner so the absent spec change reads as deliberate, not forgotten) |
 | **Direct blocker** | Must be decided before increment 3 writes a type | *(none — SI-28 reclassified below, 2026-08-09)* |
 | **Transitive blocker** | A separately sequenced prerequisite decision that must resolve before a direct blocker can be decided | *(none)* |
 | **Input** | A subquestion or evidence case resolved within the consuming direct blocker's decision | *(none — SI-29 and SI-30 resolved within SI-11's decision; SI-37 reclassified below)* |
-| **Later** | Decidable before the named work package, not before increment 3 | SI-41 (before WP-040's Linux transport increment; filed 2026-08-19 from a measurement: RPC-001's literal Linux clause refuses the SAFE-002 client; decidable now on the Linux transport route round), SI-13 (before WP-L110's validate-plan surface — the gate verified accurate by the 2026-08-12 residue sweep: identities bind at validation, and aggregates are not plannable write targets), SI-37 (before the spec change that first moves a closure-blocked multipath-capable population to `Permitted`; ADR-0018), SI-28 (**Mitigated-open**, floor in force; before the round that either relaxes the floor under ADR-0017's revisit condition or lands a discriminating mechanism; reclassified off the increment-3 gate 2026-08-09) |
+| **Later** | Decidable before the named work package, not before increment 3 | SI-13 (before WP-L110's validate-plan surface — the gate verified accurate by the 2026-08-12 residue sweep: identities bind at validation, and aggregates are not plannable write targets), SI-37 (before the spec change that first moves a closure-blocked multipath-capable population to `Permitted`; ADR-0018), SI-28 (**Mitigated-open**, floor in force; before the round that either relaxes the floor under ADR-0017's revisit condition or lands a discriminating mechanism; reclassified off the increment-3 gate 2026-08-09) |
 | **Withdrawn** | Retained as history after the filing was shown not to be a conflict | SI-36 |
 
 No direct blockers remain. SI-28's Mitigated-open state — the interim
@@ -3039,9 +3039,22 @@ was chosen. Nothing here proposes an answer.
 ## SI-41 RPC-001's Linux socket directory excludes the unprivileged client it exists to serve
 
 **Requirements:** RPC-001, SAFE-002, HLP-007, HLP-003, Section 0.2 ·
-**Open, Later (before WP-040's Linux transport increment); filed
-2026-08-19 from the Linux transport route round
-(`docs/reviews/LINUX_TRANSPORT_ROUTE_ROUND_2026-08-19.md`)**
+**Resolved in spec 19.0.0 by ADR-0055** (filed 2026-08-19 from the Linux
+transport route round, `docs/reviews/LINUX_TRANSPORT_ROUTE_ROUND_2026-08-19.md`,
+and resolved the same day)
+
+> **Resolved 2026-08-19 in spec 19.0.0 by ADR-0055.** RPC-001's Linux
+> clause is revised to a root-owned directory searchable but not writable
+> by others (0711), a socket node owned by the authorizing user and
+> accessible to that user alone (0600), and peer-credential verification
+> of the connecting process against that user — option A1 below: two
+> kernel-enforced gates, the Windows SDDL's analog, the credential check
+> verifying what the kernel admitted. **SAFE-002 is untouched** (Section 3
+> over Section 4, SI-38's own precedent). A2 was rejected as one gate
+> where the clause wrote two; A3 for standing membership; A4 because the
+> connecting process would be root. The credential route is T1 (`std` plus
+> `rustix`'s safe `socket_peercred`). A MUST's sentence changes meaning,
+> which is why it is a major bump.
 
 Filed from a measurement, not from a reading. Section 0.2 requires this
 filing rather than permitting it: "If two requirements in this spec
