@@ -11,7 +11,7 @@
   recorded harness defects, and **M10 taken the same day** in an ephemeral
   hosted runner, where the helper reads at byte level what the client is
   denied. Only M9 remains `not established`, Apple Silicon having no Fusion
-  Drive. **No preregistered cell on any platform is now `not yet taken`** — the USB-device-node recognition cell FR6 (gitea#1002) was preregistered and taken 2026-08-19 UTC in both legs (the FR4 unit on the Proxmox node's own XHCI chain as `nobody`, and the same unit passed through to a jammy guest as `muser1`), established, with one recorded instrument amendment on the guest leg. The Debian 12 `os-release` cell DR19 (gitea#1011) was preregistered and taken 2026-08-19 UTC on the **first Debian guest in the record**, established, with one recorded apparatus amendment (the first create, VMID 9481, void(apparatus); the cited run VMID 9482). The floor-input cells DR16–DR18 (gitea#1010) were preregistered and taken 2026-08-19 UTC, all three established (DR16/DR17 on a jammy guest across the pinned reboot, no amendment; DR18 on the **first Arch guest in the record**, valid with two recorded instrument amendments). The held-standing cell DR15 (gitea#1009) was preregistered 2026-08-18 and taken 2026-08-19 UTC, established on a single guest with no amendment. The Linux detection rows DR1–DR10 (gitea#1005) and the naming-designation cells DR11–DR14 (gitea#1007) were preregistered and taken 2026-08-18, all fourteen established (DR1–DR10 valid on a second invocation; DR11–DR14 valid with two recorded instrument amendments in the rebooted phase).
+  Drive. **One preregistered cell is `not yet taken`: the polkit-and-launch cell DR20** (gitea#1012, preregistered 2026-08-19, below — three tiers, the jammy, Debian 12 and Arch images, filed by WP-L110 for its launch round). The USB-device-node recognition cell FR6 (gitea#1002) was preregistered and taken 2026-08-19 UTC in both legs (the FR4 unit on the Proxmox node's own XHCI chain as `nobody`, and the same unit passed through to a jammy guest as `muser1`), established, with one recorded instrument amendment on the guest leg. The Debian 12 `os-release` cell DR19 (gitea#1011) was preregistered and taken 2026-08-19 UTC on the **first Debian guest in the record**, established, with one recorded apparatus amendment (the first create, VMID 9481, void(apparatus); the cited run VMID 9482). The floor-input cells DR16–DR18 (gitea#1010) were preregistered and taken 2026-08-19 UTC, all three established (DR16/DR17 on a jammy guest across the pinned reboot, no amendment; DR18 on the **first Arch guest in the record**, valid with two recorded instrument amendments). The held-standing cell DR15 (gitea#1009) was preregistered 2026-08-18 and taken 2026-08-19 UTC, established on a single guest with no amendment. The Linux detection rows DR1–DR10 (gitea#1005) and the naming-designation cells DR11–DR14 (gitea#1007) were preregistered and taken 2026-08-18, all fourteen established (DR1–DR10 valid on a second invocation; DR11–DR14 valid with two recorded instrument amendments in the rebooted phase).
   The macOS second-reader readback was discharged 2026-08-08 by an
   independent reader session: both sitting 2 transcripts and the M10
   transcript retrieved through their locators and rehashed, every digest
@@ -4994,6 +4994,46 @@ serial. The predicate's evidence moves from **none** to **FR6** in
 row does not establish: a device behind a hub (unmeasured; the order
 handles it by construction), and `removable` on a passthrough node, which
 differs from the host's and which nothing reads.
+
+### The polkit-and-launch cell DR20 — preregistered 2026-08-19; not yet taken
+
+One cell over three tiers, declared before execution per this document's
+method. It is the row WP-L110 filed on this package at its creation as
+gitea issue **#1012** (`docs/work-packages/WP-L110.md`, "Obligations on
+other packages"): ADR-0021 fixes the Linux interactive ceremony as polkit
+`auth_admin` without retained grants, LIN-009 scopes polkit to validated
+plan execution, and ADR-0055 left the helper's launch and endpoint
+ownership (who creates `/run/partman` `0711` and the per-user `0600` node;
+systemd socket activation, `pkexec`, or polkit-mediated start) to
+WP-L110's own round. **No row measures polkit or the launch substrate**
+on any tier. This cell is that gap and nothing else; it decides no route.
+
+Apparatus: the pinned jammy (VMID 9488), Debian 12 (VMID 9489) and Arch
+(VMID 9490) images through their existing create scripts (the DR disks
+attached as those scripts attach them, untouched); `muser1` the client
+baseline through `runuser`; root the setup actor; **nothing installed**;
+no reboot; instruments `dr6-client.sh`, `dr6-root.sh`, `drive-dr6.sh`,
+digests recorded in-transcript before the first capture. The client
+launches exactly one thing on purpose — `pkexec --version`, and one
+`pkexec --disable-internal-agent /bin/true` bounded to 5 s — so the
+row records what an unprivileged caller sees when no agent can answer;
+the expected answer is a refusal, recorded verbatim either way. No guest
+exists before this preregistration lands.
+
+| # | Cell | Command / API | Privilege | Distinguishing condition | Invalidation conditions | Result |
+| --- | --- | --- | --- | --- | --- | --- |
+| DR20 | The polkit and launch substrate on each tier's default image | Root: the package manager's view of `polkitd`/`polkit`/`policykit-1`/`pkexec`/`systemd`/`dbus`/`udisks2` (installed? version?), `polkit.service` state, the `rules.d` listings, `tmpfiles.d` entries naming `/run`, `pkcheck` of one stock action for the root shell with no agent. Client (double capture): the polkit binaries and policy directories by name, mode and owner (`pkexec`'s setuid bit); `pkexec --version`; the bounded `pkexec true` attempt and its verbatim output; `pkaction` count; `systemctl --version`; `polkit`/`dbus` unit states; the `/run` mount; `tmpfiles.d` count and readability; `systemd-tmpfiles`/`systemd-run` presence; socket-unit count; `XDG_RUNTIME_DIR` and `/run/user/<uid>` for a `runuser` client; the client's logind session count | client baseline; root for the package view and provisioning | Per tier: whether polkit is installed and its daemon runnable by default; what the ceremony's absence or presence looks like to a client with no agent (the refusal text, the rc); whether systemd socket units and tmpfiles are available to create the `0711` directory and the per-user nodes; whether a `runuser` client has a runtime dir or a session at all (it should not, and that bears on which agent could ever answer) | any of the three images failing to boot with cloud-init (`void(apparatus)`); `pkexec` hanging past its bound (a finding, the capture still valid); captures differing between themselves | not yet taken |
+
+Validity gates: those of the DR sittings above (double capture, digests
+before the first capture, `CapEff` all-zero at every client capture, exit
+statuses in-transcript); each image's digest verified against its pin
+before creation. Gate failures make a tier `void(<gate>)`, never a
+negative; the cell is established when all three tiers are.
+
+What this sitting deliberately does not do: nothing is installed or
+enabled; no polkit rule is written; no helper, no unit, no socket is
+created; no route is decided here — that is WP-L110's launch round, on
+this row.
 
 ## Reproducing this
 
