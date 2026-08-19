@@ -7,6 +7,14 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-L100 obligation 4 discharged: the Debian arm of the floor
+  determination on DR19 (CAP-004, INV-002; no spec change).** The first
+  Debian guest measured `VERSION_ID="12"` — double-quoted, one numeric
+  part, no minor, the shape `major.minor` refuses — so `floor.rs` compares
+  the leading integer against 12 (a later major above, `11` a measured
+  shortfall, a missing or unparsable value undetermined) instead of
+  answering undetermined for want of a row. One test over the measured
+  bytes; five mutations killed. Rust: the WP-020 sitting is r50.
 - **WP-L100 increment 5b: the Section 9 floor determination (CAP-004,
   INV-002; no spec change).** `floor.rs` reads `os-release` — the
   fourth interface, entered by DR16/DR18 — and procfs `osrelease`
