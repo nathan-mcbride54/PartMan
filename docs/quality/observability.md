@@ -11,7 +11,7 @@
   recorded harness defects, and **M10 taken the same day** in an ephemeral
   hosted runner, where the helper reads at byte level what the client is
   denied. Only M9 remains `not established`, Apple Silicon having no Fusion
-  Drive. **No preregistered cell on any platform is now `not yet taken`** — the polkit-and-launch cell DR20 (gitea#1012) was preregistered and taken 2026-08-19 UTC on all three tiers (jammy VMID 9488, Debian 12 VMID 9489, Arch VMID 9490), established, no amendment. The USB-device-node recognition cell FR6 (gitea#1002) was preregistered and taken 2026-08-19 UTC in both legs (the FR4 unit on the Proxmox node's own XHCI chain as `nobody`, and the same unit passed through to a jammy guest as `muser1`), established, with one recorded instrument amendment on the guest leg. The Debian 12 `os-release` cell DR19 (gitea#1011) was preregistered and taken 2026-08-19 UTC on the **first Debian guest in the record**, established, with one recorded apparatus amendment (the first create, VMID 9481, void(apparatus); the cited run VMID 9482). The floor-input cells DR16–DR18 (gitea#1010) were preregistered and taken 2026-08-19 UTC, all three established (DR16/DR17 on a jammy guest across the pinned reboot, no amendment; DR18 on the **first Arch guest in the record**, valid with two recorded instrument amendments). The held-standing cell DR15 (gitea#1009) was preregistered 2026-08-18 and taken 2026-08-19 UTC, established on a single guest with no amendment. The Linux detection rows DR1–DR10 (gitea#1005) and the naming-designation cells DR11–DR14 (gitea#1007) were preregistered and taken 2026-08-18, all fourteen established (DR1–DR10 valid on a second invocation; DR11–DR14 valid with two recorded instrument amendments in the rebooted phase).
+  Drive. **One preregistered cell is `not yet taken`: the whole-device byte-window cell DR21 (gitea#1013), preregistered 2026-08-19 for WP-L110 increment 2.** Every other preregistered cell is taken — the polkit-and-launch cell DR20 (gitea#1012) was preregistered and taken 2026-08-19 UTC on all three tiers (jammy VMID 9488, Debian 12 VMID 9489, Arch VMID 9490), established, no amendment. The USB-device-node recognition cell FR6 (gitea#1002) was preregistered and taken 2026-08-19 UTC in both legs (the FR4 unit on the Proxmox node's own XHCI chain as `nobody`, and the same unit passed through to a jammy guest as `muser1`), established, with one recorded instrument amendment on the guest leg. The Debian 12 `os-release` cell DR19 (gitea#1011) was preregistered and taken 2026-08-19 UTC on the **first Debian guest in the record**, established, with one recorded apparatus amendment (the first create, VMID 9481, void(apparatus); the cited run VMID 9482). The floor-input cells DR16–DR18 (gitea#1010) were preregistered and taken 2026-08-19 UTC, all three established (DR16/DR17 on a jammy guest across the pinned reboot, no amendment; DR18 on the **first Arch guest in the record**, valid with two recorded instrument amendments). The held-standing cell DR15 (gitea#1009) was preregistered 2026-08-18 and taken 2026-08-19 UTC, established on a single guest with no amendment. The Linux detection rows DR1–DR10 (gitea#1005) and the naming-designation cells DR11–DR14 (gitea#1007) were preregistered and taken 2026-08-18, all fourteen established (DR1–DR10 valid on a second invocation; DR11–DR14 valid with two recorded instrument amendments in the rebooted phase).
   The macOS second-reader readback was discharged 2026-08-08 by an
   independent reader session: both sitting 2 transcripts and the M10
   transcript retrieved through their locators and rehashed, every digest
@@ -5069,6 +5069,57 @@ and `tmpfiles.d` exist on every tier, so a unit-created `/run/partman`
 (`0711`) and socket-activated helper are available everywhere polkit is
 not. The round decides on these facts, not on what each distribution is
 believed to ship.
+
+### The whole-device byte-window cell DR21 — preregistered 2026-08-19; not yet taken
+
+One cell over one tier, declared before execution per this document's
+method. It is the row WP-L110 increment 2 files on this package as gitea
+issue **#1013** (`docs/work-packages/WP-L110.md`, "Obligations on other
+packages"): HLP-002's re-discovery is the first thing in the product that
+opens a block device — the helper's byte layer reads the head and tail
+windows of each whole device through a read-only handle and classifies
+them with `crates/table-parser` (ADR-0014, ADR-0018) — and the record holds
+no row establishing what that read returns on a real Linux host. The
+parser's separation of the six INV-003 states on the catalogue is a Tier-1
+property of bytes; **that the bytes the helper reads through a device's
+node are the medium's, at the geometry sysfs states, is a host claim**,
+and this cell is that claim and nothing else. The row's object is the
+helper's contract (SAFE-002 context 1), so root is the measuring actor;
+the client baseline appears once, as the denial SAFE-002 requires. The
+helper's own classification is not taken here — it is the increment's
+Tier-2 acceptance on the WP-020 apparatus, cited from the increment's
+record, not from this row.
+
+Apparatus: the pinned jammy image through the DR create script's shape,
+with one declared change: instead of fourteen empty 1 GiB disks, **each of
+the fourteen catalogue images (`tests/generated/*.img`, 4 194 304 bytes
+each, digests verified against `tests/generated/MANIFEST` on the host
+before import) is imported with `qm importdisk` as its own virtio-scsi
+volume and attached at its exact size** with a serial naming its slot —
+DR01 `apm-basic-512`, DR02 `blank-512`, DR03 `ext4-with-stale-mdraid-090-512`, DR04 `gpt-basic-4kn`, DR05 `gpt-basic-512`, DR06 `gpt-both-copies-invalid-512`, DR07 `gpt-conflicting-tables-512`, DR08 `gpt-invalid-primary-valid-backup-512`, DR09 `gpt-missing-backup-512`, DR10 `hybrid-mbr-gpt-512`, DR11 `luks2-whole-disk-512`, DR12 `lvm2-pv-orphan-512`, DR13 `mbr-basic-512`, DR14 `mdraid-1.2-member-512` — so every
+disk is a real block device whose last sector is the image's last sector,
+which is what a tail window must reach. The same fourteen images are
+copied into the guest (digests re-verified there) for the **loop leg**:
+each attached read-only with `losetup -r`, measured the same way, and
+detached. Root the measuring actor; `muser1` through `runuser` the client
+baseline for the one denial line; **nothing installed**; no reboot;
+instruments `dr7-root.sh`, `dr7-env.sh`, `drive-dr7.sh`, digests recorded
+in-transcript before the first capture; double capture on both legs. No
+guest exists before this preregistration lands.
+
+| # | Cell | Command / API | Privilege | Distinguishing condition | Invalidation conditions | Result |
+| --- | --- | --- | --- | --- | --- | --- |
+| DR21 | Whole-device byte windows and geometry through a read-only handle, on real block devices and on loop devices carrying the catalogue images | Per disk, resolved by `/dev/disk/by-id` serial to its sysfs entry: the `dev` attribute against `stat -c %t:%T` of `/dev/<entry>` (the node the helper opens, identity-bracketed by device number); sysfs `size` and `queue/logical_block_size`/`queue/physical_block_size` against `blockdev --getsize64`/`--getss`/`--getpbsz` and the image length; SHA-256 of the first 65 536 bytes read through the node (`head -c`) against the image's first 65 536; SHA-256 of the last 65 536 bytes (`tail -c`) against the image's last 65 536; SHA-256 of the whole node against the image's; the same five comparisons on each image attached as a read-only loop device; once, `muser1` opening one node read-only (expected: denied) | root (the helper's context); the one denial line as the client | Whether the bytes a root process reads through a whole-device node, at its head and at its tail, are the medium's bytes — byte for byte, on a virtio-scsi disk and on a loop device — and whether the geometry the helper would take from sysfs (`size` × 512, `queue/logical_block_size`) is the geometry the block layer reports and the image has; whether the node the sysfs entry names is the device the entry describes | an imported volume reporting a size other than 4 194 304 bytes (the tail leg on that disk `void(apparatus)`; the loop leg stands); a by-id link missing (`void(apparatus)`); the two captures differing on any line; a short read | *not yet taken* |
+
+Validity gates: those of the DR sittings above (double capture, digests
+before the first capture, exit statuses in-transcript); the image verified
+against its pin before creation; every fixture image's digest verified
+against `MANIFEST` on the host before import and in the guest before the
+loop leg. A gate failure makes the sitting `void(<gate>)`, never a
+negative. What this sitting deliberately does not do: nothing is
+installed; no device is written after provisioning; no table is
+classified — the parser's answers are the catalogue's Tier-1 property and
+the helper's Tier-2 acceptance, not this row's.
 
 ## Reproducing this
 
