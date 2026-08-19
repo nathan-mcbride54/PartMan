@@ -23,6 +23,10 @@ clause, read literally, excludes the client it exists to serve.**
 > conflict in §1.4 is filed as **SI-41** in `docs/spec-issues/README.md`
 > in the same commit, because Section 0.2 requires filing rather than
 > picking a side; the recommendation below is priced as its resolution.
+>
+> **Decided 2026-08-19 (Nate): T1 + A1 as recommended, flat per-user
+> nodes, per-message credentials later, `crates/transport-linux` under
+> WP-040.** Recorded as ADR-0055 and spec 19.0.0; SI-41 resolved.
 
 ## 0. The premise, and the texts the round works under
 
