@@ -159,6 +159,8 @@ nineteenth, named in the PR body before the merge, and on `91cd1c9`
 ADR-0044 — tripped it a twentieth, likewise named before the merge, and
 on `ee12af2` (2026-08-16 UTC) when issue #354's kind-half act — one Rust
 merge, PR #398, ADR-0045 — tripped it a twenty-first, likewise named, and
+on `e1f138b` (2026-08-19 UTC) when WP-L100 PR #493 — increment 5a, the
+capability seam — tripped it; and before that
 on `199bb06` (2026-08-19 UTC) when WP-L100 PR #490 — a module-doc
 correction, doc comments only — tripped it; and before that
 on `93a9aa4` (2026-08-19 UTC) when WP-L100 PR #485 — increment 4b's third
