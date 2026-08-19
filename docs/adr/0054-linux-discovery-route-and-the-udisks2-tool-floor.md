@@ -155,9 +155,9 @@ floor.
   is distribution and kernel; DR16/DR17's and DR19's bytes compose to
   `MeetsFloor`; a shortfall in either is `BelowFloor`; the unmeasured
   shapes are `Undetermined`; no conjunct, field or remediation text
-  names UDisks2 on a measured host; a mutation re-adding a UDisks2
-  conjunct as met, or composing met over an undetermined kernel, is
-  killed.
+  names UDisks2 on a measured host; a mutation re-introducing the
+  UDisks2 conjunct (undetermined, as before this ADR), or composing met
+  over an undetermined kernel, is killed.
 - `docs/capabilities/tool-version-floors.json` stays empty until a
   package invokes UDisks2; when it does, the entry's basis names this
   ADR.
