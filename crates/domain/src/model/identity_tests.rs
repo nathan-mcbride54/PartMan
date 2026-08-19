@@ -162,6 +162,44 @@ fn the_record_round_trips_and_the_witness_is_body_content() {
 }
 
 // Requirements: SAFE-003, MODEL-005
+//   ADR-0014's authoring entry carries the parser's checksum into the
+//   `Present` state verbatim: the body value's checksum bytes are the
+//   thirty-two the helper computed, the record round-trips through the
+//   decode boundary equal, and two different checksums are two different
+//   body values — the helper can author what it read, and nothing else
+//   can author it through any other path.
+// Evidence: the_present_entry_carries_the_parsers_checksum_verbatim
+#[test]
+fn the_present_entry_carries_the_parsers_checksum_verbatim() {
+    let mut checksum = [0_u8; 32];
+    for (index, byte) in (0_u8..).zip(checksum.iter_mut()) {
+        *byte = index ^ 0xA5;
+    }
+    let state = TableState::present(checksum);
+    assert!(state.positively_determined());
+    let authored = record(state);
+    let Value::Map(map) = authored.body_value() else {
+        panic!("body is a map");
+    };
+    let Some(Value::Map(table)) = map.get("table") else {
+        panic!("the table state is a map");
+    };
+    assert_eq!(
+        table.get("checksum"),
+        Some(&Value::Bytes(checksum.to_vec())),
+        "the body carries exactly the bytes the parser computed"
+    );
+    assert_eq!(identity_from_map(&map).expect("parses"), authored);
+    let mut other = checksum;
+    other[31] ^= 0x01;
+    assert_ne!(
+        canonical::encode(&record(TableState::present(other)).body_value()).expect("encodable"),
+        canonical::encode(&authored.body_value()).expect("encodable"),
+        "a different checksum is a different body value"
+    );
+}
+
+// Requirements: SAFE-003, MODEL-005
 //   Strength is derived, never stored: no `strength` key exists in the
 //   body, and a forged one refuses as an undeclared field — the
 //   ADR-C4-style anti-assertion discipline applied to strength.

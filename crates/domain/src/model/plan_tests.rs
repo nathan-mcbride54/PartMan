@@ -79,6 +79,29 @@ fn plan_over(snapshot: &TopologySnapshot, step: PlanStep) -> OperationPlan {
     plan_over_steps(snapshot, vec![step])
 }
 
+// Requirements: PLAN-007, HLP-004
+//   The validity window the enforcing helper reads is the body's own,
+//   byte for byte: the accessor returns exactly what was assembled, and
+//   what was assembled is what the decode boundary rebuilds.
+// Evidence: the_validity_accessor_reads_the_bodys_own_window
+#[test]
+fn the_validity_accessor_reads_the_bodys_own_window() {
+    let (snapshot, dev_id) = clean_snapshot(b"D0");
+    let step = PlanStep::mutating(
+        &snapshot,
+        dev_id,
+        wipe(dev_id),
+        vec![],
+        risk(Severity::Destructive),
+    )
+    .expect("constructs");
+    let plan = plan_over(&snapshot, step);
+    assert_eq!(plan.validity().not_after, 1_700_086_400);
+    let bytes = canonical::encode(&plan.body_value().expect("body")).expect("encodable");
+    let rebuilt = OperationPlan::from_canonical_body(&bytes, &snapshot).expect("round-trips");
+    assert_eq!(rebuilt.validity(), plan.validity());
+}
+
 // Requirements: MODEL-003, MODEL-005, PLAN-006, PLAN-007
 //   The plan body round-trips exactly against the snapshot it binds,
 //   and its hash is what authorization would bind.

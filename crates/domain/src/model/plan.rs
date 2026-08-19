@@ -308,6 +308,14 @@ impl OperationPlan {
         &self.snapshot_hash
     }
 
+    /// PLAN-007's validity window, for the helper that enforces it
+    /// (HLP-004): read here and never re-derived, per the field's own
+    /// placement rule above.
+    #[must_use]
+    pub const fn validity(&self) -> ValidityWindow {
+        self.validity
+    }
+
     /// The plan's steps, in dependency order.
     #[must_use]
     pub fn steps(&self) -> &[PlanStep] {
