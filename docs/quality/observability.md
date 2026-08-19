@@ -11,7 +11,7 @@
   recorded harness defects, and **M10 taken the same day** in an ephemeral
   hosted runner, where the helper reads at byte level what the client is
   denied. Only M9 remains `not established`, Apple Silicon having no Fusion
-  Drive. **No preregistered cell on any platform is now `not yet taken`** — the held-standing cell DR15 (gitea#1009) was preregistered 2026-08-18 and taken 2026-08-19 UTC, established on a single guest with no amendment. The Linux detection rows DR1–DR10 (gitea#1005) and the naming-designation cells DR11–DR14 (gitea#1007) were preregistered and taken 2026-08-18, all fourteen established (DR1–DR10 valid on a second invocation; DR11–DR14 valid with two recorded instrument amendments in the rebooted phase).
+  Drive. **Three preregistered cells are `not yet taken`: the floor-input cells DR16–DR18** (gitea#1010, preregistered 2026-08-19, below — DR18 on the first Arch guest in the record). The held-standing cell DR15 (gitea#1009) was preregistered 2026-08-18 and taken 2026-08-19 UTC, established on a single guest with no amendment. The Linux detection rows DR1–DR10 (gitea#1005) and the naming-designation cells DR11–DR14 (gitea#1007) were preregistered and taken 2026-08-18, all fourteen established (DR1–DR10 valid on a second invocation; DR11–DR14 valid with two recorded instrument amendments in the rebooted phase).
   The macOS second-reader readback was discharged 2026-08-08 by an
   independent reader session: both sitting 2 transcripts and the M10
   transcript retrieved through their locators and rehashed, every digest
@@ -4692,6 +4692,57 @@ helper's capture (WP-L110), where consumed-versus-released is decided
 (gitea#1008 closed 2026-08-19: the delivered closure's consumed-member
 verdict is its consumer's, reading (b), decided). No designation is made
 here.
+
+### The floor-input cells DR16–DR18 — preregistered 2026-08-19; not yet taken
+
+Three cells, declared before execution per this document's method. They
+are the rows WP-L100 increment 5b filed on this package as gitea issue
+**#1010** (the WP-L100 record carries them under *Filed by increment 5b*),
+from the increment-5 plan
+(`docs/reviews/WP-L100_INCREMENT_5_PLAN_2026-08-19.md`, F2/F3, taken).
+Section 9's Debian/Ubuntu floor is a conjunction — distribution and
+version, kernel ≥ 5.15, UDisks2 ≥ 2.9 — and Arch is "current rolling,
+tool-version-gated"; the Linux client contract can read two conjuncts from
+files it has no rows for, and no Arch host or guest exists anywhere in
+this record. These cells are those gaps and nothing else. **The UDisks2
+conjunct is not measured here**: it has no source under the contract and
+is reported undetermined (WP-050 increment 5); the sitting records only
+whether the daemon is present.
+
+Apparatus: the DR apparatus above, extended — **two guests**. The jammy
+guest (VMID 9477 next; the pinned jammy image, fourteen 1 GiB virtio-scsi
+disks by serial, `muser1` the client baseline through `runuser`, one
+declared reboot with the kernel pinned by `grub-reboot`, digests recorded
+before the first capture) carries DR16 and DR17. **The Arch guest (VMID
+9478) is the first in this record**: `Arch-Linux-x86_64-cloudimg-20260815.qcow2`
+— the mirror's 2026-08-15 build, 556,609,024 bytes, fetched 2026-08-19 from
+`geo.mirror.pkgbuild.com/images/latest/`, SHA-256
+`5d8be8d28cfd290f051b0f67df0a6874596ad23de3f3f18b90c91aeb758eb878`
+verified against the mirror's own SHA256 file and archived beside it as
+`SHA256SUMS.arch-20260815`, the file renamed to carry its build date
+because the mirror's `latest` path moves — created by
+`01-host-create-vm-dr-arch.sh`, which pins that digest the way jammy's
+create script pins jammy's, with the same fourteen DR disks and the same
+passthrough assertion; it carries DR18. Neither guest exists before this
+preregistration lands.
+
+| # | Cell | Command / API | Privilege | Distinguishing condition | Invalidation conditions | Result |
+| --- | --- | --- | --- | --- | --- | --- |
+| DR16 | `/etc/os-release` as a client file read (the fourth interface) | `cat /etc/os-release` on the jammy guest, double capture at baseline and after the declared reboot; the file's mode and owner recorded | client baseline | Readable at the baseline; the `ID`, `VERSION_ID`, `ID_LIKE`, `VERSION_CODENAME`, `PRETTY_NAME` lines present with their exact byte shape (which values are quoted, one trailing newline), byte-equal across the reboot | unreadable; a key absent where the distribution documents it; bytes moving across the reboot | *not yet taken* |
+| DR17 | `/proc/sys/kernel/osrelease` as a client file read | `cat /proc/sys/kernel/osrelease` beside root's `uname -r`, double capture, before and after the pinned reboot | client baseline; root's `uname -r` recorded beside it | Readable; equal to `uname -r` byte-for-byte plus one trailing newline; equal before and after the reboot (the kernel is pinned) | unreadable; disagreeing with `uname -r`; the kernel moving across the reboot (that leg `void(kernel)`) | *not yet taken* |
+| DR18 | The Arch tier: floor inputs, `udisks2` presence, and the three interfaces at the client baseline | On the Arch guest: `cat /etc/os-release` and `cat /proc/sys/kernel/osrelease` (double capture); root `pacman -Q udisks2` and client `test -e /usr/bin/udisksctl` (existence by name, no launch); `ls /sys/class/block`; the whole-disk records `/run/udev/data/b<maj>:<min>` for two DR disks read for `ID_SERIAL`, `ID_BUS`, `ID_FS_TYPE`; `cat /proc/self/mountinfo` line count; the environment record | client baseline; root for `pacman -Q` and provisioning | `ID=arch` readable; whether `VERSION_ID` and `ID_LIKE` exist at all (a positively determined absence is a result, and the expected one); the kernel string's shape; whether `udisks2` is installed by default on the cloud image (either answer is a result); the block class listable, a whole disk's record present with `ID_SERIAL` and `ID_BUS`, the mount table readable — the contract's three interfaces answering on the second Linux tier | any of the three interfaces denied at the baseline (a positive finding, recorded, and it changes the adapter's Arch story); the image failing to boot with cloud-init (`void(apparatus)`) | *not yet taken* |
+
+Validity gates: those of the DR sittings above (double capture, digests
+before the first capture, `CapEff` all-zero at every client capture, exit
+statuses in-transcript, the jammy reboot recorded on both sides); for the
+Arch guest additionally the image digest verified against the pin before
+creation and the environment record naming the Arch kernel and
+`systemd`/`udev` versions. Gate failures make a cell `void(<gate>)`,
+never a negative.
+
+What this sitting deliberately does not do: no floor is *determined* here
+(that is 5b's code, on these rows); no UDisks2 version is read; no tool is
+launched by the client; no designation; no partition-hosted member.
 
 ## Reproducing this
 
