@@ -159,6 +159,8 @@ nineteenth, named in the PR body before the merge, and on `91cd1c9`
 ADR-0044 — tripped it a twentieth, likewise named before the merge, and
 on `ee12af2` (2026-08-16 UTC) when issue #354's kind-half act — one Rust
 merge, PR #398, ADR-0045 — tripped it a twenty-first, likewise named, and
+on `5f4ed63` (2026-08-19 UTC) when WP-L100 PR #501 — increment 5b, the
+Section 9 floor determination — tripped it; and before that
 on `c917e86` (2026-08-19 UTC) when WP-050 PR #495 — increment 5, the
 undetermined floor arm — tripped it; and before that
 on `e1f138b` (2026-08-19 UTC) when WP-L100 PR #493 — increment 5a, the
