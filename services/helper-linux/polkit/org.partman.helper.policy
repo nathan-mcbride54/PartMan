@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!--
+  The WP-L110 Linux helper's launch action (the launch round, L2, taken
+  2026-08-19: allow_active, nothing asked to start). This authorizes ONE
+  executable at its packaged absolute path with the argument shape the
+  helper accepts (`- -serve <uid>`, refused by the helper unless <uid> equals
+  PKEXEC_UID). It authorizes no apply: HLP-003's per-plan act and the
+  auth_admin ceremony at >= Disruptive are separate (increment 3). LIN-009:
+  scoped to this one action, never broad command execution.
+
+  Installed by packaging/ (LIN-008) under /usr/share/polkit-1/actions/. The
+  0.105 line (jammy) and the 122 line (Debian 12) both read this file; no
+  .pkla or .rules file is needed for an action whose defaults already say
+  allow_active=yes.
+-->
+<policyconfig>
+  <vendor>PartMan</vendor>
+  <vendor_url>https://github.com/nathan-mcbride54/PartMan</vendor_url>
+
+  <action id="org.partman.helper.serve">
+    <description>Start the PartMan helper for your own user</description>
+    <message>Authentication is required to start the PartMan helper</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/partman/partman-helper-linux</annotate>
+  </action>
+</policyconfig>

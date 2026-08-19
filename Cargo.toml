@@ -13,6 +13,7 @@ members = [
     "crates/table-parser",
     "crates/tokens",
     "crates/transport-linux",
+    "services/helper-linux",
     "tools/slint-feasibility",
     "tools/xtask",
 ]
