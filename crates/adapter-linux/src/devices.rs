@@ -70,6 +70,22 @@ pub const UDEV_KEYS: &[&str] = &[
     "ID_PATH",
 ];
 
+/// The cached signature view (increment 4b, third slice): the database's
+/// event-time `blkid` result for a device, **reported and consulted by
+/// nothing**.
+///
+/// DR6 measured `ID_FS_TYPE`/`ID_FS_USAGE` naming the member technology on
+/// every provisioned member and positively empty on a plain disk; DR14
+/// measured `ID_FS_VERSION` carrying the family. And L4/L10 measured the
+/// failure mode: over a live-ext4-over-stale-mdraid host the single-answer
+/// cache reports exactly the stale `linux_raid_member` and no ext4 at all.
+/// So these three are read as `Heuristic`/`inferred` observations — the
+/// client's early warning that a disk may carry a signature — and enter no
+/// name, no kind, no standing: the member-signature offset round decided
+/// that a `BackingSignature`'s fields are the helper's byte layer's, and
+/// that an unheld device stays eligible whatever the cache says (`held.rs`).
+pub const UDEV_SIGNATURE_KEYS: &[&str] = &["ID_FS_TYPE", "ID_FS_USAGE", "ID_FS_VERSION"];
+
 /// The attribute whose positively determined **absence** admits a node as a
 /// whole device.
 ///
@@ -379,8 +395,10 @@ fn read_database_half(
     };
 
     // Property lines are `E:KEY=value`. Every other line belongs to another
-    // record class and is not read.
-    for wanted in UDEV_KEYS {
+    // record class and is not read. The identity keys and the cached
+    // signature view are read from the one record the same way; only their
+    // consumers differ, and the signature view has none.
+    for wanted in UDEV_KEYS.iter().chain(UDEV_SIGNATURE_KEYS) {
         let found = text.lines().find_map(|line| {
             let rest = line.strip_prefix("E:")?;
             let (name, value) = rest.split_once('=')?;
@@ -401,7 +419,7 @@ fn read_database_half(
 
 /// Record every database key as unavailable for one device.
 fn unavailable_half(reason: &str, properties: &mut Vec<(String, PropertyObservations)>) {
-    for wanted in UDEV_KEYS {
+    for wanted in UDEV_KEYS.iter().chain(UDEV_SIGNATURE_KEYS) {
         properties.push((
             key(Interface::UdevDatabase, wanted),
             single(observe_unavailable(Interface::UdevDatabase, reason)),

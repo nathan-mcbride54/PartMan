@@ -636,13 +636,14 @@ fn the_adapter_opens_no_device_node_and_launches_no_process() {
 /// `every_shipped_module_is_covered_by_the_structural_guards`, because both
 /// SAFE-002 scans iterate it: a module added without an entry here would be
 /// exempt from both while leaving both tests green.
-fn shipped_sources() -> [(&'static str, &'static str); 10] {
+fn shipped_sources() -> [(&'static str, &'static str); 11] {
     [
         ("lib.rs", include_str!("lib.rs")),
         ("arrays.rs", include_str!("arrays.rs")),
         ("contract.rs", include_str!("contract.rs")),
         ("derivation.rs", include_str!("derivation.rs")),
         ("devices.rs", include_str!("devices.rs")),
+        ("held.rs", include_str!("held.rs")),
         ("naming.rs", include_str!("naming.rs")),
         ("observation.rs", include_str!("observation.rs")),
         ("reach.rs", include_str!("reach.rs")),
@@ -869,7 +870,10 @@ fn the_published_field_roster_matches_this_crates_constants() {
             "{property}: the document must carry this path and say what supports reading it"
         );
     }
-    for wanted in crate::devices::UDEV_KEYS {
+    for wanted in crate::devices::UDEV_KEYS
+        .iter()
+        .chain(crate::devices::UDEV_SIGNATURE_KEYS)
+    {
         assert!(
             DOC.contains(&format!("`{wanted}`")),
             "{wanted}: the document must carry this key and say what supports reading it"
@@ -2330,4 +2334,309 @@ fn dm_nodes_are_classified_by_uuid_prefix_and_only_lvm_volumes_are_named() {
         node_verdict(&topology, &Facts::default(), lv_id),
         Verdict::Indeterminate { .. }
     ));
+}
+
+// ---------------------------------------------------------------------------
+// Increment 4b, third slice: the held standing, and the cached signature
+// view reported and consulted by nothing.
+// ---------------------------------------------------------------------------
+
+/// The designated tree plus DR15's member shapes: a mapped PV held by its
+/// LV mapping (`dm-0`), the same VG's unmapped PV unheld with a cached
+/// `LVM2_member`, two md members held by `md127`, a LUKS disk held by its
+/// container (`dm-2`), a plain disk, an unassembled member unheld with a
+/// cached `linux_raid_member`, a device whose `holders/` refuses, and a
+/// device held by a node with neither identity attribute. Every plain
+/// device carries a `holders/` directory, as DR15 measured on every member
+/// and control.
+fn held_tree() -> FakeSource {
+    let mut source = designated_tree();
+    let mut entries = vec![
+        "dm-0", "dm-1", "dm-2", "dm-3", "dm-9", "loop6", "md126", "md127", "md99", "sdb", "sdc",
+        "sde", "sdf", "sdi", "sdm", "sdq", "sdr", "sdt", "shady", "weird",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect::<Vec<_>>();
+    entries.sort();
+    source
+        .dirs
+        .insert("/sys/class/block".to_owned(), Ok(entries));
+    for (name, number, holders) in [
+        ("sdb", "8:16", Ok(vec!["dm-0"])),
+        ("sdc", "8:32", Ok(vec![])),
+        ("sde", "8:64", Ok(vec!["md127"])),
+        ("sdf", "8:80", Ok(vec!["md127"])),
+        ("sdi", "8:128", Ok(vec!["dm-2"])),
+        ("sdm", "8:192", Ok(vec![])),
+        ("sdq", "8:256", Err(std::io::ErrorKind::PermissionDenied)),
+        ("sdr", "8:272", Ok(vec![])),
+        ("sdt", "8:304", Ok(vec!["weird"])),
+    ] {
+        source.files.insert(
+            format!("/sys/class/block/{name}/dev"),
+            Ok(format!("{number}\n").into_bytes()),
+        );
+        source.files.insert(
+            format!("/sys/class/block/{name}/size"),
+            Ok(b"2097152\n".to_vec()),
+        );
+        source.dirs.insert(
+            format!("/sys/class/block/{name}/holders"),
+            holders.map(|h: Vec<&str>| h.into_iter().map(str::to_owned).collect()),
+        );
+    }
+    // The holder with neither identity attribute: a marker-less node whose
+    // md/uuid and dm/uuid are both absent.
+    source.files.insert(
+        "/sys/class/block/weird/dev".to_owned(),
+        Ok(b"259:0\n".to_vec()),
+    );
+    // DR6/DR14's cached signature view: the unmapped PV and the unassembled
+    // member both carry a member type in the cache; the PV's record has no
+    // version key (a positively determined absence).
+    source.files.insert(
+        "/run/udev/data/b8:32".to_owned(),
+        Ok(b"E:ID_FS_TYPE=LVM2_member\nE:ID_FS_USAGE=raid\n".to_vec()),
+    );
+    source.files.insert(
+        "/run/udev/data/b8:272".to_owned(),
+        Ok(b"E:ID_FS_TYPE=linux_raid_member\nE:ID_FS_USAGE=raid\nE:ID_FS_VERSION=1.2\n".to_vec()),
+    );
+    source
+}
+
+// Requirements: LIN-006, INV-004, SAFE-005
+//   The member-signature offset round decided that this adapter builds no
+//   `BackingSignature`, no `Backing` edge and no `EncryptionLayer` — the
+//   fields are the helper's byte layer's — and reports instead what the
+//   client reads: a whole device's held standing from sysfs `holders/`.
+//   DR15 measured the relation live from both ends and agreeing by
+//   identity while entry names moved, so a holder is keyed by its own
+//   `md/uuid` or `dm/uuid` and never by its entry; a member held by an
+//   array agrees with that array's own `slaves/` report; the unmapped PV
+//   of an active VG and a plain disk are unheld; a listing that did not
+//   answer is undetermined, never unheld; a holder with no readable
+//   identity leaves the device held and unkeyed rather than keyed by name.
+//   Only plain devices are reported — the standing is a physical device's.
+// Evidence: a_whole_device_is_held_by_its_holders_identity_and_an_unanswered_listing_is_undetermined
+#[test]
+#[allow(clippy::too_many_lines)]
+fn a_whole_device_is_held_by_its_holders_identity_and_an_unanswered_listing_is_undetermined() {
+    use crate::arrays::{Members, report_arrays};
+    use crate::held::{HolderIdentity, Standing, report_held};
+    use partman_domain::model::naming::NamingFields;
+    use partman_domain::model::provenance::{Method, Outcome};
+
+    let source = held_tree();
+    let devices = devices_of(&source);
+    let reports = report_held(&source, &PathBuf::from("/sys"), &devices);
+    let plain = devices
+        .iter()
+        .filter(|d| d.kind == crate::devices::DeviceKind::Plain)
+        .count();
+    assert_eq!(reports.len(), plain, "every plain device and nothing else");
+    assert_eq!(
+        plain, 10,
+        "the nine members and controls, plus the marker-less holder itself"
+    );
+    let by_number = |number: &str| {
+        let selector = devices
+            .iter()
+            .find(|d| d.device_number.as_deref() == Some(number))
+            .map(|d| d.selector.clone())
+            .unwrap();
+        reports.iter().find(|r| r.selector == selector).unwrap()
+    };
+
+    // The mapped PV: held by its mapping, keyed by the mapping's dm/uuid.
+    let sdb = by_number("8:16");
+    let Standing::Held { holders } = &sdb.standing else {
+        panic!("the mapped PV is held")
+    };
+    assert_eq!(holders.len(), 1);
+    assert_eq!(holders[0].entry, "dm-0");
+    assert_eq!(
+        holders[0].identity,
+        HolderIdentity::DeviceMapper(
+            "LVM-ek99dYwwU1KaulyX1bqr3RJC2pGrYoWOcbq0yOdyE6EodBHuixHfFrHBIqyXf8Zw".to_owned()
+        )
+    );
+    assert_eq!(sdb.observations.len(), 1);
+    assert_eq!(sdb.observations[0].method, Method::Direct);
+    match &sdb.observations[0].outcome {
+        Outcome::Observed { value } => {
+            let text = format!("{value:?}");
+            assert!(
+                text.contains("LVM-ek99dYwwU1Kaul"),
+                "the value is the identity"
+            );
+            assert!(!text.contains("dm-0"), "the value is never the entry name");
+        }
+        other => panic!("held is observed, got {other:?}"),
+    }
+
+    // The md members: held by the array, keyed by its md/uuid, and the
+    // array's own slaves/ report names them back — both sides agree.
+    let arrays = report_arrays(&source, &PathBuf::from("/sys"), &devices);
+    for number in ["8:64", "8:80"] {
+        let Standing::Held { holders } = &by_number(number).standing else {
+            panic!("an md member is held")
+        };
+        let HolderIdentity::Mdraid(uuid) = &holders[0].identity else {
+            panic!("held by an array")
+        };
+        assert_eq!(uuid, "54b95c15-7548-d8fb-52b0-5c2ff4f5d9f2");
+        let array = arrays
+            .iter()
+            .find(|a| {
+                matches!(&a.fields, NamingFields::Aggregate { designator: Some(d), .. }
+                    if d == b"54b95c15-7548-d8fb-52b0-5c2ff4f5d9f2\n")
+            })
+            .expect("the array named from the same uuid");
+        let entry = devices
+            .iter()
+            .find(|d| d.device_number.as_deref() == Some(number))
+            .map(|d| d.entry.clone())
+            .unwrap();
+        assert!(
+            matches!(&array.members, Members::Listed(m) if m.contains(&entry)),
+            "the array's slaves/ names the member its holders/ names — DR15's symmetry"
+        );
+    }
+
+    // The LUKS disk: held by its container.
+    assert!(matches!(
+        &by_number("8:128").standing,
+        Standing::Held { holders } if matches!(&holders[0].identity,
+            HolderIdentity::DeviceMapper(u) if u.starts_with("CRYPT-LUKS2-"))
+    ));
+
+    // The unmapped PV, the plain disk, and the unassembled member: unheld,
+    // each with one positively-absent observation.
+    for number in ["8:32", "8:192", "8:272"] {
+        let report = by_number(number);
+        assert_eq!(report.standing, Standing::Unheld, "{number} is unheld");
+        assert!(matches!(report.observations[..], [ref o] if o.outcome == Outcome::ObservedAbsent));
+    }
+
+    // A listing that did not answer: undetermined, never unheld.
+    let sdq = by_number("8:256");
+    assert!(matches!(sdq.standing, Standing::Undetermined { .. }));
+    assert!(matches!(
+        sdq.observations[0].outcome,
+        Outcome::Failed { .. }
+    ));
+
+    // A holder with no readable identity: still held, and not keyed by name.
+    let sdt = by_number("8:304");
+    let Standing::Held { holders } = &sdt.standing else {
+        panic!("a listed holder holds")
+    };
+    assert_eq!(holders[0].entry, "weird");
+    assert!(matches!(
+        holders[0].identity,
+        HolderIdentity::Unidentified { .. }
+    ));
+    assert!(matches!(
+        sdt.observations[0].outcome,
+        Outcome::Failed { .. }
+    ));
+
+    // Nothing here names anything: no naming outcome changed.
+    let named = named(&source, "sdb", "device:0");
+    assert!(matches!(
+        named,
+        crate::naming::DeviceNaming::Addressed {
+            fields: NamingFields::PhysicalDevice { .. },
+            ..
+        }
+    ));
+}
+
+// Requirements: MODEL-004, SAFE-005
+//   DR6 and DR14 measured the cache naming a member's technology and
+//   family; L4/L10 measured it reporting exactly the stale signature on a
+//   stale pair. So `ID_FS_TYPE`, `ID_FS_USAGE` and `ID_FS_VERSION` are
+//   reported as `Heuristic`/`inferred` observations — an absent key a
+//   positively determined absence, a missing record unavailable — and
+//   consulted by nothing: an unassembled member with a cached
+//   `linux_raid_member` and a PV with a cached `LVM2_member` stay unheld,
+//   because demoting on the cache would be, at the draft, ADR-0018's
+//   rejected "unconditionally refused orphan signatures". The structural
+//   half scans the held module's code for any signature key.
+// Evidence: the_cached_signature_view_is_reported_as_inferred_and_consulted_by_nothing
+#[test]
+fn the_cached_signature_view_is_reported_as_inferred_and_consulted_by_nothing() {
+    use crate::held::{Standing, report_held};
+    use partman_domain::canonical::Value;
+    use partman_domain::model::provenance::{Method, Outcome};
+
+    let source = held_tree();
+    let devices = devices_of(&source);
+    let device = |number: &str| {
+        devices
+            .iter()
+            .find(|d| d.device_number.as_deref() == Some(number))
+            .unwrap()
+    };
+    let sdr = device("8:272");
+    for (key, value) in [
+        ("linux-udev-db:ID_FS_TYPE", "linux_raid_member"),
+        ("linux-udev-db:ID_FS_USAGE", "raid"),
+        ("linux-udev-db:ID_FS_VERSION", "1.2"),
+    ] {
+        assert_eq!(
+            outcome_of(sdr, key),
+            &Outcome::Observed {
+                value: Value::Text(value.to_owned())
+            }
+        );
+        let observation = &sdr
+            .properties
+            .iter()
+            .find(|(name, _)| name == key)
+            .unwrap()
+            .1
+            .observations[0];
+        assert_eq!(
+            observation.method,
+            Method::Heuristic,
+            "{key} is inferred, not authoritative"
+        );
+    }
+    // The PV's record has no version key: absent, never unavailable.
+    assert_eq!(
+        outcome_of(device("8:32"), "linux-udev-db:ID_FS_VERSION"),
+        &Outcome::ObservedAbsent
+    );
+    // A device with no record: unavailable, never absent.
+    assert!(matches!(
+        outcome_of(device("8:192"), "linux-udev-db:ID_FS_TYPE"),
+        Outcome::Unavailable { .. }
+    ));
+
+    // Consulted by nothing: both cached members stay unheld.
+    let reports = report_held(&source, &PathBuf::from("/sys"), &devices);
+    for number in ["8:32", "8:272"] {
+        let selector = device(number).selector.clone();
+        let report = reports.iter().find(|r| r.selector == selector).unwrap();
+        assert_eq!(
+            report.standing,
+            Standing::Unheld,
+            "{number}: the cache decides nothing"
+        );
+    }
+    // Structurally: the held module's code names no signature key.
+    for (n, line) in include_str!("held.rs").lines().enumerate() {
+        let code = line.trim_start();
+        if code.starts_with("//") {
+            continue;
+        }
+        assert!(
+            !code.contains("ID_FS") && !code.contains("SIGNATURE_KEYS"),
+            "held.rs:{}: the cached signature view must not be consulted for standing",
+            n + 1
+        );
+    }
 }
