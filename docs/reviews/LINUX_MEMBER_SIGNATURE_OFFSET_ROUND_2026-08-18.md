@@ -109,6 +109,47 @@ the sources before it was landed. What did not survive as first drafted:
 | "no spec text" — LIN-006 as the detection duty | LIN-006 (`AGENT_BUILD_SPEC.md:622`) names dm, multipath, loop, Btrfs and root/boot/swap dependencies — **not** LVM/mdraid/LUKS members. The unscoped MUST-detect texts for those are **FS-004** (`:593`) and **INV-004** (`:552`); only INV-003 carries ADR-0013's privilege scoping. Nothing places FS-004 on the unprivileged layer (spec `:405`: signatures materialize "on the layer this chain assigns", layer-neutral), so Option C narrows no MUST — but the pricing now says why, and §5.4 asks whether the owner wants that stated normatively. |
 | D2's "held: `PhysicalDevice` kept, `operand_eligible: false`" as if that flag reached anything | `operand_eligible` is set only from ADR-0034's failed-serial rule (`adapter-linux/naming.rs:338`), **dropped by `absorb_devices`** (`:368-376`), and consumed nowhere outside the crate. As typed, D2 would have no observable effect. D2 is re-shaped: the held standing is a **state-layer observation** on the adapter's reporting surface (the mount precedent, 4a) plus a distinct standing ground in the naming outcome — the input the closure's arm will consume — not a flag nothing reads. |
 
+## 0.2 Post-landing correction (2026-08-19): the consumed-member arm was misread
+
+Recorded as an addendum rather than edited into the text above, so the
+round reads as it was taken. The round (§0.1's second row, §2 Option C,
+§3.5, D2, D6) and gitea#1008 asserted that ADR-0018 `:391-398` *decides*
+`Refused` for a consumed member and that the delivered closure fails to
+implement it. Measured before shaping #1008 (2026-08-19), that premise
+does not hold: the delivered signature arm — a member's verdict folds
+`worst` over its consumers' own verdicts (`protection.rs:1244-1263`) — is a
+**deliberate** increment-3 delivery, pinned by the reviewed,
+requirement-tagged test `signature_arms_follow_the_consumer`
+(`protection_tests.rs:518-563`, MODEL-002/SAFE-005: "a member consumed by
+a supported aggregate is Permitted, and a member consumed by a non-goal
+aggregate refuses"), and `RefusalGround::InheritedFromConsumerOrProducer`
+is documented as "a consumed member of a **refused** consumer" (`:600`).
+ADR-0018 admits two readings of the bullet: **(a)** consumed ⇒ `Refused`
+(the literal reading the round took); **(b)** consumed ⇒ the consumer's
+verdict, and what is refused is the *acknowledgment* route — the closure's
+own examples derive refusal from the pool, never from consumption
+(`:189-196`); the bullet's own last sentence ("an acknowledgment authored
+against an orphan that validation finds consumed is a divergence and
+rejects", `:397-398`) is delivered as `UnlawfulAcknowledgment`
+(`step.rs:338-343`), which is `:610`'s "consumed-member refusal"; and the
+product supports mdraid/LVM2 writes (LIN-005 member replacement, WP-L120's
+M4 scope), which (a) would make unrepresentable on every live member.
+Obligation (4) (`:601-603`) is about the consumed-versus-released
+*discriminant* being measured, not the verdict; the delivered code decides
+it by edge presence, DR15 is that measurement for Linux mdraid, and its
+consumer is the **helper's capture (WP-L110)** deciding whether to emit
+the aggregate node and edge — not a `Facts` field.
+
+**Decision owner's call (Nate, 2026-08-19): reading (b).** Consequences
+for this round: D6 is withdrawn and gitea#1008 closed with the finding;
+D2's held report has no closure consumer to wait for — its consumer is the
+capture; §5.1's fail-open-at-draft point stands unchanged (an unheld
+orphan member is `Indeterminate { OrphanSignature }` at the helper, with
+the release-acknowledgment re-plan as before); everything else in §4
+stands. The WP-L100 and WP-035 records are corrected in the same act;
+`held.rs`/`lib.rs` module docs carry the same sentence and are corrected
+with the next Rust slice, which owes its own sitting.
+
 Kept on the verifier's confirmation: ADR-0018 `:79-117`, `:384-398`,
 `:523-529` as quoted; ADR-0019 `:78`, `:252-256`; the domain types at
 the cited lines; ADR-0034 `:76-77`, `:132-140`; DR4, DR6, DR14, L1, L4,
