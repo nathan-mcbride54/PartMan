@@ -97,12 +97,34 @@ pub enum ToolState {
 /// Whether the running environment satisfies Section 9's floor for this
 /// platform. The floors change only via ADR; the engine may narrow on
 /// this fact and may never widen below it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+///
+/// **Three arms, deliberately.** A floor is a conjunction (Section 9's
+/// Debian/Ubuntu row: distribution and version, kernel, `UDisks2`), and a
+/// producer may be able to establish some conjuncts and not others — the
+/// Linux read-only adapter reads two of the three from files it has rows
+/// for and has no source for the third (WP-L100 increment 5b,
+/// `docs/reviews/WP-L100_INCREMENT_5_PLAN_2026-08-19.md` F2). Mapping
+/// "could not determine" to [`Self::BelowFloor`] would report a measured
+/// shortfall nobody measured; mapping it to [`Self::MeetsFloor`] would
+/// widen below the floor, which Section 9 forbids. So an undetermined
+/// floor is its own value: the engine treats it exactly as below the
+/// floor for status — `blocked` — and its remediation names the conjunct
+/// that could not be established, so the answer is honest about what is
+/// missing and never a guess.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PlatformFact {
     /// At or above the floor.
     MeetsFloor,
     /// Below the floor.
     BelowFloor,
+    /// The floor could not be determined: at least one conjunct has no
+    /// established value. Not below the floor — no measurement said so —
+    /// and never met.
+    Undetermined {
+        /// Which conjunct could not be established, and why, for the
+        /// remediation text.
+        conjunct: String,
+    },
 }
 
 /// CAP-004-shaped runtime facts, supplied by the caller (WP-035's doctor
@@ -230,14 +252,28 @@ pub fn capability(
         ));
     }
 
-    // Arm 4: the Section 9 floor.
-    if runtime.platform == PlatformFact::BelowFloor {
-        return Ok(Capability::blocked(
-            Reason::PlatformFloor,
-            Remediation::Action(
-                "bring the environment to this platform's Section 9 floor".to_owned(),
-            ),
-        ));
+    // Arm 4: the Section 9 floor. Below and undetermined both block under
+    // the one floor reason; the remediation says which — a shortfall
+    // that was measured, or a conjunct that could not be established.
+    match &runtime.platform {
+        PlatformFact::MeetsFloor => {}
+        PlatformFact::BelowFloor => {
+            return Ok(Capability::blocked(
+                Reason::PlatformFloor,
+                Remediation::Action(
+                    "bring the environment to this platform's Section 9 floor".to_owned(),
+                ),
+            ));
+        }
+        PlatformFact::Undetermined { conjunct } => {
+            return Ok(Capability::blocked(
+                Reason::PlatformFloor,
+                Remediation::Action(format!(
+                    "the Section 9 floor could not be determined ({conjunct}); establish it \
+                     through the platform adapter's evidence contract, then recompute"
+                )),
+            ));
+        }
     }
 
     // Arm 5: ACC-009's tool preconditions, missing before out-of-range so

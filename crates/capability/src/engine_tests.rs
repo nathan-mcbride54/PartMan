@@ -634,3 +634,84 @@ fn every_reachable_status_and_reason_is_exercised() {
         "supported stays unreachable until CAP-006 evidence exists"
     );
 }
+
+// Requirements: CAP-001, CAP-003
+//   Section 9's floor is a conjunction a producer may be unable to
+//   establish in full; an undetermined floor is neither met (that would
+//   widen below the floor, which Section 9 forbids) nor below (no
+//   measurement said so). It blocks under the one floor reason, its
+//   remediation names the conjunct that could not be established, and it
+//   sits exactly where the floor sits in the precedence: protection and a
+//   technology limit answer before it, and it answers before a missing
+//   tool.
+// Evidence: an_undetermined_floor_blocks_and_names_the_conjunct_it_lacks
+#[test]
+fn an_undetermined_floor_blocks_and_names_the_conjunct_it_lacks() {
+    let (snapshot, fixture) = fixture();
+    let undetermined = RuntimeFacts {
+        tools: vec![ToolFact {
+            tool: "mkfs.xfs".to_owned(),
+            state: ToolState::Missing,
+        }],
+        platform: PlatformFact::Undetermined {
+            conjunct: "UDisks2 >= 2.9: no client-readable source on this route".to_owned(),
+        },
+    };
+    let answer = capability(
+        Operation::Grow,
+        fixture.fs,
+        &snapshot,
+        &no_limits(),
+        &undetermined,
+    )
+    .expect("resolves");
+    assert_eq!(answer.status(), Status::Blocked);
+    assert_eq!(
+        answer.reason(),
+        Reason::PlatformFloor,
+        "the one floor reason, no new variant"
+    );
+    match answer.remediation() {
+        Remediation::Action(text) => {
+            assert!(
+                text.contains("could not be determined") && text.contains("UDisks2 >= 2.9"),
+                "the remediation names the conjunct: {text}"
+            );
+        }
+        Remediation::NoneExists => panic!("an undetermined floor has a remedy: establish it"),
+    }
+    // Precedence: protection answers before the floor …
+    let protection = capability(
+        Operation::Wipe,
+        fixture.zfs_sig,
+        &snapshot,
+        &no_limits(),
+        &undetermined,
+    )
+    .expect("resolves");
+    assert!(matches!(
+        protection.reason(),
+        Reason::ProtectionRefused { .. }
+    ));
+    // … a technology limit answers before it …
+    let limits = TechnologyLimits::new(vec![(FileSystemKind::Xfs, Operation::Shrink)]);
+    let limited = capability(
+        Operation::Shrink,
+        fixture.fs,
+        &snapshot,
+        &limits,
+        &undetermined,
+    )
+    .expect("resolves");
+    assert_eq!(limited.reason(), Reason::TechnologyLimit);
+    // … and it answers before the missing tool it was handed beside.
+    assert_ne!(answer.reason(), Reason::ToolMissing);
+    // Met is still the pass-through it was.
+    let met = RuntimeFacts {
+        tools: vec![],
+        platform: PlatformFact::MeetsFloor,
+    };
+    let passes =
+        capability(Operation::Grow, fixture.fs, &snapshot, &no_limits(), &met).expect("resolves");
+    assert_eq!(passes.reason(), Reason::UnqualifiedPendingEvidence);
+}

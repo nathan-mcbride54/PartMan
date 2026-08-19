@@ -7,6 +7,14 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-050 increment 5: the undetermined floor arm (CAP-001, CAP-003,
+  Section 9; no spec change).** `PlatformFact::Undetermined { conjunct }`
+  in `crates/capability`: a Section 9 floor conjunct the producer cannot
+  establish is neither met nor below; the engine blocks it under the
+  existing `PlatformFloor` reason with the conjunct named in the
+  remediation, at the floor's own precedence. Consumer-driven by WP-L100
+  increment 5b, landed first. One test; three mutations killed. Rust:
+  the WP-020 sitting is r48.
 - **WP-L100 increment 5a: the capability seam (CAP-004, INV-006; no
   spec change).** `runtime.rs` produces WP-050's `RuntimeFacts` in the
   engine's own vocabulary (`partman-adapter-linux` now depends on
