@@ -21,6 +21,9 @@ perpetually undetermined.
 > block and lands in its own `Work-Package: WP-000` commit, never bundled
 > with code. Nothing below is decided; §4 is for the decision owner. The
 > recommendation prices as a **spec change under ADR** and says so.
+>
+> **Decided 2026-08-19 (Nate): option B, with the tool-floor entry at
+> first invocation (§3.7, §5.2).** Recorded as ADR-0054 and spec 18.0.0.
 
 ## 0. The premise, and the texts the round works under
 

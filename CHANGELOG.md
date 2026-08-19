@@ -52,6 +52,18 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **spec-change 18.0.0: LIN-001's discovery route is decided, and the
+  UDisks2 floor moves to the tool it gates (ADR-0054).** On the Linux
+  UDisks2 route round (`docs/reviews/LINUX_UDISKS2_ROUTE_ROUND_2026-08-19.md`)
+  and the DR16–DR19 rows: LIN-001 now names the measured client-readable
+  route (sysfs, the udev database, procfs, `os-release`, each entered by a
+  row) and reserves UDisks2/libblockdev/native tools for authorization and
+  mutations behind the helper's own route decision; Section 9's
+  Debian/Ubuntu row is "Debian 12 / Ubuntu 22.04 LTS; kernel ≥ 5.15", and
+  "UDisks2 ≥ 2.9" is a CAP-006 tool floor, entered by the first package
+  that invokes UDisks2. Major: two sentences change meaning. No code
+  changes here; WP-L100's floor drops the conjunct on this ADR.
+
 - **WP-L100 `adapter-linux`: `held.rs`/`lib.rs` module docs corrected**
   — the held standing's consumer is the helper's capture (WP-L110), not
   a WP-010 consumed-member arm; the delivered closure gives a consumed
