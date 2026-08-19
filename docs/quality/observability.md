@@ -11,7 +11,7 @@
   recorded harness defects, and **M10 taken the same day** in an ephemeral
   hosted runner, where the helper reads at byte level what the client is
   denied. Only M9 remains `not established`, Apple Silicon having no Fusion
-  Drive. **No preregistered cell on any platform is now `not yet taken`** — the Linux detection rows DR1–DR10 (gitea#1005) and the naming-designation cells DR11–DR14 (gitea#1007) were preregistered and taken 2026-08-18, all fourteen established (DR1–DR10 valid on a second invocation; DR11–DR14 valid with two recorded instrument amendments in the rebooted phase).
+  Drive. **One preregistered cell is `not yet taken`: the held-standing cell DR15** (gitea#1009, preregistered 2026-08-18, below). The Linux detection rows DR1–DR10 (gitea#1005) and the naming-designation cells DR11–DR14 (gitea#1007) were preregistered and taken 2026-08-18, all fourteen established (DR1–DR10 valid on a second invocation; DR11–DR14 valid with two recorded instrument amendments in the rebooted phase).
   The macOS second-reader readback was discharged 2026-08-08 by an
   independent reader session: both sitting 2 transcripts and the M10
   transcript retrieved through their locators and rehashed, every digest
@@ -4587,6 +4587,55 @@ family is client-readable (DR14) but no interface reports an offset, so a
 client `BackingSignature` node would author its `primary_offset` — the
 question the next 4b slice's round must answer before any signature node
 is built client-side. No designation is made here.
+
+### The held-standing cell DR15 — preregistered 2026-08-18; not yet taken
+
+One cell, declared before execution per this document's method. It is
+the row WP-L100 increment 4b filed on this package as gitea issue
+**#1009** (the WP-L100 record carries it under *Filed by increment 4b's
+second slice*), from the Linux member-signature offset round
+(`docs/reviews/LINUX_MEMBER_SIGNATURE_OFFSET_ROUND_2026-08-18.md`, D4,
+taken as recommended). That round recommended that the client build no
+`BackingSignature` on Linux — no client interface reports a signature's
+offset (DR14 above) — and that a whole device whose sysfs `holders/`
+positively names an assembled node be reported **held**, a state-layer
+observation on the device; its adversarial pass found the fact's liveness
+unmeasured: DR4 read `holders/` and `slaves/` once, at baseline, and no
+cell in either sitting captured either side after a stop, a re-assembly
+or the reboot. This cell is that gap and nothing else. For Linux mdraid
+it is also ADR-0018's measurement obligation (4) — "the assembled-state
+facts for mdraid" measured, not recalled (`docs/adr/0018-…:601-603`) —
+and the record will say so where it discharges it. It designates
+nothing and changes no verdict; the closure's consumed-member arm is
+gitea#1008 on WP-010.
+
+Apparatus: the DR2 apparatus above (`dr2-*` instruments,
+`PartMan-evidence/2026-08-18-dr2-vmid9471`; VMID 9473 next), one
+disposable Proxmox VM, fourteen 1 GiB virtio-scsi disks with serials
+`DR01`–`DR14`, no passthrough, root as setup actor only, `muser1` as the
+client baseline through `runuser`, instrument digests recorded before the
+first capture, kernel recorded before and after. Root provisions the DR
+layouts again (two VGs — one of them with a PV no LV maps —, two arrays,
+two LUKS2 containers, the Btrfs pair, the whole-disk and loop ext4).
+**Every device is addressed by serial** (`/dev/disk/by-id`) and every
+array by its baseline `md/uuid`, never by `sd` name — the DR2 renumbering
+finding, applied from the first capture. **One declared reboot** after
+every other capture, the next boot pinned to the running kernel with
+`grub-reboot` as a declared step, the kernel recorded on both sides.
+
+| # | Cell | Command / API | Privilege | Distinguishing condition | Invalidation conditions | Result |
+| --- | --- | --- | --- | --- | --- | --- |
+| DR15 | `holders/` and `slaves/`, both sides, across the assembly cycle | `ls /sys/class/block/<member>/holders/` on **every** provisioned member (each md member, each LUKS disk, each PV including the unmapped one) and `ls /sys/class/block/<assembled>/slaves/` on every assembled node (each array, each LV mapping, each opened container); double capture at each of four phases: **baseline**; **stopped** (`vgchange -an`, `cryptsetup close`, `mdadm --stop`, captured before any re-assembly); **re-assembled**; **rebooted** (automatic activation, containers re-opened under their baseline names by serial); each phase labelled | client baseline; root performs the stops and re-assembly | Whether `holders/` is a **live** fact: positively empty on every member in the stopped phase (a stopped array's members, a closed container's disk, a deactivated VG's PVs), naming the consumer again after re-assembly and after the reboot; whether the two sides agree in every phase where a mapping exists (DR4's symmetry); whether the unmapped PV of an active VG stays unheld in every phase while its sibling PV is held | a holder surviving a stop, or absent after re-assembly (a positive result either way, recorded, and it changes the third slice); a listing denied where the entry exists; a unit failing to re-appear after the reboot (that unit `void`) | *not yet taken* |
+
+Validity gates: those of the DR11–DR14 sitting above (double capture,
+digests before the first capture, `CapEff` all-zero at every client
+capture, exit statuses in-transcript, the reboot recorded on both sides).
+Gate failures make the cell `void(<gate>)`, never a negative.
+
+What this sitting deliberately does not do: no designation; no reading of
+device bytes at any privilege; no signature node; no multipath; no
+partition-hosted member; no fixture media. It measures whether one
+kernel-reported relation is live, from both ends, and nothing else.
 
 ## Reproducing this
 
