@@ -141,18 +141,22 @@ rather than a convention.
 | `ID_PATH` | **R4** — two values for one physical unit within one sitting (`pci-0000:00:1d.7-usb-…` before a controller reattachment, `pci-0000:01:1b.0-usb-…` after), measured evidence that this key names attachment topology and not the unit | real-hardware |
 
 Two udev-version findings from the first Arch guest (**DR18**, udev 261,
-2026-08-19), recorded here because they bear on how the database's keys
-are read across the two Linux tiers: (1) **the database's serial election
-differs by version** — on udev 261 a QEMU virtio-scsi disk's `ID_SERIAL_SHORT`
-is the SCSI device-id designator (`drive-scsi1`) and the configured unit
-serial (`DR01`) sits in `ID_SCSI_SERIAL`, so `/dev/disk/by-id` reads
-`scsi-0QEMU_QEMU_HARDDISK_drive-scsiN`, where udev 249 (every jammy
-sitting) put the unit serial in `ID_SERIAL_SHORT` and named the link
-`…_DRnn`; the kernel's own `vpd_pg80` carries `DR01` on both — which is
-ADR-0034's three grounds against the database as a naming source, measured
-a second way; and (2) **a blank disk's `ID_FS_TYPE` key is absent on udev
-261 where jammy's DR6 measured it present and empty** — two spellings of
-one absence, both a positively determined absence to this adapter (§7's
+2026-08-19), each confirmed on the first Debian guest (**DR19**, udev 252,
+the same day), recorded here because they bear on how the database's keys
+are read across the Linux tiers: (1) **the database's serial election
+differs by version, and the boundary is between udev 249 and 252** — on
+udev 252 (Debian 12) and 261 (Arch) a QEMU virtio-scsi disk's
+`ID_SERIAL_SHORT` is the SCSI device-id designator (`drive-scsi1`) and the
+configured unit serial (`DR01`) sits in `ID_SCSI_SERIAL`, so
+`/dev/disk/by-id` reads `scsi-0QEMU_QEMU_HARDDISK_drive-scsiN` and carries
+no `…_DRnn` link at all, where udev 249 (every jammy sitting) put the unit
+serial in `ID_SERIAL_SHORT` and named the link `…_DRnn` — jammy is the odd
+reading in this record, not Arch; the kernel's own `vpd_pg80` carries
+`DR01` on all three — which is ADR-0034's three grounds against the
+database as a naming source, measured a second and a third way; and (2)
+**a blank disk's `ID_FS_TYPE` key is absent on udev 252 and 261 where
+jammy's DR6 (udev 249) measured it present and empty** — two spellings
+of one absence, both a positively determined absence to this adapter (§7's
 cached signature view).
 
 The transcription gap this section previously recorded is closed. The
@@ -331,7 +335,7 @@ claim about a medium.
 | The dm classification (4b, second slice) | `dm/uuid` on a `dm/`-marked device | **DR3** — `LVM-` on a logical volume, `CRYPT-LUKS2-` on an opened container; read as a classification input, never a name; the 32 bytes after `LVM-` partition logical volumes into volume-group classes and enter no name (ADR-0053) | VM (DR) |
 | The LVM logical-volume name (4b, second slice) | `dm/name` on an `LVM-`-classified dm node | **DR12** — byte-equal across `vgchange -an/-ay` and a reboot with automatic activation; **ADR-0053** designates it, verbatim. For a dm-crypt mapping the same attribute is the opener's argument (DR12) and is **not** a name | VM (DR2) |
 | The loop backing path (4b, second slice; reported, no node) | `loop/backing_file` on a `loop/`-marked device | **DR7**, **DR13** — the attached path verbatim; two loops on one file report equal bytes; **ADR-0053** designates it for the `BackingExtent` 3b's host node will let a loop have. By-name evidence on #94's terms | VM (DR, DR2) |
-| The Section 9 floor's distribution conjunct (5b) | `os-release` under the OS-release root — **the fourth interface** — keys `ID` and `VERSION_ID`, read through the bounded record seam, one pair of double quotes stripped where the file carries them | **DR16** (jammy: a client-readable symlink to `/usr/lib/os-release`, `ID=ubuntu` unquoted, `VERSION_ID="22.04"` quoted, `ID_LIKE=debian`, byte-equal across the pinned reboot), **DR18** (the first Arch guest: `ID=arch`, `BUILD_ID=rolling`, **no** `VERSION_ID`/`ID_LIKE`, so the Arch arm reads `ID` alone). Ubuntu is compared numerically as `major.minor` against `22.04` (a later release is above the floor); Debian is **undetermined** — no Debian guest in the record, its release shape unmeasured; an unlisted `ID` is undetermined; nothing is assumed | VM (DR4, both tiers) |
+| The Section 9 floor's distribution conjunct (5b) | `os-release` under the OS-release root — **the fourth interface** — keys `ID` and `VERSION_ID`, read through the bounded record seam, one pair of double quotes stripped where the file carries them | **DR16** (jammy: a client-readable symlink to `/usr/lib/os-release`, `ID=ubuntu` unquoted, `VERSION_ID="22.04"` quoted, `ID_LIKE=debian`, byte-equal across the pinned reboot), **DR18** (the first Arch guest: `ID=arch`, `BUILD_ID=rolling`, **no** `VERSION_ID`/`ID_LIKE`, so the Arch arm reads `ID` alone), **DR19** (the first Debian guest: `ID=debian` unquoted, **`VERSION_ID="12"` double-quoted with one numeric part and no minor**, **no** `ID_LIKE`, byte-equal across the declared reboot). Ubuntu is compared numerically as `major.minor` against `22.04` (a later release is above the floor); **Debian is compared on the leading integer against `12`** — the measured shape is exactly the one `major.minor` refuses, so the arm parses one part, a later major is above the floor and `11` is a measured shortfall; an unlisted `ID` is undetermined; nothing is assumed | VM (DR4/DR5, all three tiers) |
 | The Section 9 floor's kernel conjunct (5b) | `sys/kernel/osrelease` under the procfs root, `major.minor` parsed against `5.15` | **DR17** (`5.15.0-186-generic` plus one newline, equal to `uname -r`, equal across the pinned reboot — the acceptance environment sits exactly on the floor), **DR18** (`7.1.8-arch1-3`; not in the Arch row). A string that does not parse is undetermined | VM (DR4, both tiers) |
 | The Section 9 floor's UDisks2 conjunct (5b) | **none** — no file under the four interfaces carries the daemon's version; LIN-001's route is undecided | **DR18** measured the Arch tier shipping without `udisks2` at all; every jammy acceptance guest ran with it purged. Reported `Undetermined` by construction (WP-050 increment 5) on the Debian/Ubuntu row, so every such host is `Undetermined` today — the honest answer, never a widening | VM (DR4) |
 | The held standing (4b, third slice; a state-layer observation, never a name) | `holders/` on every admitted plain whole device; the holder's own `md/uuid` or `dm/uuid` as its key | **DR4**, **DR15** — live from both ends: positively empty on every member the moment its consumer is stopped, naming the consumer again after re-assembly and after a reboot; agreeing with the assembled node's `slaves/` by identity in every phase while entry names moved (`dm-0`/`dm-1`, `md126`/`md127`); the unmapped PV of an active VG, a Btrfs member, a plain disk and a live-but-unopened LUKS disk unheld. Held / unheld / undetermined; a listing that did not answer is undetermined, never unheld | VM (DR, DR3) |

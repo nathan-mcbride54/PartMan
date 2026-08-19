@@ -2804,10 +2804,12 @@ fn tool_state_follows_acc_009_and_fails_closed_where_the_text_is_open() {
 // Increment 5b: the Section 9 floor determination.
 // ---------------------------------------------------------------------------
 
-/// DR16/DR17's jammy shapes and DR18's Arch shapes, byte for byte as the
-/// transcripts carry them (the os-release bodies are the measured files;
-/// the kernel strings are the measured `osrelease` contents).
+/// DR16/DR17's jammy shapes, DR18's Arch shapes and DR19's Debian 12
+/// shapes, byte for byte as the transcripts carry them (the os-release
+/// bodies are the measured files; the kernel strings are the measured
+/// `osrelease` contents).
 const JAMMY_OS_RELEASE: &str = "PRETTY_NAME=\"Ubuntu 22.04.5 LTS\"\nNAME=\"Ubuntu\"\nVERSION_ID=\"22.04\"\nVERSION=\"22.04.5 LTS (Jammy Jellyfish)\"\nVERSION_CODENAME=jammy\nID=ubuntu\nID_LIKE=debian\nHOME_URL=\"https://www.ubuntu.com/\"\nSUPPORT_URL=\"https://help.ubuntu.com/\"\nBUG_REPORT_URL=\"https://bugs.launchpad.net/ubuntu/\"\nPRIVACY_POLICY_URL=\"https://www.ubuntu.com/legal/terms-and-policies/privacy-policy\"\nUBUNTU_CODENAME=jammy\n";
+const DEBIAN_OS_RELEASE: &str = "PRETTY_NAME=\"Debian GNU/Linux 12 (bookworm)\"\nNAME=\"Debian GNU/Linux\"\nVERSION_ID=\"12\"\nVERSION=\"12 (bookworm)\"\nVERSION_CODENAME=bookworm\nID=debian\nHOME_URL=\"https://www.debian.org/\"\nSUPPORT_URL=\"https://www.debian.org/support\"\nBUG_REPORT_URL=\"https://bugs.debian.org/\"\n";
 const ARCH_OS_RELEASE: &str = "NAME=\"Arch Linux\"\nPRETTY_NAME=\"Arch Linux\"\nID=arch\nBUILD_ID=rolling\nANSI_COLOR=\"38;2;23;147;209\"\nHOME_URL=\"https://archlinux.org/\"\nDOCUMENTATION_URL=\"https://wiki.archlinux.org/\"\nSUPPORT_URL=\"https://bbs.archlinux.org/\"\nBUG_REPORT_URL=\"https://gitlab.archlinux.org/groups/archlinux/-/issues\"\nPRIVACY_POLICY_URL=\"https://terms.archlinux.org/docs/privacy-policy/\"\nLOGO=archlinux-logo\n";
 
 fn floor_source(os_release: Option<&[u8]>, kernel: Option<&[u8]>) -> FakeSource {
@@ -2912,17 +2914,6 @@ fn arch_meets_its_row_on_id_alone_and_unmeasured_shapes_are_undetermined() {
         "VERSION_ID absent on Arch is a positively determined absence"
     );
 
-    let debian = floor_of(&floor_source(
-        Some(b"ID=debian\nVERSION_ID=\"12\"\n"),
-        Some(b"6.1.0-1-amd64\n"),
-    ));
-    assert_eq!(debian.tier, Tier::Debian);
-    assert!(
-        matches!(debian.distribution, Conjunct::Undetermined { .. }),
-        "no Debian row measured"
-    );
-    assert!(matches!(debian.platform, PlatformFact::Undetermined { .. }));
-
     let other = floor_of(&floor_source(
         Some(b"ID=fedora\nVERSION_ID=40\n"),
         Some(b"6.8.0\n"),
@@ -2951,6 +2942,115 @@ fn arch_meets_its_row_on_id_alone_and_unmeasured_shapes_are_undetermined() {
             .iter()
             .any(|o| matches!(o.outcome, Outcome::Unavailable { .. }))
     );
+}
+
+// Requirements: CAP-004, INV-002, SAFE-005
+//   The Debian arm on DR19, byte for byte: the first Debian guest's
+//   `os-release` (267 bytes; `ID=debian` unquoted, `VERSION_ID="12"`
+//   double-quoted with ONE numeric part and no minor, no `ID_LIKE`) and
+//   its `osrelease` (`6.1.0-52-cloud-amd64`). The release conjunct parses
+//   the leading integer and compares it against 12 — it must not demand
+//   Ubuntu's `major.minor` shape, which would read the measured file as
+//   unparsable — and the quotes are stripped exactly as DR16's; the
+//   kernel meets 5.15; the UDisks2 conjunct is undetermined by
+//   construction, so the composed fact is `Undetermined` naming UDisks2
+//   (the image ships without the daemon, DR19), never `MeetsFloor` and
+//   never `BelowFloor`. `11` is a measured shortfall (`BelowFloor` even
+//   beside the undetermined conjunct), `13` is above the floor, a missing
+//   or unparsable `VERSION_ID` is undetermined, never assumed. Each key
+//   read is an observation on the fourth interface, direct.
+// Evidence: the_debian_arm_compares_one_numeric_part_on_dr19_and_is_undetermined_on_udisks2_alone
+#[test]
+fn the_debian_arm_compares_one_numeric_part_on_dr19_and_is_undetermined_on_udisks2_alone() {
+    use crate::floor::{Conjunct, Tier, parse_major, parse_major_minor};
+    use partman_capability::engine::PlatformFact;
+    use partman_domain::canonical::Value;
+    use partman_domain::model::provenance::Outcome;
+
+    assert_eq!(DEBIAN_OS_RELEASE.len(), 267, "DR19 measured 267 bytes");
+    let debian = floor_of(&floor_source(
+        Some(DEBIAN_OS_RELEASE.as_bytes()),
+        Some(b"6.1.0-52-cloud-amd64\n"),
+    ));
+    assert_eq!(debian.tier, Tier::Debian);
+    assert_eq!(
+        debian.distribution,
+        Conjunct::Met,
+        "VERSION_ID=\"12\" meets the row's 12 on one numeric part"
+    );
+    assert_eq!(debian.kernel, Conjunct::Met, "6.1 meets 5.15");
+    assert!(matches!(debian.udisks2, Conjunct::Undetermined { .. }));
+    match &debian.platform {
+        PlatformFact::Undetermined { conjunct } => {
+            assert!(
+                conjunct.contains("UDisks2"),
+                "names the conjunct: {conjunct}"
+            );
+        }
+        other => {
+            panic!("Debian with release and kernel met is undetermined on UDisks2, got {other:?}")
+        }
+    }
+    assert!(
+        debian
+            .observations
+            .iter()
+            .any(|o| o.adapter == "partman-adapter-linux/linux-os-release"
+                && matches!(&o.outcome, Outcome::Observed { value: Value::Text(text) } if text == "VERSION_ID=12")),
+        "VERSION_ID observed as 12 on the fourth interface, quotes stripped"
+    );
+    // The measured shape is exactly the one `major.minor` refuses: the arm
+    // must parse one part.
+    assert_eq!(parse_major_minor("12"), None);
+    assert_eq!(parse_major("12"), Some(12));
+    assert_eq!(parse_major("12.1"), Some(12));
+    assert_eq!(parse_major("6.1.0-52-cloud-amd64"), Some(6));
+    assert_eq!(parse_major("bookworm"), None);
+    assert_eq!(parse_major(""), None);
+
+    let old = floor_of(&floor_source(
+        Some(b"ID=debian\nVERSION_ID=\"11\"\n"),
+        Some(b"5.10.0-28-amd64\n"),
+    ));
+    assert!(matches!(old.distribution, Conjunct::Unmet { .. }));
+    assert_eq!(
+        old.platform,
+        PlatformFact::BelowFloor,
+        "a measured shortfall wins over the undetermined conjunct"
+    );
+    let newer = floor_of(&floor_source(
+        Some(b"ID=debian\nVERSION_ID=\"13\"\n"),
+        Some(b"6.12.0-1-amd64\n"),
+    ));
+    assert_eq!(
+        newer.distribution,
+        Conjunct::Met,
+        "a later major is above the floor"
+    );
+    let no_version = floor_of(&floor_source(
+        Some(b"ID=debian\nVERSION_CODENAME=trixie\n"),
+        Some(b"6.12.0-1-amd64\n"),
+    ));
+    assert!(
+        matches!(no_version.distribution, Conjunct::Undetermined { .. }),
+        "no VERSION_ID: undetermined, never assumed"
+    );
+    assert!(matches!(
+        no_version.platform,
+        PlatformFact::Undetermined { .. }
+    ));
+    let unparsable = floor_of(&floor_source(
+        Some(b"ID=debian\nVERSION_ID=\"bookworm\"\n"),
+        Some(b"6.1.0-52-cloud-amd64\n"),
+    ));
+    assert!(matches!(
+        unparsable.distribution,
+        Conjunct::Undetermined { .. }
+    ));
+    assert!(matches!(
+        unparsable.platform,
+        PlatformFact::Undetermined { .. }
+    ));
 }
 
 // Requirements: CAP-004, SAFE-005

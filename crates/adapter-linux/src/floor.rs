@@ -3,15 +3,18 @@
 //! WP-050's [`PlatformFact`] — met, below, or **undetermined**, never
 //! guessed.
 //!
-//! **The rows.** DR16 and DR17 (jammy) and DR18 (the first Arch guest),
-//! `docs/quality/observability.md`, the floor-input cells, 2026-08-19:
-//! `/etc/os-release` is a client-readable file on both tiers (a symlink to
+//! **The rows.** DR16 and DR17 (jammy), DR18 (the first Arch guest) and
+//! DR19 (the first Debian guest), `docs/quality/observability.md`, the
+//! floor-input cells and the Debian 12 `os-release` cell, 2026-08-19:
+//! `/etc/os-release` is a client-readable file on all three (a symlink to
 //! `/usr/lib/os-release`), `KEY=value` lines, one trailing newline; Ubuntu
 //! carries `ID=ubuntu` unquoted, `VERSION_ID="22.04"` double-quoted,
-//! `ID_LIKE=debian`; Arch carries `ID=arch`, `BUILD_ID=rolling` and **no**
+//! `ID_LIKE=debian`; Debian 12 carries `ID=debian` unquoted and
+//! **`VERSION_ID="12"`** — double-quoted, one numeric part, no minor — and
+//! **no** `ID_LIKE`; Arch carries `ID=arch`, `BUILD_ID=rolling` and **no**
 //! `VERSION_ID`, `ID_LIKE` or `VERSION_CODENAME`; `/proc/sys/kernel/osrelease`
-//! is `uname -r` plus one newline on both. Those are the only shapes this
-//! module claims to read; everything else it answers undetermined.
+//! is `uname -r` plus one newline on all three. Those are the only shapes
+//! this module claims to read; everything else it answers undetermined.
 //!
 //! **The row it determines against** is Section 9's, verbatim
 //! (`AGENT_BUILD_SPEC.md`, "Platform support floors"): Debian/Ubuntu —
@@ -25,11 +28,14 @@
 //! quotes DR16 measured and comparing the release numerically against the
 //! row (`22.04` is the floor; a later release is above it — that much
 //! arithmetic the word "floor" states, and no more). Arch's row names no
-//! version, so `ID=arch` alone meets it. **Debian is undetermined**: the
-//! row names Debian 12, but no Debian guest exists in the record and the
-//! shape of its `VERSION_ID` is a representational claim this package's
-//! evidence rule will not let a spec sentence stand in for — a one-cell
-//! sitting closes it. The kernel conjunct parses `major.minor` from
+//! version, so `ID=arch` alone meets it. **Debian compares one numeric
+//! part**: DR19 measured `VERSION_ID="12"` with no minor, so the Debian arm
+//! parses the leading integer and compares it against the row's 12 — a
+//! later major is above the floor, `11` is a measured shortfall — and must
+//! not demand the `major.minor` shape Ubuntu carries (until that row
+//! landed, this arm answered undetermined rather than borrow Ubuntu's
+//! shape; the evidence rule will not let a spec sentence stand in for a
+//! measured byte). The kernel conjunct parses `major.minor` from
 //! `osrelease` and compares against `5.15`; a string that does not parse
 //! is undetermined, never assumed. **The `UDisks2` conjunct is undetermined
 //! by construction**: no file under this contract carries the daemon's
@@ -72,14 +78,17 @@ pub const OS_RELEASE_KEYS: &[&str] = &["ID", "VERSION_ID"];
 pub const KERNEL_FLOOR: (u64, u64) = (5, 15);
 /// Section 9's Ubuntu release floor, as `(major, minor)`.
 pub const UBUNTU_FLOOR: (u64, u64) = (22, 4);
+/// Section 9's Debian release floor, as the one numeric part DR19 measured
+/// (`VERSION_ID="12"`, no minor).
+pub const DEBIAN_FLOOR: u64 = 12;
 
 /// The Section 9 Linux tier a host's `ID` names.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Tier {
     /// `ID=ubuntu`: the Debian/Ubuntu row, Ubuntu half.
     Ubuntu,
-    /// `ID=debian`: the Debian/Ubuntu row, Debian half — recognized, and
-    /// its release shape unmeasured (no Debian guest in the record).
+    /// `ID=debian`: the Debian/Ubuntu row, Debian half — `VERSION_ID`
+    /// one numeric part (DR19), compared against 12.
     Debian,
     /// `ID=arch`: the Arch row.
     Arch,
@@ -162,34 +171,7 @@ pub fn platform_floor(
             reason: reason.clone(),
         },
     };
-    let distribution = match (&tier, &release) {
-        (Tier::Ubuntu, Ok(keys)) => match keys.get("VERSION_ID") {
-            Some(version) => match parse_major_minor(version) {
-                Some(pair) if pair >= UBUNTU_FLOOR => Conjunct::Met,
-                Some(_) => Conjunct::Unmet {
-                    measured: format!("Ubuntu VERSION_ID={version}, below 22.04"),
-                },
-                None => Conjunct::Undetermined {
-                    reason: format!("Ubuntu VERSION_ID={version:?} does not parse as major.minor"),
-                },
-            },
-            None => Conjunct::Undetermined {
-                reason: "Ubuntu os-release carries no VERSION_ID".to_owned(),
-            },
-        },
-        (Tier::Debian, _) => Conjunct::Undetermined {
-            reason: "Debian: the row names Debian 12, and no row measures Debian's os-release \
-                     shape (no Debian guest in the record)"
-                .to_owned(),
-        },
-        (Tier::Arch, _) => Conjunct::Met,
-        (Tier::Unrecognized { id }, _) => Conjunct::Undetermined {
-            reason: format!("distribution: no Section 9 row for ID={id}"),
-        },
-        (Tier::Unknown { reason }, _) | (Tier::Ubuntu, Err(reason)) => Conjunct::Undetermined {
-            reason: format!("distribution: {reason}"),
-        },
-    };
+    let distribution = distribution_conjunct(&tier, &release);
     let kernel = match tier {
         Tier::Arch => Conjunct::NotInRow,
         _ => match read_kernel(
@@ -230,6 +212,57 @@ pub fn platform_floor(
     }
 }
 
+/// The distribution conjunct of Section 9's row, from the tier and the
+/// `os-release` keys: Ubuntu on `major.minor` against 22.04, Debian on the
+/// one numeric part DR19 measured against 12, Arch on `ID` alone; every
+/// other shape undetermined.
+fn distribution_conjunct(
+    tier: &Tier,
+    release: &Result<std::collections::BTreeMap<String, String>, String>,
+) -> Conjunct {
+    match (tier, release) {
+        (Tier::Ubuntu, Ok(keys)) => match keys.get("VERSION_ID") {
+            Some(version) => match parse_major_minor(version) {
+                Some(pair) if pair >= UBUNTU_FLOOR => Conjunct::Met,
+                Some(_) => Conjunct::Unmet {
+                    measured: format!("Ubuntu VERSION_ID={version}, below 22.04"),
+                },
+                None => Conjunct::Undetermined {
+                    reason: format!("Ubuntu VERSION_ID={version:?} does not parse as major.minor"),
+                },
+            },
+            None => Conjunct::Undetermined {
+                reason: "Ubuntu os-release carries no VERSION_ID".to_owned(),
+            },
+        },
+        (Tier::Debian, Ok(keys)) => match keys.get("VERSION_ID") {
+            Some(version) => match parse_major(version) {
+                Some(major) if major >= DEBIAN_FLOOR => Conjunct::Met,
+                Some(_) => Conjunct::Unmet {
+                    measured: format!("Debian VERSION_ID={version}, below 12"),
+                },
+                None => Conjunct::Undetermined {
+                    reason: format!(
+                        "Debian VERSION_ID={version:?} does not parse as a leading integer"
+                    ),
+                },
+            },
+            None => Conjunct::Undetermined {
+                reason: "Debian os-release carries no VERSION_ID".to_owned(),
+            },
+        },
+        (Tier::Arch, _) => Conjunct::Met,
+        (Tier::Unrecognized { id }, _) => Conjunct::Undetermined {
+            reason: format!("distribution: no Section 9 row for ID={id}"),
+        },
+        (Tier::Unknown { reason }, _) | (Tier::Ubuntu | Tier::Debian, Err(reason)) => {
+            Conjunct::Undetermined {
+                reason: format!("distribution: {reason}"),
+            }
+        }
+    }
+}
+
 /// Fail-closed composition: a measured shortfall is below; else an
 /// undetermined conjunct is undetermined, naming the first; else met.
 #[must_use]
@@ -246,6 +279,14 @@ pub fn compose(distribution: &Conjunct, kernel: &Conjunct, udisks2: &Conjunct) -
         }
     }
     PlatformFact::MeetsFloor
+}
+
+/// Parse the leading integer of a release string (`12`, `12.1`, `6.1.0-52`);
+/// anything else is `None`. The Debian arm's comparison: DR19 measured
+/// `VERSION_ID="12"` with no minor part.
+#[must_use]
+pub fn parse_major(text: &str) -> Option<u64> {
+    text.split(['.', '-', '_']).next()?.parse::<u64>().ok()
 }
 
 /// Parse `major.minor` from the start of a release string (`22.04`,

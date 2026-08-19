@@ -120,11 +120,12 @@
 //!   typed refusal for mutating operations, whose tools are WP-L110's to
 //!   state. Probes come from the package that launches (WP-035's doctor).
 //!   The Section 9 floor determination (`floor`, increment 5b) reads two
-//!   files on the DR16–DR18 rows — `os-release`, the **fourth interface**,
+//!   files on the DR16–DR19 rows — `os-release`, the **fourth interface**,
 //!   and procfs `osrelease` — and answers met, below, or **undetermined**:
 //!   Ubuntu's release and kernel conjuncts are measured; Arch meets its
-//!   row on `ID` alone; Debian's shape is unmeasured and undetermined;
-//!   the `UDisks2` conjunct is undetermined by construction (no source under
+//!   row on `ID` alone; Debian's release is compared on the one numeric
+//!   part DR19 measured (`VERSION_ID="12"`) against 12, its kernel as
+//!   Ubuntu's; the `UDisks2` conjunct is undetermined by construction (no source under
 //!   this contract, LIN-001's route undecided), so every Debian/Ubuntu host
 //!   is `Undetermined` today — the honest answer, never a guess.
 //! - **No user-facing surface.** This is a library. The CLI is WP-035's and
