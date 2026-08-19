@@ -2836,16 +2836,15 @@ fn floor_of(source: &FakeSource) -> crate::floor::FloorReport {
 //   DR17 measured on the jammy guest, byte for byte: `ID=ubuntu` and a
 //   double-quoted `VERSION_ID="22.04"` (the quotes stripped and nothing
 //   else) meet the release row, `5.15.0-186-generic` parses to `5.15` and
-//   meets the kernel row exactly, and the UDisks2 conjunct is undetermined
-//   by construction — so the composed fact is `Undetermined`, naming
-//   UDisks2, which is the honest answer for every measured acceptance
-//   environment (they run without the daemon) and never `MeetsFloor` (a
-//   widening Section 9 forbids) or `BelowFloor` (unmeasured). Each key
-//   read is an observation on the fourth interface, direct; the kernel
+//   meets the kernel row exactly — and since ADR-0054 (spec 18.0.0) the row
+//   has no third conjunct: UDisks2 ≥ 2.9 is a tool floor in the CAP-006
+//   store, not this module's, so the composed fact is `MeetsFloor` on the
+//   measured bytes, and no field or remediation text names UDisks2. Each
+//   key read is an observation on the fourth interface, direct; the kernel
 //   on procfs.
-// Evidence: the_ubuntu_floor_is_undetermined_on_udisks2_alone_with_release_and_kernel_met
+// Evidence: the_ubuntu_floor_meets_its_row_on_dr16_and_dr17_with_no_udisks2_conjunct
 #[test]
-fn the_ubuntu_floor_is_undetermined_on_udisks2_alone_with_release_and_kernel_met() {
+fn the_ubuntu_floor_meets_its_row_on_dr16_and_dr17_with_no_udisks2_conjunct() {
     use crate::floor::{Conjunct, Tier};
     use partman_capability::engine::PlatformFact;
     use partman_domain::model::provenance::{Method, Outcome};
@@ -2858,16 +2857,15 @@ fn the_ubuntu_floor_is_undetermined_on_udisks2_alone_with_release_and_kernel_met
     assert_eq!(report.tier, Tier::Ubuntu);
     assert_eq!(report.distribution, Conjunct::Met, "22.04 is the row");
     assert_eq!(report.kernel, Conjunct::Met, "5.15 is the row, exactly");
-    assert!(matches!(report.udisks2, Conjunct::Undetermined { .. }));
-    match &report.platform {
-        PlatformFact::Undetermined { conjunct } => {
-            assert!(
-                conjunct.contains("UDisks2"),
-                "names the conjunct: {conjunct}"
-            );
-        }
-        other => panic!("undetermined on UDisks2, got {other:?}"),
-    }
+    assert_eq!(
+        report.platform,
+        PlatformFact::MeetsFloor,
+        "two measured conjuncts met; no UDisks2 conjunct since ADR-0054"
+    );
+    assert!(
+        !format!("{report:?}").contains("UDisks2"),
+        "nothing in the report names UDisks2"
+    );
     // Observations: ID and VERSION_ID on the fourth interface, the kernel on procfs, all direct.
     let os_release: Vec<_> = report
         .observations
@@ -2885,7 +2883,7 @@ fn the_ubuntu_floor_is_undetermined_on_udisks2_alone_with_release_and_kernel_met
 
 // Requirements: CAP-004, SAFE-005
 //   DR18's Arch shape: `ID=arch` with no `VERSION_ID`, on the row that
-//   names no version, no kernel and no UDisks2 conjunct — the only tier
+//   names no version and no kernel conjunct — the only tier
 //   that reaches `MeetsFloor`, on `ID` alone, with the absent key a
 //   positively determined absence. And the shapes nobody measured are
 //   undetermined, never assumed: Debian (recognized, its release shape
@@ -2904,7 +2902,6 @@ fn arch_meets_its_row_on_id_alone_and_unmeasured_shapes_are_undetermined() {
     assert_eq!(arch.tier, Tier::Arch);
     assert_eq!(arch.distribution, Conjunct::Met);
     assert_eq!(arch.kernel, Conjunct::NotInRow);
-    assert_eq!(arch.udisks2, Conjunct::NotInRow);
     assert_eq!(arch.platform, PlatformFact::MeetsFloor);
     assert!(
         arch.observations
@@ -2952,16 +2949,16 @@ fn arch_meets_its_row_on_id_alone_and_unmeasured_shapes_are_undetermined() {
 //   the leading integer and compares it against 12 — it must not demand
 //   Ubuntu's `major.minor` shape, which would read the measured file as
 //   unparsable — and the quotes are stripped exactly as DR16's; the
-//   kernel meets 5.15; the UDisks2 conjunct is undetermined by
-//   construction, so the composed fact is `Undetermined` naming UDisks2
-//   (the image ships without the daemon, DR19), never `MeetsFloor` and
-//   never `BelowFloor`. `11` is a measured shortfall (`BelowFloor` even
-//   beside the undetermined conjunct), `13` is above the floor, a missing
-//   or unparsable `VERSION_ID` is undetermined, never assumed. Each key
-//   read is an observation on the fourth interface, direct.
-// Evidence: the_debian_arm_compares_one_numeric_part_on_dr19_and_is_undetermined_on_udisks2_alone
+//   kernel meets 5.15; and since ADR-0054 the row has no UDisks2 conjunct
+//   (a tool floor, not this module's; the image ships without the daemon,
+//   DR19, and the floor does not care), so the composed fact is
+//   `MeetsFloor` on the measured bytes. `11` is a measured shortfall
+//   (`BelowFloor`), `13` is above the floor, a missing or unparsable
+//   `VERSION_ID` is undetermined, never assumed. Each key read is an
+//   observation on the fourth interface, direct.
+// Evidence: the_debian_arm_compares_one_numeric_part_on_dr19_and_meets_its_row
 #[test]
-fn the_debian_arm_compares_one_numeric_part_on_dr19_and_is_undetermined_on_udisks2_alone() {
+fn the_debian_arm_compares_one_numeric_part_on_dr19_and_meets_its_row() {
     use crate::floor::{Conjunct, Tier, parse_major, parse_major_minor};
     use partman_capability::engine::PlatformFact;
     use partman_domain::canonical::Value;
@@ -2979,18 +2976,11 @@ fn the_debian_arm_compares_one_numeric_part_on_dr19_and_is_undetermined_on_udisk
         "VERSION_ID=\"12\" meets the row's 12 on one numeric part"
     );
     assert_eq!(debian.kernel, Conjunct::Met, "6.1 meets 5.15");
-    assert!(matches!(debian.udisks2, Conjunct::Undetermined { .. }));
-    match &debian.platform {
-        PlatformFact::Undetermined { conjunct } => {
-            assert!(
-                conjunct.contains("UDisks2"),
-                "names the conjunct: {conjunct}"
-            );
-        }
-        other => {
-            panic!("Debian with release and kernel met is undetermined on UDisks2, got {other:?}")
-        }
-    }
+    assert_eq!(
+        debian.platform,
+        PlatformFact::MeetsFloor,
+        "release and kernel met; no UDisks2 conjunct since ADR-0054"
+    );
     assert!(
         debian
             .observations
@@ -3016,7 +3006,7 @@ fn the_debian_arm_compares_one_numeric_part_on_dr19_and_is_undetermined_on_udisk
     assert_eq!(
         old.platform,
         PlatformFact::BelowFloor,
-        "a measured shortfall wins over the undetermined conjunct"
+        "a measured shortfall is below the floor"
     );
     let newer = floor_of(&floor_source(
         Some(b"ID=debian\nVERSION_ID=\"13\"\n"),
@@ -3110,20 +3100,31 @@ fn the_floor_composes_fail_closed_and_a_measured_shortfall_is_below() {
     assert_eq!(parse_major_minor("jammy"), None);
     assert_eq!(parse_major_minor("5"), None);
     assert_eq!(
-        compose(&Conjunct::Met, &Conjunct::Met, &Conjunct::Met),
+        compose(&Conjunct::Met, &Conjunct::Met),
         PlatformFact::MeetsFloor
     );
     assert_eq!(
-        compose(&Conjunct::Met, &Conjunct::NotInRow, &Conjunct::NotInRow),
+        compose(&Conjunct::Met, &Conjunct::NotInRow),
         PlatformFact::MeetsFloor
+    );
+    assert!(
+        matches!(
+            compose(
+                &Conjunct::Met,
+                &Conjunct::Undetermined {
+                    reason: "u".to_owned()
+                }
+            ),
+            PlatformFact::Undetermined { .. }
+        ),
+        "met is never composed over an undetermined kernel"
     );
     assert!(matches!(
         compose(
-            &Conjunct::Met,
-            &Conjunct::Met,
             &Conjunct::Undetermined {
                 reason: "u".to_owned()
-            }
+            },
+            &Conjunct::Met
         ),
         PlatformFact::Undetermined { .. }
     ));
@@ -3134,8 +3135,7 @@ fn the_floor_composes_fail_closed_and_a_measured_shortfall_is_below() {
             },
             &Conjunct::Undetermined {
                 reason: "u".to_owned()
-            },
-            &Conjunct::Met
+            }
         ),
         PlatformFact::BelowFloor
     );

@@ -125,9 +125,11 @@
 //!   Ubuntu's release and kernel conjuncts are measured; Arch meets its
 //!   row on `ID` alone; Debian's release is compared on the one numeric
 //!   part DR19 measured (`VERSION_ID="12"`) against 12, its kernel as
-//!   Ubuntu's; the `UDisks2` conjunct is undetermined by construction (no source under
-//!   this contract, LIN-001's route undecided), so every Debian/Ubuntu host
-//!   is `Undetermined` today — the honest answer, never a guess.
+//!   Ubuntu's. Since ADR-0054 (spec 18.0.0) the row has no `UDisks2`
+//!   conjunct — that number is a CAP-006 tool floor, entered by the first
+//!   package that invokes `UDisks2` — so every measured guest answers
+//!   `MeetsFloor`, and `Undetermined` remains for the shapes no row
+//!   measured, never a guess.
 //! - **No user-facing surface.** This is a library. The CLI is WP-035's and
 //!   WP-080's, and the diagnostic bundle is WP-035's.
 
