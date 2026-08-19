@@ -11,7 +11,7 @@
   recorded harness defects, and **M10 taken the same day** in an ephemeral
   hosted runner, where the helper reads at byte level what the client is
   denied. Only M9 remains `not established`, Apple Silicon having no Fusion
-  Drive. **Three preregistered cells are `not yet taken`: the floor-input cells DR16–DR18** (gitea#1010, preregistered 2026-08-19, below — DR18 on the first Arch guest in the record). The held-standing cell DR15 (gitea#1009) was preregistered 2026-08-18 and taken 2026-08-19 UTC, established on a single guest with no amendment. The Linux detection rows DR1–DR10 (gitea#1005) and the naming-designation cells DR11–DR14 (gitea#1007) were preregistered and taken 2026-08-18, all fourteen established (DR1–DR10 valid on a second invocation; DR11–DR14 valid with two recorded instrument amendments in the rebooted phase).
+  Drive. **No preregistered cell on any platform is now `not yet taken`** — the floor-input cells DR16–DR18 (gitea#1010) were preregistered and taken 2026-08-19 UTC, all three established (DR16/DR17 on a jammy guest across the pinned reboot, no amendment; DR18 on the **first Arch guest in the record**, valid with two recorded instrument amendments). The held-standing cell DR15 (gitea#1009) was preregistered 2026-08-18 and taken 2026-08-19 UTC, established on a single guest with no amendment. The Linux detection rows DR1–DR10 (gitea#1005) and the naming-designation cells DR11–DR14 (gitea#1007) were preregistered and taken 2026-08-18, all fourteen established (DR1–DR10 valid on a second invocation; DR11–DR14 valid with two recorded instrument amendments in the rebooted phase).
   The macOS second-reader readback was discharged 2026-08-08 by an
   independent reader session: both sitting 2 transcripts and the M10
   transcript retrieved through their locators and rehashed, every digest
@@ -4693,7 +4693,7 @@ helper's capture (WP-L110), where consumed-versus-released is decided
 verdict is its consumer's, reading (b), decided). No designation is made
 here.
 
-### The floor-input cells DR16–DR18 — preregistered 2026-08-19; not yet taken
+### The floor-input cells DR16–DR18 — preregistered 2026-08-19; taken the same day; all three established (DR18 with two recorded instrument amendments)
 
 Three cells, declared before execution per this document's method. They
 are the rows WP-L100 increment 5b filed on this package as gitea issue
@@ -4728,9 +4728,9 @@ preregistration lands.
 
 | # | Cell | Command / API | Privilege | Distinguishing condition | Invalidation conditions | Result |
 | --- | --- | --- | --- | --- | --- | --- |
-| DR16 | `/etc/os-release` as a client file read (the fourth interface) | `cat /etc/os-release` on the jammy guest, double capture at baseline and after the declared reboot; the file's mode and owner recorded | client baseline | Readable at the baseline; the `ID`, `VERSION_ID`, `ID_LIKE`, `VERSION_CODENAME`, `PRETTY_NAME` lines present with their exact byte shape (which values are quoted, one trailing newline), byte-equal across the reboot | unreadable; a key absent where the distribution documents it; bytes moving across the reboot | *not yet taken* |
-| DR17 | `/proc/sys/kernel/osrelease` as a client file read | `cat /proc/sys/kernel/osrelease` beside root's `uname -r`, double capture, before and after the pinned reboot | client baseline; root's `uname -r` recorded beside it | Readable; equal to `uname -r` byte-for-byte plus one trailing newline; equal before and after the reboot (the kernel is pinned) | unreadable; disagreeing with `uname -r`; the kernel moving across the reboot (that leg `void(kernel)`) | *not yet taken* |
-| DR18 | The Arch tier: floor inputs, `udisks2` presence, and the three interfaces at the client baseline | On the Arch guest: `cat /etc/os-release` and `cat /proc/sys/kernel/osrelease` (double capture); root `pacman -Q udisks2` and client `test -e /usr/bin/udisksctl` (existence by name, no launch); `ls /sys/class/block`; the whole-disk records `/run/udev/data/b<maj>:<min>` for two DR disks read for `ID_SERIAL`, `ID_BUS`, `ID_FS_TYPE`; `cat /proc/self/mountinfo` line count; the environment record | client baseline; root for `pacman -Q` and provisioning | `ID=arch` readable; whether `VERSION_ID` and `ID_LIKE` exist at all (a positively determined absence is a result, and the expected one); the kernel string's shape; whether `udisks2` is installed by default on the cloud image (either answer is a result); the block class listable, a whole disk's record present with `ID_SERIAL` and `ID_BUS`, the mount table readable — the contract's three interfaces answering on the second Linux tier | any of the three interfaces denied at the baseline (a positive finding, recorded, and it changes the adapter's Arch story); the image failing to boot with cloud-init (`void(apparatus)`) | *not yet taken* |
+| DR16 | `/etc/os-release` as a client file read (the fourth interface) | `cat /etc/os-release` on the jammy guest, double capture at baseline and after the declared reboot; the file's mode and owner recorded | client baseline | Readable at the baseline; the `ID`, `VERSION_ID`, `ID_LIKE`, `VERSION_CODENAME`, `PRETTY_NAME` lines present with their exact byte shape (which values are quoted, one trailing newline), byte-equal across the reboot | unreadable; a key absent where the distribution documents it; bytes moving across the reboot | **Established.** Readable at the client baseline (`/etc/os-release` is a symlink to `/usr/lib/os-release`, mode `777`, target owned `root:root`); 386 bytes, twelve `KEY=value` lines, one trailing newline, no blank line; the five keys present with this exact shape — `ID=ubuntu` (unquoted), `VERSION_ID="22.04"` (quoted), `ID_LIKE=debian` (unquoted), `VERSION_CODENAME=jammy` (unquoted), `PRETTY_NAME="Ubuntu 22.04.5 LTS"` (quoted); also `NAME`, `VERSION`, `UBUNTU_CODENAME` and four URL keys; no `BUILD_ID`. Byte-equal across the declared reboot (four captures, one SHA-256 `594d5ddd…`). The floor determination therefore compares `ID` and an unquoted-on-read `VERSION_ID` verbatim, and must strip exactly the double quotes the file carries and nothing else |
+| DR17 | `/proc/sys/kernel/osrelease` as a client file read | `cat /proc/sys/kernel/osrelease` beside root's `uname -r`, double capture, before and after the pinned reboot | client baseline; root's `uname -r` recorded beside it | Readable; equal to `uname -r` byte-for-byte plus one trailing newline; equal before and after the reboot (the kernel is pinned) | unreadable; disagreeing with `uname -r`; the kernel moving across the reboot (that leg `void(kernel)`) | **Established.** Readable at the client baseline; `5.15.0-186-generic` plus exactly one trailing newline (19 bytes, SHA-256 `5dd67e79…`), equal to root's `uname -r` byte-for-byte, equal before and after the pinned reboot (four captures). The kernel conjunct parses `major.minor` from that string — `5.15` — against the row's `≥ 5.15`: the measured acceptance environment sits exactly on the floor |
+| DR18 | The Arch tier: floor inputs, `udisks2` presence, and the three interfaces at the client baseline | On the Arch guest: `cat /etc/os-release` and `cat /proc/sys/kernel/osrelease` (double capture); root `pacman -Q udisks2` and client `test -e /usr/bin/udisksctl` (existence by name, no launch); `ls /sys/class/block`; the whole-disk records `/run/udev/data/b<maj>:<min>` for two DR disks read for `ID_SERIAL`, `ID_BUS`, `ID_FS_TYPE`; `cat /proc/self/mountinfo` line count; the environment record | client baseline; root for `pacman -Q` and provisioning | `ID=arch` readable; whether `VERSION_ID` and `ID_LIKE` exist at all (a positively determined absence is a result, and the expected one); the kernel string's shape; whether `udisks2` is installed by default on the cloud image (either answer is a result); the block class listable, a whole disk's record present with `ID_SERIAL` and `ID_BUS`, the mount table readable — the contract's three interfaces answering on the second Linux tier | any of the three interfaces denied at the baseline (a positive finding, recorded, and it changes the adapter's Arch story); the image failing to boot with cloud-init (`void(apparatus)`) | **Established, with two instrument amendments and three findings.** The image booted under cloud-init with the `partman` user, passwordless sudo and the fourteen DR disks; kernel `7.1.8-arch1-3`, systemd/udev 261, util-linux 2.42.2, cloud-init 26.2. **`os-release`**: a symlink to `/usr/lib/os-release`, 382 bytes, `ID=arch` (unquoted), `BUILD_ID=rolling`, `NAME`/`PRETTY_NAME` `"Arch Linux"`; **`VERSION_ID`, `ID_LIKE`, `VERSION` and `VERSION_CODENAME` positively absent** — the Arch arm reads `ID` alone, as the plan expected. **`osrelease`**: `7.1.8-arch1-3` plus one newline (14 bytes), equal to `uname -r`. **`udisks2` is not installed by default** (`pacman -Q` fails; `systemctl` `not-found`; `/usr/bin/udisksctl` and both `udisksd` paths absent by name) — the second Linux tier ships without the daemon Section 9's Debian/Ubuntu row names. **The three interfaces answer at the client baseline**: `/sys/class/block` listable (fourteen DR disks plus the system disk and `sr0`); a whole disk's `/run/udev/data/b8:16` present, 512 bytes, with `ID_SERIAL`, `ID_BUS=scsi`, `ID_PATH`; `/proc/self/mountinfo` readable (27 lines; the root is Btrfs); `/proc/swaps` shows the image's swapfile. **Finding 1 — udev's serial election differs by version:** on this udev 261 the QEMU disk's `ID_SERIAL_SHORT` is the SCSI device-id designator `drive-scsi1` and the configured unit serial `DR01` sits in **`ID_SCSI_SERIAL`**, so `/dev/disk/by-id` reads `scsi-0QEMU_QEMU_HARDDISK_drive-scsiN` and no `…_DRnn` link exists (on jammy's udev 249 every DR sitting resolved disks through `…QEMU_HARDDISK_DRnn`); the kernel's own `vpd_pg80` still carries `DR01`. **Finding 2:** a blank disk's record has **no `ID_FS_TYPE` key at all** here, where jammy's DR6 measured the key present and positively empty — two spellings of one absence across udev versions, both a positively determined absence to the adapter. **Finding 3 (instrument):** phase 1 resolved the probe disks through by-id as every jammy sitting had and got nothing; the retained mis-addressed captures are in the transcript, phase 2b re-resolved by the kernel's serial (`lsblk SERIAL`) and 2c fixed the manifest's quoting; the cited DR18 values are 2c's |
 
 Validity gates: those of the DR sittings above (double capture, digests
 before the first capture, `CapEff` all-zero at every client capture, exit
@@ -4743,6 +4743,52 @@ never a negative.
 What this sitting deliberately does not do: no floor is *determined* here
 (that is 5b's code, on these rows); no UDisks2 version is read; no tool is
 launched by the client; no designation; no partition-hosted member.
+
+**The sittings, 2026-08-19 (UTC).** *Jammy* (VMID 9477): the pinned jammy
+image, fourteen DR disks attached and untouched, `muser1` through
+`runuser`, `CapEff` all-zero at all four captures, digests recorded
+in-transcript before the first capture, kernel `5.15.0-186-generic`
+before, before the reboot (pinned with `grub-reboot`) and after; two
+baseline captures, the declared reboot, two rebooted captures; zero
+non-zero-rc lines. Teardown verified 2026-08-19T03:42:17Z. Transcript
+SHA-256 `539ba7d4de381f01970cb718119c8717bd15cd4587eac27edb6de389ed7a6b0d` (8776 bytes),
+computed in the guest, on the host by the teardown script, and on the
+workstation, all agreeing. *Arch* (VMID 9478, the first Arch guest): the
+pinned 2026-08-15 cloud image, verified against the pin before creation;
+`muser1` through `runuser`, `CapEff` all-zero at all six captures; two
+captures per phase across phases 1, 2b and 2c, each amendment's own digest
+recorded in-transcript before its captures; no reboot declared, none
+performed. Teardown verified 2026-08-19T03:39:44Z. Transcript SHA-256
+`c32151fb5ff19af7adfd94b25ee6c936ddb7c736dff74aca2c5000c8adbf9eaa` (19857 bytes), agreeing
+guest/host/workstation.
+
+**Apparatus event, recorded because the record depends on it.** Between
+the r48 create and this sitting, six `imgdel:local` tasks issued through
+`pvedaemon` (the PVE API/GUI, `root@pam`, 03:04–03:05 UTC) removed images
+from the host's `local` storage, the pinned jammy base image among them;
+the jammy guest here was created after the identical artifact was
+re-fetched from Canonical's dated 2026-08-02 release path and verified
+against the pinned digest `bf4be84e…` (`SHA256SUMS.jammy` was untouched).
+The pin held; nothing measured moved.
+
+**Custody.** Both bundles — transcripts, host environment records,
+teardown proofs, drive/create/teardown logs, image-digest records, and
+every instrument including both Arch amendments — archived at
+`%USERPROFILE%\PartMan-evidence\2026-08-19-dr4-jammy-vmid9477\` and
+`…\2026-08-19-dr4-arch-vmid9478\` on the operator workstation, custodian
+Nate McBride.
+
+**What these rows now let 5b say.** The fourth interface enters:
+`/etc/os-release` is a client-readable file on both tiers, and its
+`ID`/`VERSION_ID` shape is measured on both — unquoted `ID`, a
+double-quoted `VERSION_ID` on Ubuntu, and no `VERSION_ID` at all on Arch,
+so the Arch arm reads `ID` alone. The kernel conjunct reads
+`/proc/sys/kernel/osrelease` on the already-entered procfs interface,
+byte-equal to `uname -r`. UDisks2 stays undetermined by construction and
+is absent on the Arch tier by default. And the adapter's contract holds on
+the second Linux tier at the client baseline, with two udev-version
+findings for `fields.md`: the database's serial election and the two
+spellings of a blank disk's absent file-system type.
 
 ## Reproducing this
 
