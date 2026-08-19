@@ -11,7 +11,7 @@
   recorded harness defects, and **M10 taken the same day** in an ephemeral
   hosted runner, where the helper reads at byte level what the client is
   denied. Only M9 remains `not established`, Apple Silicon having no Fusion
-  Drive. **One preregistered cell is `not yet taken`: the polkit-and-launch cell DR20** (gitea#1012, preregistered 2026-08-19, below — three tiers, the jammy, Debian 12 and Arch images, filed by WP-L110 for its launch round). The USB-device-node recognition cell FR6 (gitea#1002) was preregistered and taken 2026-08-19 UTC in both legs (the FR4 unit on the Proxmox node's own XHCI chain as `nobody`, and the same unit passed through to a jammy guest as `muser1`), established, with one recorded instrument amendment on the guest leg. The Debian 12 `os-release` cell DR19 (gitea#1011) was preregistered and taken 2026-08-19 UTC on the **first Debian guest in the record**, established, with one recorded apparatus amendment (the first create, VMID 9481, void(apparatus); the cited run VMID 9482). The floor-input cells DR16–DR18 (gitea#1010) were preregistered and taken 2026-08-19 UTC, all three established (DR16/DR17 on a jammy guest across the pinned reboot, no amendment; DR18 on the **first Arch guest in the record**, valid with two recorded instrument amendments). The held-standing cell DR15 (gitea#1009) was preregistered 2026-08-18 and taken 2026-08-19 UTC, established on a single guest with no amendment. The Linux detection rows DR1–DR10 (gitea#1005) and the naming-designation cells DR11–DR14 (gitea#1007) were preregistered and taken 2026-08-18, all fourteen established (DR1–DR10 valid on a second invocation; DR11–DR14 valid with two recorded instrument amendments in the rebooted phase).
+  Drive. **No preregistered cell on any platform is now `not yet taken`** — the polkit-and-launch cell DR20 (gitea#1012) was preregistered and taken 2026-08-19 UTC on all three tiers (jammy VMID 9488, Debian 12 VMID 9489, Arch VMID 9490), established, no amendment. The USB-device-node recognition cell FR6 (gitea#1002) was preregistered and taken 2026-08-19 UTC in both legs (the FR4 unit on the Proxmox node's own XHCI chain as `nobody`, and the same unit passed through to a jammy guest as `muser1`), established, with one recorded instrument amendment on the guest leg. The Debian 12 `os-release` cell DR19 (gitea#1011) was preregistered and taken 2026-08-19 UTC on the **first Debian guest in the record**, established, with one recorded apparatus amendment (the first create, VMID 9481, void(apparatus); the cited run VMID 9482). The floor-input cells DR16–DR18 (gitea#1010) were preregistered and taken 2026-08-19 UTC, all three established (DR16/DR17 on a jammy guest across the pinned reboot, no amendment; DR18 on the **first Arch guest in the record**, valid with two recorded instrument amendments). The held-standing cell DR15 (gitea#1009) was preregistered 2026-08-18 and taken 2026-08-19 UTC, established on a single guest with no amendment. The Linux detection rows DR1–DR10 (gitea#1005) and the naming-designation cells DR11–DR14 (gitea#1007) were preregistered and taken 2026-08-18, all fourteen established (DR1–DR10 valid on a second invocation; DR11–DR14 valid with two recorded instrument amendments in the rebooted phase).
   The macOS second-reader readback was discharged 2026-08-08 by an
   independent reader session: both sitting 2 transcripts and the M10
   transcript retrieved through their locators and rehashed, every digest
@@ -4995,7 +4995,7 @@ row does not establish: a device behind a hub (unmeasured; the order
 handles it by construction), and `removable` on a passthrough node, which
 differs from the host's and which nothing reads.
 
-### The polkit-and-launch cell DR20 — preregistered 2026-08-19; not yet taken
+### The polkit-and-launch cell DR20 — preregistered 2026-08-19; taken the same day on all three tiers; established
 
 One cell over three tiers, declared before execution per this document's
 method. It is the row WP-L110 filed on this package at its creation as
@@ -5022,7 +5022,7 @@ exists before this preregistration lands.
 
 | # | Cell | Command / API | Privilege | Distinguishing condition | Invalidation conditions | Result |
 | --- | --- | --- | --- | --- | --- | --- |
-| DR20 | The polkit and launch substrate on each tier's default image | Root: the package manager's view of `polkitd`/`polkit`/`policykit-1`/`pkexec`/`systemd`/`dbus`/`udisks2` (installed? version?), `polkit.service` state, the `rules.d` listings, `tmpfiles.d` entries naming `/run`, `pkcheck` of one stock action for the root shell with no agent. Client (double capture): the polkit binaries and policy directories by name, mode and owner (`pkexec`'s setuid bit); `pkexec --version`; the bounded `pkexec true` attempt and its verbatim output; `pkaction` count; `systemctl --version`; `polkit`/`dbus` unit states; the `/run` mount; `tmpfiles.d` count and readability; `systemd-tmpfiles`/`systemd-run` presence; socket-unit count; `XDG_RUNTIME_DIR` and `/run/user/<uid>` for a `runuser` client; the client's logind session count | client baseline; root for the package view and provisioning | Per tier: whether polkit is installed and its daemon runnable by default; what the ceremony's absence or presence looks like to a client with no agent (the refusal text, the rc); whether systemd socket units and tmpfiles are available to create the `0711` directory and the per-user nodes; whether a `runuser` client has a runtime dir or a session at all (it should not, and that bears on which agent could ever answer) | any of the three images failing to boot with cloud-init (`void(apparatus)`); `pkexec` hanging past its bound (a finding, the capture still valid); captures differing between themselves | not yet taken |
+| DR20 | The polkit and launch substrate on each tier's default image | Root: the package manager's view of `polkitd`/`polkit`/`policykit-1`/`pkexec`/`systemd`/`dbus`/`udisks2` (installed? version?), `polkit.service` state, the `rules.d` listings, `tmpfiles.d` entries naming `/run`, `pkcheck` of one stock action for the root shell with no agent. Client (double capture): the polkit binaries and policy directories by name, mode and owner (`pkexec`'s setuid bit); `pkexec --version`; the bounded `pkexec true` attempt and its verbatim output; `pkaction` count; `systemctl --version`; `polkit`/`dbus` unit states; the `/run` mount; `tmpfiles.d` count and readability; `systemd-tmpfiles`/`systemd-run` presence; socket-unit count; `XDG_RUNTIME_DIR` and `/run/user/<uid>` for a `runuser` client; the client's logind session count | client baseline; root for the package view and provisioning | Per tier: whether polkit is installed and its daemon runnable by default; what the ceremony's absence or presence looks like to a client with no agent (the refusal text, the rc); whether systemd socket units and tmpfiles are available to create the `0711` directory and the per-user nodes; whether a `runuser` client has a runtime dir or a session at all (it should not, and that bears on which agent could ever answer) | any of the three images failing to boot with cloud-init (`void(apparatus)`); `pkexec` hanging past its bound (a finding, the capture still valid); captures differing between themselves | **Established on all three tiers; the three default images differ on every axis the launch round cares about.** *jammy* (Ubuntu 22.04.5, systemd 249, udev 249): **polkit installed by default as `policykit-1`/`polkitd`/`pkexec` 0.105-33ubuntu0.1** (the pre-JavaScript 0.105 line: no `/etc/polkit-1/rules.d`, three stock rules under `/usr/share/polkit-1/rules.d`), `polkit.service` static and **active** before any client touched it, `/usr/bin/pkexec` setuid `4755`, `pkcheck`/`pkaction` present (115 actions visible to the client), the D-Bus activation file present; the client's bounded **`pkexec --disable-internal-agent /bin/true` exited 127 with `Error executing command as another user: No authentication agent found.`** — the ceremony with no agent is a refusal, not a hang and not a grant (the transcript's only two non-zero-rc lines, one per capture). *Debian 12* (bookworm, systemd 252, udev 252): **`polkitd` 122-3 and `libpolkit-gobject-1-0` installed; the `pkexec` package is NOT installed** (bookworm splits it out) — `/usr/bin/pkexec` absent, `pkcheck`/`pkaction` present (84 actions), `polkit-agent-helper-1` setuid under `/usr/lib/polkit-1/`, `/etc/polkit-1/rules.d` and `/usr/share/polkit-1/rules.d` mode `700` owned by `polkitd` (the 122-line's JavaScript rules, not client-readable), `50-default.rules` present; **`polkit.service` was `inactive` at root's pre-check and `active` at both client captures** — the client's `pkaction` query D-Bus-activated the daemon (the activation file is present), a finding in itself: on this tier the daemon exists only once something asks. *Arch* (the 2026-08-15 cloud image, systemd 261, `dbus-broker` 37): **polkit is not installed at all** — no binaries, no `/etc/polkit-1`, no activation file, `polkit.service` `not-found`; only the empty `/usr/share/polkit-1/{rules.d,actions}` scaffolding other packages ship into (an `empower.rules` and a systemd example). *On all three:* `/run` is a `tmpfs` (`mode=755`), `tmpfiles.d` is present and client-readable (23/21/36 conf files; 8/7/9 of them naming `/run` entries such as `d /run/cryptsetup 0700 root root -` and `d /run/dbus/containers 0755 messagebus`), `systemd-tmpfiles` and `systemd-run` present, socket units loaded (21/12/46), `dbus.service` active — so socket activation and a tmpfiles-created `/run/partman` are available on every tier. *The `runuser` client* has **no logind session and no `/run/user/<uid>`** on any tier (its `XDG_RUNTIME_DIR` reads `/run/user/0`, inherited from root's environment through `runuser` — an instrument note: the variable is root's, not a client fact), which is the shape a helper's non-interactive caller has and the shape no polkit agent can answer in. Root's `pkcheck` of one stock action for its own process: rc 0 on jammy and Debian (root is authorized without an agent); absent on Arch |
 
 Validity gates: those of the DR sittings above (double capture, digests
 before the first capture, `CapEff` all-zero at every client capture, exit
@@ -5034,6 +5034,41 @@ What this sitting deliberately does not do: nothing is installed or
 enabled; no polkit rule is written; no helper, no unit, no socket is
 created; no route is decided here — that is WP-L110's launch round, on
 this row.
+
+**The sittings, 2026-08-19 (UTC), three guests in parallel.** Each
+image verified against its pin before creation (the create logs in the
+bundle); `muser1` through `runuser`, `CapEff` all-zero at every client
+capture; instrument digests recorded in-transcript before the first
+capture; two captures per tier, identical on every client line; no
+reboot; nothing installed. Non-zero-rc lines: jammy 2 (the two bounded
+`pkexec` refusals, the cell's own answer), Debian 0, Arch 0. Teardowns
+verified 20:14:04Z (9488), 20:14:16Z (9489), 20:14:27Z (9490).
+Transcript SHA-256s, each computed in the guest, on the host by the
+teardown script and on the workstation, agreeing: jammy
+`72740bab706b67f9d9ac308c21c0f355489a45eae980fea6913e7cd928587ab6`
+(6858 bytes); Debian 12
+`0c7382a3f4e8a92445b9ab33a8bcec93b4847fd6d918efd1c5dcc64150e558a2`
+(6909 bytes); Arch
+`a0bd1dbb03602e52d8468895423645b9d63dd4aaac0a599062d69f899af8cc70`
+(6134 bytes).
+
+**Custody.** The three bundles — transcripts and digests, host
+environment records, teardown proofs, create/drive/teardown logs, every
+instrument — archived at
+`%USERPROFILE%\PartMan-evidence\2026-08-19-dr6-polkit-vmid9488-9490\` on
+the operator workstation, custodian Nate McBride.
+
+**What this row now lets the launch round say.** The interactive
+ceremony ADR-0021 names (`auth_admin`) has a daemon to ask on jammy (0.105,
+always running) and on Debian 12 (122, activated on first use, `pkexec`
+itself not shipped), and **nothing to ask on a default Arch image**;
+`pkexec` exists by default on exactly one tier; a non-interactive caller
+gets a clean refusal (`No authentication agent found`, rc 127) where
+`pkexec` exists, never a hang. systemd socket activation, `systemd-run`
+and `tmpfiles.d` exist on every tier, so a unit-created `/run/partman`
+(`0711`) and socket-activated helper are available everywhere polkit is
+not. The round decides on these facts, not on what each distribution is
+believed to ship.
 
 ## Reproducing this
 
