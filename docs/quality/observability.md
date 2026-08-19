@@ -4606,8 +4606,10 @@ or the reboot. This cell is that gap and nothing else. For Linux mdraid
 it is also ADR-0018's measurement obligation (4) — "the assembled-state
 facts for mdraid" measured, not recalled (`docs/adr/0018-…:601-603`) —
 and the record will say so where it discharges it. It designates
-nothing and changes no verdict; the closure's consumed-member arm is
-gitea#1008 on WP-010.
+nothing and changes no verdict; its consumer is the helper's capture
+(WP-L110), which the fact lets decide consumed-versus-released from a
+measured state (gitea#1008, which read the ADR as also deciding a
+consumed member's verdict, was closed 2026-08-19 on measurement).
 
 Apparatus: the DR2 apparatus above (`dr2-*` instruments,
 `PartMan-evidence/2026-08-18-dr2-vmid9471`; VMID 9473 next), one
@@ -4685,8 +4687,11 @@ entry name) is measured rather than assumed, and the *unheld* standing of
 an unmapped PV, of a Btrfs member, and of a live-but-unopened LUKS disk is
 exactly what the relation reports. For Linux mdraid this discharges
 ADR-0018's measurement obligation (4) — the assembled-state fact, from the
-holders topology the ADR names — at the client baseline; the closure arm
-that consumes it is gitea#1008 (WP-010). No designation is made here.
+holders topology the ADR names — at the client baseline; its consumer is the
+helper's capture (WP-L110), where consumed-versus-released is decided
+(gitea#1008 closed 2026-08-19: the delivered closure's consumed-member
+verdict is its consumer's, reading (b), decided). No designation is made
+here.
 
 ## Reproducing this
 
