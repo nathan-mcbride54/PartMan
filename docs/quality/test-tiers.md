@@ -159,6 +159,8 @@ nineteenth, named in the PR body before the merge, and on `91cd1c9`
 ADR-0044 — tripped it a twentieth, likewise named before the merge, and
 on `ee12af2` (2026-08-16 UTC) when issue #354's kind-half act — one Rust
 merge, PR #398, ADR-0045 — tripped it a twenty-first, likewise named, and
+on `d2c38b4` (2026-08-19 UTC) when WP-L110 PR #529 — increment 1, the
+Linux helper process — tripped it; and before that
 on `80f4f93` (2026-08-19 UTC) when WP-040 PR #521 — increment 5, the
 Linux transport — tripped it; and before that
 on `454e60b` (2026-08-19 UTC) when WP-L100 PR #516 — FR6 discharged, a
