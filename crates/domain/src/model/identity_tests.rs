@@ -172,8 +172,8 @@ fn the_record_round_trips_and_the_witness_is_body_content() {
 #[test]
 fn the_present_entry_carries_the_parsers_checksum_verbatim() {
     let mut checksum = [0_u8; 32];
-    for (index, byte) in checksum.iter_mut().enumerate() {
-        *byte = index as u8 ^ 0xA5;
+    for (index, byte) in (0_u8..).zip(checksum.iter_mut()) {
+        *byte = index ^ 0xA5;
     }
     let state = TableState::present(checksum);
     assert!(state.positively_determined());
