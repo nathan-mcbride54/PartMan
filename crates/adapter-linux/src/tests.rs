@@ -636,7 +636,7 @@ fn the_adapter_opens_no_device_node_and_launches_no_process() {
 /// `every_shipped_module_is_covered_by_the_structural_guards`, because both
 /// SAFE-002 scans iterate it: a module added without an entry here would be
 /// exempt from both while leaving both tests green.
-fn shipped_sources() -> [(&'static str, &'static str); 11] {
+fn shipped_sources() -> [(&'static str, &'static str); 12] {
     [
         ("lib.rs", include_str!("lib.rs")),
         ("arrays.rs", include_str!("arrays.rs")),
@@ -647,6 +647,7 @@ fn shipped_sources() -> [(&'static str, &'static str); 11] {
         ("naming.rs", include_str!("naming.rs")),
         ("observation.rs", include_str!("observation.rs")),
         ("reach.rs", include_str!("reach.rs")),
+        ("runtime.rs", include_str!("runtime.rs")),
         ("state.rs", include_str!("state.rs")),
         ("volumes.rs", include_str!("volumes.rs")),
     ]
@@ -2639,4 +2640,161 @@ fn the_cached_signature_view_is_reported_as_inferred_and_consulted_by_nothing() 
             n + 1
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// Increment 5a: the capability seam.
+// ---------------------------------------------------------------------------
+
+// Requirements: INV-006, SAFE-005
+//   No read-only operation needs a tool (the plan's finding F1: every
+//   served operation is a source-class file read, ACC-009 gates write
+//   steps, and a floor arrives with the first package that invokes the
+//   tool), so the roster is empty for every source-class operation and
+//   an entry against one is refused; a mutating operation is not served
+//   by a read-only adapter and answers a typed refusal, never an empty
+//   roster that would read as "no tool needed"; and INV-006's "never run
+//   repair tools during discovery" is held in two forms — no requirement
+//   names a mount, unlock or repair tool, and the no-process guard over
+//   every shipped module still stands over this one.
+// Evidence: no_served_operation_requires_a_tool_and_a_mutating_one_is_not_served
+#[test]
+fn no_served_operation_requires_a_tool_and_a_mutating_one_is_not_served() {
+    use crate::runtime::{
+        FORBIDDEN_DURING_DISCOVERY, NotServed, REQUIREMENTS, required_tools, runtime_facts,
+    };
+    use partman_capability::engine::{PlatformFact, RuntimeFacts};
+    use partman_domain::model::capability::{Operation, OperationClass};
+
+    let mut served = 0;
+    for operation in Operation::all() {
+        match operation.class() {
+            OperationClass::Source => {
+                let tools = required_tools(*operation).expect("a source-class operation is served");
+                assert!(
+                    tools.is_empty(),
+                    "{operation:?}: no read-only operation needs a tool"
+                );
+                let facts =
+                    runtime_facts(*operation, &[], &[], PlatformFact::MeetsFloor).expect("served");
+                assert_eq!(
+                    facts,
+                    RuntimeFacts {
+                        tools: Vec::new(),
+                        platform: PlatformFact::MeetsFloor
+                    }
+                );
+                served += 1;
+            }
+            OperationClass::Mutating => {
+                assert_eq!(
+                    required_tools(*operation),
+                    Err(NotServed::Mutating {
+                        operation: *operation
+                    }),
+                    "{operation:?}: a mutating operation's tools are WP-L110's to state"
+                );
+                assert!(runtime_facts(*operation, &[], &[], PlatformFact::MeetsFloor).is_err());
+            }
+        }
+    }
+    assert_eq!(served, 4, "every source-class operation is served");
+    // The table lists exactly the source-class operations, each empty.
+    assert_eq!(REQUIREMENTS.len(), 4);
+    for (operation, tools) in REQUIREMENTS {
+        assert_eq!(operation.class(), OperationClass::Source);
+        for tool in *tools {
+            assert!(
+                !FORBIDDEN_DURING_DISCOVERY.contains(&tool.tool),
+                "{}: INV-006 forbids it during discovery",
+                tool.tool
+            );
+        }
+    }
+    // The seam launches nothing itself: the crate-wide guard's needles,
+    // applied to this module by name so a reader can see it is covered.
+    for needle in ["std::process", "Command::new", "std::env", "/dev/"] {
+        assert!(!include_str!("runtime.rs").contains(needle));
+    }
+}
+
+// Requirements: CAP-004, SAFE-005
+//   ACC-009's two failure classes as the engine spells them, applied to
+//   a caller's structured probe fail-closed on every arm the text leaves
+//   open: present at or above a known floor is in range; absent, or not
+//   probed at all, is missing; present below the floor, present with no
+//   floor known (no tested range exists), present with an unparsed
+//   version, or a failed probe is out of range. The assembly finds each
+//   requirement's probe and floor by name and carries the caller's
+//   platform fact unchanged.
+// Evidence: tool_state_follows_acc_009_and_fails_closed_where_the_text_is_open
+#[test]
+fn tool_state_follows_acc_009_and_fails_closed_where_the_text_is_open() {
+    use crate::runtime::{ToolFloor, ToolProbe, Version, tool_state};
+    use partman_capability::engine::ToolState;
+
+    let v = |major, minor, patch| Version {
+        major,
+        minor,
+        patch,
+    };
+    let floor = ToolFloor {
+        tool: "wipefs",
+        floor: v(2, 37, 0),
+    };
+    let present = |version: Option<Version>| ToolProbe::Present {
+        path: "/usr/sbin/wipefs".to_owned(),
+        version,
+    };
+    assert_eq!(
+        tool_state(Some(&present(Some(v(2, 37, 2)))), Some(&floor)),
+        ToolState::PresentInRange
+    );
+    assert_eq!(
+        tool_state(Some(&present(Some(v(2, 37, 0)))), Some(&floor)),
+        ToolState::PresentInRange,
+        "the floor itself is in range"
+    );
+    assert_eq!(
+        tool_state(Some(&present(Some(v(2, 36, 9)))), Some(&floor)),
+        ToolState::OutOfRange,
+        "below the floor"
+    );
+    assert_eq!(
+        tool_state(Some(&present(Some(v(2, 41, 0)))), None),
+        ToolState::OutOfRange,
+        "no floor known: no tested range exists, so no version is inside it"
+    );
+    assert_eq!(
+        tool_state(Some(&present(None)), Some(&floor)),
+        ToolState::OutOfRange,
+        "an unparsed version is not inside any range"
+    );
+    assert_eq!(
+        tool_state(
+            Some(&ToolProbe::Failed {
+                reason: "timed out".to_owned()
+            }),
+            Some(&floor)
+        ),
+        ToolState::OutOfRange
+    );
+    assert_eq!(
+        tool_state(
+            Some(&ToolProbe::Absent {
+                checked: vec!["/usr/sbin/wipefs".to_owned()]
+            }),
+            Some(&floor)
+        ),
+        ToolState::Missing
+    );
+    assert_eq!(
+        tool_state(None, Some(&floor)),
+        ToolState::Missing,
+        "not probed is not established present"
+    );
+    assert!(
+        v(3, 0, 0) > v(2, 41, 7) && v(2, 41, 0) > v(2, 37, 9),
+        "ordered by (major, minor, patch)"
+    );
 }
