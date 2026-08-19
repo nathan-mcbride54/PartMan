@@ -11,7 +11,7 @@
   recorded harness defects, and **M10 taken the same day** in an ephemeral
   hosted runner, where the helper reads at byte level what the client is
   denied. Only M9 remains `not established`, Apple Silicon having no Fusion
-  Drive. **One preregistered cell is `not yet taken`: the Debian 12 `os-release` cell DR19** (gitea#1011, preregistered 2026-08-19, below — the first Debian guest in the record). The floor-input cells DR16–DR18 (gitea#1010) were preregistered and taken 2026-08-19 UTC, all three established (DR16/DR17 on a jammy guest across the pinned reboot, no amendment; DR18 on the **first Arch guest in the record**, valid with two recorded instrument amendments). The held-standing cell DR15 (gitea#1009) was preregistered 2026-08-18 and taken 2026-08-19 UTC, established on a single guest with no amendment. The Linux detection rows DR1–DR10 (gitea#1005) and the naming-designation cells DR11–DR14 (gitea#1007) were preregistered and taken 2026-08-18, all fourteen established (DR1–DR10 valid on a second invocation; DR11–DR14 valid with two recorded instrument amendments in the rebooted phase).
+  Drive. **No preregistered cell on any platform is now `not yet taken`** — the Debian 12 `os-release` cell DR19 (gitea#1011) was preregistered and taken 2026-08-19 UTC on the **first Debian guest in the record**, established, with one recorded apparatus amendment (the first create, VMID 9481, void(apparatus); the cited run VMID 9482). The floor-input cells DR16–DR18 (gitea#1010) were preregistered and taken 2026-08-19 UTC, all three established (DR16/DR17 on a jammy guest across the pinned reboot, no amendment; DR18 on the **first Arch guest in the record**, valid with two recorded instrument amendments). The held-standing cell DR15 (gitea#1009) was preregistered 2026-08-18 and taken 2026-08-19 UTC, established on a single guest with no amendment. The Linux detection rows DR1–DR10 (gitea#1005) and the naming-designation cells DR11–DR14 (gitea#1007) were preregistered and taken 2026-08-18, all fourteen established (DR1–DR10 valid on a second invocation; DR11–DR14 valid with two recorded instrument amendments in the rebooted phase).
   The macOS second-reader readback was discharged 2026-08-08 by an
   independent reader session: both sitting 2 transcripts and the M10
   transcript retrieved through their locators and rehashed, every digest
@@ -4790,7 +4790,7 @@ the second Linux tier at the client baseline, with two udev-version
 findings for `fields.md`: the database's serial election and the two
 spellings of a blank disk's absent file-system type.
 
-### The Debian 12 `os-release` cell DR19 — preregistered 2026-08-19; not yet taken
+### The Debian 12 `os-release` cell DR19 — preregistered 2026-08-19; taken the same day; established (one recorded apparatus amendment)
 
 One cell, declared before execution per this document's method. It is the
 row WP-L100 increment 5b filed on this package as its **obligation 4**,
@@ -4826,7 +4826,7 @@ preregistration lands.
 
 | # | Cell | Command / API | Privilege | Distinguishing condition | Invalidation conditions | Result |
 | --- | --- | --- | --- | --- | --- | --- |
-| DR19 | The Debian tier: `/etc/os-release` as a client file read (the fourth interface), with the kernel string, `udisks2` presence, and the three closed interfaces at the client baseline | On the Debian guest: `cat /etc/os-release` and `cat /proc/sys/kernel/osrelease` (double capture at baseline and after the declared reboot; the file's mode, owner and link target recorded); root `uname -r` on both sides; root `dpkg-query -W udisks2` and client `test -e` on `/usr/bin/udisksctl` and `/usr/libexec/udisks2/udisksd` (existence by name, no launch); `ls /sys/class/block`; the whole-disk records `/run/udev/data/b<maj>:<min>` for two DR disks read for `ID_SERIAL`, `ID_SERIAL_SHORT`, `ID_BUS`, `ID_FS_TYPE`; `ls /dev/disk/by-id`; `cat /proc/self/mountinfo` line count; the environment record | client baseline; root for `dpkg-query`, `uname`, the reboot and provisioning | Readable at the baseline; `ID=debian`; **what `VERSION_ID` is, byte for byte** (quoted or not, one part or two), with `VERSION`, `VERSION_CODENAME`, `PRETTY_NAME`; whether `ID_LIKE` exists at all (a positively determined absence is a result, and the expected one on Debian itself); byte-equal across the reboot; the kernel string's shape and its equality with `uname -r`; whether `udisks2` is installed by default on the cloud image (either answer is a result); the block class listable, a whole disk's record present with `ID_SERIAL` and `ID_BUS`, its `ID_FS_TYPE` key present-or-absent on a blank disk, which name udev 252 elects for `by-id` (the DR18 finding's third data point), the mount table readable | unreadable; `ID` absent; bytes moving across the reboot; any of the three interfaces denied at the baseline (a positive finding, recorded, and it changes the adapter's Debian story); the image failing to boot with cloud-init (`void(apparatus)`) | not yet taken |
+| DR19 | The Debian tier: `/etc/os-release` as a client file read (the fourth interface), with the kernel string, `udisks2` presence, and the three closed interfaces at the client baseline | On the Debian guest: `cat /etc/os-release` and `cat /proc/sys/kernel/osrelease` (double capture at baseline and after the declared reboot; the file's mode, owner and link target recorded); root `uname -r` on both sides; root `dpkg-query -W udisks2` and client `test -e` on `/usr/bin/udisksctl` and `/usr/libexec/udisks2/udisksd` (existence by name, no launch); `ls /sys/class/block`; the whole-disk records `/run/udev/data/b<maj>:<min>` for two DR disks read for `ID_SERIAL`, `ID_SERIAL_SHORT`, `ID_BUS`, `ID_FS_TYPE`; `ls /dev/disk/by-id`; `cat /proc/self/mountinfo` line count; the environment record | client baseline; root for `dpkg-query`, `uname`, the reboot and provisioning | Readable at the baseline; `ID=debian`; **what `VERSION_ID` is, byte for byte** (quoted or not, one part or two), with `VERSION`, `VERSION_CODENAME`, `PRETTY_NAME`; whether `ID_LIKE` exists at all (a positively determined absence is a result, and the expected one on Debian itself); byte-equal across the reboot; the kernel string's shape and its equality with `uname -r`; whether `udisks2` is installed by default on the cloud image (either answer is a result); the block class listable, a whole disk's record present with `ID_SERIAL` and `ID_BUS`, its `ID_FS_TYPE` key present-or-absent on a blank disk, which name udev 252 elects for `by-id` (the DR18 finding's third data point), the mount table readable | unreadable; `ID` absent; bytes moving across the reboot; any of the three interfaces denied at the baseline (a positive finding, recorded, and it changes the adapter's Debian story); the image failing to boot with cloud-init (`void(apparatus)`) | **Established, on the second create (VMID 9482); the first create (VMID 9481) `void(apparatus)`, recorded below.** The image booted under cloud-init with the `partman` user, passwordless sudo and the fourteen DR disks; kernel `6.1.0-52-cloud-amd64` (Debian 6.1.180-1, the image's only kernel), systemd/udev 252.39, util-linux 2.38.1, cloud-init 22.4.2. **`os-release`**: a client-readable symlink (`../usr/lib/os-release`, relative; mode `777`, target `644 root:root`), 267 bytes, nine `KEY=value` lines, one trailing newline, no blank line — `ID=debian` (unquoted), **`VERSION_ID="12"` (double-quoted, one numeric part, no minor)**, `VERSION="12 (bookworm)"` (quoted), `VERSION_CODENAME=bookworm` (unquoted), `PRETTY_NAME="Debian GNU/Linux 12 (bookworm)"`, `NAME="Debian GNU/Linux"`, three URL keys; **`ID_LIKE` and `BUILD_ID` positively absent** (Debian itself carries no `ID_LIKE`). Byte-equal across the declared reboot (four captures, one SHA-256 `59a77b5f…`). **`osrelease`**: `6.1.0-52-cloud-amd64` plus one newline (21 bytes), equal to root's `uname -r` on both sides of the reboot. **`udisks2` is not installed by default** (`dpkg-query` rc 1; no unit file; `/usr/bin/udisksctl`, `/usr/libexec/udisks2/udisksd` and `/usr/lib/udisks2/udisksd` absent by name) — the Debian tier's own cloud image ships without the daemon its row names, as Arch's does. **The three interfaces answer at the client baseline** (`CapEff` all-zero at all four captures): `/sys/class/block` listable (fourteen DR disks, the system disk, `sr0` on virtio-scsi, eight loops); a whole disk's `/run/udev/data/b8:64` present, 512 bytes, with `ID_SERIAL`, `ID_BUS=scsi`, `ID_PATH=pci-0000:09:02.0-scsi-0:0:0:1`; `/proc/self/mountinfo` readable (27 lines at the baseline, 26 after the reboot — the first-boot mount gone); `/proc/swaps` header-only (the image configures no swap); 266 udev records. **Finding 1 — the serial-election boundary is between udev 249 and 252, not at Arch:** on this udev 252, exactly as on Arch's 261, the QEMU disk's `ID_SERIAL_SHORT` is the SCSI device-id designator `drive-scsi1` and the configured unit serial `DR01` sits in `ID_SCSI_SERIAL`; `/dev/disk/by-id` carries nineteen `scsi-0QEMU_QEMU_HARDDISK_drive-scsiN` links and **zero** `…_DRnn` links; the kernel's own serial (`lsblk SERIAL`, vpd_pg80) reads `DR01` — so jammy's udev 249 is the odd reading in this record, and the DR18 finding is now a three-point series (249: unit serial; 252 and 261: designator). **Finding 2:** a blank disk's `ID_FS_TYPE` key is absent on udev 252 as on 261 (jammy's 249 measured it present and empty). **Finding 3 (apparatus):** the `linux-image-cloud-amd64` kernel registers no AHCI/ATA host — the `ide2` cloud-init cdrom of the first create never appeared; see the apparatus event below |
 
 Validity gates: those of the DR sittings above (double capture, digests
 before the first capture, `CapEff` all-zero at every client capture, exit
@@ -4839,6 +4839,62 @@ What this sitting deliberately does not do: no floor is *determined* here
 (that is the Debian arm's code, on this row); no UDisks2 version is read;
 no tool is launched by the client; no designation; no partition-hosted
 member; nothing is provisioned on the DR disks.
+
+**The sitting, 2026-08-19 (UTC).** *VMID 9482, the first Debian guest in
+the record*: the pinned 2026-08-06 image, verified against the pin (SHA-512
+and the archived `SHA512SUMS`) before creation; fourteen DR disks attached
+and untouched; `muser1` through `runuser`, `CapEff` all-zero at all four
+captures; instrument digests recorded in-transcript before the first
+capture; kernel `6.1.0-52-cloud-amd64` before, before the reboot and after
+(the image's only installed kernel, so no `grub-reboot` pin was taken,
+recorded in terms); two baseline captures, the declared reboot (guest up
+since 15:23:27Z, the guest created 15:22:18Z and first booted before the
+sitting, so the second boot is the reboot), two rebooted captures; one
+non-zero-rc line, `dpkg-query udisks2 (not installed) rc: 1`, which is the
+cell's own answer. Teardown verified 2026-08-19T15:24:49Z. Transcript
+SHA-256 `224b5627dea44ffbceb6fd3aa47ff2c28ceb1d6a995b86275579dfbca1d03ef6`
+(16494 bytes), computed in the guest, on the host by the teardown script,
+and on the workstation, all agreeing.
+
+**Apparatus event and amendment, recorded because the record depends on
+it.** The first create, **VMID 9481** (15:07Z, the create script as
+preregistered: cloud-init drive on `ide2`, as every jammy and Arch guest
+had it), booted to `localhost login:` with no network: the serial console
+log shows the Debian cloud kernel registering the virtio-scsi hosts and
+**no AHCI/ATA host at all**, so the `ide2` cdrom never appeared, cloud-init's
+`ds-identify` found no datasource and disabled cloud-init silently
+(Debian's `notfound=disabled` policy — not one cloud-init line on the
+console), networking was never configured and `ssh.service` failed for
+want of host keys. **`void(apparatus)`**; no cell value was taken from it.
+The amendment: the cloud-init drive attached on virtio-scsi (`scsi15`)
+instead of `ide2`, the scsi-count assertion raised to sixteen, recorded in
+the create script's header; VMID 9482 created from the amended script is
+the cited run. One operator slip is recorded beside it: while archiving
+the void guest's console log, a `pkill -f` on the serial-socket path
+matched the `kvm` command line and stopped 9481 (it was to be destroyed
+regardless; the console log, create log, config and teardown proof are in
+the bundle under `void-9481/`). The image pin held on both creates.
+
+**Custody.** The bundle — transcript, host environment record, teardown
+proof, create/drive/teardown logs, the image-digest record and the
+archived `SHA512SUMS`, every instrument, and the void create's console log
+and proof — archived at
+`%USERPROFILE%\PartMan-evidence\2026-08-19-dr5-debian-vmid9482\` on the
+operator workstation, custodian Nate McBride.
+
+**What this row now lets the Debian arm say.** `ID=debian` is measured,
+and `VERSION_ID` on Debian 12 is the double-quoted string `"12"` — one
+numeric part, no minor — so the Debian arm compares the leading integer
+against the row's `12` (a later major is above the floor; `11` is a
+measured shortfall) and must not demand the `major.minor` shape Ubuntu
+carries; the quotes are stripped exactly as DR16's. The kernel conjunct
+reads the same `osrelease` shape as on jammy (`6.1.0-52-cloud-amd64`
+parses as `6.1`, above `5.15`). UDisks2 stays undetermined by
+construction and is absent by default on this tier too. And the adapter's
+contract holds on Debian proper at the client baseline, with the
+serial-election finding relocated: the boundary is between udev 249 and
+252, jammy the odd reading, for `fields.md` §3 to state as a three-point
+series with the Debian arm's delivery.
 
 ## Reproducing this
 
