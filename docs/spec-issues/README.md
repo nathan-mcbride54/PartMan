@@ -90,7 +90,7 @@ increment 3 as a property test. SI-36 is withdrawn and gates nothing.
 | **Direct blocker** | Must be decided before increment 3 writes a type | *(none — SI-28 reclassified below, 2026-08-09)* |
 | **Transitive blocker** | A separately sequenced prerequisite decision that must resolve before a direct blocker can be decided | *(none)* |
 | **Input** | A subquestion or evidence case resolved within the consuming direct blocker's decision | *(none — SI-29 and SI-30 resolved within SI-11's decision; SI-37 reclassified below)* |
-| **Later** | Decidable before the named work package, not before increment 3 | SI-13 (before WP-L110's validate-plan surface — the gate verified accurate by the 2026-08-12 residue sweep: identities bind at validation, and aggregates are not plannable write targets), SI-37 (before the spec change that first moves a closure-blocked multipath-capable population to `Permitted`; ADR-0018), SI-28 (**Mitigated-open**, floor in force; before the round that either relaxes the floor under ADR-0017's revisit condition or lands a discriminating mechanism; reclassified off the increment-3 gate 2026-08-09) |
+| **Later** | Decidable before the named work package, not before increment 3 | SI-41 (before WP-040's Linux transport increment; filed 2026-08-19 from a measurement: RPC-001's literal Linux clause refuses the SAFE-002 client; decidable now on the Linux transport route round), SI-13 (before WP-L110's validate-plan surface — the gate verified accurate by the 2026-08-12 residue sweep: identities bind at validation, and aggregates are not plannable write targets), SI-37 (before the spec change that first moves a closure-blocked multipath-capable population to `Permitted`; ADR-0018), SI-28 (**Mitigated-open**, floor in force; before the round that either relaxes the floor under ADR-0017's revisit condition or lands a discriminating mechanism; reclassified off the increment-3 gate 2026-08-09) |
 | **Withdrawn** | Retained as history after the filing was shown not to be a conflict | SI-36 |
 
 No direct blockers remain. SI-28's Mitigated-open state — the interim
@@ -3034,3 +3034,83 @@ questions.
 
 Option 3 is in force now because it is what the code does, **not** because it
 was chosen. Nothing here proposes an answer.
+
+
+## SI-41 RPC-001's Linux socket directory excludes the unprivileged client it exists to serve
+
+**Requirements:** RPC-001, SAFE-002, HLP-007, HLP-003, Section 0.2 ·
+**Open, Later (before WP-040's Linux transport increment); filed
+2026-08-19 from the Linux transport route round
+(`docs/reviews/LINUX_TRANSPORT_ROUTE_ROUND_2026-08-19.md`)**
+
+Filed from a measurement, not from a reading. Section 0.2 requires this
+filing rather than permitting it: "If two requirements in this spec
+conflict, agents MUST stop, file a spec issue describing the conflict, and
+not silently pick a side."
+
+**The two requirements, quoted.**
+
+> **RPC-001:** Transports: Windows — named pipe with an SDDL restricting
+> access to SYSTEM and the authorizing interactive user; Linux — Unix
+> domain socket (0700, root-owned directory) with peer-credential
+> verification; macOS — XPC with code-signing requirement checks, or an
+> equivalently verified Unix domain socket.
+
+> **SAFE-002:** The GUI, CLI, discovery layer, and default test suites MUST
+> run without elevation.
+
+**The conflict.** A Unix domain socket is connected to by path, and the
+kernel requires the connecting process to hold **search** permission on
+every directory of that path and **write** permission on the socket
+inode. A directory of mode 0700 owned by root grants search to root
+alone. So the client RPC-001's Linux transport exists to serve — the GUI
+or CLI that SAFE-002 places at no elevation — cannot reach the socket at
+all; HLP-007 ("verifies caller identity via RPC-001 before processing any
+request") and HLP-003 ("performed by the RPC-001-authenticated user") then
+have no caller to identify. The Windows clause has no such defect: its
+SDDL admits "the authorizing interactive user" by name.
+
+**Measured, 2026-08-19, on the Proxmox node (kernel `7.0.14-11-pve`)**, as
+root, with a forked child dropped to uid 65534 and its supplementary groups
+cleared: directory `0700 root:root`, socket `0666` → `connect` fails
+`EACCES`, nothing arrives at the listener. Directory `0711 root:root` (or
+`0755`), socket `0666` → connect succeeds and the listener's `SO_PEERCRED`
+reads the child's `pid/uid/gid`. Directory `0711`, socket `0660 root:root`
+→ `EACCES`; directory `0750 root:root` → `EACCES`. The directory's search
+bit and the socket node's write bit are each an admission gate the kernel
+enforces before the helper sees a byte; the literal clause closes the first
+to everyone but root.
+
+**The escapes that do not work.** "0700 is the helper's private directory
+and the socket lives elsewhere" — the clause places the socket in it.
+"The helper launches the client" — HLP-005's idle-exit, RPC-006's
+reattach after a client crash, and the Windows analog all presuppose an
+independent client that connects. "The client is admitted by a capability
+or a bind-mount" — SAFE-002 again, and SI-38's precedent: a Section 3
+constraint is not bent to satisfy a Section 7 clause (Section 0.2).
+"Reverse the roles, the root helper connects to a client-owned 0700
+directory" — the peer-credential clause is about the connecting process,
+which would then be root, proving nothing about the caller.
+
+**Options, priced in the round (§2-A), none decided here:**
+
+1. **A1 — root-owned directory searchable but not writable by others
+   (0711); the socket node owned by the authorizing user, accessible to
+   that user alone (0600); peer credentials verified against that user.**
+   Two gates, both kernel-enforced before parsing, the Linux analog of the
+   Windows SDDL; the path stays root-created and unsquattable. A spec
+   change: the sentence's mode bit changes meaning — major, 19.0.0, by
+   ADR. The round's recommendation.
+2. **A2 — 0711 directory, socket 0666, the credential check as the sole
+   gate.** Works; one gate where the clause wrote two. Rejected in the
+   round.
+3. **A3 — a group-owned 0750 directory.** Standing administrator-granted
+   membership, the opposite of HLP-003's per-apply fresh act; admits every
+   member. Rejected.
+4. **A4 — reversed roles.** See the escapes. Rejected.
+
+**What waits on this:** WP-040's Linux transport increment (the endpoint
+cannot be created to a clause no client can reach), and through it
+WP-L110's assignment. The transport's peer-credential route (T1: `std`
+plus `rustix`'s safe `socket_peercred`) is independent of this issue and
+is costed in the same round.
