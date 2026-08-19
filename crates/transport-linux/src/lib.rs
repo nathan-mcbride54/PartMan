@@ -84,6 +84,22 @@ pub const SOCKET_NODE_MODE: u32 = 0o600;
 /// [`MAX_MESSAGE_BYTES`] before any allocation.
 pub const FRAME_HEADER_BYTES: usize = 4;
 
+/// Whether this build carries the endpoint at all: `Ok` on Linux, the
+/// typed [`Refusal::UnsupportedPlatform`] everywhere else. The tests'
+/// non-Linux arms assert this, so every annotated test examines something
+/// on every platform (the `ffi-linux-loop` precedent).
+///
+/// # Errors
+///
+/// [`Refusal::UnsupportedPlatform`] off Linux.
+pub const fn platform_support() -> Result<(), Refusal> {
+    if cfg!(target_os = "linux") {
+        Ok(())
+    } else {
+        Err(Refusal::UnsupportedPlatform)
+    }
+}
+
 /// The node's file name for one authorizing user, under the directory —
 /// flat per-user nodes (ADR-0055 decision 3).
 #[must_use]

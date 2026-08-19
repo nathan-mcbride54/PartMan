@@ -96,71 +96,78 @@ fn frames_are_bounded_before_allocation_and_round_trip_at_the_bound() {
 //   pair refuses with the remediation naming the older side — never a
 //   silent degrade — and a peer whose handshake fails the strict decode
 //   is refused as a decode, not read around.
+//   Off Unix the test asserts the typed unsupported-platform refusal,
+//   which is what the clause means there.
 // Evidence: the_handshake_exchange_is_total_and_refuses_with_a_remediation
-#[cfg(unix)]
 #[test]
 fn the_handshake_exchange_is_total_and_refuses_with_a_remediation() {
-    use std::os::unix::net::UnixStream;
-
-    use partman_rpc::{Handshake, PROTOCOL_VERSION};
-
-    use crate::exchange_handshake;
-    let (mut a, mut b) = UnixStream::pair().unwrap();
-    let local_a = Handshake::local("1.2.3");
-    let local_b = Handshake::local("1.2.4");
-    let t = std::thread::spawn(move || exchange_handshake(&mut b, &local_b));
-    let got_b = exchange_handshake(&mut a, &local_a).unwrap();
-    let got_a = t.join().unwrap().unwrap();
-    assert_eq!(got_b.build, "1.2.4");
-    assert_eq!(got_a.build, "1.2.3");
-
-    let (mut a, mut b) = UnixStream::pair().unwrap();
-    let newer = Handshake {
-        protocol_version: PROTOCOL_VERSION + 1,
-        build: "2.0.0".to_owned(),
-    };
-    let local = Handshake::local("1.2.3");
-    let t = std::thread::spawn(move || exchange_handshake(&mut b, &newer));
-    let refusal = exchange_handshake(&mut a, &local).unwrap_err();
-    match refusal {
-        Refusal::Handshake(v) => {
-            assert_eq!(
-                (v.local, v.remote),
-                (PROTOCOL_VERSION, PROTOCOL_VERSION + 1)
-            );
-            assert!(v.remediation.contains("this side speaks an older protocol"));
-        }
-        other => panic!("expected a handshake refusal, got {other:?}"),
+    #[cfg(not(unix))]
+    {
+        assert_eq!(crate::platform_support(), Err(Refusal::UnsupportedPlatform));
     }
-    assert!(matches!(t.join().unwrap(), Err(Refusal::Handshake(_))));
+    #[cfg(unix)]
+    {
+        use std::os::unix::net::UnixStream;
 
-    let (mut a, mut b) = UnixStream::pair().unwrap();
-    let t = std::thread::spawn(move || write_frame(&mut b, b"not a handshake"));
-    let refusal = exchange_handshake(&mut a, &Handshake::local("1.2.3")).unwrap_err();
-    assert!(matches!(refusal, Refusal::Decode(_)), "got {refusal:?}");
-    t.join().unwrap().unwrap();
+        use partman_rpc::{Handshake, PROTOCOL_VERSION};
+
+        use crate::exchange_handshake;
+        let (mut a, mut b) = UnixStream::pair().unwrap();
+        let local_a = Handshake::local("1.2.3");
+        let local_b = Handshake::local("1.2.4");
+        let t = std::thread::spawn(move || exchange_handshake(&mut b, &local_b));
+        let got_b = exchange_handshake(&mut a, &local_a).unwrap();
+        let got_a = t.join().unwrap().unwrap();
+        assert_eq!(got_b.build, "1.2.4");
+        assert_eq!(got_a.build, "1.2.3");
+
+        let (mut a, mut b) = UnixStream::pair().unwrap();
+        let newer = Handshake {
+            protocol_version: PROTOCOL_VERSION + 1,
+            build: "2.0.0".to_owned(),
+        };
+        let local = Handshake::local("1.2.3");
+        let t = std::thread::spawn(move || exchange_handshake(&mut b, &newer));
+        let refusal = exchange_handshake(&mut a, &local).unwrap_err();
+        match refusal {
+            Refusal::Handshake(v) => {
+                assert_eq!(
+                    (v.local, v.remote),
+                    (PROTOCOL_VERSION, PROTOCOL_VERSION + 1)
+                );
+                assert!(v.remediation.contains("this side speaks an older protocol"));
+            }
+            other => panic!("expected a handshake refusal, got {other:?}"),
+        }
+        assert!(matches!(t.join().unwrap(), Err(Refusal::Handshake(_))));
+
+        let (mut a, mut b) = UnixStream::pair().unwrap();
+        // The garbage peer writes, then reads our handshake before it drops its
+        // end, so our own write cannot race a closed pipe.
+        let t = std::thread::spawn(move || {
+            write_frame(&mut b, b"not a handshake").unwrap();
+            read_frame(&mut b).unwrap()
+        });
+        let refusal = exchange_handshake(&mut a, &Handshake::local("1.2.3")).unwrap_err();
+        assert!(matches!(refusal, Refusal::Decode(_)), "got {refusal:?}");
+        let ours = t.join().unwrap();
+        assert_eq!(Handshake::decode(&ours).unwrap().build, "1.2.3");
+    }
 }
 
 #[cfg(target_os = "linux")]
-mod linux {
+mod linux_support {
     use std::fs;
-    use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
-    use std::os::unix::net::UnixStream;
+    use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
 
-    use partman_rpc::Handshake;
+    use crate::Timeouts;
 
-    use crate::linux::{Endpoint, admit, check_directory, connect, peer_credentials};
-    use crate::{
-        AuthorizingUser, Refusal, SOCKET_DIRECTORY_MODE, SOCKET_NODE_MODE, Timeouts, read_frame,
-        write_frame,
-    };
-
-    fn euid() -> u32 {
+    pub fn euid() -> u32 {
         rustix::process::geteuid().as_raw()
     }
 
-    fn fresh_directory(tag: &str, mode: u32) -> PathBuf {
+    pub fn fresh_directory(tag: &str, mode: u32) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
             "partman-transport-{tag}-{}-{}",
             std::process::id(),
@@ -175,26 +182,41 @@ mod linux {
     // Generous on purpose: these are bounds against a stalled peer, not
     // a measurement of one, and a loaded CI host must not turn a bound
     // into a flake.
-    fn timeouts() -> Timeouts {
+    pub fn timeouts() -> Timeouts {
         Timeouts {
             request_ms: 30_000,
             handshake_ms: 30_000,
         }
     }
+}
 
-    // Requirements: RPC-001, SAFE-005
-    //   The directory rule, fail-closed and exact: a 0711 directory owned
-    //   by this process's effective uid is accepted; 0755 (others may
-    //   write nothing, but the mode is not RPC-001's) and 0700 (the
-    //   measured SI-41 case, which would refuse the client) are both
-    //   refused naming the mode found; a symlink to a good directory is
-    //   refused as not-a-directory; a pre-existing node at the socket
-    //   path — here a plain file — is refused and left untouched, never
-    //   replaced or re-moded; and the node the endpoint makes is 0600,
-    //   owned by the authorizing user, and removed when the endpoint drops.
-    // Evidence: the_endpoint_checks_the_directory_exactly_and_makes_a_user_owned_node
-    #[test]
-    fn the_endpoint_checks_the_directory_exactly_and_makes_a_user_owned_node() {
+// Requirements: RPC-001, SAFE-005
+//   The directory rule, fail-closed and exact: a 0711 directory owned
+//   by this process's effective uid is accepted; 0755 (others may
+//   write nothing, but the mode is not RPC-001's) and 0700 (the
+//   measured SI-41 case, which would refuse the client) are both
+//   refused naming the mode found; a symlink to a good directory is
+//   refused as not-a-directory; a pre-existing node at the socket
+//   path — here a plain file — is refused and left untouched, never
+//   replaced or re-moded; and the node the endpoint makes is 0600,
+//   owned by the authorizing user, and removed when the endpoint drops.
+//   Off Linux the test asserts the typed unsupported-platform refusal.
+// Evidence: the_endpoint_checks_the_directory_exactly_and_makes_a_user_owned_node
+#[test]
+fn the_endpoint_checks_the_directory_exactly_and_makes_a_user_owned_node() {
+    #[cfg(not(target_os = "linux"))]
+    {
+        assert_eq!(crate::platform_support(), Err(Refusal::UnsupportedPlatform));
+    }
+    #[cfg(target_os = "linux")]
+    {
+        use std::fs;
+        use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
+
+        use self::linux_support::{euid, fresh_directory, timeouts};
+        use crate::linux::{Endpoint, check_directory};
+        use crate::{SOCKET_DIRECTORY_MODE, SOCKET_NODE_MODE};
+
         let me = AuthorizingUser(euid());
         let good = fresh_directory("good", SOCKET_DIRECTORY_MODE);
         assert_eq!(check_directory(&good), Ok(()));
@@ -246,18 +268,35 @@ mod linux {
         );
         let _ = fs::remove_dir_all(&good);
     }
+}
 
-    // Requirements: RPC-001, RPC-002, RPC-004, SEC-007
-    //   The whole path at the client baseline: the test's own uid connects
-    //   to its own endpoint, the kernel admits it at the 0600 node, the
-    //   endpoint reads SO_PEERCRED (this process's uid/gid/pid), the
-    //   verifier admits it, the handshake exchanges, and bounded frames
-    //   flow both ways. peer_credentials on a pair reports the test's own
-    //   euid, which is the verifier's positive case; a foreign uid is not
-    //   constructible here and is the Tier-2 acceptance's.
-    // Evidence: an_authorizing_user_is_admitted_verified_and_handshaken_end_to_end
-    #[test]
-    fn an_authorizing_user_is_admitted_verified_and_handshaken_end_to_end() {
+// Requirements: RPC-001, RPC-002, RPC-004, SEC-007
+//   The whole path at the client baseline: the test's own uid connects
+//   to its own endpoint, the kernel admits it at the 0600 node, the
+//   endpoint reads SO_PEERCRED (this process's uid/gid/pid), the
+//   verifier admits it, the handshake exchanges, and bounded frames
+//   flow both ways. peer_credentials on a pair reports the test's own
+//   euid, which is the verifier's positive case; a foreign uid is not
+//   constructible here and is the Tier-2 acceptance's. Off Linux the
+//   test asserts the typed unsupported-platform refusal.
+// Evidence: an_authorizing_user_is_admitted_verified_and_handshaken_end_to_end
+#[test]
+fn an_authorizing_user_is_admitted_verified_and_handshaken_end_to_end() {
+    #[cfg(not(target_os = "linux"))]
+    {
+        assert_eq!(crate::platform_support(), Err(Refusal::UnsupportedPlatform));
+    }
+    #[cfg(target_os = "linux")]
+    {
+        use std::fs;
+        use std::os::unix::net::UnixStream;
+
+        use partman_rpc::Handshake;
+
+        use self::linux_support::{euid, fresh_directory, timeouts};
+        use crate::SOCKET_DIRECTORY_MODE;
+        use crate::linux::{Endpoint, connect, peer_credentials};
+
         let me = AuthorizingUser(euid());
         let dir = fresh_directory("e2e", SOCKET_DIRECTORY_MODE);
         let endpoint = Endpoint::create(&dir, me, timeouts()).unwrap();
@@ -289,22 +328,37 @@ mod linux {
         assert_eq!(creds.uid, euid());
         let _ = fs::remove_dir_all(&dir);
     }
+}
 
-    // Requirements: RPC-001, HLP-007, SAFE-005
-    //   The refusal arm of the verifier, on a real stream, before any
-    //   byte is read: a peer whose injected credentials are not the
-    //   authorizing user's is refused by admit(), and the bytes the peer
-    //   had already sent are still in the stream afterwards — the
-    //   handshake never ran and nothing was consumed. A second uid is not
-    //   constructible unprivileged, which is why the credentials are
-    //   injected here and the kernel-side arms are the Tier-2 acceptance's.
-    // Evidence: a_foreign_uid_is_refused_before_any_byte_is_read
-    #[test]
-    fn a_foreign_uid_is_refused_before_any_byte_is_read() {
+// Requirements: RPC-001, HLP-007, SAFE-005
+//   The refusal arm of the verifier, on a real stream, before any
+//   byte is read: a peer whose injected credentials are not the
+//   authorizing user's is refused by admit(), and the bytes the peer
+//   had already sent are still in the stream afterwards — the
+//   handshake never ran and nothing was consumed. A second uid is not
+//   constructible unprivileged, which is why the credentials are
+//   injected here and the kernel-side arms are the Tier-2 acceptance's.
+//   Off Linux the test asserts the typed unsupported-platform refusal.
+// Evidence: a_foreign_uid_is_refused_before_any_byte_is_read
+#[test]
+fn a_foreign_uid_is_refused_before_any_byte_is_read() {
+    #[cfg(not(target_os = "linux"))]
+    {
+        assert_eq!(crate::platform_support(), Err(Refusal::UnsupportedPlatform));
+    }
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::net::UnixStream;
+
+        use partman_rpc::Handshake;
+
+        use self::linux_support::{euid, timeouts};
+        use crate::linux::admit;
+
         let me = AuthorizingUser(euid());
         let (mut client, mut server) = UnixStream::pair().unwrap();
         write_frame(&mut client, b"sent before the helper looked").unwrap();
-        let foreign = crate::PeerCredentials {
+        let foreign = PeerCredentials {
             uid: me.0.wrapping_add(1),
             gid: 0,
             pid: 1,
@@ -330,7 +384,7 @@ mod linux {
             b"sent before the helper looked",
             "the refused peer's bytes were never read"
         );
-        let mine = crate::PeerCredentials {
+        let mine = PeerCredentials {
             uid: me.0,
             gid: 0,
             pid: 1,
