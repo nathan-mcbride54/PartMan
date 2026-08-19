@@ -1,4 +1,4 @@
-//! The WP-L100 Linux read-only inventory adapter (increment 4b, third slice).
+//! The WP-L100 Linux read-only inventory adapter (increment 5a).
 //!
 //! The ordinary Linux client contract, as a pure library: a bounded read seam
 //! over sysfs attribute files and the udev database, the MODEL-004
@@ -110,6 +110,14 @@
 //! - **No sameness inference.** Two interfaces reporting one identifier
 //!   produce two attributed observations; nothing here elects one, groups two
 //!   rows under one device, or infers cross-path sameness (ADR-0011).
+//! - **No tool launched, and no tool needed.** The capability seam
+//!   (`runtime`, increment 5a) produces WP-050's CAP-004 `RuntimeFacts`
+//!   for the source-class operations this adapter serves — an empty tool
+//!   roster for each, pinned by test, and the ACC-009 mapping from a
+//!   caller-supplied probe to the engine's tool state — and answers a
+//!   typed refusal for mutating operations, whose tools are WP-L110's to
+//!   state. Probes come from the package that launches (WP-035's doctor);
+//!   the Section 9 floor determination is increment 5b's.
 //! - **No user-facing surface.** This is a library. The CLI is WP-035's and
 //!   WP-080's, and the diagnostic bundle is WP-035's.
 
@@ -128,6 +136,7 @@ pub mod held;
 pub mod naming;
 pub mod observation;
 pub mod reach;
+pub mod runtime;
 pub mod state;
 pub mod volumes;
 

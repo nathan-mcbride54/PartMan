@@ -15,6 +15,12 @@ publish = false
 # never depend on adapters — so nothing here may be imported back into the
 # domain.
 partman-domain = { path = "../domain" }
+# `partman-capability` since increment 5a: this adapter produces WP-050's
+# CAP-004-shaped `RuntimeFacts` in the engine's own vocabulary rather than a
+# parallel one. The same direction as above (Section 4.3): the adapter
+# depends on the canonical engine types; the engine never depends on an
+# adapter, and it performs no I/O to gather what this crate supplies.
+partman-capability = { path = "../capability" }
 
 [lints]
 workspace = true

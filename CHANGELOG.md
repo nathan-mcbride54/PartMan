@@ -5,6 +5,23 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ## Unreleased
 
+### Added
+
+- **WP-L100 increment 5a: the capability seam (CAP-004, INV-006; no
+  spec change).** `runtime.rs` produces WP-050's `RuntimeFacts` in the
+  engine's own vocabulary (`partman-adapter-linux` now depends on
+  `partman-capability`): an empty tool roster for every served
+  source-class operation, pinned by test on the plan's finding that no
+  read-only operation needs a tool; a typed `NotServed` for mutating
+  operations, whose tools are WP-L110's to state; the ACC-009 mapping
+  from a caller-supplied structured probe and a store-read floor to the
+  engine's tool state, fail-closed on every arm the text leaves open (no
+  floor known, unparsed version, failed probe, not probed); and the
+  assembly carrying the caller's platform fact unchanged. Nothing
+  launches; INV-006 held by the forbidden-tool list and the no-process
+  guard. Two tests; five mutations killed. Rust: the WP-020 sitting is
+  r47.
+
 ### Changed
 
 - **WP-L100 `adapter-linux`: `held.rs`/`lib.rs` module docs corrected**
