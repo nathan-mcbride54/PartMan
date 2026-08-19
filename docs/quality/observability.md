@@ -11,7 +11,7 @@
   recorded harness defects, and **M10 taken the same day** in an ephemeral
   hosted runner, where the helper reads at byte level what the client is
   denied. Only M9 remains `not established`, Apple Silicon having no Fusion
-  Drive. **No preregistered cell on any platform is now `not yet taken`** — the floor-input cells DR16–DR18 (gitea#1010) were preregistered and taken 2026-08-19 UTC, all three established (DR16/DR17 on a jammy guest across the pinned reboot, no amendment; DR18 on the **first Arch guest in the record**, valid with two recorded instrument amendments). The held-standing cell DR15 (gitea#1009) was preregistered 2026-08-18 and taken 2026-08-19 UTC, established on a single guest with no amendment. The Linux detection rows DR1–DR10 (gitea#1005) and the naming-designation cells DR11–DR14 (gitea#1007) were preregistered and taken 2026-08-18, all fourteen established (DR1–DR10 valid on a second invocation; DR11–DR14 valid with two recorded instrument amendments in the rebooted phase).
+  Drive. **One preregistered cell is `not yet taken`: the Debian 12 `os-release` cell DR19** (gitea#1011, preregistered 2026-08-19, below — the first Debian guest in the record). The floor-input cells DR16–DR18 (gitea#1010) were preregistered and taken 2026-08-19 UTC, all three established (DR16/DR17 on a jammy guest across the pinned reboot, no amendment; DR18 on the **first Arch guest in the record**, valid with two recorded instrument amendments). The held-standing cell DR15 (gitea#1009) was preregistered 2026-08-18 and taken 2026-08-19 UTC, established on a single guest with no amendment. The Linux detection rows DR1–DR10 (gitea#1005) and the naming-designation cells DR11–DR14 (gitea#1007) were preregistered and taken 2026-08-18, all fourteen established (DR1–DR10 valid on a second invocation; DR11–DR14 valid with two recorded instrument amendments in the rebooted phase).
   The macOS second-reader readback was discharged 2026-08-08 by an
   independent reader session: both sitting 2 transcripts and the M10
   transcript retrieved through their locators and rehashed, every digest
@@ -4789,6 +4789,56 @@ is absent on the Arch tier by default. And the adapter's contract holds on
 the second Linux tier at the client baseline, with two udev-version
 findings for `fields.md`: the database's serial election and the two
 spellings of a blank disk's absent file-system type.
+
+### The Debian 12 `os-release` cell DR19 — preregistered 2026-08-19; not yet taken
+
+One cell, declared before execution per this document's method. It is the
+row WP-L100 increment 5b filed on this package as its **obligation 4**,
+gitea issue **#1011** (the WP-L100 record carries it under *Filed by
+obligation 4*). 5b shipped the Debian half of Section 9's Debian/Ubuntu
+row **undetermined**: `floor.rs` recognizes `ID=debian` and answers the
+distribution conjunct `Undetermined`, because no Debian guest exists in
+this record and the shape of Debian's `VERSION_ID` is a representational
+claim a spec sentence cannot stand in for. Measured first: the conventional
+Debian shape is `VERSION_ID="12"` — a bare major with no minor — which
+the delivered `parse_major_minor` would refuse; the arm needs the bytes.
+This cell is that gap and nothing else. **The UDisks2 conjunct is not
+measured here**, as in DR16–DR18.
+
+Apparatus: the DR apparatus above, extended — **a third pinned image**. The
+Debian guest (VMID 9481 next) is **the first in this record**:
+`debian-12-genericcloud-amd64-20260806-2562.qcow2` from Debian's **dated**
+release path `cloud.debian.org/images/cloud/bookworm/20260806-2562/`
+(chosen over `latest/` for the reason jammy's dated release was: the pin
+must stay fetchable), 346,816,512 bytes, fetched 2026-08-19, SHA-512
+`3622c990108a044ed411652f8741e77c5822c365114d7b940206b243f8fb617b8586792df4cdb7afba1b71d1a09289d8ed632124688f2c8352cb08190a1e9868`
+(Debian publishes SHA-512, not SHA-256) verified against that directory's
+own `SHA512SUMS` and archived beside it as
+`SHA512SUMS.debian-12-20260806-2562`; created by
+`01-host-create-vm-dr-debian.sh`, which pins that digest the way jammy's
+and Arch's create scripts pin theirs, with the same fourteen 1 GiB
+virtio-scsi DR disks by serial and the same passthrough assertion; `muser1`
+the client baseline through `runuser`; root the setup actor; **one declared
+reboot** (the cloud image ships a single kernel, so no `grub-reboot` pin is
+needed; the kernel string is recorded on both sides); digests recorded
+before the first capture. The guest does not exist before this
+preregistration lands.
+
+| # | Cell | Command / API | Privilege | Distinguishing condition | Invalidation conditions | Result |
+| --- | --- | --- | --- | --- | --- | --- |
+| DR19 | The Debian tier: `/etc/os-release` as a client file read (the fourth interface), with the kernel string, `udisks2` presence, and the three closed interfaces at the client baseline | On the Debian guest: `cat /etc/os-release` and `cat /proc/sys/kernel/osrelease` (double capture at baseline and after the declared reboot; the file's mode, owner and link target recorded); root `uname -r` on both sides; root `dpkg-query -W udisks2` and client `test -e` on `/usr/bin/udisksctl` and `/usr/libexec/udisks2/udisksd` (existence by name, no launch); `ls /sys/class/block`; the whole-disk records `/run/udev/data/b<maj>:<min>` for two DR disks read for `ID_SERIAL`, `ID_SERIAL_SHORT`, `ID_BUS`, `ID_FS_TYPE`; `ls /dev/disk/by-id`; `cat /proc/self/mountinfo` line count; the environment record | client baseline; root for `dpkg-query`, `uname`, the reboot and provisioning | Readable at the baseline; `ID=debian`; **what `VERSION_ID` is, byte for byte** (quoted or not, one part or two), with `VERSION`, `VERSION_CODENAME`, `PRETTY_NAME`; whether `ID_LIKE` exists at all (a positively determined absence is a result, and the expected one on Debian itself); byte-equal across the reboot; the kernel string's shape and its equality with `uname -r`; whether `udisks2` is installed by default on the cloud image (either answer is a result); the block class listable, a whole disk's record present with `ID_SERIAL` and `ID_BUS`, its `ID_FS_TYPE` key present-or-absent on a blank disk, which name udev 252 elects for `by-id` (the DR18 finding's third data point), the mount table readable | unreadable; `ID` absent; bytes moving across the reboot; any of the three interfaces denied at the baseline (a positive finding, recorded, and it changes the adapter's Debian story); the image failing to boot with cloud-init (`void(apparatus)`) | not yet taken |
+
+Validity gates: those of the DR sittings above (double capture, digests
+before the first capture, `CapEff` all-zero at every client capture, exit
+statuses in-transcript, the reboot recorded on both sides); additionally
+the image digest verified against the pin before creation and the
+environment record naming the Debian kernel and `systemd`/`udev` versions.
+Gate failures make the cell `void(<gate>)`, never a negative.
+
+What this sitting deliberately does not do: no floor is *determined* here
+(that is the Debian arm's code, on this row); no UDisks2 version is read;
+no tool is launched by the client; no designation; no partition-hosted
+member; nothing is provisioned on the DR disks.
 
 ## Reproducing this
 
