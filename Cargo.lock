@@ -186,6 +186,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "partman-helper-linux"
+version = "0.0.0"
+dependencies = [
+ "partman-adapter-linux",
+ "partman-domain",
+ "partman-rpc",
+ "partman-transport-linux",
+ "rustix",
+]
+
+[[package]]
 name = "partman-journal"
 version = "0.0.0"
 dependencies = [

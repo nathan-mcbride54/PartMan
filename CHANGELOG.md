@@ -7,6 +7,17 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-L110 increment 1: the Linux helper process and its closed surface
+  (HLP-001, HLP-005, HLP-006, HLP-007, RPC-005; on ADR-0055 and the launch
+  round).** `services/helper-linux` — reached over the Linux transport,
+  launched per user through `pkexec` under `org.partman.helper.serve`
+  (`allow_active`; the `PKEXEC_UID` launch rule; the `0711` directory and
+  `0600` node through the transport; idle exit), HLP-001's six operations
+  decoded strictly and closed by test, `status`/`enumerate` served
+  (enumeration the adapter's contract as root, a labelled proposal), the
+  rest `not-yet-served` naming their increment, an identifier-free audit
+  vocabulary; `schemas/helper/operations.md`. Five tests; eight mutations
+  killed. Rust: the WP-020 sitting is r54.
 - **WP-040 increment 5: the Linux transport (RPC-001, RPC-002, RPC-004,
   SEC-007, SAFE-009; on ADR-0055, spec 19.0.0).** `crates/transport-linux`
   — a Unix-socket endpoint in a root-owned `0711` directory with a `0600`

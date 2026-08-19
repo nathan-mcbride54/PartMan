@@ -1,0 +1,26 @@
+[package]
+name = "partman-helper-linux"
+description = "The WP-L110 Linux privileged helper: reached over the Linux transport, HLP-001's six operations and nothing else, launched per user through pkexec (increment 1: the process and its closed surface)"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "partman-helper-linux"
+path = "src/main.rs"
+
+[dependencies]
+partman-domain = { path = "../../crates/domain" }
+partman-rpc = { path = "../../crates/rpc" }
+partman-transport-linux = { path = "../../crates/transport-linux" }
+partman-adapter-linux = { path = "../../crates/adapter-linux" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# The helper's own effective uid (the endpoint owner check) and nothing else
+# from rustix; the transport already carries it.
+rustix = { version = "1.1.4", default-features = false, features = ["process", "std"] }
+
+[lints]
+workspace = true
