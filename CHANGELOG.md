@@ -5,6 +5,15 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ## Unreleased
 
+### Changed
+
+- **WP-L100 `adapter-linux`: `held.rs`/`lib.rs` module docs corrected**
+  — the held standing's consumer is the helper's capture (WP-L110), not
+  a WP-010 consumed-member arm; the delivered closure gives a consumed
+  member its consumer's verdict (ADR-0018 reading (b), decided
+  2026-08-19; gitea#1008 closed). Doc comments only, no behaviour change;
+  Rust, so the WP-020 sitting is r46.
+
 ### Added
 
 - **WP-L100 increment 4b, third slice: the held standing, and the cached

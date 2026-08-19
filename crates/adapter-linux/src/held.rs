@@ -36,11 +36,15 @@
 //! a hold is envelope, never body — the shape increment 4a gave mounts —
 //! and it enters no name and no address (a held member stays a
 //! `PhysicalDevice` under its designated name: it is the host of what the
-//! helper will find). The closure's consumed-member refusal that would
-//! consume it is ADR-0018's forward obligation (`:391-398`, `:601-603`,
-//! `:610`), filed as gitea#1008 on WP-010; until it lands the standing
-//! changes no verdict, and this module says so rather than pretending
-//! otherwise. The cached signature view (`ID_FS_TYPE`, `ID_FS_USAGE`,
+//! helper will find). It changes no verdict: under the delivered closure a
+//! consumed member's verdict is its consumer's (ADR-0018 read as the
+//! decision owner took it on 2026-08-19 — what the ADR refuses for a
+//! consumed member is the *acknowledgment* route, delivered as
+//! `UnlawfulAcknowledgment`), and the held report's consumer is the
+//! helper's capture (WP-L110), where ADR-0018's obligation (4) — the
+//! consumed-versus-released discriminant measured, not recalled (`:601-603`)
+//! — decides whether an aggregate node and its member edges are emitted.
+//! The cached signature view (`ID_FS_TYPE`, `ID_FS_USAGE`,
 //! `ID_FS_VERSION`) is read beside it (`devices::UDEV_SIGNATURE_KEYS`) as
 //! `Heuristic`/`inferred` observations and is **consulted by nothing here**:
 //! an unheld device stays unheld whatever the cache says, because demoting it
