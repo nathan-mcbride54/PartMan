@@ -1,4 +1,4 @@
-//! The WP-L100 Linux read-only inventory adapter (increment 5a).
+//! The WP-L100 Linux read-only inventory adapter (increment 5b).
 //!
 //! The ordinary Linux client contract, as a pure library: a bounded read seam
 //! over sysfs attribute files and the udev database, the MODEL-004
@@ -13,10 +13,12 @@
 //!
 //! **What this adapter reads, and why only this.** The contract is the
 //! ordinary client's — attribute files under the sysfs block class, the udev
-//! database records, and (since increment 4a) the kernel's procfs mount and
-//! swap tables — because those are the three **interfaces**
-//! `docs/quality/observability.md` establishes as client-readable on a real
-//! host (the third by the 2026-08-18 detection-rows sitting, DR1 and DR2).
+//! database records, (since increment 4a) the kernel's procfs mount and
+//! swap tables, and (since increment 5b) the OS release record — because
+//! those are the four **interfaces** `docs/quality/observability.md`
+//! establishes as client-readable on a real host (the third by the
+//! 2026-08-18 detection-rows sitting, DR1 and DR2; the fourth by the
+//! 2026-08-19 floor-input sitting, DR16 and DR18, on both Linux tiers).
 //! All are file reads. No block device is opened and no subprocess is
 //! launched, at any privilege.
 //!
@@ -116,8 +118,15 @@
 //!   roster for each, pinned by test, and the ACC-009 mapping from a
 //!   caller-supplied probe to the engine's tool state — and answers a
 //!   typed refusal for mutating operations, whose tools are WP-L110's to
-//!   state. Probes come from the package that launches (WP-035's doctor);
-//!   the Section 9 floor determination is increment 5b's.
+//!   state. Probes come from the package that launches (WP-035's doctor).
+//!   The Section 9 floor determination (`floor`, increment 5b) reads two
+//!   files on the DR16–DR18 rows — `os-release`, the **fourth interface**,
+//!   and procfs `osrelease` — and answers met, below, or **undetermined**:
+//!   Ubuntu's release and kernel conjuncts are measured; Arch meets its
+//!   row on `ID` alone; Debian's shape is unmeasured and undetermined;
+//!   the `UDisks2` conjunct is undetermined by construction (no source under
+//!   this contract, LIN-001's route undecided), so every Debian/Ubuntu host
+//!   is `Undetermined` today — the honest answer, never a guess.
 //! - **No user-facing surface.** This is a library. The CLI is WP-035's and
 //!   WP-080's, and the diagnostic bundle is WP-035's.
 
@@ -132,6 +141,7 @@ pub mod arrays;
 pub mod contract;
 pub mod derivation;
 pub mod devices;
+pub mod floor;
 pub mod held;
 pub mod naming;
 pub mod observation;

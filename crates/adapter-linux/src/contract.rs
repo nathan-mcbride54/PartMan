@@ -61,6 +61,19 @@ pub fn procfs_root() -> PathBuf {
     PathBuf::from("/proc")
 }
 
+/// The compiled root of the OS-release interface the production contract
+/// reads (increment 5b): the directory holding `os-release`.
+///
+/// The fourth interface, entered the way the first three were — by a row:
+/// DR16 (jammy) and DR18 (the first Arch guest) of the 2026-08-19
+/// floor-input sitting establish that `/etc/os-release` is a
+/// client-readable file (a symlink to `/usr/lib/os-release` on both tiers)
+/// in the documented `KEY=value` shape.
+#[must_use]
+pub fn os_release_root() -> PathBuf {
+    PathBuf::from("/etc")
+}
+
 /// The injected read seam.
 ///
 /// Shaped on WP-035's `DeviceSource` rather than a second idiom: object-safe,

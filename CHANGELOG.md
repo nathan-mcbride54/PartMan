@@ -7,6 +7,18 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-L100 increment 5b: the Section 9 floor determination (CAP-004,
+  INV-002; no spec change).** `floor.rs` reads `os-release` — the
+  fourth interface, entered by DR16/DR18 — and procfs `osrelease`
+  through the bounded record seam and composes the floor fail-closed:
+  a measured shortfall is `BelowFloor`, any undetermined conjunct is
+  `Undetermined` naming it, only every conjunct met is `MeetsFloor`.
+  Ubuntu's release (numeric `major.minor` against 22.04) and kernel
+  (against 5.15) are measured; Arch meets its row on `ID` alone; Debian
+  is undetermined (no row); the UDisks2 conjunct is undetermined by
+  construction, so every Debian/Ubuntu host answers `Undetermined`.
+  Three tests over the transcripts' bytes; six mutations killed. Rust:
+  the WP-020 sitting is r49.
 - **WP-050 increment 5: the undetermined floor arm (CAP-001, CAP-003,
   Section 9; no spec change).** `PlatformFact::Undetermined { conjunct }`
   in `crates/capability`: a Section 9 floor conjunct the producer cannot

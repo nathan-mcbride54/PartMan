@@ -29,7 +29,9 @@ use crate::contract::AttributeRead;
 /// interface it does not read. Increment 2's field lists are drawn from the
 /// first two; increment 4a's state tables from the third, which entered the
 /// way the first two did — by an observability row (the 2026-08-18
-/// detection-rows sitting, DR1 and DR2), never by documentation.
+/// detection-rows sitting, DR1 and DR2), never by documentation; increment
+/// 5b's floor determination reads the fourth, entered by DR16 and DR18 of
+/// the 2026-08-19 floor-input sitting.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Interface {
     /// Attribute files under the sysfs block class, read by this client.
@@ -43,6 +45,12 @@ pub enum Interface {
     /// (increment 4a). State-layer facts under MODEL-005's body-stability
     /// rule, never topology and never body content.
     Procfs,
+    /// The operating system's own release record, `os-release` under the
+    /// OS-release root — `KEY=value` lines the distribution ships, read by
+    /// this client (increment 5b) for the Section 9 floor determination's
+    /// distribution conjunct. A file the platform wrote about itself, read
+    /// directly: [`Method::Direct`].
+    OsRelease,
 }
 
 impl Interface {
@@ -53,6 +61,7 @@ impl Interface {
             Self::Sysfs => "linux-sysfs",
             Self::UdevDatabase => "linux-udev-db",
             Self::Procfs => "linux-procfs",
+            Self::OsRelease => "linux-os-release",
         }
     }
 
@@ -81,7 +90,7 @@ impl Interface {
     #[must_use]
     pub const fn method(self) -> Method {
         match self {
-            Self::Sysfs | Self::Procfs => Method::Direct,
+            Self::Sysfs | Self::Procfs | Self::OsRelease => Method::Direct,
             Self::UdevDatabase => Method::Heuristic,
         }
     }
