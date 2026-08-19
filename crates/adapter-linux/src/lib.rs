@@ -1,4 +1,4 @@
-//! The WP-L100 Linux read-only inventory adapter (increment 4b, second slice).
+//! The WP-L100 Linux read-only inventory adapter (increment 4b, third slice).
 //!
 //! The ordinary Linux client contract, as a pure library: a bounded read seam
 //! over sysfs attribute files and the udev database, the MODEL-004
@@ -66,7 +66,19 @@
 //!   logical volume from `dm/name` under its designator-absent
 //!   volume-group aggregate (`volumes`), each verbatim through the
 //!   bytes-preserving path; a dm-crypt mapping and a loop device are
-//!   reported and not named.
+//!   reported and not named. **No `BackingSignature`, no `Backing` edge and
+//!   no `EncryptionLayer` is built here, and none is waited for** (the
+//!   member-signature offset round, 2026-08-18): no client interface
+//!   reports a signature's offset (DR14) and the family is cache-only per
+//!   member, so both naming fields are the helper's byte layer's and the
+//!   nodes arrive at HLP-002's re-discovery. The third slice reports what
+//!   the client does read instead (`held`): a whole device's **held**
+//!   standing from sysfs `holders/`, keyed by the holder's own uuid (DR15:
+//!   live from both ends; entry names moved, identities held), a
+//!   state-layer observation that enters no name and changes no verdict
+//!   until WP-010's consumed-member arm consumes it (gitea#1008); and the
+//!   cached signature view (`ID_FS_TYPE`/`ID_FS_USAGE`/`ID_FS_VERSION`),
+//!   reported as `Heuristic`/`inferred` and consulted by nothing.
 //!   `NamingFields::PartitionTable` carries a `TableRole` — a scheme — and
 //!   this contract reads no table bytes. ADR-0036's forward obligation put
 //!   the choice to this increment in terms, and the package document records
@@ -112,6 +124,7 @@ pub mod arrays;
 pub mod contract;
 pub mod derivation;
 pub mod devices;
+pub mod held;
 pub mod naming;
 pub mod observation;
 pub mod reach;

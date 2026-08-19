@@ -7,6 +7,21 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-L100 increment 4b, third slice: the held standing, and the cached
+  signature view reported and consulted by nothing (LIN-006, INV-004,
+  MODEL-004; no spec change).** `held.rs` reads `holders/` on every
+  admitted plain whole device and reports its standing — held (each
+  holder keyed by its own `md/uuid` or `dm/uuid`, never its entry name),
+  unheld, or undetermined where the listing did not answer — as
+  MODEL-004 observations on the sysfs interface: a state-layer fact under
+  MODEL-005, never a name, the shape 4a gave mounts; DR15 measured the
+  relation live from both ends and agreeing by identity while entry names
+  moved. `devices.rs` reads `ID_FS_TYPE`/`ID_FS_USAGE`/`ID_FS_VERSION`
+  from the same record as the identity keys and reports them
+  `Heuristic`/`inferred`; nothing consults them, structurally held. No
+  `BackingSignature`, `Backing` edge or `EncryptionLayer` is built by the
+  client, and none is waited for (the member-signature offset round). Two
+  tests; six mutations killed. Rust: the WP-020 sitting is r45.
 - **WP-L100 increment 4b, second slice: naming what ADR-0053 designates
   (LIN-006, INV-004; no spec change beyond 17.4.0's).** `arrays.rs` names
   each mdraid array from sysfs `md/uuid`, bytes verbatim, trailing newline

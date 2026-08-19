@@ -26,10 +26,11 @@
 //! `slaves/` names the array's members as the kernel reports them, and is a
 //! **per-mapping** relation, so it is reported as an observation and never
 //! turned into an edge here — an edge needs member `BackingSignature`
-//! nodes, whose family and offset the client has no measured source for
-//! (`ID_FS_VERSION` and `md/metadata_version` were not read; the offset is
-//! the helper's parser's fact), which is the next slice's question and
-//! filed as such.
+//! nodes, which the member-signature offset round decided this client
+//! never builds (no interface reports the offset, DR14; the fields are
+//! the helper's byte layer's). The member's side of the same relation is
+//! `held.rs`'s held standing, keyed by this array's `md/uuid`; DR15
+//! measured the two sides agreeing by identity in every phase.
 //!
 //! **What this slice does not build.** No LVM2 aggregate (no VG identity is
 //! client-readable, and one aggregate per LV would misrepresent one VG as

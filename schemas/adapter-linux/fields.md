@@ -135,6 +135,9 @@ rather than a convention.
 | `ID_WWN` | Identifier row names the key as carried; no value recorded on any Linux host, consistent with `device/wwid`'s failed read | WSL2-only, key only |
 | `ID_WWN_WITH_EXTENSION` | Identifier row names the key as carried; no value recorded | WSL2-only, key only |
 | `ID_BUS` | **R4** — `usb` on every database capture of the real USB mass-storage unit, alongside `ID_USB_DRIVER=usb-storage`, `ID_USB_INTERFACES=:080650:` and `ID_TYPE=disk` (none of which this roster reads) | real-hardware |
+| `ID_FS_TYPE` (4b, third slice; reported, consulted by nothing) | **DR6** — `LVM2_member`, `linux_raid_member`, `crypto_LUKS`, `btrfs`, `ext4` on the respective provisioned devices, and positively **empty** on a plain disk; **L4/L10** — over a live-ext4-over-stale-mdraid host the single-answer cache reports exactly the stale `linux_raid_member` and no ext4, which is why this key enters no name, kind or standing | VM (DR); real-hardware (L-F) |
+| `ID_FS_USAGE` (4b, third slice; reported, consulted by nothing) | **DR6** — `raid` on PVs and md members, `crypto` on LUKS disks, `filesystem` on Btrfs and ext4; absent on the plain disk | VM (DR) |
+| `ID_FS_VERSION` (4b, third slice; reported, consulted by nothing) | **DR14** — `1.2` on every md member, `2` on both LUKS disks: the family, cache-only per member | VM (DR2) |
 | `ID_PATH` | **R4** — two values for one physical unit within one sitting (`pci-0000:00:1d.7-usb-…` before a controller reattachment, `pci-0000:01:1b.0-usb-…` after), measured evidence that this key names attachment topology and not the unit | real-hardware |
 
 The transcription gap this section previously recorded is closed. The
@@ -312,12 +315,11 @@ claim about a medium.
 | The dm classification (4b, second slice) | `dm/uuid` on a `dm/`-marked device | **DR3** — `LVM-` on a logical volume, `CRYPT-LUKS2-` on an opened container; read as a classification input, never a name; the 32 bytes after `LVM-` partition logical volumes into volume-group classes and enter no name (ADR-0053) | VM (DR) |
 | The LVM logical-volume name (4b, second slice) | `dm/name` on an `LVM-`-classified dm node | **DR12** — byte-equal across `vgchange -an/-ay` and a reboot with automatic activation; **ADR-0053** designates it, verbatim. For a dm-crypt mapping the same attribute is the opener's argument (DR12) and is **not** a name | VM (DR2) |
 | The loop backing path (4b, second slice; reported, no node) | `loop/backing_file` on a `loop/`-marked device | **DR7**, **DR13** — the attached path verbatim; two loops on one file report equal bytes; **ADR-0053** designates it for the `BackingExtent` 3b's host node will let a loop have. By-name evidence on #94's terms | VM (DR, DR2) |
+| The held standing (4b, third slice; a state-layer observation, never a name) | `holders/` on every admitted plain whole device; the holder's own `md/uuid` or `dm/uuid` as its key | **DR4**, **DR15** — live from both ends: positively empty on every member the moment its consumer is stopped, naming the consumer again after re-assembly and after a reboot; agreeing with the assembled node's `slaves/` by identity in every phase while entry names moved (`dm-0`/`dm-1`, `md126`/`md127`); the unmapped PV of an active VG, a Btrfs member, a plain disk and a live-but-unopened LUKS disk unheld. Held / unheld / undetermined; a listing that did not answer is undetermined, never unheld | VM (DR, DR3) |
 
-What this roster deliberately does **not** carry: `holders/`,
-`ID_FS_TYPE`/`ID_FS_USAGE`/`ID_FS_VERSION` as observations — measured
-(DR4, DR6, DR14), the third slice's, and waiting on DR15 (gitea#1009);
-`/sys/fs/btrfs`, `md/metadata_version` — measured (DR8, DR14) and waiting
-on 3b; and no derived boot or system role.
+What this roster deliberately does **not** carry: `/sys/fs/btrfs`,
+`md/metadata_version` — measured (DR8, DR14) and waiting on 3b; and no
+derived boot or system role.
 
 **No signature node from this client, on any row.** The member-signature
 offset round (`docs/reviews/LINUX_MEMBER_SIGNATURE_OFFSET_ROUND_2026-08-18.md`)
@@ -328,5 +330,5 @@ which reports exactly the stale signature on a stale pair (L4/L10). A
 (ADR-0018; ADR-0019 `:252-256`), so this adapter builds no
 `BackingSignature`, no `Backing` edge and no `EncryptionLayer`; they enter
 the Linux inventory at HLP-002's re-discovery. `holders/` is what the client
-reads instead — a state-layer fact, never a name — and it is not in this
-roster until DR15 measures its liveness.
+reads instead — a state-layer fact, never a name — and DR15 measured its
+liveness, so the third slice reports it (§7).
