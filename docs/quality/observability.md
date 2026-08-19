@@ -11,7 +11,7 @@
   recorded harness defects, and **M10 taken the same day** in an ephemeral
   hosted runner, where the helper reads at byte level what the client is
   denied. Only M9 remains `not established`, Apple Silicon having no Fusion
-  Drive. **No preregistered cell on any platform is now `not yet taken`** — the Debian 12 `os-release` cell DR19 (gitea#1011) was preregistered and taken 2026-08-19 UTC on the **first Debian guest in the record**, established, with one recorded apparatus amendment (the first create, VMID 9481, void(apparatus); the cited run VMID 9482). The floor-input cells DR16–DR18 (gitea#1010) were preregistered and taken 2026-08-19 UTC, all three established (DR16/DR17 on a jammy guest across the pinned reboot, no amendment; DR18 on the **first Arch guest in the record**, valid with two recorded instrument amendments). The held-standing cell DR15 (gitea#1009) was preregistered 2026-08-18 and taken 2026-08-19 UTC, established on a single guest with no amendment. The Linux detection rows DR1–DR10 (gitea#1005) and the naming-designation cells DR11–DR14 (gitea#1007) were preregistered and taken 2026-08-18, all fourteen established (DR1–DR10 valid on a second invocation; DR11–DR14 valid with two recorded instrument amendments in the rebooted phase).
+  Drive. **One preregistered cell is `not yet taken`: the USB-device-node recognition cell FR6** (gitea#1002, preregistered 2026-08-19, below — two legs, the FR4 unit on the Proxmox node's own XHCI chain and the same unit passed through to a jammy guest). The Debian 12 `os-release` cell DR19 (gitea#1011) was preregistered and taken 2026-08-19 UTC on the **first Debian guest in the record**, established, with one recorded apparatus amendment (the first create, VMID 9481, void(apparatus); the cited run VMID 9482). The floor-input cells DR16–DR18 (gitea#1010) were preregistered and taken 2026-08-19 UTC, all three established (DR16/DR17 on a jammy guest across the pinned reboot, no amendment; DR18 on the **first Arch guest in the record**, valid with two recorded instrument amendments). The held-standing cell DR15 (gitea#1009) was preregistered 2026-08-18 and taken 2026-08-19 UTC, established on a single guest with no amendment. The Linux detection rows DR1–DR10 (gitea#1005) and the naming-designation cells DR11–DR14 (gitea#1007) were preregistered and taken 2026-08-18, all fourteen established (DR1–DR10 valid on a second invocation; DR11–DR14 valid with two recorded instrument amendments in the rebooted phase).
   The macOS second-reader readback was discharged 2026-08-08 by an
   independent reader session: both sitting 2 transcripts and the M10
   transcript retrieved through their locators and rehashed, every digest
@@ -4895,6 +4895,66 @@ contract holds on Debian proper at the client baseline, with the
 serial-election finding relocated: the boundary is between udev 249 and
 252, jammy the odd reading, for `fields.md` §3 to state as a three-point
 series with the Debian arm's delivery.
+
+### The USB-device-node recognition cell FR6 — preregistered 2026-08-19; not yet taken
+
+One cell in two legs, declared before execution per this document's
+method. It is the row WP-L100 increment 3a filed on this package as gitea
+issue **#1002** (the WP-L100 record carries it under *Filed by increment
+3a*, item 1). ADR-0034 designates the Linux serial source as "the `serial`
+attribute of the device's nearest sysfs ancestor that is a **USB device
+node**" and says the resolution rule is structural; **FR4** (the
+floor-rows sitting, VMID 9437) established that the measured traversal
+*reaches* one (`…/usb10/10-1/serial`, the recorded serial of the unit).
+No row establishes **what a client may read to recognize one** — the
+claim the delivered predicate makes (`crates/adapter-linux/src/naming.rs`,
+`USB_DEVICE_MARKERS`: recognition requires both `idVendor` and `idProduct`
+to answer with a value; an unreadable marker recognizes nothing and the
+walk continues; no recognized ancestor yields an absent serial and a
+weaker name), shipped fail-closed on increment 2's `partition` precedent
+and recorded in `schemas/adapter-linux/fields.md` with evidence **none**.
+This cell is that claim and nothing else.
+
+Apparatus: **the same physical unit FR4 resolved** — the authorized SanDisk
+fixture stick, serial `A20036CA8695D921` (the second, identical stick is
+not taken; the unit is addressed by host bus-port, and the create script
+refuses any other serial at that port). Two legs, one instrument
+(`fr6-client.sh`, its digest recorded in-transcript before the first
+capture): **leg A, real hardware** — the Proxmox node itself (Debian-based
+PVE, kernel `7.0.14-11-pve`), the unit attached to the node's own XHCI
+root port `2-3` as `sdb`, the node's NVMe system disk as the non-USB
+contrast, the instrument run as the unprivileged `nobody` through
+`runuser`, before the guest takes the unit; **leg B, the FR apparatus** —
+a disposable jammy guest (VMID 9485; the pinned image; `muser1` the
+client baseline through `runuser`; root the setup actor; `blockdev
+--setro` on the unit before any capture; no provisioning), the unit passed
+through on XHCI (`usb0: host=2-3,usb3=1`, the L-E wedge lesson), the
+virtio system disk as the contrast. No reboot is declared on either leg.
+Double capture on both. The instrument was syntax-checked and smoke-run
+once on the node against the *second* stick before this preregistration;
+that output is not cited and the instrument has not changed since except
+one fallback message. The guest does not exist before this
+preregistration lands.
+
+| # | Cell | Command / API | Privilege | Distinguishing condition | Invalidation conditions | Result |
+| --- | --- | --- | --- | --- | --- | --- |
+| FR6 | What a client may read to recognize a USB device node on ADR-0034's ancestor walk | For the unit and for a non-USB contrast device: walk `/sys/class/block/<dev>/device/..`, `/../..`, … nearest first, exactly as the delivered predicate walks (parent components appended to the `device` link, no link resolution by the client beyond the platform's own), up to twelve ancestors; at each ancestor record the resolved path, the `subsystem` link's target, the `uevent` body, a bounded listing, and for each of a fixed attribute set (`idVendor`, `idProduct`, `serial`, `manufacturer`, `product`, `bDeviceClass`, `bInterfaceClass`, `busnum`, `devnum`, `devpath`, `vendor`, `device`, `class`, `modalias`, …) whether it exists, its mode, its read status and its bytes; and per ancestor two verdicts — the delivered predicate's (`idVendor` AND `idProduct` readable and non-empty) and the kernel's own (`uevent` `DEVTYPE=usb_device`); finally the nearest predicate-recognized ancestor's `serial`. Leg A as `nobody` on the node; leg B as `muser1` in the guest; double capture each | client baseline (the unprivileged actor on both legs); root only for the guest's read-only enforcement, the manifest, and the leg-A `runuser` | Whether the two classes separate: **every** ancestor the kernel classes `usb_device` (the device node, and the root hub above it) carries readable `idVendor` and `idProduct`, and **no** other ancestor (the SCSI target and host, the USB *interface* node, the PCI nodes) carries either — so the predicate's YES set equals the kernel's; which of the two reads, and which further attributes, distinguish the nearest device node from the root hub above it (the walk's nearest-first order is what keeps the serial the unit's and not the controller's); that the predicate's nearest-YES serial equals FR4's recorded `A20036CA8695D921` on both legs; byte-stable across the double capture; whether the real-hardware chain (leg A, with PCIe switches above the controller) and the passthrough chain (leg B) agree on all of the above | a USB interface node or a non-USB ancestor carrying readable `idVendor`+`idProduct` (the predicate would over-recognize — a finding that changes it); a `usb_device` node without both markers (under-recognition — likewise); the predicate's nearest-YES serial differing from FR4's; the unit absent from the guest (`void(apparatus)`); either leg's captures differing between themselves | not yet taken |
+
+Validity gates: the instrument digest recorded in-transcript before the
+first capture on each leg; `CapEff` all-zero at every client capture (leg
+B) and the actor `nobody` recorded at every capture (leg A); exit statuses
+in-transcript; leg B's unit read-only (`blockdev --getro` = 1) before
+capture; leg B's image digest verified against the pin before creation
+and the passthrough assertion passing (`usb0` exactly, nothing else). Gate
+failures make a leg `void(<gate>)`, never a negative; the cell is
+established only if both legs are.
+
+What this sitting deliberately does not do: no designation changes here
+(that is ADR-0034's table, by ADR); no device is opened; nothing is
+written to the unit; no second unit, no hub-attached unit (the record notes
+that a device *behind a hub* is not measured — the walk's nearest-first
+order handles it by construction, and the node has no storage behind its
+hubs); no reboot.
 
 ## Reproducing this
 
