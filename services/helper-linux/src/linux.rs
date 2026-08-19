@@ -9,17 +9,25 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use partman_adapter_linux::contract::{SystemContractSource, sysfs_root, udev_root};
+use partman_adapter_linux::contract::{
+    SystemContractSource, os_release_root, procfs_root, sysfs_root, udev_root,
+};
 use partman_adapter_linux::devices::{DeviceKind, Enumeration, HostAssembledKind, enumerate};
+use partman_adapter_linux::floor::platform_floor;
+use partman_capability::engine::{RuntimeFacts, TechnologyLimits};
 use partman_rpc::Handshake;
+use partman_table_parser::Geometry;
 use partman_transport_linux::linux::Endpoint;
 use partman_transport_linux::{
     AuthorizingUser, Refusal as TransportRefusal, SOCKET_DIRECTORY_MODE, Timeouts, node_name,
 };
 
+use crate::bytes::{ByteRefusal, DeviceReader, Windows, read_windows};
+use crate::capture::{DeviceCapture, capture};
+use crate::validate::{ValidateRefusal, ValidateRequest, flag_names, severity_name, validate_plan};
 use crate::{
     AuditEvent, AuditSink, Backend, EnumeratedDevice, LaunchRefusal, Operation, Response,
-    serve_connection,
+    ValidateWire, serve_connection,
 };
 
 /// The helper's configuration for one run.
@@ -133,6 +141,84 @@ impl Backend for SystemBackend {
             devices,
         }
     }
+
+    fn validate_plan(&self, request: &ValidateWire, audit: &mut dyn AuditSink) -> Response {
+        let source = SystemContractSource;
+        let now = now_secs();
+        let outcome = match capture(
+            &source,
+            &sysfs_root(),
+            &udev_root(),
+            &SystemDeviceReader,
+            now,
+        ) {
+            Ok(outcome) => outcome,
+            Err(refusal) => {
+                return Response::ValidationRefused {
+                    arm: "capture".to_owned(),
+                    detail: format!("{refusal:?}"),
+                };
+            }
+        };
+        audit.record(AuditEvent::Captured {
+            devices: outcome.devices.len() as u64,
+            classified: outcome
+                .devices
+                .iter()
+                .filter(|device| matches!(device, DeviceCapture::Authored { .. }))
+                .count() as u64,
+        });
+        let target = match request.target.derive() {
+            Ok(target) => target,
+            Err(error) => {
+                return Response::ValidationRefused {
+                    arm: "target".to_owned(),
+                    detail: format!("the spelled target derives no address: {error:?}"),
+                };
+            }
+        };
+        let floor = platform_floor(&source, &os_release_root(), &procfs_root());
+        let runtime = RuntimeFacts {
+            tools: Vec::new(),
+            platform: floor.platform,
+        };
+        match validate_plan(
+            &outcome.snapshot,
+            &ValidateRequest {
+                target,
+                operation: request.requested,
+                plan_id: request.plan_id.clone(),
+                validity_seconds: request.validity_seconds,
+            },
+            now,
+            &TechnologyLimits::default(),
+            &runtime,
+        ) {
+            Ok(validated) => Response::Validated {
+                plan: validated.body_bytes,
+                plan_hash: validated.body_hash.as_bytes().to_vec(),
+                snapshot_hash: validated.snapshot_hash.as_bytes().to_vec(),
+                severity: severity_name(validated.severity).to_owned(),
+                flags: flag_names(&validated.flags)
+                    .into_iter()
+                    .map(str::to_owned)
+                    .collect(),
+                not_after: validated.not_after,
+            },
+            Err(refusal) => {
+                let arm = match &refusal {
+                    ValidateRefusal::AggregateTarget { .. } => "aggregate-target",
+                    ValidateRefusal::ValidityOverMaximum { .. } => "validity-over-maximum",
+                    ValidateRefusal::Planner(_) => "planner",
+                    ValidateRefusal::Encoding => "encoding",
+                };
+                Response::ValidationRefused {
+                    arm: arm.to_owned(),
+                    detail: format!("{refusal:?}"),
+                }
+            }
+        }
+    }
 }
 
 fn kind_name(kind: &DeviceKind) -> String {
@@ -223,6 +309,53 @@ pub fn run(config: &Config, audit: &mut dyn AuditSink) -> Result<(), LaunchRefus
                 });
             }
         }
+    }
+}
+
+/// The real reader: `/dev/<entry>` opened read-only with `std::fs::File`
+/// and bracketed by device number before any byte is read — the opened
+/// handle must be a block device whose `rdev` is exactly the number the
+/// sysfs entry stated (DR21's bracketing), so a node renamed underneath
+/// the open reads nothing.
+pub struct SystemDeviceReader;
+
+/// Split a Linux `rdev` into `major:minor` (the glibc encoding).
+fn device_number_of(rdev: u64) -> String {
+    let major = ((rdev >> 8) & 0xfff) | ((rdev >> 32) & !0xfff_u64);
+    let minor = (rdev & 0xff) | ((rdev >> 12) & !0xff_u64);
+    format!("{major}:{minor}")
+}
+
+impl DeviceReader for SystemDeviceReader {
+    fn windows(
+        &self,
+        entry: &str,
+        device_number: &str,
+        geometry: Geometry,
+    ) -> Result<Windows, ByteRefusal> {
+        use std::os::unix::fs::{FileTypeExt, MetadataExt};
+        let path = std::path::Path::new("/dev").join(entry);
+        let mut file = fs::File::open(&path).map_err(|e| ByteRefusal::Open {
+            kind: format!("{:?}", e.kind()),
+        })?;
+        let metadata = file.metadata().map_err(|e| ByteRefusal::Io {
+            step: "stat",
+            kind: format!("{:?}", e.kind()),
+        })?;
+        if !metadata.file_type().is_block_device() {
+            return Err(ByteRefusal::NotTheDevice {
+                expected: device_number.to_owned(),
+                found: "not a block device".to_owned(),
+            });
+        }
+        let found = device_number_of(metadata.rdev());
+        if found != device_number.trim() {
+            return Err(ByteRefusal::NotTheDevice {
+                expected: device_number.trim().to_owned(),
+                found,
+            });
+        }
+        read_windows(&mut file, geometry)
     }
 }
 

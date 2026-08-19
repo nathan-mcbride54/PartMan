@@ -6,8 +6,11 @@ use partman_transport_linux::{read_frame, write_frame};
 
 use crate::{
     AuditEvent, AuditSink, Backend, EnumeratedDevice, LaunchRefusal, Operation, REQUEST_SCHEMA,
-    Request, RequestRefusal, Response, SCHEMA_VERSION, launch_rule, serve_connection,
+    Request, RequestRefusal, Response, SCHEMA_VERSION, TargetSpelling, ValidateWire, launch_rule,
+    serve_connection,
 };
+
+mod increment2;
 
 struct FakeBackend;
 
@@ -30,6 +33,38 @@ impl Backend for FakeBackend {
                 properties: 9,
             }],
         }
+    }
+    fn validate_plan(&self, _request: &ValidateWire, audit: &mut dyn AuditSink) -> Response {
+        audit.record(AuditEvent::Captured {
+            devices: 1,
+            classified: 1,
+        });
+        Response::ValidationRefused {
+            arm: "planner".to_owned(),
+            detail: "the fake backend plans nothing".to_owned(),
+        }
+    }
+}
+
+/// Canned validate-plan arguments for wire tests.
+fn canned_validate() -> ValidateWire {
+    ValidateWire {
+        target: TargetSpelling::Device {
+            serial: None,
+            wwn: None,
+            total_bytes: 1 << 30,
+        },
+        requested: partman_domain::model::capability::Operation::Wipe,
+        plan_id: b"wire-test".to_vec(),
+        validity_seconds: 3600,
+    }
+}
+
+/// A request with the arguments its operation requires.
+fn wire_request(operation: Operation) -> Request {
+    Request {
+        operation,
+        validate: (operation == Operation::ValidatePlan).then(canned_validate),
     }
 }
 
@@ -82,12 +117,17 @@ impl std::io::Write for Duplex {
 }
 
 fn serve(body: &[u8]) -> (BTreeMap<String, Value>, Vec<AuditEvent>) {
+    serve_through(body, &FakeBackend)
+}
+
+/// Serve one request through any backend — the child module's seam.
+fn serve_through(body: &[u8], backend: &dyn Backend) -> (BTreeMap<String, Value>, Vec<AuditEvent>) {
     let mut d = Duplex {
         input: std::io::Cursor::new(request_frame(body)),
         output: Vec::new(),
     };
     let mut audit = Collect::default();
-    serve_connection(&mut d, &FakeBackend, &mut audit).unwrap();
+    serve_connection(&mut d, backend, &mut audit).unwrap();
     (decode_reply(&d.output), audit.0)
 }
 
@@ -109,6 +149,7 @@ fn text(m: &BTreeMap<String, Value>, k: &str) -> String {
 //   to execute, a command string, or dynamic code.
 // Evidence: the_operation_set_is_closed_and_the_request_decode_is_strict
 #[test]
+#[allow(clippy::too_many_lines)]
 fn the_operation_set_is_closed_and_the_request_decode_is_strict() {
     for op in Operation::ALL {
         match op {
@@ -121,8 +162,14 @@ fn the_operation_set_is_closed_and_the_request_decode_is_strict() {
             | Operation::JournalQuery => {}
         }
         assert_eq!(Operation::parse(op.name()), Some(op));
-        let bytes = Request { operation: op }.encode().unwrap();
-        assert_eq!(Request::decode(&bytes).unwrap().operation, op);
+        let bytes = wire_request(op).encode().unwrap();
+        let decoded = Request::decode(&bytes).unwrap();
+        assert_eq!(decoded.operation, op);
+        assert_eq!(
+            decoded.validate.is_some(),
+            op == Operation::ValidatePlan,
+            "arguments travel with exactly the one operation that takes them"
+        );
     }
     assert_eq!(
         Operation::ALL.map(Operation::name),
@@ -141,8 +188,8 @@ fn the_operation_set_is_closed_and_the_request_decode_is_strict() {
             .iter()
             .filter(|op| op.served_in_increment().is_none())
             .count(),
-        2,
-        "this increment serves status and enumerate and names an increment for the rest"
+        3,
+        "this increment serves status, enumerate and validate-plan and names an increment for the rest"
     );
     for name in [
         "/bin/sh -c id",
@@ -206,14 +253,9 @@ fn the_operation_set_is_closed_and_the_request_decode_is_strict() {
 //   every outcome is audited through the closed event vocabulary.
 // Evidence: a_connection_serves_refuses_or_names_the_increment_and_audits_each
 #[test]
+#[allow(clippy::too_many_lines)]
 fn a_connection_serves_refuses_or_names_the_increment_and_audits_each() {
-    let (reply, audit) = serve(
-        &Request {
-            operation: Operation::Status,
-        }
-        .encode()
-        .unwrap(),
-    );
+    let (reply, audit) = serve(&wire_request(Operation::Status).encode().unwrap());
     assert_eq!(text(&reply, "outcome"), "status");
     assert_eq!(reply.get("authorizing_uid"), Some(&Value::Unsigned(1000)));
     assert_eq!(
@@ -224,13 +266,7 @@ fn a_connection_serves_refuses_or_names_the_increment_and_audits_each() {
         }]
     );
 
-    let (reply, _) = serve(
-        &Request {
-            operation: Operation::Enumerate,
-        }
-        .encode()
-        .unwrap(),
-    );
+    let (reply, _) = serve(&wire_request(Operation::Enumerate).encode().unwrap());
     assert_eq!(text(&reply, "outcome"), "enumeration");
     assert_eq!(reply.get("proposal"), Some(&Value::Bool(true)));
     assert_eq!(text(&reply, "enumeration"), "listed");
@@ -246,14 +282,31 @@ fn a_connection_serves_refuses_or_names_the_increment_and_audits_each() {
         other => panic!("devices: {other:?}"),
     }
 
+    let (reply, audit) = serve(&wire_request(Operation::ValidatePlan).encode().unwrap());
+    assert_eq!(text(&reply, "outcome"), "validation-refused");
+    assert_eq!(text(&reply, "arm"), "planner");
+    assert_eq!(
+        audit,
+        vec![
+            AuditEvent::Operation {
+                operation: Some(Operation::ValidatePlan),
+                outcome: "served"
+            },
+            AuditEvent::Captured {
+                devices: 1,
+                classified: 1
+            }
+        ],
+        "validate-plan is served in this increment, and the capture is audited"
+    );
+
     for op in [
-        Operation::ValidatePlan,
         Operation::ApplyPlan,
         Operation::Cancel,
         Operation::Resume,
         Operation::JournalQuery,
     ] {
-        let (reply, audit) = serve(&Request { operation: op }.encode().unwrap());
+        let (reply, audit) = serve(&wire_request(op).encode().unwrap());
         assert_eq!(text(&reply, "outcome"), "not-yet-served", "{op:?}");
         assert_eq!(text(&reply, "operation"), op.name());
         assert_eq!(
@@ -314,6 +367,10 @@ fn the_audit_vocabulary_is_closed_and_carries_no_identifier() {
             outcome: "refused",
         },
         AuditEvent::IdleExit { idle_seconds: 120 },
+        AuditEvent::Captured {
+            devices: 14,
+            classified: 12,
+        },
     ];
     for e in &events {
         match e {
@@ -321,7 +378,8 @@ fn the_audit_vocabulary_is_closed_and_carries_no_identifier() {
             | AuditEvent::Admitted { .. }
             | AuditEvent::ConnectionRefused { .. }
             | AuditEvent::Operation { .. }
-            | AuditEvent::IdleExit { .. } => {}
+            | AuditEvent::IdleExit { .. }
+            | AuditEvent::Captured { .. } => {}
         }
         let line = e.to_string();
         assert!(line.starts_with("event="), "{line}");
@@ -381,6 +439,7 @@ fn the_launch_rule_serves_only_the_user_pkexec_vouched_for() {
 //   stands on.
 // Evidence: a_helper_serves_its_user_over_the_real_transport_and_refuses_a_second_launch
 #[test]
+#[allow(clippy::too_many_lines)]
 fn a_helper_serves_its_user_over_the_real_transport_and_refuses_a_second_launch() {
     #[cfg(not(target_os = "linux"))]
     {
@@ -437,7 +496,7 @@ fn a_helper_serves_its_user_over_the_real_transport_and_refuses_a_second_launch(
         });
         let ask = |op: Operation| -> BTreeMap<String, Value> {
             let mut client = connect(&path, &Handshake::local("0.0.1"), timeouts).unwrap();
-            let body = Request { operation: op }.encode().unwrap();
+            let body = wire_request(op).encode().unwrap();
             let env = Envelope::request(body).unwrap();
             write_frame(client.stream(), &env.encode().unwrap()).unwrap();
             let frame = read_frame(client.stream()).unwrap();
@@ -457,7 +516,8 @@ fn a_helper_serves_its_user_over_the_real_transport_and_refuses_a_second_launch(
             m.get("served"),
             Some(&Value::Array(vec![
                 Value::Text("status".to_owned()),
-                Value::Text("enumerate".to_owned())
+                Value::Text("enumerate".to_owned()),
+                Value::Text("validate-plan".to_owned())
             ])),
             "status names exactly the operations this build serves"
         );

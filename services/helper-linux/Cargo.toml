@@ -1,6 +1,6 @@
 [package]
 name = "partman-helper-linux"
-description = "The WP-L110 Linux privileged helper: reached over the Linux transport, HLP-001's six operations and nothing else, launched per user through pkexec (increment 1: the process and its closed surface)"
+description = "The WP-L110 Linux privileged helper: reached over the Linux transport, HLP-001's six operations and nothing else, launched per user through pkexec (increment 2: HLP-002 re-discovery and validate-plan)"
 edition.workspace = true
 rust-version.workspace = true
 version.workspace = true
@@ -16,11 +16,23 @@ partman-domain = { path = "../../crates/domain" }
 partman-rpc = { path = "../../crates/rpc" }
 partman-transport-linux = { path = "../../crates/transport-linux" }
 partman-adapter-linux = { path = "../../crates/adapter-linux" }
+# Increment 2: the byte layer's classifier, the planner run over the
+# helper's own capture, and the capability engine's facts vocabulary --
+# each a workspace member, nothing re-implemented (HLP-002, ADR-0014).
+partman-table-parser = { path = "../../crates/table-parser" }
+partman-planner = { path = "../../crates/planner" }
+partman-capability = { path = "../../crates/capability" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # The helper's own effective uid (the endpoint owner check) and nothing else
 # from rustix; the transport already carries it.
 rustix = { version = "1.1.4", default-features = false, features = ["process", "std"] }
+
+[dev-dependencies]
+# The Tier-1 suite classifies the catalogue's own images, built in memory
+# from source, so the fixtures' evidence claims and the capture's answers
+# can never drift apart silently (the table-parser suite's precedent).
+partman-fixtures = { path = "../../crates/fixtures" }
 
 [lints]
 workspace = true

@@ -7,6 +7,16 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-L110 increment 2: HLP-002 re-discovery and validate-plan (HLP-002,
+  HLP-004, PLAN-006, PLAN-007, SEC-002, CAP-007, INV-003, SI-13; on
+  ADR-0014, ADR-0016, ADR-0018, ADR-0036, ADR-0053 reading (b)).** The
+  helper's byte layer (two bounded read-only 64 KiB windows per device,
+  bracketed by device number), the capture authoring the table state and
+  the table node WP-L100's 3b waited on, `validate-plan` served by
+  re-planning with WP-060's `plan()` over the helper's own capture, the
+  SEC-002 admission arms for increment 3's apply, the helper's reach
+  declaration on the DR21 row, request/response v2 (v1 retired). Nine
+  tests; ten mutations killed. Rust: the WP-020 sitting is r55.
 - **WP-010 slice 3r: the ADR-0014 authoring entry and the HLP-004 window
   accessor (SAFE-003, PLAN-007; sequenced with WP-L110 increment 2).**
   `TableState::present(checksum)` — the helper parser's copy-invariant

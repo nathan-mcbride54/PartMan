@@ -190,8 +190,12 @@ name = "partman-helper-linux"
 version = "0.0.0"
 dependencies = [
  "partman-adapter-linux",
+ "partman-capability",
  "partman-domain",
+ "partman-fixtures",
+ "partman-planner",
  "partman-rpc",
+ "partman-table-parser",
  "partman-transport-linux",
  "rustix",
 ]
