@@ -7,6 +7,19 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-040 increment 5: the Linux transport (RPC-001, RPC-002, RPC-004,
+  SEC-007, SAFE-009; on ADR-0055, spec 19.0.0).** `crates/transport-linux`
+  — a Unix-socket endpoint in a root-owned `0711` directory with a `0600`
+  node owned by the authorizing user, checked fail-closed and never
+  re-moding a path it did not make; `SO_PEERCRED` through `rustix`'s safe
+  `socket_peercred`, the connection refused before any byte is read unless
+  the peer is the authorizing user; the RPC-002 handshake and RPC-004's
+  bounds over a length-prefixed frame, both ends in one crate; no
+  first-party `unsafe`, no network type, nothing launched.
+  `IdentityClaim::UnixPeerCredentials` now names its verifier;
+  `schemas/rpc/transport-linux.md` records the frame, the rules and the
+  admission order. Six tests; eight mutations killed. Rust: the WP-020
+  sitting is r53.
 - **WP-L100: the USB-device-node predicate's evidence moves from none to
   FR6 (ADR-0034; no rule change).** gitea#1002's row, taken 2026-08-19 on
   the FR4 unit in two legs (a real XHCI chain on the Proxmox node; the
