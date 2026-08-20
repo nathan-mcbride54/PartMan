@@ -135,6 +135,16 @@ Two derivations are deliberately **not** in the bytes:
 `host` Bytes(32), `start` Unsigned, `length` Unsigned — a byte range on
 the named host node.
 
+**`length` is nonzero and `start + length` does not overflow `u64`**;
+either refuses at decode (`ZeroLengthRange`, `RangeOverflows`). These are
+ADR-0041's rules 4 and 5, which the fact boundary applies at
+`TopologySnapshot::assemble` and the journal applies to a protection
+record's regions — the same geometry, so the same two rules. The step
+boundary did not carry them until this increment, and the closure cannot
+supply them: its reach math saturates, so a wrapping range reads as
+touching nothing and passes clean. An end of exactly `u64::MAX` is lawful
+and is not refused here.
+
 ### 3b. Preconditions
 
 Closed vocabulary, each a map with a `kind` Text:
