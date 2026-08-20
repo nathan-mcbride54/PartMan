@@ -172,6 +172,23 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **spec-change 20.0.0: LIN-001's mutation half is decided — the
+  product's own table encoder; native tools, launched and floored, for
+  file systems (ADR-0056).** On the Linux mutation-toolset round
+  (`docs/reviews/LINUX_MUTATION_TOOLSET_ROUND_2026-08-20.md`) and the
+  DR25 tool-presence rows: partition-table writes are the helper's own
+  reviewed, fuzz-obligated encoder emitting exactly the bytes the
+  admitted plan resolves to, with the native tools retained as
+  independent verifiers; file-system operations are authoritative
+  native tools through the SAFE-004 launcher per installed capability,
+  floors entering the CAP-006 store at first invocation, absence
+  fail-closed; the version-verification discipline is fixed (package
+  record or content digest, the launched query never the sole source);
+  UDisks2 and libblockdev are rejected as mutation routes and the
+  parked ≥ 2.9 floor enters no store. Major: LIN-001's mutation
+  sentence changes meaning. No code changes here; increment 4b stays
+  gated on the launcher-home round.
+
 - **spec-change 19.0.0: SI-41 resolved — RPC-001's Linux clause is revised
   (ADR-0055).** On the Linux transport route round
   (`docs/reviews/LINUX_TRANSPORT_ROUTE_ROUND_2026-08-19.md`) and its

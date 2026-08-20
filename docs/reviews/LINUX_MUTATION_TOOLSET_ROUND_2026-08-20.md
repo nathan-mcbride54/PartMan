@@ -17,6 +17,11 @@ library, launched binaries, or the product's own code.
 > commit, never bundled with code. Nothing below is decided; §5 is for
 > the decision owner. The recommendation prices as a **spec change under
 > ADR** and says so.
+>
+> **Decided 2026-08-20 (Nate): option D — the split — with all four §5
+> decisions taken as recommended: the 20.0.0 major pricing accepted,
+> the version-verification discipline fixed, the absence policy
+> confirmed.** Recorded as ADR-0056 and spec 20.0.0.
 
 ## 0. The texts the round works under
 
