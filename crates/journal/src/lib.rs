@@ -230,12 +230,21 @@ impl DurableThrough {
     }
 }
 
-/// Proof that one record's durability precedes any storage write made
-/// on its behalf — JRN-002's ordering as a type. Constructible only
-/// through [`Journal::clearance`], which refuses while the record is
-/// not covered by the durable watermark. The code that performs
-/// storage writes (the helper packages, M3) demands this token; this
-/// crate only mints it.
+/// Proof that one *named* record's durability was established before
+/// this token existed — JRN-002's ordering as a type, and no more than
+/// that: [`Journal::clearance`] mints one for **any** record at or
+/// below the durable watermark, the token is `Copy`, and nothing ties
+/// it to the step that is about to write. Holding one therefore does
+/// *not* carry "this step's own record is durable" — a writer gated
+/// only on possession would be a fail-open that passes every
+/// happy-path test, because `clearance(SeqNo::FIRST)` succeeds as soon
+/// as anything at all is durable and one clearance can be reused
+/// across steps. The code that performs storage writes (the helper
+/// packages, M3) must demand the token **and** refuse unless
+/// [`WriteClearance::record`] equals the `SeqNo` its own just-appended
+/// record was assigned — that binding is the writer's entry-point
+/// obligation (the WP-L110 increment-4 shape round, §3.2); this crate
+/// only mints the token.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WriteClearance {
     record: SeqNo,
