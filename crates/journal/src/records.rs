@@ -157,7 +157,17 @@ pub enum AuthorizationTier {
 }
 
 impl AuthorizationTier {
-    const fn wire_name(self) -> &'static str {
+    /// The tier's wire spelling — one vocabulary with one owner.
+    ///
+    /// Public since the helper packages report the tier they compute
+    /// (HLP-003's one authorized reporting site is the validate-plan
+    /// response, and UI-011 displays it). A consumer that spelled these
+    /// words itself would be a second vocabulary for one closed set, and
+    /// the two would drift; there is no parse in the other direction,
+    /// deliberately, because a tier a client could *name* is exactly what
+    /// CAP-007 makes unrepresentable.
+    #[must_use]
+    pub const fn wire_name(self) -> &'static str {
         match self {
             AuthorizationTier::FloorAct => "floor-act",
             AuthorizationTier::InteractiveCeremony => "interactive-ceremony",

@@ -120,6 +120,33 @@ fn frame_ends(payloads: &[&[u8]]) -> Vec<usize> {
     ends
 }
 
+// Requirements: HLP-003, CAP-007
+//   The authorization tier's wire vocabulary has one owner and one
+//   direction: both tiers render to their spec spellings, the two are
+//   distinct, and no parse from a wire word back to a tier exists in this
+//   crate — a tier a client could name is what CAP-007 makes
+//   unrepresentable, and the absence is the enforcement.
+// Evidence: the_tier_vocabulary_renders_and_never_parses
+#[test]
+fn the_tier_vocabulary_renders_and_never_parses() {
+    use crate::records::AuthorizationTier;
+    assert_eq!(AuthorizationTier::FloorAct.wire_name(), "floor-act");
+    assert_eq!(
+        AuthorizationTier::InteractiveCeremony.wire_name(),
+        "interactive-ceremony"
+    );
+    assert_ne!(
+        AuthorizationTier::FloorAct.wire_name(),
+        AuthorizationTier::InteractiveCeremony.wire_name()
+    );
+    let source = include_str!("records.rs");
+    assert!(
+        !source.contains("fn tier_from_wire")
+            && !source.contains("impl FromStr for AuthorizationTier"),
+        "no wire word may parse back into a tier: the helper computes it, nobody names it"
+    );
+}
+
 // Requirements: JRN-001
 //   Append-only with per-record checksums and monotonic sequence
 //   numbers: sequence numbers advance by exactly one from SeqNo::FIRST,
