@@ -159,6 +159,8 @@ nineteenth, named in the PR body before the merge, and on `91cd1c9`
 ADR-0044 — tripped it a twentieth, likewise named before the merge, and
 on `ee12af2` (2026-08-16 UTC) when issue #354's kind-half act — one Rust
 merge, PR #398, ADR-0045 — tripped it a twenty-first, likewise named, and
+on `b6f8ee8` (2026-08-20 UTC) when WP-070 increment 6 — one Rust
+merge, PR #570, the protection-artifact store — tripped it; and before that
 on `0eba70d` (2026-08-20 UTC) when the WP-035 launcher move — one Rust
 merge, PR #562 — tripped it; and before that
 on `ebd1c1a` (2026-08-20 UTC) when the increment-4a arc — WP-070 PR #549
