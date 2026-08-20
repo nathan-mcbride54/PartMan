@@ -142,6 +142,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "partman-artifact-store"
+version = "0.0.0"
+dependencies = [
+ "partman-journal",
+ "partman-statemachine",
+ "sha2",
+]
+
+[[package]]
 name = "partman-capability"
 version = "0.0.0"
 dependencies = [

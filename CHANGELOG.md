@@ -7,6 +7,28 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-070 increment 6: the protection-artifact store (REC-011's four
+  ADR-0030 rules, PART-013's substrate; the 2026-08-20 store grant,
+  commissioned by the increment-4b opening round's decision 1).**
+  `crates/artifact-store` and `schemas/artifact-store.md`: a pure
+  library over an injected `StoreSeam`. Content addressing by SHA-256
+  with the 64-lowercase-hex object name the one identity; `deposit`
+  verified by re-read before any `ProtectionArtifactRef` exists, and
+  `fetch` re-verified against the reference before returning bytes.
+  The retention pass computes ADR-0029's liveness rule from the
+  decoded journal alone — exempt while any referencing apply's closure
+  is live, orphans and corrupt objects fail closed, unfulfillable
+  references surfaced — and `reclaim` recomputes the pass itself
+  behind an explicit `DeleteDecision`, the two Rule-4 consequence
+  sentences pinned in doc-code agreement with the schema document.
+  The journal stays the metadata authority: no index, no sidecar, no
+  second reference vocabulary. Per-OS seams and store roots land with
+  each helper's grant, Linux's with WP-L110 increment 4b, which this
+  increment's sequencing unblocks at `Protecting`. Eight tests; ten
+  mutants killed by named tests before proposal. Rust: trips WP-020's
+  stopping condition — the r59 sitting is named in the PR body and
+  taken on the merge commit.
+
 - **WP-L110 increment 4a: the journal-borne apply, to the authorization
   boundary (JRN-001/002/004, SEC-002, CONC-003, CONC-004, HLP-004,
   PLAN-007; on the shape round's §9 decisions).** The journal opens:
