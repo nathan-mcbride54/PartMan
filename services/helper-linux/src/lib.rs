@@ -1034,7 +1034,8 @@ fn unaudited() -> Response {
 fn refusal_reason(refusal: &RequestRefusal) -> String {
     match refusal {
         RequestRefusal::WrongVersion { spoken } => format!(
-            "this helper speaks {REQUEST_SCHEMA} version {SCHEMA_VERSION}; the request              spoke version {spoken}. Send version {SCHEMA_VERSION}."
+            "this helper speaks {REQUEST_SCHEMA} version {SCHEMA_VERSION}; the request \
+             spoke version {spoken}. Send version {SCHEMA_VERSION}."
         ),
         other => format!("request refused: {other:?}"),
     }
