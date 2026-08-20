@@ -15,6 +15,7 @@ use partman_adapter_linux::contract::{
 use partman_adapter_linux::devices::{DeviceKind, Enumeration, HostAssembledKind, enumerate};
 use partman_adapter_linux::floor::platform_floor;
 use partman_capability::engine::{RuntimeFacts, TechnologyLimits};
+use partman_journal::records::AuthorizationTier;
 use partman_rpc::Handshake;
 use partman_table_parser::Geometry;
 use partman_transport_linux::linux::Endpoint;
@@ -26,7 +27,9 @@ use crate::authorize::required_tier;
 use crate::bytes::{ByteRefusal, DeviceReader, Windows, read_windows};
 use crate::capture::{DeviceCapture, capture};
 use crate::clock::{Clock, SystemClock};
-use crate::validate::{ValidateRefusal, ValidateRequest, flag_names, severity_name, validate_plan};
+use crate::validate::{
+    ValidateRefusal, ValidateRequest, ValidatedPlan, flag_names, severity_name, validate_plan,
+};
 use crate::{
     AuditEvent, AuditRefused, AuditSink, Backend, EnumeratedDevice, LaunchRefusal, Operation,
     Response, ValidateWire, serve_connection,
@@ -190,11 +193,7 @@ impl Backend for SystemBackend {
             })
             .is_err()
         {
-            return Response::ValidationRefused {
-                arm: "audit".to_owned(),
-                detail: "the audit log could not be written; no operation is served unrecorded"
-                    .to_owned(),
-            };
+            return audit_unwritable();
         }
         let target = match request.target.derive() {
             Ok(target) => target,
@@ -235,25 +234,9 @@ impl Backend for SystemBackend {
                     })
                     .is_err()
                 {
-                    return Response::ValidationRefused {
-                        arm: "audit".to_owned(),
-                        detail: "the audit log could not be written; no operation is served \
-                                 unrecorded"
-                            .to_owned(),
-                    };
+                    return audit_unwritable();
                 }
-                Response::Validated {
-                    plan: validated.body_bytes,
-                    plan_hash: validated.body_hash.as_bytes().to_vec(),
-                    snapshot_hash: validated.snapshot_hash.as_bytes().to_vec(),
-                    severity: severity_name(validated.severity).to_owned(),
-                    flags: flag_names(&validated.flags)
-                        .into_iter()
-                        .map(str::to_owned)
-                        .collect(),
-                    tier: tier.wire_name().to_owned(),
-                    not_after: validated.not_after,
-                }
+                validated_response(validated, tier)
             }
             Err(refusal) => {
                 let arm = match &refusal {
@@ -268,6 +251,35 @@ impl Backend for SystemBackend {
                 }
             }
         }
+    }
+}
+
+/// SEC-009's fail-closed answer, written once because it is one rule:
+/// an operation whose audit line could not be written is not served. The
+/// detail names no host fact and no path.
+fn audit_unwritable() -> Response {
+    Response::ValidationRefused {
+        arm: "audit".to_owned(),
+        detail: "the audit log could not be written; no operation is served unrecorded".to_owned(),
+    }
+}
+
+/// Render a validated plan onto the wire. The tier is a parameter rather
+/// than recomputed here, so there is exactly one site in the helper that
+/// decides it (HLP-003) and this rendering cannot disagree with the line
+/// already written to the audit log.
+fn validated_response(validated: ValidatedPlan, tier: AuthorizationTier) -> Response {
+    Response::Validated {
+        plan: validated.body_bytes,
+        plan_hash: validated.body_hash.as_bytes().to_vec(),
+        snapshot_hash: validated.snapshot_hash.as_bytes().to_vec(),
+        severity: severity_name(validated.severity).to_owned(),
+        flags: flag_names(&validated.flags)
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
+        tier: tier.wire_name().to_owned(),
+        not_after: validated.not_after,
     }
 }
 
