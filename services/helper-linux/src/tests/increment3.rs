@@ -549,6 +549,7 @@ fn a_failed_audit_write_refuses_and_the_vocabulary_stays_closed() {
     let request = Request {
         operation: Operation::Status,
         validate: None,
+        apply: None,
     };
     let (reply, recorded) = super::serve_through_sink(
         &request.encode().expect("encodes"),
@@ -583,19 +584,26 @@ fn a_failed_audit_write_refuses_and_the_vocabulary_stays_closed() {
 }
 
 // Requirements: HLP-001, RPC-002
-//   apply-plan is not served by this build and says so, naming increment
-//   4 — the ladder computes and mints, but one-act-one-apply needs a
-//   consumption record in a journal this build does not open. And an
-//   incompatible version refuses with a remediation naming the version
-//   this build speaks, never a debug rendering.
+//   The served set says the truth per build: increment 3 answered
+//   apply-plan not-yet-served because one-act-one-apply needs a
+//   consumption record in a journal that build did not open; increment
+//   4a opens the journal and serves apply-plan and journal-query, while
+//   cancel and resume — everything past AuthorizationGranted — still
+//   name increment 4 for their 4b half. And an incompatible version
+//   refuses with a remediation naming the version this build speaks,
+//   never a debug rendering.
 // Evidence: apply_plan_is_not_served_and_a_wrong_version_is_remediated
 #[test]
 fn apply_plan_is_not_served_and_a_wrong_version_is_remediated() {
-    assert_eq!(Operation::ApplyPlan.served_in_increment(), Some(4));
+    for operation in [Operation::Cancel, Operation::Resume] {
+        assert_eq!(operation.served_in_increment(), Some(4));
+    }
     for operation in [
         Operation::Status,
         Operation::Enumerate,
         Operation::ValidatePlan,
+        Operation::ApplyPlan,
+        Operation::JournalQuery,
     ] {
         assert_eq!(operation.served_in_increment(), None);
     }
@@ -614,7 +622,7 @@ fn apply_plan_is_not_served_and_a_wrong_version_is_remediated() {
         other => panic!("reason: {other:?}"),
     };
     assert!(
-        reason.contains("version 3") && reason.contains("spoke version 2"),
+        reason.contains("version 4") && reason.contains("spoke version 2"),
         "RPC-002 remediation names both versions: {reason}"
     );
     assert!(
@@ -653,13 +661,13 @@ fn the_version_remediation_reads_as_one_sentence() {
     );
     assert_eq!(
         reason,
-        "this helper speaks partman.helper.request version 3; the request spoke version 2. \
-         Send version 3."
+        "this helper speaks partman.helper.request version 4; the request spoke version 2. \
+         Send version 4."
     );
     // It names the version this build speaks, and the version the peer
     // spoke -- and nothing else of the peer's. The other arms keep their
     // typed rendering.
-    assert!(reason.contains("version 3"));
+    assert!(reason.contains("version 4"));
     assert!(
         crate::refusal_reason(&RequestRefusal::WrongSchema).starts_with("request refused:"),
         "only the version arm carries a remediation"

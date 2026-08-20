@@ -7,6 +7,27 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-L110 increment 4a: the journal-borne apply, to the authorization
+  boundary (JRN-001/002/004, SEC-002, CONC-003, CONC-004, HLP-004,
+  PLAN-007; on the shape round's §9 decisions).** The journal opens:
+  `/var/lib/partman` (JRN-004's clause), one journal + validation-store
+  pair per authorizing uid, the first real `DurabilitySeam` (append +
+  fsync, poisoned after failure), torn tails truncated and made
+  physical. `ValidatorPasses` is journaled at validation with schema
+  v2's instant, so the backward-clock bound covers exactly the
+  validation-to-presentation window `clock.rs` named. The validation is
+  durable and consumed by an appended entry — SEC-002's arms get their
+  production caller, and a replay refuses across a restart. `apply-plan`
+  runs S2's two phases: phase one consumes (durably, first) and journals
+  `ApplySubmitted`; phase two refuses where increment 3 refuses, and a
+  closed window terminates on the published `DeclinedOrExpired`
+  edge, `NoWrites`. A stale presentation journals `EditOrInvalidation`
+  (CONC-003); `capture` takes its `transitional` flag from the journal
+  (CONC-004) and a mid-apply capture is hash-distinct; `journal-query`
+  is served. Request/response v4. Nothing past `AwaitingAuthorization`
+  is representable — the grant edge and everything after it are 4b's,
+  behind the toolset and launcher-home rounds. Ten tests; ten mutations
+  killed. Rust: the WP-020 sitting is r57, one arc with WP-070 slice 3b.
 - **WP-070 slice 3b: record schema v2 — the recorded instant on the
   transition record (JRN-006, MODEL-003; on the WP-L110 increment-4
   shape round's transition-only decision).** `RecordedInstant` (seconds

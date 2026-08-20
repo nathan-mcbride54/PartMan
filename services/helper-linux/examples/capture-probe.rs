@@ -20,12 +20,15 @@ fn main() {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |duration| duration.as_secs());
+        // The instrument takes a settled capture: it is not the helper,
+        // holds no journal, and no apply can be in flight around it.
         match capture(
             &SystemContractSource,
             &sysfs_root(),
             &udev_root(),
             &SystemDeviceReader,
             now,
+            false,
         ) {
             Ok(outcome) => {
                 for device in &outcome.devices {
