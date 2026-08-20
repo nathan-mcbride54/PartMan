@@ -4758,3 +4758,444 @@ fn the_drafts_body_states_no_consequence() {
     };
     assert_eq!(map.get("consequences"), Some(&Value::Array(vec![])));
 }
+
+// ---------------------------------------------------------------------
+// The observation-monotonicity gate (issue #602)
+// ---------------------------------------------------------------------
+
+/// The closed operation vocabulary, spelled out because the domain
+/// exposes no `ALL`. A new verb must be added here deliberately rather
+/// than slipping past this gate unmeasured.
+const EVERY_OPERATION: [Operation; 14] = [
+    Operation::Detect,
+    Operation::Read,
+    Operation::Create,
+    Operation::Grow,
+    Operation::Shrink,
+    Operation::Move,
+    Operation::Copy,
+    Operation::Check,
+    Operation::Repair,
+    Operation::Label,
+    Operation::Uuid,
+    Operation::Encrypt,
+    Operation::Decrypt,
+    Operation::Wipe,
+];
+
+/// Weakenings this build is known to have, each naming the issue that
+/// tracks it.
+///
+/// The gate refuses any weakening not on this list, **and equally
+/// refuses a listed entry that no longer reproduces** — so a fix reds
+/// this test and forces the roster to be updated, instead of leaving a
+/// stale exemption behind that quietly stops measuring anything.
+/// Both arms live in `protection_obligations`, and both drop a PART-013
+/// obligation on absence rather than refusing:
+///
+/// - `table_states/*` — `let Some(state) = facts.table_states.get(&device)
+///   else { continue }`, so a device with no authored state carries no
+///   obligation, where `Present` would demand `ParseBackup` and `Absent`
+///   `JournaledDetermination`. Issue #604.
+/// - `extents/*` — the obligation is derived from `touched_devices` over
+///   the step's declared ranges, and a target with no extent declares
+///   none, so no device is touched and no obligation is raised. Same
+///   function, same shape, the other input. Filed on #604.
+const KNOWN_WEAKENINGS: &[(&str, &str)] = &[
+    (
+        "extents/gpt: Label(gpt) obligations 1 -> 0",
+        "#604 extents arm",
+    ),
+    (
+        "extents/gpt: Uuid(gpt) obligations 1 -> 0",
+        "#604 extents arm",
+    ),
+    (
+        "extents/gpt: Wipe(gpt) obligations 1 -> 0",
+        "#604 extents arm",
+    ),
+    (
+        "extents/p1: Label(p1) obligations 1 -> 0",
+        "#604 extents arm",
+    ),
+    (
+        "extents/p1: Uuid(p1) obligations 1 -> 0",
+        "#604 extents arm",
+    ),
+    (
+        "extents/p1: Wipe(p1) obligations 1 -> 0",
+        "#604 extents arm",
+    ),
+    ("table_states/sda: Label(gpt) obligations 1 -> 0", "#604"),
+    ("table_states/sda: Label(p1) obligations 1 -> 0", "#604"),
+    ("table_states/sda: Label(sda) obligations 1 -> 0", "#604"),
+    ("table_states/sda: Uuid(gpt) obligations 1 -> 0", "#604"),
+    ("table_states/sda: Uuid(p1) obligations 1 -> 0", "#604"),
+    ("table_states/sda: Uuid(sda) obligations 1 -> 0", "#604"),
+    ("table_states/sda: Wipe(gpt) obligations 1 -> 0", "#604"),
+    ("table_states/sda: Wipe(p1) obligations 1 -> 0", "#604"),
+    ("table_states/sda: Wipe(sda) obligations 1 -> 0", "#604"),
+];
+
+/// The fixture's parts, kept separately so an ablated `Facts` can be
+/// re-assembled through the one validated constructor rather than
+/// mutated in place.
+struct MonotonicityFixture {
+    entries: Vec<NamingFields>,
+    edges: Vec<Edge>,
+    facts: Facts,
+    labels: Vec<(&'static str, NodeId)>,
+}
+
+/// Two chains, chosen so every one of the four fact maps carries at
+/// least one entry: a GPT disk with a table and a partition (`extents`,
+/// `transports`, `table_states`), and a ZFS host whose backing
+/// signature backs a pool (`member_counts`, and an `Aggregate` for
+/// which `may_carry_extent` is false).
+fn monotonicity_fixture() -> MonotonicityFixture {
+    let gpt_disk = device(b"MONO-SDA");
+    let gpt_disk_id = derive_id(&gpt_disk).expect("derivable");
+    let gpt = NamingFields::PartitionTable {
+        parent: gpt_disk_id,
+        role: partman_domain::model::naming::TableRole::Gpt,
+    };
+    let gpt_id = derive_id(&gpt).expect("derivable");
+    let p1 = NamingFields::Partition {
+        parent_table: gpt_id,
+        start_offset: 1 << 20,
+    };
+    let p1_id = derive_id(&p1).expect("derivable");
+
+    let pool_host = device(b"MONO-SDB");
+    let pool_host_id = derive_id(&pool_host).expect("derivable");
+    let sig = NamingFields::BackingSignature {
+        host: pool_host_id,
+        family: SignatureFamily::Zfs,
+        primary_offset: 0,
+    };
+    let sig_id = derive_id(&sig).expect("derivable");
+    let pool = NamingFields::Aggregate {
+        technology: AggregateTechnology::Zfs,
+        designator: Some(b"MONO-POOL".to_vec()),
+    };
+    let pool_id = derive_id(&pool).expect("derivable");
+
+    let mut facts = Facts::default();
+    device_facts(&mut facts, gpt_disk_id);
+    device_facts(&mut facts, pool_host_id);
+    facts.extents.insert(
+        gpt_id,
+        HostRange {
+            host: gpt_disk_id,
+            start: 0,
+            length: 17_408,
+        },
+    );
+    facts.extents.insert(
+        p1_id,
+        HostRange {
+            host: gpt_disk_id,
+            start: 1 << 20,
+            length: 256 << 20,
+        },
+    );
+    facts.extents.insert(
+        sig_id,
+        HostRange {
+            host: pool_host_id,
+            start: 0,
+            length: 1 << 16,
+        },
+    );
+    // `device_facts` already supplies each device's transport, extent
+    // and a `Present` table state, so both disks carry all three.
+    facts.member_counts.insert(pool_id, 2);
+
+    MonotonicityFixture {
+        entries: vec![gpt_disk, gpt, p1, pool_host, sig, pool],
+        edges: vec![
+            Edge {
+                kind: EdgeKind::Containment,
+                source: gpt_disk_id,
+                target: gpt_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: gpt_id,
+                target: p1_id,
+            },
+            Edge {
+                kind: EdgeKind::Containment,
+                source: pool_host_id,
+                target: sig_id,
+            },
+            Edge {
+                kind: EdgeKind::Backing,
+                source: sig_id,
+                target: pool_id,
+            },
+        ],
+        facts,
+        labels: vec![
+            ("sda", gpt_disk_id),
+            ("gpt", gpt_id),
+            ("p1", p1_id),
+            ("sdb", pool_host_id),
+            ("sig", sig_id),
+            ("pool", pool_id),
+        ],
+    }
+}
+
+/// What one (operation, target) cell answered, over one fact set.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Measured {
+    /// The ablated facts did not assemble, so this cell was never
+    /// measured. Counted, never treated as a pass.
+    NotAssembled,
+    /// The request refused.
+    Refused,
+    /// The request planned. Both numbers are answers a caller acts on,
+    /// so a shrink in either is a weakening even though it still plans.
+    Planned {
+        /// PART-013 obligations the plan carries.
+        obligations: usize,
+        /// The union of the plan's declared affected sets.
+        affected: usize,
+    },
+}
+
+fn measured(
+    fixture: &MonotonicityFixture,
+    facts: Facts,
+    operation: Operation,
+    target: NodeId,
+) -> Measured {
+    let Ok(snapshot) = TopologySnapshot::assemble(
+        SnapshotKind::Captured,
+        false,
+        fixture.entries.clone(),
+        fixture.edges.clone(),
+        facts,
+    ) else {
+        return Measured::NotAssembled;
+    };
+    plan(
+        PlanRequest { operation, target },
+        &snapshot,
+        &TechnologyLimits::default(),
+        &RuntimeFacts::clean(),
+        &identity(),
+    )
+    .map_or(Measured::Refused, |planned| {
+        let mut reached = std::collections::BTreeSet::new();
+        for step in planned.plan.steps() {
+            reached.extend(step.affected().iter().copied());
+        }
+        Measured::Planned {
+            obligations: planned.protection.len(),
+            affected: reached.len(),
+        }
+    })
+}
+
+/// Every fact key in the fixture, as (map name, key).
+fn every_fact(facts: &Facts) -> Vec<(&'static str, NodeId)> {
+    let mut all: Vec<(&'static str, NodeId)> = Vec::new();
+    all.extend(facts.extents.keys().map(|k| ("extents", *k)));
+    all.extend(facts.transports.keys().map(|k| ("transports", *k)));
+    all.extend(facts.table_states.keys().map(|k| ("table_states", *k)));
+    all.extend(facts.member_counts.keys().map(|k| ("member_counts", *k)));
+    all
+}
+
+/// `facts` with exactly one entry deleted.
+fn without(facts: &Facts, map: &str, key: NodeId) -> Facts {
+    let mut ablated = facts.clone();
+    match map {
+        "extents" => {
+            ablated.extents.remove(&key);
+        }
+        "transports" => {
+            ablated.transports.remove(&key);
+        }
+        "table_states" => {
+            ablated.table_states.remove(&key);
+        }
+        _ => {
+            ablated.member_counts.remove(&key);
+        }
+    }
+    ablated
+}
+
+/// What the sweep found, so the test itself stays readable.
+#[derive(Default)]
+struct Sweep {
+    applied: usize,
+    not_assembled: usize,
+    reach_shrinks: usize,
+    flips: Vec<String>,
+    weakenings: Vec<String>,
+}
+
+fn sweep(fixture: &MonotonicityFixture) -> Sweep {
+    let mut baseline = std::collections::BTreeMap::new();
+    for operation in EVERY_OPERATION {
+        for (label, target) in &fixture.labels {
+            baseline.insert(
+                (format!("{operation:?}"), *label),
+                measured(fixture, fixture.facts.clone(), operation, *target),
+            );
+        }
+    }
+
+    let label_of = |id: NodeId| -> &'static str {
+        fixture
+            .labels
+            .iter()
+            .find(|(_, node)| *node == id)
+            .map(|(label, _)| *label)
+            .expect("every fact key is a labelled node")
+    };
+
+    let mut found = Sweep::default();
+    for (map, key) in every_fact(&fixture.facts) {
+        let ablated = without(&fixture.facts, map, key);
+        found.applied += 1;
+        let deleted = label_of(key);
+        for operation in EVERY_OPERATION {
+            for (label, target) in &fixture.labels {
+                let after = measured(fixture, ablated.clone(), operation, *target);
+                let before = baseline[&(format!("{operation:?}"), *label)];
+                let cell = format!("{map}/{deleted}: {operation:?}({label})");
+                match (before, after) {
+                    (_, Measured::NotAssembled) => found.not_assembled += 1,
+                    (Measured::Refused, Measured::Planned { .. }) => {
+                        found.flips.push(format!("{cell} refused -> planned"));
+                    }
+                    (
+                        Measured::Planned {
+                            obligations: ob,
+                            affected: ab,
+                        },
+                        Measured::Planned {
+                            obligations: oa,
+                            affected: aa,
+                        },
+                    ) => {
+                        if oa < ob {
+                            found
+                                .weakenings
+                                .push(format!("{cell} obligations {ob} -> {oa}"));
+                        }
+                        if aa < ab {
+                            found.reach_shrinks += 1;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    found.flips.sort();
+    found.flips.dedup();
+    found.weakenings.sort();
+    found.weakenings.dedup();
+    found
+}
+
+// Requirements: PART-013, SAFE-005
+//   Deleting an observation never yields a more permissive answer.
+//   `Facts`' own doc comment claims it — "absence of a fact is honest
+//   absence and fails closed at the arm that needs it" — and nothing
+//   held it: every rule in `validate_facts` is a positive check that
+//   requires the fact to be *present*, so deleting an entry can never
+//   trip one, and the validated constructor is no defence here at all.
+//   Measured: every single-fact deletion assembles, so absence is
+//   always representable, and the same bodies round-trip through
+//   `from_canonical_body`, so it is byte-reachable from the wire.
+//   The gate deletes each fact in turn, re-assembles through the one
+//   constructor, and re-measures every (operation, target) cell. Two
+//   weakenings are refused: a refusal that becomes a plan, and a plan
+//   whose PART-013 obligations shrink. The known roster carries the
+//   arms this build has not yet fixed, each naming its issue, and is
+//   asserted exactly — an unlisted weakening reds the gate, and so
+//   does a listed one that stops reproducing. Not merely hypothetical:
+//   `capability.rs`'s own comment records this class already costing a
+//   live fail-open, where a volume carrying no range was never seen
+//   destroyed and `Wipe(volume)` gated `Clear` over a live pool. That
+//   one was found by hand.
+// Evidence: deleting_an_observation_never_yields_a_more_permissive_answer
+#[test]
+fn deleting_an_observation_never_yields_a_more_permissive_answer() {
+    let fixture = monotonicity_fixture();
+    let found = sweep(&fixture);
+
+    assert_eq!(
+        found.applied, 10,
+        "the fixture's fact population is pinned: 5 extents, 2 transports,          2 table states, 1 member count"
+    );
+    assert_eq!(
+        found.not_assembled, 0,
+        "every deletion assembles: `validate_facts` is all positive checks, so absence          cannot trip one. A non-zero count here means the gate is measuring less than it          appears to and the fixture must be re-read, not the count relaxed"
+    );
+
+    // The strong half, and it is clean: no deletion turns a refusal
+    // into a plan anywhere in this fixture. This is the assertion that
+    // must never gain a roster — an unlocked operation is not a debt to
+    // be tracked, it is a defect to be fixed.
+    assert!(
+        found.flips.is_empty(),
+        "a deletion turned a refusal into a plan:
+  {}",
+        found.flips.join(
+            "
+  "
+        )
+    );
+
+    // Reach shrink is the weaker signal and is counted, not asserted
+    // arm by arm: reach is byte-derived, so deleting an extent
+    // legitimately subtracts reach, and none of these flipped a
+    // permission. The count is pinned because a change in either
+    // direction is worth a look — it is the mechanism by which a shrink
+    // one hop further out could cross a refusing node.
+    assert_eq!(
+        found.reach_shrinks, 10,
+        "the affected-set shrink population moved; re-read it rather than re-pinning it"
+    );
+
+    let observed = found.weakenings;
+    let known: std::collections::BTreeSet<&str> =
+        KNOWN_WEAKENINGS.iter().map(|(key, _)| *key).collect();
+
+    let unlisted: Vec<&String> = observed
+        .iter()
+        .filter(|k| !known.contains(k.as_str()))
+        .collect();
+    assert!(
+        unlisted.is_empty(),
+        "a deletion made the answer weaker, and this arm is not on the known roster:\n  {}\n\
+         Deleting an observation must never unlock anything or drop an obligation. Either fix \
+         the arm, or add it to KNOWN_WEAKENINGS with the issue that tracks it.",
+        unlisted
+            .iter()
+            .map(|k| k.as_str())
+            .collect::<Vec<_>>()
+            .join("\n  ")
+    );
+
+    let stale: Vec<&str> = known
+        .iter()
+        .filter(|k| !observed.iter().any(|o| o == *k))
+        .copied()
+        .collect();
+    assert!(
+        stale.is_empty(),
+        "a known weakening no longer reproduces:\n  {}\n\
+         That is good news and the roster is now stale — remove the entry and close its issue, \
+         so the gate keeps measuring what it claims to.",
+        stale.join("\n  ")
+    );
+}
