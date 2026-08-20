@@ -11,6 +11,7 @@ use crate::{
 };
 
 mod increment2;
+mod increment3;
 
 struct FakeBackend;
 
@@ -35,10 +36,18 @@ impl Backend for FakeBackend {
         }
     }
     fn validate_plan(&self, _request: &ValidateWire, audit: &mut dyn AuditSink) -> Response {
-        audit.record(AuditEvent::Captured {
-            devices: 1,
-            classified: 1,
-        });
+        if audit
+            .record(AuditEvent::Captured {
+                devices: 1,
+                classified: 1,
+            })
+            .is_err()
+        {
+            return Response::ValidationRefused {
+                arm: "audit".to_owned(),
+                detail: "the audit log could not be written".to_owned(),
+            };
+        }
         Response::ValidationRefused {
             arm: "planner".to_owned(),
             detail: "the fake backend plans nothing".to_owned(),
@@ -68,12 +77,18 @@ fn wire_request(operation: Operation) -> Request {
     }
 }
 
+/// Collects audit events; the flag makes every write refuse, so the
+/// SEC-009 fail-closed arm is reachable in a test.
 #[derive(Default)]
-struct Collect(Vec<AuditEvent>);
+struct Collect(Vec<AuditEvent>, bool);
 
 impl AuditSink for Collect {
-    fn record(&mut self, event: AuditEvent) {
+    fn record(&mut self, event: AuditEvent) -> Result<(), crate::AuditRefused> {
+        if self.1 {
+            return Err(crate::AuditRefused);
+        }
         self.0.push(event);
+        Ok(())
     }
 }
 
@@ -122,11 +137,20 @@ fn serve(body: &[u8]) -> (BTreeMap<String, Value>, Vec<AuditEvent>) {
 
 /// Serve one request through any backend — the child module's seam.
 fn serve_through(body: &[u8], backend: &dyn Backend) -> (BTreeMap<String, Value>, Vec<AuditEvent>) {
+    serve_through_sink(body, backend, Collect::default())
+}
+
+/// Serve through a caller-supplied sink, so a sink that refuses every
+/// write is reachable from a test (SEC-009's fail-closed arm).
+fn serve_through_sink(
+    body: &[u8],
+    backend: &dyn Backend,
+    mut audit: Collect,
+) -> (BTreeMap<String, Value>, Vec<AuditEvent>) {
     let mut d = Duplex {
         input: std::io::Cursor::new(request_frame(body)),
         output: Vec::new(),
     };
-    let mut audit = Collect::default();
     serve_connection(&mut d, backend, &mut audit).unwrap();
     (decode_reply(&d.output), audit.0)
 }
@@ -227,10 +251,24 @@ fn the_operation_set_is_closed_and_the_request_decode_is_strict() {
         "schema_version".to_owned(),
         Value::Unsigned(SCHEMA_VERSION + 1),
     );
+    // A future version is refused as a *version*, not as a schema, so the
+    // reply can carry RPC-002's remediation instead of a debug rendering.
     assert_eq!(
         Request::decode(&canonical::encode(&Value::Map(m.clone())).unwrap()),
-        Err(RequestRefusal::WrongSchema)
+        Err(RequestRefusal::WrongVersion {
+            spoken: SCHEMA_VERSION + 1
+        })
     );
+    m.insert(
+        "schema".to_owned(),
+        Value::Text("partman.helper.reqvest".to_owned()),
+    );
+    assert_eq!(
+        Request::decode(&canonical::encode(&Value::Map(m.clone())).unwrap()),
+        Err(RequestRefusal::WrongSchema),
+        "a wrong schema identity is still a schema refusal"
+    );
+    m.insert("schema".to_owned(), Value::Text(REQUEST_SCHEMA.to_owned()));
     m.insert("schema_version".to_owned(), Value::Unsigned(SCHEMA_VERSION));
     m.remove("operation");
     assert_eq!(
@@ -371,6 +409,10 @@ fn the_audit_vocabulary_is_closed_and_carries_no_identifier() {
             devices: 14,
             classified: 12,
         },
+        AuditEvent::Authorization {
+            tier: "interactive-ceremony",
+            outcome: "computed",
+        },
     ];
     for e in &events {
         match e {
@@ -379,7 +421,8 @@ fn the_audit_vocabulary_is_closed_and_carries_no_identifier() {
             | AuditEvent::ConnectionRefused { .. }
             | AuditEvent::Operation { .. }
             | AuditEvent::IdleExit { .. }
-            | AuditEvent::Captured { .. } => {}
+            | AuditEvent::Captured { .. }
+            | AuditEvent::Authorization { .. } => {}
         }
         let line = e.to_string();
         assert!(line.starts_with("event="), "{line}");

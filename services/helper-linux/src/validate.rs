@@ -28,6 +28,7 @@ use partman_domain::model::naming::{NamingFields, NodeEntry, NodeId};
 use partman_domain::model::plan::{OperationPlan, PlanSchemaError, ValidityWindow};
 use partman_domain::model::snapshot::TopologySnapshot;
 use partman_domain::model::step::{Severity, StepFlags};
+use partman_journal::records::PlanHashRef;
 use partman_planner::{PlanIdentity, PlanRefusal, PlanRequest, plan, plan_flags};
 
 /// PLAN-007's default validity: 24 hours.
@@ -184,6 +185,65 @@ pub struct ValidationRecord {
     pub consumed: bool,
 }
 
+/// A plan admitted past every SEC-002 arm, against a **fresh** capture,
+/// the helper's own clock and the presenting peer.
+///
+/// **This type is the increment's provenance proof, and it is why the
+/// ladder cannot be reached around.** It has no public constructor: the
+/// only way to obtain one is [`admit_presented_plan`], which returns it
+/// only after the replay, cross-user, decode, hash, staleness,
+/// cross-device and expiry arms have all passed. So by the time
+/// `authorize` reads a severity, the bytes it came from are known to have
+/// hashed to *the helper's own recomputed plan hash* for *this* peer
+/// inside *this* window — a hand-forged body cannot reach the tier
+/// computation at all (ADR-0012's shape, CAP-007's unrepresentability).
+///
+/// Accessors expose only what the ladder needs. The plan itself is
+/// available for increment 4's apply, which is the only thing that needs
+/// the steps.
+#[derive(Debug)]
+pub struct AdmittedPlan {
+    plan: OperationPlan,
+}
+
+impl AdmittedPlan {
+    /// The helper-recomputed plan severity (PLAN-004's maximum).
+    #[must_use]
+    pub fn severity(&self) -> Severity {
+        self.plan.severity()
+    }
+
+    /// The helper-recomputed flag union (PLAN-004).
+    #[must_use]
+    pub fn flags(&self) -> StepFlags {
+        plan_flags(&self.plan)
+    }
+
+    /// The plan's own body hash as the journal names it. Derived from the
+    /// admitted body, never from anything a client sent.
+    ///
+    /// # Panics
+    ///
+    /// Never: the body hashed once already inside [`admit_presented_plan`]
+    /// (the hash-mismatch arm), so it hashes again. Stated as a bound
+    /// rather than hidden behind a silent default.
+    #[must_use]
+    pub fn plan_hash_ref(&self) -> PlanHashRef {
+        PlanHashRef::from(
+            &self
+                .plan
+                .body_hash()
+                .expect("an admitted plan hashed once inside the admission"),
+        )
+    }
+
+    /// The admitted plan itself (increment 4's apply reads the steps).
+    #[must_use]
+    pub const fn plan(&self) -> &OperationPlan {
+        &self.plan
+    }
+}
+
 /// SEC-002's typed arms, in the order they are checked.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AdmissionRefusal {
@@ -221,19 +281,23 @@ pub enum AdmissionRefusal {
 
 /// Admit one presented plan against a fresh capture, the helper's clock,
 /// the presenting peer, and its validation record — or refuse on the
-/// first SEC-002 arm that bites. On success the decoded plan is returned
-/// for the apply that consumes the record (increment 3's).
+/// first SEC-002 arm that bites.
+///
+/// On success the plan is returned **wrapped in [`AdmittedPlan`]**, whose
+/// existence is the proof that every arm passed. The authorization ladder
+/// (`crate::authorize`) reads only that type, so no code path can compute
+/// a tier for bytes that did not pass here.
 ///
 /// # Errors
 ///
-/// [`AdmissionRefusal`].
+/// [`AdmissionRefusal`], the first arm violated.
 pub fn admit_presented_plan(
     bytes: &[u8],
     fresh_capture: &TopologySnapshot,
     now: u64,
     presented_by: u32,
     record: &ValidationRecord,
-) -> Result<OperationPlan, AdmissionRefusal> {
+) -> Result<AdmittedPlan, AdmissionRefusal> {
     if record.consumed {
         return Err(AdmissionRefusal::Replayed);
     }
@@ -267,7 +331,7 @@ pub fn admit_presented_plan(
             now,
         });
     }
-    Ok(plan)
+    Ok(AdmittedPlan { plan })
 }
 
 /// The CAP-002 wire names, closed by the same test that closes the

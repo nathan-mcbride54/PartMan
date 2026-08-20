@@ -792,15 +792,18 @@ fn the_v2_decode_is_strict_in_both_directions() {
         RequestRefusal::FieldOutOfPlace { key: "plan_id" }
     );
 
-    // Version 1 is refused: the explicit migration.
-    let mut v1 = map.clone();
-    v1.remove("plan_id");
-    v1.insert("schema_version".to_owned(), Value::Unsigned(1));
-    let bytes = canonical::encode(&Value::Map(v1)).unwrap();
-    assert_eq!(
-        Request::decode(&bytes).unwrap_err(),
-        RequestRefusal::WrongSchema
-    );
+    // Versions 1 and 2 are refused: the explicit migration, and each
+    // names the version it spoke so the reply can remediate (RPC-002).
+    for spoken in [1_u64, 2] {
+        let mut old = map.clone();
+        old.remove("plan_id");
+        old.insert("schema_version".to_owned(), Value::Unsigned(spoken));
+        let bytes = canonical::encode(&Value::Map(old)).unwrap();
+        assert_eq!(
+            Request::decode(&bytes).unwrap_err(),
+            RequestRefusal::WrongVersion { spoken }
+        );
+    }
 
     // A validate-plan request without its arguments refuses by name.
     let mut incomplete = map.clone();
@@ -890,10 +893,18 @@ fn the_wire_round_trips_a_validation_end_to_end() {
             request: &ValidateWire,
             audit: &mut dyn crate::AuditSink,
         ) -> crate::Response {
-            audit.record(crate::AuditEvent::Captured {
-                devices: 1,
-                classified: 1,
-            });
+            if audit
+                .record(crate::AuditEvent::Captured {
+                    devices: 1,
+                    classified: 1,
+                })
+                .is_err()
+            {
+                return crate::Response::ValidationRefused {
+                    arm: "audit".to_owned(),
+                    detail: "the audit log could not be written".to_owned(),
+                };
+            }
             let target = request.target.derive().expect("derives");
             match validate_plan(
                 &self.snapshot,
@@ -913,6 +924,9 @@ fn the_wire_round_trips_a_validation_end_to_end() {
                     snapshot_hash: validated.snapshot_hash.as_bytes().to_vec(),
                     severity: crate::validate::severity_name(validated.severity).to_owned(),
                     flags: vec![],
+                    tier: crate::authorize::required_tier(validated.severity, &validated.flags)
+                        .wire_name()
+                        .to_owned(),
                     not_after: validated.not_after,
                 },
                 Err(refusal) => crate::Response::ValidationRefused {

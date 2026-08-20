@@ -5,9 +5,9 @@ use std::fs;
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use partman_adapter_linux::contract::{
     SystemContractSource, os_release_root, procfs_root, sysfs_root, udev_root,
@@ -22,12 +22,14 @@ use partman_transport_linux::{
     AuthorizingUser, Refusal as TransportRefusal, SOCKET_DIRECTORY_MODE, Timeouts, node_name,
 };
 
+use crate::authorize::required_tier;
 use crate::bytes::{ByteRefusal, DeviceReader, Windows, read_windows};
 use crate::capture::{DeviceCapture, capture};
+use crate::clock::{Clock, SystemClock};
 use crate::validate::{ValidateRefusal, ValidateRequest, flag_names, severity_name, validate_plan};
 use crate::{
-    AuditEvent, AuditSink, Backend, EnumeratedDevice, LaunchRefusal, Operation, Response,
-    ValidateWire, serve_connection,
+    AuditEvent, AuditRefused, AuditSink, Backend, EnumeratedDevice, LaunchRefusal, Operation,
+    Response, ValidateWire, serve_connection,
 };
 
 /// The helper's configuration for one run.
@@ -72,10 +74,15 @@ impl FileAudit {
 }
 
 impl AuditSink for FileAudit {
-    fn record(&mut self, event: AuditEvent) {
-        let ts = now_secs();
-        let _ = writeln!(self.sink, "ts={ts} {event}");
-        let _ = self.sink.flush();
+    /// Fail-closed (SEC-009): a line that cannot be written or flushed is
+    /// an error the caller must act on, not a discarded result. The
+    /// timestamp comes from the same fallible clock as everything else —
+    /// a record dated from a clock the helper cannot read would be worse
+    /// than no record, so a clock refusal refuses the write.
+    fn record(&mut self, event: AuditEvent) -> Result<(), AuditRefused> {
+        let ts = SystemClock.now_secs().map_err(|_| AuditRefused)?;
+        writeln!(self.sink, "ts={ts} {event}").map_err(|_| AuditRefused)?;
+        self.sink.flush().map_err(|_| AuditRefused)
     }
 }
 
@@ -144,7 +151,19 @@ impl Backend for SystemBackend {
 
     fn validate_plan(&self, request: &ValidateWire, audit: &mut dyn AuditSink) -> Response {
         let source = SystemContractSource;
-        let now = now_secs();
+        // HLP-004 stands on this reading: a clock the helper cannot read
+        // refuses the operation rather than dating the plan from zero,
+        // which is what the delivered `map_or(0, …)` did and what made
+        // every window unexpirable (increment 3's first fix).
+        let now = match SystemClock.now_secs() {
+            Ok(now) => now,
+            Err(refusal) => {
+                return Response::ValidationRefused {
+                    arm: "clock".to_owned(),
+                    detail: refusal.to_string(),
+                };
+            }
+        };
         let outcome = match capture(
             &source,
             &sysfs_root(),
@@ -160,14 +179,23 @@ impl Backend for SystemBackend {
                 };
             }
         };
-        audit.record(AuditEvent::Captured {
-            devices: outcome.devices.len() as u64,
-            classified: outcome
-                .devices
-                .iter()
-                .filter(|device| matches!(device, DeviceCapture::Authored { .. }))
-                .count() as u64,
-        });
+        if audit
+            .record(AuditEvent::Captured {
+                devices: outcome.devices.len() as u64,
+                classified: outcome
+                    .devices
+                    .iter()
+                    .filter(|device| matches!(device, DeviceCapture::Authored { .. }))
+                    .count() as u64,
+            })
+            .is_err()
+        {
+            return Response::ValidationRefused {
+                arm: "audit".to_owned(),
+                detail: "the audit log could not be written; no operation is served unrecorded"
+                    .to_owned(),
+            };
+        }
         let target = match request.target.derive() {
             Ok(target) => target,
             Err(error) => {
@@ -194,17 +222,39 @@ impl Backend for SystemBackend {
             &TechnologyLimits::default(),
             &runtime,
         ) {
-            Ok(validated) => Response::Validated {
-                plan: validated.body_bytes,
-                plan_hash: validated.body_hash.as_bytes().to_vec(),
-                snapshot_hash: validated.snapshot_hash.as_bytes().to_vec(),
-                severity: severity_name(validated.severity).to_owned(),
-                flags: flag_names(&validated.flags)
-                    .into_iter()
-                    .map(str::to_owned)
-                    .collect(),
-                not_after: validated.not_after,
-            },
+            Ok(validated) => {
+                // HLP-003's one authorized reporting site for the tier,
+                // and UI-011's reason for it. Computed here from the
+                // helper's own severity and flags; no client value
+                // participates, and no request field could carry one.
+                let tier = required_tier(validated.severity, &validated.flags);
+                if audit
+                    .record(AuditEvent::Authorization {
+                        tier: tier.wire_name(),
+                        outcome: "computed",
+                    })
+                    .is_err()
+                {
+                    return Response::ValidationRefused {
+                        arm: "audit".to_owned(),
+                        detail: "the audit log could not be written; no operation is served \
+                                 unrecorded"
+                            .to_owned(),
+                    };
+                }
+                Response::Validated {
+                    plan: validated.body_bytes,
+                    plan_hash: validated.body_hash.as_bytes().to_vec(),
+                    snapshot_hash: validated.snapshot_hash.as_bytes().to_vec(),
+                    severity: severity_name(validated.severity).to_owned(),
+                    flags: flag_names(&validated.flags)
+                        .into_iter()
+                        .map(str::to_owned)
+                        .collect(),
+                    tier: tier.wire_name().to_owned(),
+                    not_after: validated.not_after,
+                }
+            }
             Err(refusal) => {
                 let arm = match &refusal {
                     ValidateRefusal::AggregateTarget { .. } => "aggregate-target",
@@ -278,10 +328,24 @@ pub fn run(config: &Config, audit: &mut dyn AuditSink) -> Result<(), LaunchRefus
         config.timeouts,
     )
     .map_err(LaunchRefusal::Endpoint)?;
-    audit.record(AuditEvent::Started { uid: config.uid });
+    audit
+        .record(AuditEvent::Started { uid: config.uid })
+        .map_err(|_| {
+            LaunchRefusal::Endpoint(TransportRefusal::Io {
+                operation: "write the audit log",
+                kind: "Unwritable".to_owned(),
+            })
+        })?;
     let last_activity = Arc::new(AtomicU64::new(now_secs()));
+    // HLP-005 says the helper may exit when **idle**. `serving` is what
+    // makes that true: without it the watchdog counted wall-clock silence
+    // and could kill the process in the middle of an operation, running
+    // no `Drop` and removing the node under a connected client
+    // (increment 3's second fix).
+    let serving = Arc::new(AtomicBool::new(false));
     spawn_idle_watchdog(
         Arc::clone(&last_activity),
+        Arc::clone(&serving),
         config.idle_seconds,
         endpoint.path().to_path_buf(),
     );
@@ -290,21 +354,25 @@ pub fn run(config: &Config, audit: &mut dyn AuditSink) -> Result<(), LaunchRefus
     loop {
         match endpoint.accept(&local) {
             Ok(mut conn) => {
+                serving.store(true, Ordering::SeqCst);
                 last_activity.store(now_secs(), Ordering::SeqCst);
                 let creds = conn.peer().credentials();
-                audit.record(AuditEvent::Admitted {
+                let admitted = audit.record(AuditEvent::Admitted {
                     uid: creds.uid,
                     pid: creds.pid,
                 });
-                if let Err(refusal) = serve_connection(conn.stream(), &backend, audit) {
-                    audit.record(AuditEvent::ConnectionRefused {
+                if admitted.is_ok()
+                    && let Err(refusal) = serve_connection(conn.stream(), &backend, audit)
+                {
+                    let _ = audit.record(AuditEvent::ConnectionRefused {
                         reason: refusal.to_string(),
                     });
                 }
                 last_activity.store(now_secs(), Ordering::SeqCst);
+                serving.store(false, Ordering::SeqCst);
             }
             Err(refusal) => {
-                audit.record(AuditEvent::ConnectionRefused {
+                let _ = audit.record(AuditEvent::ConnectionRefused {
                     reason: refusal.to_string(),
                 });
             }
@@ -359,10 +427,15 @@ impl DeviceReader for SystemDeviceReader {
     }
 }
 
+/// The activity clock for the idle watchdog only.
+///
+/// A clock refusal here answers `0`, which under [`should_exit`] makes
+/// the helper look *busy* rather than idle — the fail-closed direction
+/// for a watchdog, and the opposite of what the same expression meant
+/// where HLP-004's expiry read it (`crate::clock` carries that rule).
+/// Nothing that dates a plan, an act or an audit line reads this.
 fn now_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs())
+    SystemClock.now_secs().unwrap_or(0)
 }
 
 /// HLP-005: exit when idle. `accept` blocks, so the watchdog is a thread
@@ -370,17 +443,22 @@ fn now_secs() -> u64 {
 /// process made (the endpoint's `Drop` does not run through
 /// `process::exit`) and exits 0. The audit line is written through a
 /// shared sink the watchdog owns a handle to.
-fn spawn_idle_watchdog(last_activity: Arc<AtomicU64>, idle_seconds: u64, node: PathBuf) {
+fn spawn_idle_watchdog(
+    last_activity: Arc<AtomicU64>,
+    serving: Arc<AtomicBool>,
+    idle_seconds: u64,
+    node: PathBuf,
+) {
     let shared: Arc<Mutex<Option<FileAudit>>> = Arc::new(Mutex::new(FileAudit::open(None).ok()));
     std::thread::spawn(move || {
         loop {
             std::thread::sleep(Duration::from_secs(1));
             let idle = now_secs().saturating_sub(last_activity.load(Ordering::SeqCst));
-            if idle >= idle_seconds {
+            if crate::should_exit(idle, idle_seconds, serving.load(Ordering::SeqCst)) {
                 if let Ok(mut guard) = shared.lock()
                     && let Some(sink) = guard.as_mut()
                 {
-                    sink.record(AuditEvent::IdleExit { idle_seconds: idle });
+                    let _ = sink.record(AuditEvent::IdleExit { idle_seconds: idle });
                 }
                 let _ = fs::remove_file(&node);
                 std::process::exit(0);

@@ -47,18 +47,42 @@
 //! own reach declaration is [`reach::REACH`], its host half resting on
 //! the DR21 row.
 //!
+//! **Increment 3 — the authorization ladder.** The helper computes
+//! HLP-003's required tier for itself, from its own recomputed severity
+//! and flags ([`authorize::required_tier`]), and reports it on the
+//! validate-plan response — the one site HLP-003 authorizes for it, and
+//! UI-011's reason for wanting it. **No request field carries a tier**,
+//! and none exists to add one to: that absence is where CAP-007's
+//! "a client-assertable authorization is unrepresentable" lives. The
+//! ladder itself ([`authorize::authorize`]) reads only an
+//! [`validate::AdmittedPlan`], which exists only past SEC-002's arms, so
+//! a forged, replayed, cross-user or expired body cannot reach the
+//! computation. The floor act needs no polkit, no agent and no terminal
+//! (ADR-0021's programmatic act, which keeps SAFE-003's unattended
+//! population representable); the interactive ceremony is a seam whose
+//! completion value is unconstructible in a shipped build, so every
+//! interactive-tier plan is refused on one arm that names no route — the
+//! decision taken on
+//! `docs/reviews/LINUX_APPLY_CEREMONY_ROUND_2026-08-19.md` (R8, with S2
+//! as the decided two-phase shape for when a route lands, and both
+//! no-retained-grant constraints bound). **`apply-plan` is not served by
+//! this build**: it is answered `not-yet-served` naming increment 4,
+//! because single-use cannot be held on a served path whose consumption
+//! record does not exist yet.
+//!
 //! **Identity and logging.** HLP-007 is the transport's (no byte before
 //! the verifier). HLP-006's audit log is a closed vocabulary of
 //! [`AuditEvent`]s that carry uids, counts, operation names and this
 //! crate's own words — no field can hold a serial, path, label or
 //! username (SAFE-006 by construction), and a test holds the vocabulary.
 //!
-//! **What this is not (the assignment's boundary).** No authorization
-//! (ADR-0021's act is increment 3's); no write and no apply (increments
-//! 3–4's; the only device access is the byte layer's bounded read-only
-//! windows); no tool launched; no journal; no network; no operation
-//! outside the six. The pure seams compile and test everywhere; the
-//! endpoint and the real device reader exist on Linux only.
+//! **What this is not (the assignment's boundary).** No apply and no
+//! write (increment 4's; the only device access remains the byte layer's
+//! bounded read-only windows); **no journal file** — the act is minted
+//! here and appended by the increment that opens the journal; no tool
+//! launched, no bus client, no polkit action shipped; no network; no
+//! operation outside the six. The pure seams compile and test everywhere;
+//! the endpoint and the real device reader exist on Linux only.
 
 #![forbid(unsafe_code)]
 
@@ -72,8 +96,10 @@ use partman_domain::model::naming::{NamingError, NamingFields, NodeId, TableRole
 use partman_rpc::{DecodeRefusal, Envelope};
 use partman_transport_linux::{Refusal as TransportRefusal, read_frame, write_frame};
 
+pub mod authorize;
 pub mod bytes;
 pub mod capture;
+pub mod clock;
 pub mod reach;
 pub mod validate;
 
@@ -87,12 +113,14 @@ mod tests;
 pub const REQUEST_SCHEMA: &str = "partman.helper.request";
 /// The response schema identity (MODEL-003).
 pub const RESPONSE_SCHEMA: &str = "partman.helper.response";
-/// Version 2 of both: the six operations, three served, and the
-/// validate-plan request fields. Version 1 (increment 1's two-served
-/// vocabulary) is refused at decode — the explicit-migration discipline
-/// (MODEL-003), recorded in `schemas/helper/operations.md`; no shipped
-/// client ever spoke it.
-pub const SCHEMA_VERSION: u64 = 2;
+/// Version 3 of both: as version 2, plus the helper-computed
+/// authorization tier on the validated response (HLP-003, UI-011).
+/// Versions 1 and 2 are refused at decode with a remediation naming this
+/// one (RPC-002's "never degrade silently") — the explicit-migration
+/// discipline (MODEL-003), recorded in `schemas/helper/operations.md`.
+/// The **request** vocabulary is unchanged: no field carries a tier, and
+/// that absence is CAP-007's enforcement point.
+pub const SCHEMA_VERSION: u64 = 3;
 /// The polkit action the launch is authorized under (the round's L2).
 pub const POLKIT_ACTION: &str = "org.partman.helper.serve";
 /// The environment variable `pkexec` sets to the launching user's uid.
@@ -161,8 +189,13 @@ impl Operation {
     pub const fn served_in_increment(self) -> Option<u8> {
         match self {
             Self::Status | Self::Enumerate | Self::ValidatePlan => None,
-            Self::ApplyPlan => Some(3),
-            Self::Cancel | Self::Resume | Self::JournalQuery => Some(4),
+            // Increment 4, not 3, and the correction is deliberate: the
+            // ladder (increment 3) computes the tier and mints the act,
+            // but ADR-0028's one-act-one-apply needs a consumption
+            // record in a journal this build does not open. An operation
+            // that authorized without being able to consume would be a
+            // served path that cannot hold its own guarantee.
+            Self::ApplyPlan | Self::Cancel | Self::Resume | Self::JournalQuery => Some(4),
         }
     }
 }
@@ -272,8 +305,15 @@ impl TargetSpelling {
 pub enum RequestRefusal {
     /// Not canonical, or not a map.
     NotAMessage,
-    /// The schema or version is not this one.
+    /// The schema identity is not this crate's.
     WrongSchema,
+    /// The schema identity is right and the version is not this one.
+    /// Separated from [`Self::WrongSchema`] so the reply can carry
+    /// RPC-002's remediation instead of a debug rendering.
+    WrongVersion {
+        /// The version the peer spoke.
+        spoken: u64,
+    },
     /// A field outside the version's vocabulary (RPC-003 strict).
     UnknownField {
         /// The field name, bounded.
@@ -411,6 +451,9 @@ impl Request {
         match (map.get("schema"), map.get("schema_version")) {
             (Some(Value::Text(s)), Some(Value::Unsigned(v)))
                 if s == REQUEST_SCHEMA && *v == SCHEMA_VERSION => {}
+            (Some(Value::Text(s)), Some(Value::Unsigned(spoken))) if s == REQUEST_SCHEMA => {
+                return Err(RequestRefusal::WrongVersion { spoken: *spoken });
+            }
             _ => return Err(RequestRefusal::WrongSchema),
         }
         let Some(Value::Text(name)) = map.get("operation") else {
@@ -575,6 +618,11 @@ pub enum Response {
         severity: String,
         /// The helper-computed flag names (PLAN-004).
         flags: Vec<String>,
+        /// The helper-computed authorization tier (HLP-003, ADR-0021):
+        /// `floor-act` or `interactive-ceremony`. **Response data, never
+        /// plan body** — MODEL-005's authoring set stays closed at two,
+        /// and no client can assert this (CAP-007).
+        tier: String,
         /// PLAN-007's window end.
         not_after: u64,
     },
@@ -662,6 +710,7 @@ impl Response {
                 snapshot_hash,
                 severity,
                 flags,
+                tier,
                 not_after,
             } => {
                 map.insert("outcome".to_owned(), Value::Text("validated".to_owned()));
@@ -676,6 +725,7 @@ impl Response {
                     "flags".to_owned(),
                     Value::Array(flags.iter().map(|f| Value::Text(f.clone())).collect()),
                 );
+                map.insert("tier".to_owned(), Value::Text(tier.clone()));
                 map.insert("not_after".to_owned(), Value::Unsigned(*not_after));
             }
             Self::ValidationRefused { arm, detail } => {
@@ -789,6 +839,18 @@ pub enum AuditEvent {
         /// Seconds idle.
         idle_seconds: u64,
     },
+    /// The helper computed an authorization tier for a validated plan
+    /// (HLP-003, SEC-009). Fixed words only: the tier's own wire name and
+    /// one outcome word from this crate's vocabulary. **No plan hash** —
+    /// a 64-character digest in a log line is an identifier by any other
+    /// name, and this vocabulary's stated property is that no field can
+    /// hold one.
+    Authorization {
+        /// `floor-act` or `interactive-ceremony`.
+        tier: &'static str,
+        /// This build's only outcome word: `computed`.
+        outcome: &'static str,
+    },
     /// An HLP-002 capture was taken (the only device access the helper
     /// has before increment 4): counts only, no identifier.
     Captured {
@@ -815,6 +877,9 @@ impl fmt::Display for AuditEvent {
             Self::IdleExit { idle_seconds } => {
                 write!(f, "event=idle-exit idle_seconds={idle_seconds}")
             }
+            Self::Authorization { tier, outcome } => {
+                write!(f, "event=authorization tier={tier} outcome={outcome}")
+            }
             Self::Captured {
                 devices,
                 classified,
@@ -828,10 +893,34 @@ impl fmt::Display for AuditEvent {
     }
 }
 
+/// Why an audit line could not be recorded.
+///
+/// One variant: a caller may not act differently on the reason, only on
+/// the fact. SEC-009 requires the record; an operation whose record could
+/// not be written is refused rather than served silently.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AuditRefused;
+
+impl fmt::Display for AuditRefused {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "the audit log could not be written")
+    }
+}
+
 /// Where audit lines go (HLP-006): the consumer appends; tests collect.
+///
+/// **Fallible on purpose (increment 3).** Increments 1 and 2 discarded
+/// the write's result (`let _ = writeln!`), so an operation could be
+/// served with no record of it — SEC-009 asks for the log, and a log that
+/// silently loses lines is not one. A sink that cannot record refuses,
+/// and [`serve_connection`] turns that into a refusal of the operation.
 pub trait AuditSink {
     /// Append one event.
-    fn record(&mut self, event: AuditEvent);
+    ///
+    /// # Errors
+    ///
+    /// [`AuditRefused`] when the event could not be durably appended.
+    fn record(&mut self, event: AuditEvent) -> Result<(), AuditRefused>;
 }
 
 /// Serve one admitted connection: read one request frame, decode it
@@ -855,38 +944,58 @@ pub fn serve_connection<S: Read + Write>(
             let response = Response::Refused {
                 reason: format!("envelope refused: {refusal:?}"),
             };
-            audit.record(AuditEvent::Operation {
-                operation: None,
-                outcome: "refused",
-            });
+            if audit
+                .record(AuditEvent::Operation {
+                    operation: None,
+                    outcome: "refused",
+                })
+                .is_err()
+            {
+                return reply(stream, &unaudited());
+            }
             return reply(stream, &response);
         }
     };
     let response = match Request::decode(envelope.body()) {
         Err(refusal) => {
-            audit.record(AuditEvent::Operation {
-                operation: None,
-                outcome: "refused",
-            });
+            if audit
+                .record(AuditEvent::Operation {
+                    operation: None,
+                    outcome: "refused",
+                })
+                .is_err()
+            {
+                return reply(stream, &unaudited());
+            }
             Response::Refused {
-                reason: format!("request refused: {refusal:?}"),
+                reason: refusal_reason(&refusal),
             }
         }
         Ok(request) => {
             if let Some(increment) = request.operation.served_in_increment() {
-                audit.record(AuditEvent::Operation {
-                    operation: Some(request.operation),
-                    outcome: "not-yet-served",
-                });
+                if audit
+                    .record(AuditEvent::Operation {
+                        operation: Some(request.operation),
+                        outcome: "not-yet-served",
+                    })
+                    .is_err()
+                {
+                    return reply(stream, &unaudited());
+                }
                 Response::NotYetServed {
                     operation: request.operation,
                     increment,
                 }
             } else {
-                audit.record(AuditEvent::Operation {
-                    operation: Some(request.operation),
-                    outcome: "served",
-                });
+                if audit
+                    .record(AuditEvent::Operation {
+                        operation: Some(request.operation),
+                        outcome: "served",
+                    })
+                    .is_err()
+                {
+                    return reply(stream, &unaudited());
+                }
                 match (request.operation, request.validate.as_ref()) {
                     (Operation::Status, _) => backend.status(),
                     (Operation::Enumerate, _) => backend.enumerate(),
@@ -906,6 +1015,29 @@ pub fn serve_connection<S: Read + Write>(
         }
     };
     reply(stream, &response)
+}
+
+/// SEC-009 fail-closed: an operation whose audit line could not be
+/// written is refused, not served silently. The peer is told the fact,
+/// never the path or the cause — a refusal is not a channel for
+/// reporting the host's filesystem.
+fn unaudited() -> Response {
+    Response::Refused {
+        reason: "the audit log could not be written; no operation is served unrecorded".to_owned(),
+    }
+}
+
+/// RPC-002: an incompatible version refuses with a remediation naming the
+/// version this build speaks, never a debug rendering. The other arms
+/// keep their typed rendering, which names a field or a rule and echoes
+/// no client content.
+fn refusal_reason(refusal: &RequestRefusal) -> String {
+    match refusal {
+        RequestRefusal::WrongVersion { spoken } => format!(
+            "this helper speaks {REQUEST_SCHEMA} version {SCHEMA_VERSION}; the request              spoke version {spoken}. Send version {SCHEMA_VERSION}."
+        ),
+        other => format!("request refused: {other:?}"),
+    }
 }
 
 fn reply<S: Write>(stream: &mut S, response: &Response) -> Result<(), TransportRefusal> {
@@ -961,6 +1093,20 @@ impl fmt::Display for LaunchRefusal {
 }
 
 impl std::error::Error for LaunchRefusal {}
+
+/// HLP-005's exit decision, as a pure function: exit when idle **and not
+/// serving**.
+///
+/// Lives here rather than in the Linux module so it compiles and is
+/// tested on every platform: it is arithmetic over two numbers and a
+/// flag, and a predicate that only exists on one target is a predicate
+/// only tested on one target. A watchdog ignoring `serving` kills an
+/// operation in flight (the delivered defect increment 3 fixes); one
+/// ignoring `idle` never exits at all.
+#[must_use]
+pub const fn should_exit(idle_seconds: u64, bound: u64, serving: bool) -> bool {
+    !serving && idle_seconds >= bound
+}
 
 /// The launch rule, pure: the requested uid must equal the uid `pkexec`
 /// vouched for. Returns the uid to serve.

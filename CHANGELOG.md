@@ -7,6 +7,20 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-L110 increment 3: ADR-0021's authorization ladder (HLP-003,
+  HLP-004, PLAN-004, CAP-007, SEC-009, RPC-002; on the apply-ceremony
+  round's R8 decision with S2 recorded).** The helper-computed tier
+  (severity-plus-flags, the flags half compared against the empty set so a
+  sixth flag escalates by default), the floor act minted without agent or
+  terminal, the interactive ceremony behind a seam whose completion value
+  is unconstructible in a shipped build, `AdmittedPlan` as the provenance
+  type that keeps a forged or cross-user plan away from the computation,
+  the tier on the validate-plan response (schema v3), and `apply-plan`
+  corrected to increment 4. **Three fail-opens in increments 1–2 fixed
+  here**: an unreadable clock rendered as `0` (which made HLP-004's expiry
+  unreachable), an idle watchdog that could kill an operation in flight,
+  and discarded audit writes. Nine tests; fifteen mutations killed.
+  Rust: the WP-020 sitting is r56.
 - **WP-L110 increment 2: HLP-002 re-discovery and validate-plan (HLP-002,
   HLP-004, PLAN-006, PLAN-007, SEC-002, CAP-007, INV-003, SI-13; on
   ADR-0014, ADR-0016, ADR-0018, ADR-0036, ADR-0053 reading (b)).** The
@@ -17,6 +31,11 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   SEC-002 admission arms for increment 3's apply, the helper's reach
   declaration on the DR21 row, request/response v2 (v1 retired). Nine
   tests; ten mutations killed. Rust: the WP-020 sitting is r55.
+- **WP-070 slice 5c: the authorization tier's wire vocabulary made
+  public** (`AuthorizationTier::wire_name`), sequenced with WP-L110
+  increment 3 so one closed set has one spelling and one owner. Rendering
+  only — no parse from a wire word back to a tier exists, because a tier a
+  client could name is what CAP-007 makes unrepresentable.
 - **WP-010 slice 3r: the ADR-0014 authoring entry and the HLP-004 window
   accessor (SAFE-003, PLAN-007; sequenced with WP-L110 increment 2).**
   `TableState::present(checksum)` — the helper parser's copy-invariant

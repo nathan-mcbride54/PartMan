@@ -193,6 +193,7 @@ dependencies = [
  "partman-capability",
  "partman-domain",
  "partman-fixtures",
+ "partman-journal",
  "partman-planner",
  "partman-rpc",
  "partman-table-parser",

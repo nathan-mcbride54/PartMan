@@ -1,6 +1,6 @@
 [package]
 name = "partman-helper-linux"
-description = "The WP-L110 Linux privileged helper: reached over the Linux transport, HLP-001's six operations and nothing else, launched per user through pkexec (increment 2: HLP-002 re-discovery and validate-plan)"
+description = "The WP-L110 Linux privileged helper: reached over the Linux transport, HLP-001's six operations and nothing else, launched per user through pkexec (increment 3: ADR-0021's authorization ladder)"
 edition.workspace = true
 rust-version.workspace = true
 version.workspace = true
@@ -22,6 +22,11 @@ partman-adapter-linux = { path = "../../crates/adapter-linux" }
 partman-table-parser = { path = "../../crates/table-parser" }
 partman-planner = { path = "../../crates/planner" }
 partman-capability = { path = "../../crates/capability" }
+# Increment 3: the journal's authorization-act record and its tier
+# vocabulary (ADR-0021, ADR-0028). The helper mints the act; appending
+# and consuming it through `admit_apply` is increment 4's, with the
+# journal's on-disk home.
+partman-journal = { path = "../../crates/journal" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # The helper's own effective uid (the endpoint owner check) and nothing else
