@@ -2021,3 +2021,115 @@ fn a_drafts_consequences_are_pinned_empty() {
         })
     );
 }
+
+// Requirements: MODEL-003, MODEL-005, PLAN-006
+//   ADR-0041's rules 4 and 5 hold at the step boundary, not only at the
+//   fact one. A hand-forged body whose step range covers no byte, or
+//   whose `start + length` overflows `u64`, refuses at decode in every
+//   one of the three range vectors. The same numbers already refuse as
+//   a snapshot fact (`ExtentOverflows`, `ZeroLengthExtent`) and as a
+//   journal region (`RegionOverflow`, `RegionZeroLength`); the step
+//   boundary did not check them, so such a body decoded and the typed
+//   step carried a wrapping range. The closure cannot catch it: its
+//   reach math is saturating, so a wrapping range saturates to
+//   `u64::MAX`, intersects nothing, and returns clean. The refusal is
+//   narrow — an end of exactly `u64::MAX` is lawful geometry and is not
+//   refused here.
+// Evidence: a_forged_step_range_that_is_empty_or_wraps_refuses_at_decode
+#[test]
+fn a_forged_step_range_that_is_empty_or_wraps_refuses_at_decode() {
+    let (snapshot, dev_id) = clean_snapshot(b"RANGES");
+    let step = PlanStep::mutating(
+        &snapshot,
+        dev_id,
+        wipe(dev_id),
+        vec![],
+        risk(Severity::Destructive),
+    )
+    .expect("constructs");
+    let plan = OperationPlan::assemble_linked(
+        b"plan-rng".to_vec(),
+        1_700_000_000,
+        &snapshot,
+        ValidityWindow {
+            not_after: 1_700_086_400,
+        },
+        std::collections::BTreeMap::new(),
+        vec![step],
+        ReversalLinkage::Impossible {
+            statements: vec![Statement3 {
+                step: 0,
+                reason: Reason3::DataDestroyed,
+            }],
+        },
+    )
+    .expect("assembles");
+
+    let honest = canonical::encode(&plan.body_value().expect("body")).expect("encodable");
+    OperationPlan::from_canonical_body(&honest, &snapshot).expect("the control round-trips");
+
+    // The host spelling is lifted from the honest body, so a forged
+    // range differs from a lawful one only in its two numbers.
+    let host = {
+        let Value::Map(map) = plan.body_value().expect("body") else {
+            panic!("body is a map");
+        };
+        let Some(Value::Array(steps)) = map.get("steps") else {
+            panic!("steps present");
+        };
+        let Value::Map(step_map) = &steps[0] else {
+            panic!("step is a map");
+        };
+        let Some(Value::Array(destroyed)) = step_map.get("destroyed") else {
+            panic!("destroyed present");
+        };
+        let Value::Map(range) = &destroyed[0] else {
+            panic!("range is a map");
+        };
+        range.get("host").expect("host present").clone()
+    };
+
+    let forged = |key: &str, start: u64, length: u64| {
+        let mut range = std::collections::BTreeMap::new();
+        range.insert("host".to_owned(), host.clone());
+        range.insert("start".to_owned(), Value::Unsigned(start));
+        range.insert("length".to_owned(), Value::Unsigned(length));
+        let Value::Map(mut map) = plan.body_value().expect("body") else {
+            panic!("body is a map");
+        };
+        {
+            let Some(Value::Array(steps)) = map.get_mut("steps") else {
+                panic!("steps present");
+            };
+            let Value::Map(step_map) = &mut steps[0] else {
+                panic!("step is a map");
+            };
+            step_map.insert(key.to_owned(), Value::Array(vec![Value::Map(range)]));
+        }
+        canonical::encode(&Value::Map(map)).expect("encodable")
+    };
+
+    for key in ["destroyed", "consumed", "written_table_extents"] {
+        // `start + length` is 2^64 + 11, so the end wraps to 11 — which
+        // is what makes a containing range read as disjoint.
+        assert_eq!(
+            OperationPlan::from_canonical_body(&forged(key, u64::MAX - 4, 16), &snapshot),
+            Err(PlanSchemaError::RangeOverflows),
+            "an overflowing range refuses in `{key}`"
+        );
+        assert_eq!(
+            OperationPlan::from_canonical_body(&forged(key, 0, 0), &snapshot),
+            Err(PlanSchemaError::ZeroLengthRange),
+            "a zero-length range refuses in `{key}`"
+        );
+    }
+
+    // An end of exactly `u64::MAX` does not overflow, so it is not this
+    // boundary's to refuse. It fails later, on recomputation, which is
+    // what keeps the new rules from swallowing lawful geometry.
+    assert_ne!(
+        OperationPlan::from_canonical_body(&forged("destroyed", u64::MAX - 1, 1), &snapshot),
+        Err(PlanSchemaError::RangeOverflows),
+        "an end of exactly u64::MAX is not an overflow"
+    );
+}

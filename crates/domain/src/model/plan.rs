@@ -1144,6 +1144,17 @@ fn parse_ranges(value: Option<&Value>) -> Result<Vec<HostRange>, PlanSchemaError
             Some(Value::Unsigned(value)) => *value,
             _ => return Err(PlanSchemaError::MalformedStep),
         };
+        // ADR-0041's rules 4 and 5, which the fact boundary applies at
+        // `assemble` and the journal applies to its regions. A step range
+        // is the same geometry and had neither check, so these numbers
+        // reached the typed step through the one path that is supposed to
+        // make a hand-forged artifact impossible.
+        if length == 0 {
+            return Err(PlanSchemaError::ZeroLengthRange);
+        }
+        if start.checked_add(length).is_none() {
+            return Err(PlanSchemaError::RangeOverflows);
+        }
         ranges.push(HostRange {
             host,
             start,
@@ -1260,6 +1271,19 @@ pub enum PlanSchemaError {
     SnapshotUnhashable,
     /// A step, range, acknowledgment, severity, or flag is malformed.
     MalformedStep,
+    /// A step range covers no byte. ADR-0041's rule 4, applied at the
+    /// step boundary rather than only the fact one.
+    ZeroLengthRange,
+    /// A step range's `start + length` overflows `u64`. ADR-0041's rule
+    /// 5 at the step boundary. The fact boundary
+    /// ([`FactError::ExtentOverflows`]) and the journal's region
+    /// boundary both refuse these numbers already; the step boundary did
+    /// not, so a hand-forged body carrying them decoded. A wrapped end
+    /// does not merely fail to refuse — it makes overlap, dependency and
+    /// relocation answers positively wrong, because the reach math the
+    /// closure runs is saturating and reads a wrapping range as touching
+    /// nothing.
+    RangeOverflows,
     /// A bound identity does not parse, or its key is not an address.
     MalformedIdentity,
     /// A plan identity's authored field disagrees with the snapshot's
@@ -1315,6 +1339,8 @@ impl fmt::Display for PlanSchemaError {
             }
             Self::SnapshotUnhashable => formatter.write_str("supplied snapshot not hashable"),
             Self::MalformedStep => formatter.write_str("malformed step"),
+            Self::ZeroLengthRange => formatter.write_str("step range covers no byte"),
+            Self::RangeOverflows => formatter.write_str("step range end overflows u64"),
             Self::MalformedIdentity => formatter.write_str("malformed bound identity"),
             Self::AuthoredFieldMismatch => formatter
                 .write_str("a bound identity's authored field disagrees with the snapshot's stamp"),
