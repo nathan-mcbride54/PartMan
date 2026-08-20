@@ -302,5 +302,52 @@ it will be derived from measurement rather than asserted ahead of it.
 3. The reach declaration's decline classes (WP-L100 owns
    `schemas/adapter-linux/reach.md`; the CLI's roster is WP-035's, so
    this is two acts).
-4. #598 and #599, in that order, before increment 4b hardens the wire.
+4. ~~#598 and #599, in that order, before increment 4b hardens the
+   wire.~~ **Struck — see §8.**
 5. WP-W100, and the parity requirement derived from it.
+
+## 8. Correction, 2026-08-20, later the same day
+
+**§7 act 4 contradicted §5.1, and §5.1 is the one that stands.**
+
+The act-4 line scheduled #598 — the `u32` authorizing principal on the
+helper wire — ahead of the second implementation, on the ground that
+increment 4b would harden the wire. §5.1 rejects candidate C for
+precisely the reasoning that line relies on: a rule "authored against
+**one** adapter behind the model boundary" is "a claim no producer can
+falsify". A principal representation *is* a parity rule. The two
+sentences cannot both be right, and the defect is the schedule, not the
+finding: act 4 was carried over from the assessment that opened the
+round and was not re-derived after §5.1 was written.
+
+Three further measurements, taken after this record merged, put the
+urgency claim beyond rescue:
+
+- **The deadline does not exist.** Four increments have shipped four
+  wire versions, three retired outright with no shipped client ever
+  having spoken them; there is no installed base; and 4b owes a **v5
+  bump anyway** for cancel, resume and EXE-003 progress, so re-spelling
+  the principal would ride free on a version bump already owed. What 4b
+  does entrench is the durable per-uid *layout* — which `RebootResume`
+  makes load-bearing, and which has no migration story — but that is
+  downstream of a representation decision that is not takeable yet.
+- **The decision is not this package's to take.** ADR-W1 covers
+  "consent broker design, **token binding**, secure-desktop use" and is
+  assigned to WP-W110, which depends on WP-W100, which does not exist.
+- **Acting now would carry positive risk.** `journal_path` is
+  `format!("journal-{uid}.log")` over a `u32`, a type that cannot
+  express `..`, `/`, a NUL or a newline — charset-safe by construction.
+  Replacing it with an opaque byte string in
+  `services/helper-linux/src/linux.rs:139-147` would land a path
+  traversal dimension in the terminal link of an open high-severity
+  advisory, *before* that hardening ships.
+
+**Amended act 4:** #599's extraction stands on its own merits and is
+unaffected. #598 stays open, without an urgency framing, behind the
+helper hardening and behind a second implementation to constrain the
+representation. The corrected ordering is 1, 2, 3, then #599, then
+WP-W100 with #598 and the parity requirement derived from it.
+
+This correction is recorded rather than edited into §7 silently: a round
+that quietly rewrites its own schedule is worth less than one that shows
+where it was wrong.
