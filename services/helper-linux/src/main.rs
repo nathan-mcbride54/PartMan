@@ -1,4 +1,4 @@
-//! `partman-helper-linux --serve <uid> [--directory <dir>] [--idle-seconds <n>] [--audit <file>]`
+//! `partman-helper-linux --serve <uid> [--directory <dir>] [--state-directory <dir>] [--idle-seconds <n>] [--audit <file>]`
 //!
 //! Launched through `pkexec` under `org.partman.helper.serve` (the launch
 //! round's L2). Refuses unless `PKEXEC_UID` equals `<uid>`. Exit codes: 0
@@ -12,13 +12,15 @@ fn main() {
 
     use partman_helper_linux::linux::{Config, FileAudit, run};
     use partman_helper_linux::{
-        DEFAULT_DIRECTORY, DEFAULT_IDLE_SECONDS, LaunchRefusal, PKEXEC_UID_VARIABLE, launch_rule,
+        DEFAULT_DIRECTORY, DEFAULT_IDLE_SECONDS, DEFAULT_STATE_DIRECTORY, LaunchRefusal,
+        PKEXEC_UID_VARIABLE, launch_rule,
     };
     use partman_transport_linux::Timeouts;
 
     let args: Vec<String> = std::env::args().collect();
     let mut uid: Option<u32> = None;
     let mut directory = PathBuf::from(DEFAULT_DIRECTORY);
+    let mut state_directory = PathBuf::from(DEFAULT_STATE_DIRECTORY);
     let mut idle_seconds = DEFAULT_IDLE_SECONDS;
     let mut audit_path: Option<PathBuf> = None;
     let mut i = 1;
@@ -26,11 +28,12 @@ fn main() {
         match (args[i].as_str(), args.get(i + 1)) {
             ("--serve", Some(v)) => uid = v.parse().ok(),
             ("--directory", Some(v)) => directory = PathBuf::from(v),
+            ("--state-directory", Some(v)) => state_directory = PathBuf::from(v),
             ("--idle-seconds", Some(v)) => idle_seconds = v.parse().unwrap_or(DEFAULT_IDLE_SECONDS),
             ("--audit", Some(v)) => audit_path = Some(PathBuf::from(v)),
             _ => {
                 eprintln!(
-                    "usage: partman-helper-linux --serve <uid> [--directory <dir>] [--idle-seconds <n>] [--audit <file>]"
+                    "usage: partman-helper-linux --serve <uid> [--directory <dir>] [--state-directory <dir>] [--idle-seconds <n>] [--audit <file>]"
                 );
                 std::process::exit(64);
             }
@@ -59,6 +62,7 @@ fn main() {
     let config = Config {
         uid,
         directory,
+        state_directory,
         idle_seconds,
         build: env!("CARGO_PKG_VERSION").to_owned(),
         timeouts: Timeouts {

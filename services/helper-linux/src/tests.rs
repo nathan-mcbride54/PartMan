@@ -12,6 +12,7 @@ use crate::{
 
 mod increment2;
 mod increment3;
+mod increment4a;
 
 struct FakeBackend;
 
@@ -53,6 +54,26 @@ impl Backend for FakeBackend {
             detail: "the fake backend plans nothing".to_owned(),
         }
     }
+    fn apply_plan(&self, _request: &crate::ApplyWire, _audit: &mut dyn AuditSink) -> Response {
+        Response::ApplyRefused {
+            arm: "not-validated".to_owned(),
+            detail: "the fake backend holds no journal".to_owned(),
+        }
+    }
+    fn journal_query(&self, _audit: &mut dyn AuditSink) -> Response {
+        Response::JournalReport {
+            high_water_instant: None,
+            records: 0,
+            plans: vec![],
+        }
+    }
+}
+
+/// Canned apply-plan arguments for wire tests.
+fn canned_apply() -> crate::ApplyWire {
+    crate::ApplyWire {
+        plan_hash: [0x44; 32],
+    }
 }
 
 /// Canned validate-plan arguments for wire tests.
@@ -74,6 +95,7 @@ fn wire_request(operation: Operation) -> Request {
     Request {
         operation,
         validate: (operation == Operation::ValidatePlan).then(canned_validate),
+        apply: (operation == Operation::ApplyPlan).then(canned_apply),
     }
 }
 
@@ -194,6 +216,11 @@ fn the_operation_set_is_closed_and_the_request_decode_is_strict() {
             op == Operation::ValidatePlan,
             "arguments travel with exactly the one operation that takes them"
         );
+        assert_eq!(
+            decoded.apply.is_some(),
+            op == Operation::ApplyPlan,
+            "the apply argument travels with exactly apply-plan"
+        );
     }
     assert_eq!(
         Operation::ALL.map(Operation::name),
@@ -212,8 +239,9 @@ fn the_operation_set_is_closed_and_the_request_decode_is_strict() {
             .iter()
             .filter(|op| op.served_in_increment().is_none())
             .count(),
-        3,
-        "this increment serves status, enumerate and validate-plan and names an increment for the rest"
+        5,
+        "4a serves status, enumerate, validate-plan, apply-plan and journal-query; cancel and \
+         resume name increment 4 (its 4b half)"
     );
     for name in [
         "/bin/sh -c id",
@@ -338,12 +366,30 @@ fn a_connection_serves_refuses_or_names_the_increment_and_audits_each() {
         "validate-plan is served in this increment, and the capture is audited"
     );
 
-    for op in [
-        Operation::ApplyPlan,
-        Operation::Cancel,
-        Operation::Resume,
-        Operation::JournalQuery,
-    ] {
+    // 4a: apply-plan and journal-query are served — the fake backend
+    // answers through the trait, and the operation is audited served.
+    let (reply, audit) = serve(&wire_request(Operation::ApplyPlan).encode().unwrap());
+    assert_eq!(text(&reply, "outcome"), "apply-refused");
+    assert_eq!(
+        audit,
+        vec![AuditEvent::Operation {
+            operation: Some(Operation::ApplyPlan),
+            outcome: "served"
+        }],
+        "apply-plan is served in 4a"
+    );
+    let (reply, audit) = serve(&wire_request(Operation::JournalQuery).encode().unwrap());
+    assert_eq!(text(&reply, "outcome"), "journal");
+    assert_eq!(
+        audit,
+        vec![AuditEvent::Operation {
+            operation: Some(Operation::JournalQuery),
+            outcome: "served"
+        }],
+        "journal-query is served in 4a"
+    );
+
+    for op in [Operation::Cancel, Operation::Resume] {
         let (reply, audit) = serve(&wire_request(op).encode().unwrap());
         assert_eq!(text(&reply, "outcome"), "not-yet-served", "{op:?}");
         assert_eq!(text(&reply, "operation"), op.name());
@@ -413,6 +459,9 @@ fn the_audit_vocabulary_is_closed_and_carries_no_identifier() {
             tier: "interactive-ceremony",
             outcome: "computed",
         },
+        AuditEvent::Journaled {
+            transition: "apply-submitted",
+        },
     ];
     for e in &events {
         match e {
@@ -422,7 +471,8 @@ fn the_audit_vocabulary_is_closed_and_carries_no_identifier() {
             | AuditEvent::Operation { .. }
             | AuditEvent::IdleExit { .. }
             | AuditEvent::Captured { .. }
-            | AuditEvent::Authorization { .. } => {}
+            | AuditEvent::Authorization { .. }
+            | AuditEvent::Journaled { .. } => {}
         }
         let line = e.to_string();
         assert!(line.starts_with("event="), "{line}");
@@ -502,7 +552,7 @@ fn a_helper_serves_its_user_over_the_real_transport_and_refuses_a_second_launch(
             AuthorizingUser, SOCKET_DIRECTORY_MODE, Timeouts, node_name,
         };
 
-        use crate::linux::{SystemBackend, already_served, ensure_directory};
+        use crate::linux::{SystemBackend, already_served, ensure_directory, open_runtime};
 
         let me = rustix::process::geteuid().as_raw();
         let dir = std::env::temp_dir().join(format!("partman-helper-{}", std::process::id()));
@@ -527,7 +577,12 @@ fn a_helper_serves_its_user_over_the_real_transport_and_refuses_a_second_launch(
             already_served(&dir, me),
             "a second launch for this uid finds the node and is AlreadyServed, not a second endpoint"
         );
-        let backend = SystemBackend::new(me, "0.0.0");
+        // The 4a runtime over the same temporary root this test already
+        // uses for the real endpoint: real files, the real seam — this
+        // leg is the one place Tier 1 touches the actual platform, and
+        // it is gated to Linux exactly like the endpoint beside it.
+        let runtime = open_runtime(&dir.join("state"), me).unwrap();
+        let backend = SystemBackend::new(me, "0.0.0", runtime);
         let helper = Handshake::local("0.0.0");
         let t = std::thread::spawn(move || {
             let mut audit = Collect::default();
@@ -560,7 +615,9 @@ fn a_helper_serves_its_user_over_the_real_transport_and_refuses_a_second_launch(
             Some(&Value::Array(vec![
                 Value::Text("status".to_owned()),
                 Value::Text("enumerate".to_owned()),
-                Value::Text("validate-plan".to_owned())
+                Value::Text("validate-plan".to_owned()),
+                Value::Text("apply-plan".to_owned()),
+                Value::Text("journal-query".to_owned())
             ])),
             "status names exactly the operations this build serves"
         );

@@ -196,6 +196,7 @@ dependencies = [
  "partman-journal",
  "partman-planner",
  "partman-rpc",
+ "partman-statemachine",
  "partman-table-parser",
  "partman-transport-linux",
  "rustix",

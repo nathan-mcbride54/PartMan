@@ -23,16 +23,23 @@ use partman_transport_linux::{
     AuthorizingUser, Refusal as TransportRefusal, SOCKET_DIRECTORY_MODE, Timeouts, node_name,
 };
 
-use crate::authorize::required_tier;
+use partman_journal::{DurabilityRefused, DurabilitySeam};
+
+use crate::apply::{
+    ApplyAnswer, ApplyCore, JournalReport, VALIDATOR_PASSES, apply_plan as drive_apply,
+    clock_bound, high_water_instant, journal_query as query_journal, note_validation,
+    transitional_now,
+};
+use crate::authorize::{RefusingCeremony, required_tier};
 use crate::bytes::{ByteRefusal, DeviceReader, Windows, read_windows};
-use crate::capture::{DeviceCapture, capture};
+use crate::capture::{CaptureOutcome, DeviceCapture, capture};
 use crate::clock::{Clock, SystemClock};
 use crate::validate::{
     ValidateRefusal, ValidateRequest, ValidatedPlan, flag_names, severity_name, validate_plan,
 };
 use crate::{
-    AuditEvent, AuditRefused, AuditSink, Backend, EnumeratedDevice, LaunchRefusal, Operation,
-    Response, ValidateWire, serve_connection,
+    ApplyWire, AuditEvent, AuditRefused, AuditSink, Backend, EnumeratedDevice, JournalPlanWire,
+    LaunchRefusal, Operation, Response, ValidateWire, serve_connection,
 };
 
 /// The helper's configuration for one run.
@@ -42,12 +49,101 @@ pub struct Config {
     pub uid: u32,
     /// The runtime directory (root-owned, `0711`; created if absent).
     pub directory: PathBuf,
+    /// The state directory: the journal's and the validation store's
+    /// admin-protected home (JRN-004; root-owned `0700`, created if
+    /// absent).
+    pub state_directory: PathBuf,
     /// Seconds without a connection before the helper exits (HLP-005).
     pub idle_seconds: u64,
     /// The build version for the handshake.
     pub build: String,
     /// Transport timeouts.
     pub timeouts: Timeouts,
+}
+
+/// The first real [`DurabilitySeam`]: append the not-yet-durable suffix
+/// to the log's file and `fsync` it before answering. JRN-002's rule,
+/// finally on a platform — every earlier seam in the tree was a test
+/// fake, and WP-070's boundary said asserting platform truth is this
+/// package's acceptance work.
+///
+/// The honesty rule WP-070's trait documents is kept the simple way:
+/// after any failure the file handle is dropped as poisoned, and every
+/// later call refuses — a sync failure's aftermath is not a state this
+/// seam claims to repair.
+pub struct FileSeam {
+    file: Option<fs::File>,
+}
+
+impl FileSeam {
+    /// Open (or create, `0600`) the log file for appending.
+    ///
+    /// # Errors
+    ///
+    /// The file could not be opened or its mode not set.
+    pub fn open(path: &Path) -> std::io::Result<Self> {
+        let file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)?;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+        Ok(FileSeam { file: Some(file) })
+    }
+}
+
+impl DurabilitySeam for FileSeam {
+    fn make_durable(&mut self, new_bytes: &[u8]) -> Result<(), DurabilityRefused> {
+        let Some(file) = self.file.as_mut() else {
+            return Err(DurabilityRefused {
+                reason: "the seam refused earlier and stays refused".to_owned(),
+            });
+        };
+        let outcome = file
+            .write_all(new_bytes)
+            .and_then(|()| file.sync_all())
+            .map_err(|error| DurabilityRefused {
+                reason: format!("{:?}", error.kind()),
+            });
+        if outcome.is_err() {
+            self.file = None;
+        }
+        outcome
+    }
+}
+
+/// Ensure the state directory exists, root-owned `0700` (JRN-004's
+/// admin-protected clause). Never re-modes an existing directory.
+///
+/// # Errors
+///
+/// [`TransportRefusal::Io`].
+pub fn ensure_state_directory(directory: &Path) -> Result<(), TransportRefusal> {
+    if !directory.exists() {
+        fs::create_dir_all(directory).map_err(|e| TransportRefusal::Io {
+            operation: "create state directory",
+            kind: format!("{:?}", e.kind()),
+        })?;
+        fs::set_permissions(directory, fs::Permissions::from_mode(0o700)).map_err(|e| {
+            TransportRefusal::Io {
+                operation: "set state directory mode",
+                kind: format!("{:?}", e.kind()),
+            }
+        })?;
+    }
+    Ok(())
+}
+
+/// The journal's file for one authorizing uid — one helper per uid, one
+/// writer per file (what keeps 4a honest before CONC-001 lands in 4b).
+#[must_use]
+pub fn journal_path(state_directory: &Path, uid: u32) -> PathBuf {
+    state_directory.join(format!("journal-{uid}.log"))
+}
+
+/// The validation store's file for one authorizing uid.
+#[must_use]
+pub fn validation_path(state_directory: &Path, uid: u32) -> PathBuf {
+    state_directory.join(format!("validations-{uid}.log"))
 }
 
 /// The audit log: one line per event, appended (HLP-006). The file is the
@@ -89,19 +185,36 @@ impl AuditSink for FileAudit {
     }
 }
 
+/// The 4a runtime the backend drives under one lock: the core (both
+/// logs and the store's view) and the two real seams. One lock because
+/// the three are only ever used together, and the serve loop is
+/// sequential anyway.
+pub struct ApplyRuntime {
+    /// The recovered core.
+    pub core: ApplyCore,
+    /// The Section 8 journal's file seam.
+    pub journal_seam: FileSeam,
+    /// The validation store's file seam.
+    pub store_seam: FileSeam,
+}
+
 /// The backend over the real contract, as root.
 pub struct SystemBackend {
     uid: u32,
     build: String,
+    runtime: Mutex<ApplyRuntime>,
+    ceremony: RefusingCeremony,
 }
 
 impl SystemBackend {
-    /// For one served uid and this build.
+    /// For one served uid, this build, and the recovered 4a runtime.
     #[must_use]
-    pub fn new(uid: u32, build: &str) -> Self {
+    pub fn new(uid: u32, build: &str, runtime: ApplyRuntime) -> Self {
         Self {
             uid,
             build: build.to_owned(),
+            runtime: Mutex::new(runtime),
+            ceremony: RefusingCeremony,
         }
     }
 }
@@ -153,7 +266,6 @@ impl Backend for SystemBackend {
     }
 
     fn validate_plan(&self, request: &ValidateWire, audit: &mut dyn AuditSink) -> Response {
-        let source = SystemContractSource;
         // HLP-004 stands on this reading: a clock the helper cannot read
         // refuses the operation rather than dating the plan from zero,
         // which is what the delivered `map_or(0, …)` did and what made
@@ -167,34 +279,38 @@ impl Backend for SystemBackend {
                 };
             }
         };
-        let outcome = match capture(
-            &source,
-            &sysfs_root(),
-            &udev_root(),
-            &SystemDeviceReader,
-            now,
-        ) {
-            Ok(outcome) => outcome,
-            Err(refusal) => {
+        let Ok(mut runtime) = self.runtime.lock() else {
+            return runtime_poisoned();
+        };
+        // The backward-clock bound (increment 4a): a reading behind the
+        // journal's high-water instant dates nothing. This is the
+        // monotonicity debt `clock.rs` named, paid with the journal's
+        // own mark — and it covers validation-to-presentation because
+        // ValidatorPasses is journaled at validation.
+        let transitional = match runtime.core.decoded() {
+            Ok(decoded) => {
+                if let Err((reading, mark)) = clock_bound(now, high_water_instant(&decoded)) {
+                    return Response::ValidationRefused {
+                        arm: "clock-behind-journal".to_owned(),
+                        detail: format!(
+                            "the clock reads {reading}, behind the journal's high-water \
+                             instant {mark}"
+                        ),
+                    };
+                }
+                transitional_now(&decoded)
+            }
+            Err(detail) => {
                 return Response::ValidationRefused {
-                    arm: "capture".to_owned(),
-                    detail: format!("{refusal:?}"),
+                    arm: "journal-decode".to_owned(),
+                    detail,
                 };
             }
         };
-        if audit
-            .record(AuditEvent::Captured {
-                devices: outcome.devices.len() as u64,
-                classified: outcome
-                    .devices
-                    .iter()
-                    .filter(|device| matches!(device, DeviceCapture::Authored { .. }))
-                    .count() as u64,
-            })
-            .is_err()
-        {
-            return audit_unwritable();
-        }
+        let outcome = match system_capture(now, transitional, audit) {
+            Ok(outcome) => outcome,
+            Err(response) => return *response,
+        };
         let target = match request.target.derive() {
             Ok(target) => target,
             Err(error) => {
@@ -204,8 +320,9 @@ impl Backend for SystemBackend {
                 };
             }
         };
+        let source = SystemContractSource;
         let floor = platform_floor(&source, &os_release_root(), &procfs_root());
-        let runtime = RuntimeFacts {
+        let facts = RuntimeFacts {
             tools: Vec::new(),
             platform: floor.platform,
         };
@@ -219,7 +336,7 @@ impl Backend for SystemBackend {
             },
             now,
             &TechnologyLimits::default(),
-            &runtime,
+            &facts,
         ) {
             Ok(validated) => {
                 // HLP-003's one authorized reporting site for the tier,
@@ -236,6 +353,15 @@ impl Backend for SystemBackend {
                 {
                     return audit_unwritable();
                 }
+                // Increment 4a: the validation is journaled
+                // (ValidatorPasses, schema v2's instant) and recorded
+                // durably before the answer leaves — the clock bound and
+                // the presentation both stand on this record.
+                if let Err(refusal) =
+                    journal_validation(&mut runtime, self.uid, &validated, tier, now, audit)
+                {
+                    return *refusal;
+                }
                 validated_response(validated, tier)
             }
             Err(refusal) => {
@@ -251,6 +377,213 @@ impl Backend for SystemBackend {
                 }
             }
         }
+    }
+
+    fn apply_plan(&self, request: &ApplyWire, audit: &mut dyn AuditSink) -> Response {
+        let now = match SystemClock.now_secs() {
+            Ok(now) => now,
+            Err(refusal) => {
+                return Response::ApplyRefused {
+                    arm: "clock".to_owned(),
+                    detail: refusal.to_string(),
+                };
+            }
+        };
+        let Ok(mut runtime) = self.runtime.lock() else {
+            return runtime_poisoned();
+        };
+        let transitional = match runtime.core.decoded() {
+            Ok(decoded) => transitional_now(&decoded),
+            Err(detail) => {
+                return Response::ApplyRefused {
+                    arm: "journal-decode".to_owned(),
+                    detail,
+                };
+            }
+        };
+        // The fresh capture SEC-002's arms check against — the
+        // presentation's world, not the validation's.
+        let outcome = match system_capture(now, transitional, audit) {
+            Ok(outcome) => outcome,
+            Err(response) => return *response,
+        };
+        let ApplyRuntime {
+            core,
+            journal_seam,
+            store_seam,
+        } = &mut *runtime;
+        let decided = drive_apply(
+            core,
+            journal_seam,
+            store_seam,
+            &request.plan_hash,
+            &outcome.snapshot,
+            now,
+            self.uid,
+            &self.ceremony,
+        );
+        // The journal itself already holds these records durably; the
+        // audit line follows the append, and a line that cannot be
+        // written refuses the answer (SEC-009) while the journal remains
+        // the authoritative witness of what happened.
+        for transition in &decided.journaled {
+            if audit.record(AuditEvent::Journaled { transition }).is_err() {
+                return audit_unwritable_apply();
+            }
+        }
+        match decided.answer {
+            ApplyAnswer::Awaiting {
+                plan_hash,
+                tier,
+                not_after,
+            } => Response::AwaitingAuthorization {
+                plan_hash: plan_hash.to_vec(),
+                tier: tier.wire_name().to_owned(),
+                not_after,
+            },
+            ApplyAnswer::Refused { arm, detail } => Response::ApplyRefused {
+                arm: arm.to_owned(),
+                detail,
+            },
+        }
+    }
+
+    fn journal_query(&self, _audit: &mut dyn AuditSink) -> Response {
+        let Ok(runtime) = self.runtime.lock() else {
+            return runtime_poisoned();
+        };
+        match runtime.core.decoded() {
+            Ok(decoded) => {
+                let JournalReport {
+                    high_water_instant,
+                    records,
+                    plans,
+                } = query_journal(&decoded);
+                Response::JournalReport {
+                    high_water_instant,
+                    records,
+                    plans: plans
+                        .into_iter()
+                        .map(|row| JournalPlanWire {
+                            plan_hash: row.plan_hash.to_vec(),
+                            state: row.state.to_owned(),
+                            instant: row.instant,
+                        })
+                        .collect(),
+                }
+            }
+            Err(detail) => Response::ApplyRefused {
+                arm: "journal-decode".to_owned(),
+                detail,
+            },
+        }
+    }
+}
+
+/// Journal one successful validation and record it durably (increment
+/// 4a; split out for the line gate): `ValidatorPasses` with schema v2's
+/// instant, the store's `recorded` entry, and the audit line — nothing
+/// is answered ahead of its record.
+fn journal_validation(
+    runtime: &mut ApplyRuntime,
+    uid: u32,
+    validated: &ValidatedPlan,
+    tier: AuthorizationTier,
+    now: u64,
+    audit: &mut dyn AuditSink,
+) -> Result<(), Box<Response>> {
+    let ApplyRuntime {
+        core,
+        journal_seam,
+        store_seam,
+    } = runtime;
+    match note_validation(
+        core,
+        journal_seam,
+        store_seam,
+        &validated.body_hash,
+        uid,
+        tier,
+        validated.not_after,
+        &validated.body_bytes,
+        now,
+    ) {
+        Ok(journaled) => {
+            if journaled
+                && audit
+                    .record(AuditEvent::Journaled {
+                        transition: VALIDATOR_PASSES,
+                    })
+                    .is_err()
+            {
+                return Err(Box::new(audit_unwritable()));
+            }
+            Ok(())
+        }
+        Err(refused) => Err(Box::new(Response::ValidationRefused {
+            arm: "durability".to_owned(),
+            detail: format!(
+                "the {} could not be made durable; nothing is answered ahead of its record",
+                refused.log
+            ),
+        })),
+    }
+}
+
+/// One HLP-002 capture over the real host, its audit line written —
+/// shared by validate-plan and apply-plan, which differ only in what
+/// they do with the snapshot.
+fn system_capture(
+    now: u64,
+    transitional: bool,
+    audit: &mut dyn AuditSink,
+) -> Result<CaptureOutcome, Box<Response>> {
+    let source = SystemContractSource;
+    let outcome = capture(
+        &source,
+        &sysfs_root(),
+        &udev_root(),
+        &SystemDeviceReader,
+        now,
+        transitional,
+    )
+    .map_err(|refusal| {
+        Box::new(Response::ValidationRefused {
+            arm: "capture".to_owned(),
+            detail: format!("{refusal:?}"),
+        })
+    })?;
+    if audit
+        .record(AuditEvent::Captured {
+            devices: outcome.devices.len() as u64,
+            classified: outcome
+                .devices
+                .iter()
+                .filter(|device| matches!(device, DeviceCapture::Authored { .. }))
+                .count() as u64,
+        })
+        .is_err()
+    {
+        return Err(Box::new(audit_unwritable()));
+    }
+    Ok(outcome)
+}
+
+/// A poisoned runtime lock: a panic unwound mid-operation somewhere.
+/// Refused, never unwrapped — this is the privileged process.
+fn runtime_poisoned() -> Response {
+    Response::ApplyRefused {
+        arm: "runtime".to_owned(),
+        detail: "the helper's journal runtime is poisoned; restart the helper".to_owned(),
+    }
+}
+
+/// SEC-009 fail-closed for the apply path, the same rule as
+/// [`audit_unwritable`] with the apply outcome shape.
+fn audit_unwritable_apply() -> Response {
+    Response::ApplyRefused {
+        arm: "audit".to_owned(),
+        detail: "the audit log could not be written; no operation is served unrecorded".to_owned(),
     }
 }
 
@@ -334,6 +667,8 @@ pub fn run(config: &Config, audit: &mut dyn AuditSink) -> Result<(), LaunchRefus
     if already_served(&config.directory, config.uid) {
         return Err(LaunchRefusal::AlreadyServed);
     }
+    let runtime =
+        open_runtime(&config.state_directory, config.uid).map_err(LaunchRefusal::Endpoint)?;
     let endpoint = Endpoint::create(
         &config.directory,
         AuthorizingUser(config.uid),
@@ -361,7 +696,7 @@ pub fn run(config: &Config, audit: &mut dyn AuditSink) -> Result<(), LaunchRefus
         config.idle_seconds,
         endpoint.path().to_path_buf(),
     );
-    let backend = SystemBackend::new(config.uid, &config.build);
+    let backend = SystemBackend::new(config.uid, &config.build, runtime);
     let local = Handshake::local(&config.build);
     loop {
         match endpoint.accept(&local) {
@@ -390,6 +725,82 @@ pub fn run(config: &Config, audit: &mut dyn AuditSink) -> Result<(), LaunchRefus
             }
         }
     }
+}
+
+/// Open the 4a runtime: ensure the state directory, read both logs,
+/// recover (JRN-001: a torn tail truncates, and the truncation is made
+/// physical here — this process is the storage owner), and open the two
+/// real seams for appending.
+///
+/// # Errors
+///
+/// [`TransportRefusal::Io`] with the failing step named; a corrupt log
+/// (anything a torn tail does not explain) refuses the launch rather
+/// than serving over a journal it cannot stand behind.
+pub fn open_runtime(state_directory: &Path, uid: u32) -> Result<ApplyRuntime, TransportRefusal> {
+    ensure_state_directory(state_directory)?;
+    let journal_file = journal_path(state_directory, uid);
+    let validation_file = validation_path(state_directory, uid);
+    let journal_bytes = read_or_empty(&journal_file)?;
+    let validation_bytes = read_or_empty(&validation_file)?;
+    let core = ApplyCore::recover(&journal_bytes, &validation_bytes).map_err(|refusal| {
+        TransportRefusal::Io {
+            operation: "recover the journal",
+            kind: format!("{refusal:?}"),
+        }
+    })?;
+    // Physically drop a torn tail before appending resumes: rewrite the
+    // file to the valid prefix and sync it, through its own path.
+    rewrite_if_truncated(&journal_file, &journal_bytes, core.journal_bytes())?;
+    rewrite_if_truncated(&validation_file, &validation_bytes, core.validation_bytes())?;
+    let journal_seam = FileSeam::open(&journal_file).map_err(|e| TransportRefusal::Io {
+        operation: "open the journal for appending",
+        kind: format!("{:?}", e.kind()),
+    })?;
+    let store_seam = FileSeam::open(&validation_file).map_err(|e| TransportRefusal::Io {
+        operation: "open the validation store for appending",
+        kind: format!("{:?}", e.kind()),
+    })?;
+    Ok(ApplyRuntime {
+        core,
+        journal_seam,
+        store_seam,
+    })
+}
+
+fn read_or_empty(path: &Path) -> Result<Vec<u8>, TransportRefusal> {
+    match fs::read(path) {
+        Ok(bytes) => Ok(bytes),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(e) => Err(TransportRefusal::Io {
+            operation: "read a state log",
+            kind: format!("{:?}", e.kind()),
+        }),
+    }
+}
+
+fn rewrite_if_truncated(
+    path: &Path,
+    stored: &[u8],
+    recovered: &[u8],
+) -> Result<(), TransportRefusal> {
+    if stored.len() == recovered.len() {
+        return Ok(());
+    }
+    let write = || -> std::io::Result<()> {
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(path)?;
+        file.write_all(recovered)?;
+        file.sync_all()?;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+    };
+    write().map_err(|e| TransportRefusal::Io {
+        operation: "truncate a torn tail",
+        kind: format!("{:?}", e.kind()),
+    })
 }
 
 /// The real reader: `/dev/<entry>` opened read-only with `std::fs::File`

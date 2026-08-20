@@ -76,13 +76,31 @@
 //! crate's own words — no field can hold a serial, path, label or
 //! username (SAFE-006 by construction), and a test holds the vocabulary.
 //!
-//! **What this is not (the assignment's boundary).** No apply and no
-//! write (increment 4's; the only device access remains the byte layer's
-//! bounded read-only windows); **no journal file** — the act is minted
-//! here and appended by the increment that opens the journal; no tool
-//! launched, no bus client, no polkit action shipped; no network; no
-//! operation outside the six. The pure seams compile and test everywhere;
-//! the endpoint and the real device reader exist on Linux only.
+//! **Increment 4a — the journal-borne apply, to the authorization
+//! boundary** (the shape round,
+//! `docs/reviews/WP-L110_INCREMENT_4_ROUND_2026-08-20.md` §9). The
+//! journal is open ([`apply`]): `ValidatorPasses` is journaled at
+//! validation with WP-070's v2 recorded instant, the validation is
+//! stored durably in a sibling store, `apply-plan` runs S2's two phases
+//! — phase one consumes the validation and journals `ApplySubmitted`;
+//! phase two refuses exactly where increment 3 refuses — an expired
+//! window terminates on the published `DeclinedOrExpired → Cancelled`
+//! edge, a stale presentation invalidates on `EditOrInvalidation`
+//! (CONC-003), `journal-query` is served, and the backward-clock bound
+//! refuses any reading behind the journal's high-water instant (the
+//! debt `clock.rs` named, paid). CONC-004's `transitional` flag is
+//! computed from the journal, never hard-coded. **Nothing past
+//! `AwaitingAuthorization` is representable here**: the grant edge and
+//! everything after it — Revalidating, Protecting, Executing, the
+//! writer, CONC-001, cancel and resume — are increment 4b's, behind the
+//! toolset and launcher-home rounds.
+//!
+//! **What this is not (the assignment's boundary).** No write (4b's; the
+//! only device access remains the byte layer's bounded read-only
+//! windows); no tool launched, no bus client, no polkit action shipped;
+//! no network; no operation outside the six. The pure seams compile and
+//! test everywhere; the endpoint, the real device reader and the real
+//! durability seam exist on Linux only.
 
 #![forbid(unsafe_code)]
 
@@ -96,6 +114,7 @@ use partman_domain::model::naming::{NamingError, NamingFields, NodeId, TableRole
 use partman_rpc::{DecodeRefusal, Envelope};
 use partman_transport_linux::{Refusal as TransportRefusal, read_frame, write_frame};
 
+pub mod apply;
 pub mod authorize;
 pub mod bytes;
 pub mod capture;
@@ -113,14 +132,23 @@ mod tests;
 pub const REQUEST_SCHEMA: &str = "partman.helper.request";
 /// The response schema identity (MODEL-003).
 pub const RESPONSE_SCHEMA: &str = "partman.helper.response";
-/// Version 3 of both: as version 2, plus the helper-computed
-/// authorization tier on the validated response (HLP-003, UI-011).
-/// Versions 1 and 2 are refused at decode with a remediation naming this
-/// one (RPC-002's "never degrade silently") — the explicit-migration
-/// discipline (MODEL-003), recorded in `schemas/helper/operations.md`.
-/// The **request** vocabulary is unchanged: no field carries a tier, and
-/// that absence is CAP-007's enforcement point.
-pub const SCHEMA_VERSION: u64 = 3;
+/// Version 4 of both: as version 3, plus the apply-plan argument
+/// (`plan_hash` — an apply names its plan by hash and nothing else) and
+/// the journal-borne outcomes `awaiting-authorization`, `apply-refused`
+/// and `journal` (increment 4a). Versions 1–3 are refused at decode with
+/// a remediation naming this one (RPC-002's "never degrade silently") —
+/// the explicit-migration discipline (MODEL-003), recorded in
+/// `schemas/helper/operations.md`. **No request field carries a tier**,
+/// still: that absence is CAP-007's enforcement point, and the apply
+/// vocabulary adds exactly one hash field, nothing a client could
+/// assert with.
+pub const SCHEMA_VERSION: u64 = 4;
+/// The state directory: the journal's and the validation store's
+/// admin-protected documented home on Linux (JRN-004's location clause;
+/// root-owned `0700`, files `0600`, one pair per authorizing uid — one
+/// helper per uid holds one writer per file, which is what makes 4a
+/// honest before CONC-001's locking lands in 4b).
+pub const DEFAULT_STATE_DIRECTORY: &str = "/var/lib/partman";
 /// The polkit action the launch is authorized under (the round's L2).
 pub const POLKIT_ACTION: &str = "org.partman.helper.serve";
 /// The environment variable `pkexec` sets to the launching user's uid.
@@ -188,20 +216,24 @@ impl Operation {
     #[must_use]
     pub const fn served_in_increment(self) -> Option<u8> {
         match self {
-            Self::Status | Self::Enumerate | Self::ValidatePlan => None,
-            // Increment 4, not 3, and the correction is deliberate: the
-            // ladder (increment 3) computes the tier and mints the act,
-            // but ADR-0028's one-act-one-apply needs a consumption
-            // record in a journal this build does not open. An operation
-            // that authorized without being able to consume would be a
-            // served path that cannot hold its own guarantee.
-            Self::ApplyPlan | Self::Cancel | Self::Resume | Self::JournalQuery => Some(4),
+            // apply-plan and journal-query are served by 4a: the journal
+            // is open, the two-phase wire answers, and every refusal is
+            // an honest arm. Cancel and resume move with everything past
+            // AuthorizationGranted to increment 4's 4b half (the shape
+            // round §9.2): a cancel of an apply that can never execute
+            // would journal edges this build cannot honestly take.
+            Self::Status
+            | Self::Enumerate
+            | Self::ValidatePlan
+            | Self::ApplyPlan
+            | Self::JournalQuery => None,
+            Self::Cancel | Self::Resume => Some(4),
         }
     }
 }
 
-/// A decoded request: the operation, and for `validate-plan` its
-/// arguments — nothing else in version 2.
+/// A decoded request: the operation, for `validate-plan` its arguments,
+/// and for `apply-plan` its one argument — nothing else in version 4.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Request {
     /// The operation.
@@ -209,6 +241,20 @@ pub struct Request {
     /// Present exactly when the operation is `validate-plan` (the strict
     /// decode enforces both directions).
     pub validate: Option<ValidateWire>,
+    /// Present exactly when the operation is `apply-plan` (both
+    /// directions enforced).
+    pub apply: Option<ApplyWire>,
+}
+
+/// The apply-plan argument: the plan's body hash, and nothing else. An
+/// apply names its plan by the hash the helper itself computed and
+/// returned at validation; the body, the window, the tier and the user
+/// all come from the helper's own journal and store — the wire carries
+/// no authority (CAP-007).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ApplyWire {
+    /// The plan body hash, exactly 32 bytes.
+    pub plan_hash: [u8; 32],
 }
 
 /// The validate-plan arguments as the wire spells them. The target is
@@ -341,9 +387,9 @@ pub enum RequestRefusal {
     },
 }
 
-/// The version-2 field vocabulary: the header triple, and the
-/// validate-plan arguments admitted exactly when the operation is
-/// `validate-plan`.
+/// The version-4 field vocabulary: the header triple, the validate-plan
+/// arguments admitted exactly when the operation is `validate-plan`, and
+/// the apply-plan argument admitted exactly when it is `apply-plan`.
 const HEADER_FIELDS: [&str; 3] = ["schema", "schema_version", "operation"];
 const VALIDATE_FIELDS: [&str; 8] = [
     "target_kind",
@@ -355,6 +401,7 @@ const VALIDATE_FIELDS: [&str; 8] = [
     "plan_id",
     "validity_seconds",
 ];
+const APPLY_FIELDS: [&str; 1] = ["plan_hash"];
 
 impl Request {
     /// Encode a request to canonical bytes.
@@ -373,6 +420,12 @@ impl Request {
         );
         if let Some(validate) = &self.validate {
             Self::encode_validate_fields(validate, &mut map)?;
+        }
+        if let Some(apply) = &self.apply {
+            map.insert(
+                "plan_hash".to_owned(),
+                Value::Bytes(apply.plan_hash.to_vec()),
+            );
         }
         canonical::encode(&Value::Map(map)).map_err(|_| DecodeRefusal::NotCanonical)
     }
@@ -442,7 +495,10 @@ impl Request {
             return Err(RequestRefusal::NotAMessage);
         };
         for key in map.keys() {
-            if !HEADER_FIELDS.contains(&key.as_str()) && !VALIDATE_FIELDS.contains(&key.as_str()) {
+            if !HEADER_FIELDS.contains(&key.as_str())
+                && !VALIDATE_FIELDS.contains(&key.as_str())
+                && !APPLY_FIELDS.contains(&key.as_str())
+            {
                 return Err(RequestRefusal::UnknownField {
                     key: key.chars().take(64).collect(),
                 });
@@ -460,20 +516,46 @@ impl Request {
             return Err(RequestRefusal::MissingOperation);
         };
         let operation = Operation::parse(name).ok_or(RequestRefusal::UnknownOperation)?;
-        if operation != Operation::ValidatePlan {
-            if let Some(key) = VALIDATE_FIELDS.iter().find(|key| map.contains_key(**key)) {
-                return Err(RequestRefusal::FieldOutOfPlace { key });
-            }
-            return Ok(Self {
-                operation,
-                validate: None,
-            });
+        if operation != Operation::ValidatePlan
+            && let Some(key) = VALIDATE_FIELDS.iter().find(|key| map.contains_key(**key))
+        {
+            return Err(RequestRefusal::FieldOutOfPlace { key });
         }
-        let validate = decode_validate(&map)?;
+        if operation != Operation::ApplyPlan
+            && let Some(key) = APPLY_FIELDS.iter().find(|key| map.contains_key(**key))
+        {
+            return Err(RequestRefusal::FieldOutOfPlace { key });
+        }
+        let validate = if operation == Operation::ValidatePlan {
+            Some(decode_validate(&map)?)
+        } else {
+            None
+        };
+        let apply = if operation == Operation::ApplyPlan {
+            Some(decode_apply(&map)?)
+        } else {
+            None
+        };
         Ok(Self {
             operation,
-            validate: Some(validate),
+            validate,
+            apply,
         })
+    }
+}
+
+/// The apply-plan decode: `plan_hash` present, bytes, exactly 32.
+fn decode_apply(map: &BTreeMap<String, Value>) -> Result<ApplyWire, RequestRefusal> {
+    match map.get("plan_hash") {
+        Some(Value::Bytes(bytes)) => {
+            let plan_hash: [u8; 32] = bytes
+                .as_slice()
+                .try_into()
+                .map_err(|_| RequestRefusal::BadField { key: "plan_hash" })?;
+            Ok(ApplyWire { plan_hash })
+        }
+        Some(_) => Err(RequestRefusal::BadField { key: "plan_hash" }),
+        None => Err(RequestRefusal::MissingField { key: "plan_hash" }),
     }
 }
 
@@ -635,6 +717,41 @@ pub enum Response {
         /// The ground, verbatim from the refusing layer.
         detail: String,
     },
+    /// Apply-plan's phase one succeeded (increment 4a, the S2 shape):
+    /// `ApplySubmitted` is journaled durably and the apply awaits its
+    /// authorization. A second `apply-plan` for the same hash is the
+    /// completion request.
+    AwaitingAuthorization {
+        /// The plan's body hash — the helper's own, echoed so the client
+        /// can correlate.
+        plan_hash: Vec<u8>,
+        /// The tier the authorization will require (`floor-act` or
+        /// `interactive-ceremony`).
+        tier: String,
+        /// The window's end; past it the apply terminates on the
+        /// published `DeclinedOrExpired` edge.
+        not_after: u64,
+    },
+    /// Apply-plan refused, the arm named and the ground in the helper's
+    /// own words. Every arm is fail-closed and none echoes client
+    /// content.
+    ApplyRefused {
+        /// The refusing arm's name (a closed set).
+        arm: String,
+        /// The ground.
+        detail: String,
+    },
+    /// Journal-query's answer (increment 4a): every plan's last
+    /// journaled state, the high-water instant, and the record count —
+    /// all helper-authored.
+    JournalReport {
+        /// The journal's high-water instant, if any transition exists.
+        high_water_instant: Option<u64>,
+        /// How many records the journal holds.
+        records: u64,
+        /// Per-plan rows.
+        plans: Vec<JournalPlanWire>,
+    },
     /// The operation exists and is not served by this build; the
     /// increment that serves it is named. Fail-closed, never a stub
     /// success.
@@ -649,6 +766,18 @@ pub enum Response {
         /// Why, as this crate's words.
         reason: String,
     },
+}
+
+/// One plan as journal-query reports it: its hash, the last journaled
+/// state's Section 8 name, and the last transition's recorded instant.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct JournalPlanWire {
+    /// The plan's body hash.
+    pub plan_hash: Vec<u8>,
+    /// The last journaled state's name.
+    pub state: String,
+    /// The last transition's recorded instant (seconds since the epoch).
+    pub instant: u64,
 }
 
 /// One device as enumeration reports it: kind and class, no identity.
@@ -682,23 +811,7 @@ impl Response {
                 build,
                 authorizing_uid,
                 served,
-            } => {
-                map.insert("outcome".to_owned(), Value::Text("status".to_owned()));
-                map.insert("build".to_owned(), Value::Text(build.clone()));
-                map.insert(
-                    "authorizing_uid".to_owned(),
-                    Value::Unsigned(u64::from(*authorizing_uid)),
-                );
-                map.insert(
-                    "served".to_owned(),
-                    Value::Array(
-                        served
-                            .iter()
-                            .map(|op| Value::Text(op.name().to_owned()))
-                            .collect(),
-                    ),
-                );
-            }
+            } => encode_status(&mut map, build, *authorizing_uid, served),
             Self::Enumeration {
                 proposal,
                 outcome,
@@ -736,6 +849,24 @@ impl Response {
                 map.insert("arm".to_owned(), Value::Text(arm.clone()));
                 map.insert("detail".to_owned(), Value::Text(detail.clone()));
             }
+            Self::AwaitingAuthorization {
+                plan_hash,
+                tier,
+                not_after,
+            } => encode_awaiting(&mut map, plan_hash, tier, *not_after),
+            Self::ApplyRefused { arm, detail } => {
+                map.insert(
+                    "outcome".to_owned(),
+                    Value::Text("apply-refused".to_owned()),
+                );
+                map.insert("arm".to_owned(), Value::Text(arm.clone()));
+                map.insert("detail".to_owned(), Value::Text(detail.clone()));
+            }
+            Self::JournalReport {
+                high_water_instant,
+                records,
+                plans,
+            } => encode_journal_report(&mut map, *high_water_instant, *records, plans),
             Self::NotYetServed {
                 operation,
                 increment,
@@ -760,6 +891,76 @@ impl Response {
         }
         canonical::encode(&Value::Map(map)).map_err(|_| DecodeRefusal::NotCanonical)
     }
+}
+
+/// The status response's fields (split out for the line gate).
+fn encode_status(
+    map: &mut BTreeMap<String, Value>,
+    build: &str,
+    authorizing_uid: u32,
+    served: &[Operation],
+) {
+    map.insert("outcome".to_owned(), Value::Text("status".to_owned()));
+    map.insert("build".to_owned(), Value::Text(build.to_owned()));
+    map.insert(
+        "authorizing_uid".to_owned(),
+        Value::Unsigned(u64::from(authorizing_uid)),
+    );
+    map.insert(
+        "served".to_owned(),
+        Value::Array(
+            served
+                .iter()
+                .map(|op| Value::Text(op.name().to_owned()))
+                .collect(),
+        ),
+    );
+}
+
+/// The awaiting-authorization response's fields (split out for the line
+/// gate, `encode_enumeration`'s precedent).
+fn encode_awaiting(
+    map: &mut BTreeMap<String, Value>,
+    plan_hash: &[u8],
+    tier: &str,
+    not_after: u64,
+) {
+    map.insert(
+        "outcome".to_owned(),
+        Value::Text("awaiting-authorization".to_owned()),
+    );
+    map.insert("plan_hash".to_owned(), Value::Bytes(plan_hash.to_vec()));
+    map.insert("tier".to_owned(), Value::Text(tier.to_owned()));
+    map.insert("not_after".to_owned(), Value::Unsigned(not_after));
+}
+
+/// The journal-query response's fields (split out for the line gate).
+fn encode_journal_report(
+    map: &mut BTreeMap<String, Value>,
+    high_water_instant: Option<u64>,
+    records: u64,
+    plans: &[JournalPlanWire],
+) {
+    map.insert("outcome".to_owned(), Value::Text("journal".to_owned()));
+    if let Some(instant) = high_water_instant {
+        map.insert("high_water_instant".to_owned(), Value::Unsigned(instant));
+    }
+    map.insert("records".to_owned(), Value::Unsigned(records));
+    map.insert(
+        "plans".to_owned(),
+        Value::Array(
+            plans
+                .iter()
+                .map(|plan| {
+                    let mut entry = BTreeMap::new();
+                    entry.insert("plan_hash".to_owned(), Value::Bytes(plan.plan_hash.clone()));
+                    entry.insert("state".to_owned(), Value::Text(plan.state.clone()));
+                    entry.insert("instant".to_owned(), Value::Unsigned(plan.instant));
+                    Value::Map(entry)
+                })
+                .collect(),
+        ),
+    );
 }
 
 /// The enumeration response's fields (split out for the line gate; the
@@ -799,10 +1000,20 @@ pub trait Backend {
     /// Enumeration, never failing — the adapter's arms are values.
     fn enumerate(&self) -> Response;
     /// Validate-plan: take an HLP-002 capture, re-plan the spelled
-    /// request over it, and answer `Validated` or `ValidationRefused` —
-    /// the arms are values, never errors. The audit sink receives the
-    /// capture event (SEC-009).
+    /// request over it, journal `ValidatorPasses` and record the
+    /// validation durably (increment 4a), and answer `Validated` or
+    /// `ValidationRefused` — the arms are values, never errors. The
+    /// audit sink receives the capture and journal events (SEC-009).
     fn validate_plan(&self, request: &ValidateWire, audit: &mut dyn AuditSink) -> Response;
+    /// Apply-plan (increment 4a, the S2 two-phase shape): phase one
+    /// consumes the validation and journals `ApplySubmitted`; phase two
+    /// refuses where increment 3 refuses; an expired window terminates
+    /// on the published `DeclinedOrExpired` edge. Answers
+    /// `AwaitingAuthorization` or `ApplyRefused`, never an error.
+    fn apply_plan(&self, request: &ApplyWire, audit: &mut dyn AuditSink) -> Response;
+    /// Journal-query (increment 4a): the journal's per-plan states and
+    /// high-water instant, helper-authored.
+    fn journal_query(&self, audit: &mut dyn AuditSink) -> Response;
 }
 
 /// HLP-006's audit vocabulary: closed, and every field a uid, a count,
@@ -859,6 +1070,15 @@ pub enum AuditEvent {
         /// Devices whose table state was authored.
         classified: u64,
     },
+    /// A transition record was journaled (increment 4a). Fixed words
+    /// only — the transition's own wire name from the journal schema's
+    /// closed 23-member vocabulary. **No plan hash**, for the same
+    /// reason the authorization event carries none: a 64-character
+    /// digest in a log line is an identifier by another name.
+    Journaled {
+        /// The transition's wire name.
+        transition: &'static str,
+    },
 }
 
 impl fmt::Display for AuditEvent {
@@ -888,6 +1108,9 @@ impl fmt::Display for AuditEvent {
                     f,
                     "event=captured devices={devices} classified={classified}"
                 )
+            }
+            Self::Journaled { transition } => {
+                write!(f, "event=journaled transition={transition}")
             }
         }
     }
@@ -996,12 +1219,20 @@ pub fn serve_connection<S: Read + Write>(
                 {
                     return reply(stream, &unaudited());
                 }
-                match (request.operation, request.validate.as_ref()) {
-                    (Operation::Status, _) => backend.status(),
-                    (Operation::Enumerate, _) => backend.enumerate(),
-                    (Operation::ValidatePlan, Some(arguments)) => {
+                match (
+                    request.operation,
+                    request.validate.as_ref(),
+                    request.apply.as_ref(),
+                ) {
+                    (Operation::Status, _, _) => backend.status(),
+                    (Operation::Enumerate, _, _) => backend.enumerate(),
+                    (Operation::ValidatePlan, Some(arguments), _) => {
                         backend.validate_plan(arguments, audit)
                     }
+                    (Operation::ApplyPlan, _, Some(arguments)) => {
+                        backend.apply_plan(arguments, audit)
+                    }
+                    (Operation::JournalQuery, _, _) => backend.journal_query(audit),
                     // The strict decode pairs the arguments with exactly
                     // the one operation that takes them; a served
                     // operation outside these arms is a defect answered

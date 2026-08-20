@@ -151,6 +151,7 @@ impl Host {
             Path::new("/run/udev/data"),
             &self.reader,
             1_700_000_000,
+            false,
         )
         .expect("captures")
     }
@@ -182,6 +183,25 @@ fn clean_device(serial: &[u8]) -> (TopologySnapshot, partman_domain::model::nami
         TopologySnapshot::assemble(SnapshotKind::Captured, false, vec![device], vec![], facts)
             .expect("assembles");
     (snapshot, id)
+}
+
+/// Increment 4a's CONC-004 probe: one clean device captured through the
+/// real `capture()` with the caller's transitional flag — the same
+/// fixture under both flag values, so the flag's journey from the
+/// parameter through `assemble` into the body hash is what the test
+/// exercises (a hard-coded value inside `capture` cannot survive it).
+pub(super) fn capture_with_flag(transitional: bool) -> CaptureOutcome {
+    let mut host = Host::new();
+    host.device("sda", Some("C4-PROBE"), image("gpt-basic-512"));
+    capture(
+        &host.source,
+        Path::new("/sys"),
+        Path::new("/run/udev/data"),
+        &host.reader,
+        1_700_000_000,
+        transitional,
+    )
+    .expect("captures")
 }
 
 fn wipe_request(target: partman_domain::model::naming::NodeId) -> ValidateRequest {
@@ -317,6 +337,7 @@ fn the_capture_authors_what_the_parser_says_and_only_that() {
         Path::new("/run/udev/data"),
         &host.reader,
         1_700_000_777,
+        false,
     )
     .expect("captures");
     assert_eq!(
@@ -935,6 +956,23 @@ fn the_wire_round_trips_a_validation_end_to_end() {
                 },
             }
         }
+        fn apply_plan(
+            &self,
+            _request: &crate::ApplyWire,
+            _audit: &mut dyn crate::AuditSink,
+        ) -> crate::Response {
+            crate::Response::ApplyRefused {
+                arm: "not-validated".to_owned(),
+                detail: "this fixture backend holds no journal".to_owned(),
+            }
+        }
+        fn journal_query(&self, _audit: &mut dyn crate::AuditSink) -> crate::Response {
+            crate::Response::JournalReport {
+                high_water_instant: None,
+                records: 0,
+                plans: vec![],
+            }
+        }
     }
 
     let (snapshot, _) = clean_device(b"WIRE-1");
@@ -942,6 +980,7 @@ fn the_wire_round_trips_a_validation_end_to_end() {
     let backend = PlanningBackend { snapshot };
     let request = Request {
         operation: Operation::ValidatePlan,
+        apply: None,
         validate: Some(ValidateWire {
             target: TargetSpelling::Device {
                 serial: Some(b"WIRE-1".to_vec()),

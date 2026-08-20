@@ -23,10 +23,14 @@ partman-table-parser = { path = "../../crates/table-parser" }
 partman-planner = { path = "../../crates/planner" }
 partman-capability = { path = "../../crates/capability" }
 # Increment 3: the journal's authorization-act record and its tier
-# vocabulary (ADR-0021, ADR-0028). The helper mints the act; appending
-# and consuming it through `admit_apply` is increment 4's, with the
-# journal's on-disk home.
+# vocabulary (ADR-0021, ADR-0028). Increment 4a opens the journal: the
+# on-disk home, the first real DurabilitySeam, and the transition
+# records the lifecycle stands on.
 partman-journal = { path = "../../crates/journal" }
+# Increment 4a: the Section 8 transition vocabulary the journal records
+# name — the state machine drives the apply to the authorization
+# boundary (consumed, never re-implemented).
+partman-statemachine = { path = "../../crates/statemachine" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # The helper's own effective uid (the endpoint owner check) and nothing else

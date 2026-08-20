@@ -121,8 +121,9 @@ pub enum DeviceCapture {
 /// A capture that produced an authoritative snapshot.
 #[derive(Debug)]
 pub struct CaptureOutcome {
-    /// The snapshot — `Captured`, non-transitional, its facts exactly
-    /// what this module authored.
+    /// The snapshot — `Captured`, transitional exactly when the caller
+    /// said an apply is in flight (CONC-004), its facts exactly what
+    /// this module authored.
     pub snapshot: TopologySnapshot,
     /// The snapshot's body hash: what a validated plan binds (PLAN-006).
     pub snapshot_hash: Hash,
@@ -154,6 +155,16 @@ pub enum CaptureRefusal {
 /// given roots, the byte layer through `reader`, the envelope stamped
 /// `now`.
 ///
+/// `transitional` is CONC-004's flag — "discovery during execution is
+/// transitional" — and it is the **caller's** fact, computed from the
+/// journal (`crate::apply::transitional_now`), never assumed here.
+/// Increment 2 hard-coded `false` at the `assemble` call, which was true
+/// only because nothing could execute; the moment an apply is in flight
+/// that literal would have asserted a settled view of a world being
+/// written (the shape round's §3.1). The flag participates in the
+/// snapshot's body hash, so a mid-apply capture is hash-distinct from a
+/// settled one by construction.
+///
 /// # Errors
 ///
 /// [`CaptureRefusal`].
@@ -163,6 +174,7 @@ pub fn capture(
     udev_root: &std::path::Path,
     reader: &dyn DeviceReader,
     now: u64,
+    transitional: bool,
 ) -> Result<CaptureOutcome, CaptureRefusal> {
     let listed = admitted(source, sysfs_root, udev_root)?;
     let class = sysfs_root.join(BLOCK_CLASS);
@@ -243,11 +255,10 @@ pub fn capture(
     consume_held_and_attribute(source, sysfs_root, &listed, &mut provenance);
 
     let mut snapshot =
-        TopologySnapshot::assemble(SnapshotKind::Captured, false, nodes, edges, facts).map_err(
-            |error| CaptureRefusal::Assembly {
+        TopologySnapshot::assemble(SnapshotKind::Captured, transitional, nodes, edges, facts)
+            .map_err(|error| CaptureRefusal::Assembly {
                 detail: format!("{error:?}"),
-            },
-        )?;
+            })?;
     snapshot.envelope.capture_timestamp = Some(now);
     snapshot.envelope.provenance = provenance;
     let snapshot_hash = snapshot
