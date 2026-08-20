@@ -13,7 +13,7 @@ use super::{
 };
 use crate::records::{
     AuthorizationAct, AuthorizationTier, Checkpoint, DisposalLinkage, PlanHashRef, Record,
-    TransitionRecord,
+    RecordedInstant, TransitionRecord,
 };
 use crate::{CoveredRanges, Journal, MIN_FRAME_LEN, ReplayRefused, SeqNo, replay};
 
@@ -25,6 +25,12 @@ fn act(target: PlanHashRef) -> Record {
     Record::AuthorizationAct(AuthorizationAct::new(target, AuthorizationTier::FloorAct))
 }
 
+/// The fixed instant this suite records transitions at; retention reads
+/// liveness from the chain, not the clock.
+fn instant_t() -> RecordedInstant {
+    RecordedInstant::from_secs(1_700_000_000)
+}
+
 fn completed(target: PlanHashRef) -> Record {
     Record::Transition(
         TransitionRecord::terminal(
@@ -32,6 +38,7 @@ fn completed(target: PlanHashRef) -> Record {
             Transition::PostconditionsPass,
             Effect::Complete,
             None,
+            instant_t(),
         )
         .expect("terminal row"),
     )
@@ -44,6 +51,7 @@ fn failed_with_disposal(target: PlanHashRef, recovery: PlanHashRef) -> Record {
             Transition::FailureAccepted,
             Effect::Partial,
             Some(DisposalLinkage::new(recovery)),
+            instant_t(),
         )
         .expect("the disposal arm"),
     )
@@ -215,8 +223,13 @@ fn budget_exhaustion_fails_closed_through_an_existing_edge() {
         "exhaustion names the plan, the spend, and the bound"
     );
 
-    let failure = exhausted[0].journaled_failure();
+    let failure = exhausted[0].journaled_failure(RecordedInstant::from_secs(1_700_000_777));
     assert_eq!(failure.plan(), hungry);
+    assert_eq!(
+        failure.instant(),
+        RecordedInstant::from_secs(1_700_000_777),
+        "the journaled failure carries the caller's own clock reading (schema v2)"
+    );
     assert_eq!(
         failure.transition(),
         Transition::StepFailureOrInterruption,

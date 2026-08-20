@@ -1,7 +1,11 @@
 //! The JRN-006 record vocabulary (increment 3): `partman.journal.record`
-//! version 1, the versioned public journal schema MODEL-003 requires,
+//! version 2, the versioned public journal schema MODEL-003 requires,
 //! encoded through WP-010's `pce/1` canonical codec (MODEL-005) —
-//! consumed, never re-derived.
+//! consumed, never re-derived. Version 2 (slice 3b) adds the recorded
+//! instant to the transition record — [`RecordedInstant`] — on the
+//! WP-L110 increment-4 shape round's transition-only decision; v1 was
+//! retired before any journal byte could reach disk, so decode refuses
+//! it with nothing to migrate.
 //!
 //! Every record class here was decided before this module existed, and
 //! each carries its authority:
@@ -69,10 +73,15 @@ use crate::SeqNo;
 /// domain separation per `schemas/canonical-encoding.md` §5).
 pub const RECORD_SCHEMA: &str = "partman.journal.record";
 
-/// The record schema's version. Any other version refuses at decode —
-/// MODEL-003's explicit-rejection arm; migration is a future reviewed
-/// increment's, not a silent acceptance.
-pub const RECORD_SCHEMA_VERSION: u64 = 1;
+/// The record schema's version: 2, the recorded-instant schema (the
+/// WP-L110 increment-4 shape round, §9.3 — transition-only, as
+/// decided). Any other version refuses at decode — MODEL-003's
+/// explicit-rejection arm. Version 1 is refused with nothing to
+/// migrate, honestly: no journal on-disk home existed while v1 was
+/// current, so no v1 byte ever reached disk — which is why this schema
+/// act precedes the journal's on-disk home (WP-L110 increment 4a)
+/// rather than following it.
+pub const RECORD_SCHEMA_VERSION: u64 = 2;
 
 /// ADR-0029's per-apply journal budget, landing with the JRN-006 schema
 /// as that ADR requires: 256 MiB of encoded frames per apply. Chosen
@@ -136,6 +145,35 @@ impl ArtifactHashRef {
 impl From<&canonical::Hash> for ArtifactHashRef {
     fn from(hash: &canonical::Hash) -> Self {
         ArtifactHashRef(*hash.as_bytes())
+    }
+}
+
+/// The instant a transition was recorded, in seconds since the Unix
+/// epoch (schema v2). Authored by the caller's own fallible clock —
+/// the helper's clock seam refuses rather than defaults, and this pure
+/// crate reads no clock of its own — so the value's truth is the
+/// caller's, exactly the durability-seam posture. The journal stores
+/// the reading and hands it back; the backward-clock bound over the
+/// journal's high-water instant is the consumer's (WP-L110 increment
+/// 4a). The bound covers the exposure it was written for — a clock
+/// stepped back between a plan's validation and its presentation —
+/// because `ValidatorPasses` is journaled *at validation*: the mark is
+/// populated before any act exists.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct RecordedInstant(u64);
+
+impl RecordedInstant {
+    /// Build from a seconds-since-epoch reading the caller's clock
+    /// stands behind.
+    #[must_use]
+    pub const fn from_secs(secs: u64) -> Self {
+        RecordedInstant(secs)
+    }
+
+    /// The reading, in seconds since the Unix epoch.
+    #[must_use]
+    pub const fn secs(self) -> u64 {
+        self.0
     }
 }
 
@@ -329,19 +367,22 @@ impl DisposalLinkage {
 }
 
 /// A Section 8 transition record: the plan, the published transition
-/// taken, and — exactly on terminal rows — the effect summary under
-/// the row's published constraint, with the disposal linkage riding
-/// only the [`Transition::FailureAccepted`] row.
+/// taken, the instant it was recorded at (schema v2), and — exactly on
+/// terminal rows — the effect summary under the row's published
+/// constraint, with the disposal linkage riding only the
+/// [`Transition::FailureAccepted`] row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TransitionRecord {
     plan: PlanHashRef,
     transition: Transition,
+    instant: RecordedInstant,
     effect: Option<Effect>,
     disposal: Option<DisposalLinkage>,
 }
 
 impl TransitionRecord {
-    /// Build a record for a non-terminal transition.
+    /// Build a record for a non-terminal transition, at the instant the
+    /// caller's clock read when the transition was taken.
     ///
     /// # Errors
     ///
@@ -351,6 +392,7 @@ impl TransitionRecord {
     pub const fn non_terminal(
         plan: PlanHashRef,
         transition: Transition,
+        instant: RecordedInstant,
     ) -> Result<Self, RecordInvalid> {
         if transition.to().is_terminal() {
             return Err(RecordInvalid::TerminalEffectMissing { transition });
@@ -358,6 +400,7 @@ impl TransitionRecord {
         Ok(TransitionRecord {
             plan,
             transition,
+            instant,
             effect: None,
             disposal: None,
         })
@@ -382,6 +425,7 @@ impl TransitionRecord {
         transition: Transition,
         effect: Effect,
         disposal: Option<DisposalLinkage>,
+        instant: RecordedInstant,
     ) -> Result<Self, RecordInvalid> {
         if !transition.to().is_terminal() {
             return Err(RecordInvalid::EffectOnNonTerminal { transition });
@@ -397,6 +441,7 @@ impl TransitionRecord {
         Ok(TransitionRecord {
             plan,
             transition,
+            instant,
             effect: Some(effect),
             disposal,
         })
@@ -406,6 +451,14 @@ impl TransitionRecord {
     #[must_use]
     pub const fn plan(&self) -> PlanHashRef {
         self.plan
+    }
+
+    /// The instant the transition was recorded at — the caller's own
+    /// clock reading, stored and returned unjudged; the high-water
+    /// comparison over these is the consumer's.
+    #[must_use]
+    pub const fn instant(&self) -> RecordedInstant {
+        self.instant
     }
 
     /// The published transition taken.
@@ -790,6 +843,7 @@ impl Record {
                     "transition".to_owned(),
                     Value::Text(transition_wire_name(record.transition).to_owned()),
                 );
+                map.insert("instant".to_owned(), Value::Unsigned(record.instant.secs()));
                 if let Some(effect) = record.effect {
                     map.insert("effect".to_owned(), Value::Text(effect.name().to_owned()));
                 }
@@ -921,6 +975,7 @@ fn decode_transition(map: &mut BTreeMap<String, Value>) -> Result<Record, Decode
         transition_from_wire(&take_text(map, "transition")?).ok_or(DecodeRefused::UnknownTag {
             field: "transition",
         })?;
+    let instant = RecordedInstant::from_secs(take_unsigned(map, "instant")?);
     let effect = match map.remove("effect") {
         None => None,
         Some(Value::Text(name)) => {
@@ -941,9 +996,9 @@ fn decode_transition(map: &mut BTreeMap<String, Value>) -> Result<Record, Decode
         }
     };
     let record = match effect {
-        Some(effect) => TransitionRecord::terminal(plan, transition, effect, disposal),
+        Some(effect) => TransitionRecord::terminal(plan, transition, effect, disposal, instant),
         None if disposal.is_some() => Err(RecordInvalid::LinkageOutsideDisposalArm { transition }),
-        None => TransitionRecord::non_terminal(plan, transition),
+        None => TransitionRecord::non_terminal(plan, transition, instant),
     }
     .map_err(DecodeRefused::Invalid)?;
     Ok(Record::Transition(record))

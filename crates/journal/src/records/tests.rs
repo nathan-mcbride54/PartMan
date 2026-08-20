@@ -14,12 +14,19 @@ use super::{
     ArtifactHashRef, ArtifactStore, AuthorizationAct, AuthorizationTier, Checkpoint,
     CompactionAuthority, CompactionRecord, DecodeRefused, DisposalLinkage, DryRunRefusal,
     PER_APPLY_JOURNAL_BUDGET_BYTES, PlanHashRef, ProtectionArm, ProtectionArtifactRef,
-    ProtectionRecord, RECORD_SCHEMA, RECORD_SCHEMA_VERSION, Record, RecordInvalid, Region,
-    TransitionRecord,
+    ProtectionRecord, RECORD_SCHEMA, RECORD_SCHEMA_VERSION, Record, RecordInvalid, RecordedInstant,
+    Region, TransitionRecord,
 };
 use crate::{CoveredRanges, Journal, MAX_PAYLOAD_LEN, SeqNo, replay};
 
 const DOC: &str = include_str!("../../../../schemas/journal/records.md");
+
+/// The representative instant the documented vectors pin: a plain
+/// epoch-seconds reading, distinct from zero so a dropped or defaulted
+/// instant cannot round-trip unnoticed.
+fn instant_t() -> RecordedInstant {
+    RecordedInstant::from_secs(1_700_000_000)
+}
 
 fn plan_a() -> PlanHashRef {
     PlanHashRef::from_bytes([0x11; 32])
@@ -42,7 +49,7 @@ fn representatives() -> Vec<Record> {
     vec![
         Record::AuthorizationAct(AuthorizationAct::new(plan_a(), AuthorizationTier::FloorAct)),
         Record::Transition(
-            TransitionRecord::non_terminal(plan_a(), Transition::ValidatorPasses)
+            TransitionRecord::non_terminal(plan_a(), Transition::ValidatorPasses, instant_t())
                 .expect("non-terminal row"),
         ),
         Record::Transition(
@@ -51,6 +58,7 @@ fn representatives() -> Vec<Record> {
                 Transition::FailureAccepted,
                 Effect::Partial,
                 Some(DisposalLinkage::new(plan_b())),
+                instant_t(),
             )
             .expect("the disposal arm"),
         ),
@@ -120,7 +128,7 @@ fn encoded(map: BTreeMap<String, Value>) -> Vec<u8> {
     canonical::encode(&Value::Map(map)).expect("encodable")
 }
 
-/// The complete closed text vocabulary of schema v1 — every `Text`
+/// The complete closed text vocabulary of schema v2 — every `Text`
 /// value any encoded record may carry, transcribed from the schema
 /// document's own listing rather than from the encoder.
 fn closed_vocabulary() -> Vec<&'static str> {
@@ -175,13 +183,14 @@ const TRANSITION_TAGS: [&str; 23] = [
 ];
 
 /// The declared field-name set, transcribed from the schema document.
-const FIELD_NAMES: [&str; 13] = [
+const FIELD_NAMES: [&str; 14] = [
     "schema",
     "schema_version",
     "kind",
     "plan",
     "tier",
     "transition",
+    "instant",
     "effect",
     "recovery_plan",
     "step_index",
@@ -207,7 +216,7 @@ const EXEMPLARS: [&str; 7] = [
 ];
 
 // Requirements: JRN-006, MODEL-003
-//   The versioned journal record schema: every v1 record class —
+//   The versioned journal record schema: every v2 record class —
 //   authorization act, non-terminal and terminal-with-linkage
 //   transitions, checkpoint, all three protection arms, compaction —
 //   encodes through WP-010's pce/1 codec carrying the pinned schema
@@ -270,8 +279,19 @@ fn every_record_class_round_trips_and_matches_the_documented_vectors() {
 fn unknown_versions_kinds_fields_and_tags_refuse_rather_than_repair() {
     let act = &representatives()[0];
 
+    // The retired v1 refuses by version before any field is read —
+    // MODEL-003's explicit rejection, with nothing to migrate: no v1
+    // byte ever reached disk, because no journal on-disk home existed
+    // while v1 was current.
     let mut map = decoded_map(act);
-    map.insert("schema_version".to_owned(), Value::Unsigned(2));
+    map.insert("schema_version".to_owned(), Value::Unsigned(1));
+    assert_eq!(
+        Record::decode(&encoded(map)),
+        Err(DecodeRefused::WrongVersion)
+    );
+
+    let mut map = decoded_map(act);
+    map.insert("schema_version".to_owned(), Value::Unsigned(3));
     assert_eq!(
         Record::decode(&encoded(map)),
         Err(DecodeRefused::WrongVersion)
@@ -387,7 +407,7 @@ fn terminal_effects_are_enforced_at_record_write_time_for_every_row() {
     for transition in Transition::ALL {
         let terminal = transition.to().is_terminal();
         assert_eq!(
-            TransitionRecord::non_terminal(plan_a(), transition).is_ok(),
+            TransitionRecord::non_terminal(plan_a(), transition, instant_t()).is_ok(),
             !terminal,
             "{transition:?}: non-terminal construction iff the row is non-terminal"
         );
@@ -396,7 +416,8 @@ fn terminal_effects_are_enforced_at_record_write_time_for_every_row() {
                 Some(list) => list.contains(&effect),
                 None => true,
             };
-            let record = TransitionRecord::terminal(plan_a(), transition, effect, None);
+            let record =
+                TransitionRecord::terminal(plan_a(), transition, effect, None, instant_t());
             if !terminal {
                 assert_eq!(
                     record,
@@ -427,8 +448,13 @@ fn terminal_effects_are_enforced_at_record_write_time_for_every_row() {
             let legal_effect = transition
                 .effect_constraint()
                 .map_or(Effect::Partial, |list| list[0]);
-            let with_linkage =
-                TransitionRecord::terminal(plan_a(), transition, legal_effect, linkage);
+            let with_linkage = TransitionRecord::terminal(
+                plan_a(),
+                transition,
+                legal_effect,
+                linkage,
+                instant_t(),
+            );
             if matches!(transition, Transition::FailureAccepted) {
                 let record = with_linkage.expect("the disposal arm carries the linkage");
                 assert_eq!(record.disposal(), linkage);
@@ -444,8 +470,9 @@ fn terminal_effects_are_enforced_at_record_write_time_for_every_row() {
 
     // The wire cannot smuggle a linkage onto a non-terminal row: the
     // decoder routes the same invariant.
-    let non_terminal = TransitionRecord::non_terminal(plan_a(), Transition::ValidatorPasses)
-        .expect("non-terminal row");
+    let non_terminal =
+        TransitionRecord::non_terminal(plan_a(), Transition::ValidatorPasses, instant_t())
+            .expect("non-terminal row");
     let mut map = decoded_map(&Record::Transition(non_terminal));
     map.insert(
         "recovery_plan".to_owned(),
@@ -623,6 +650,16 @@ fn no_record_position_carries_free_text_and_planted_identifiers_refuse() {
                     "a hash position cannot be retyped to carry text"
                 );
             }
+
+            if map.contains_key("instant") {
+                let mut tampered = map.clone();
+                tampered.insert("instant".to_owned(), Value::Text(raw.into()));
+                assert_eq!(
+                    Record::decode(&encoded(tampered)),
+                    Err(DecodeRefused::WrongType { field: "instant" }),
+                    "the instant position cannot be retyped to carry text"
+                );
+            }
         }
     }
 }
@@ -672,8 +709,12 @@ fn the_disposal_chain_reconstructs_from_the_journal_alone() {
     let chain: Vec<Record> = vec![
         Record::AuthorizationAct(AuthorizationAct::new(plan_a(), AuthorizationTier::FloorAct)),
         Record::Transition(
-            TransitionRecord::non_terminal(plan_a(), Transition::StepFailureOrInterruption)
-                .expect("row"),
+            TransitionRecord::non_terminal(
+                plan_a(),
+                Transition::StepFailureOrInterruption,
+                instant_t(),
+            )
+            .expect("row"),
         ),
         Record::Transition(
             TransitionRecord::terminal(
@@ -681,6 +722,7 @@ fn the_disposal_chain_reconstructs_from_the_journal_alone() {
                 Transition::FailureAccepted,
                 Effect::Partial,
                 Some(DisposalLinkage::new(plan_b())),
+                instant_t(),
             )
             .expect("the disposal arm"),
         ),
@@ -736,4 +778,71 @@ fn the_disposal_chain_reconstructs_from_the_journal_alone() {
         })
         .expect("the recovery plan's act is in the journal");
     assert_eq!(recovery_act.tier(), AuthorizationTier::InteractiveCeremony);
+}
+
+// Requirements: JRN-006, MODEL-003
+//   Schema v2's recorded instant (the WP-L110 increment-4 shape round,
+//   transition-only as decided): every transition record carries the
+//   caller's clock reading and returns it unchanged through the wire —
+//   two records differing only in their instants encode differently
+//   and each decodes to its own reading, so a dropped or defaulted
+//   instant cannot round-trip. A transition record without the instant
+//   refuses MissingField rather than defaulting: a defaulted instant of
+//   zero would sit below every honest reading and fail the consumer's
+//   backward-clock bound open. A mistyped instant refuses by position.
+//   The retired v1's exact shape — version 1, no instant field — is
+//   refused by version before any field is read, with nothing to
+//   migrate, because no v1 byte ever reached disk.
+// Evidence: the_recorded_instant_is_required_and_round_trips_and_v1_refuses
+#[test]
+fn the_recorded_instant_is_required_and_round_trips_and_v1_refuses() {
+    let at = |secs: u64| {
+        Record::Transition(
+            TransitionRecord::non_terminal(
+                plan_a(),
+                Transition::ValidatorPasses,
+                RecordedInstant::from_secs(secs),
+            )
+            .expect("non-terminal row"),
+        )
+    };
+
+    let early = at(1_700_000_000);
+    let late = at(1_700_000_001);
+    let early_bytes = early.encode().expect("encodes");
+    let late_bytes = late.encode().expect("encodes");
+    assert_ne!(
+        early_bytes, late_bytes,
+        "the instant is on the wire: distinct readings encode distinctly"
+    );
+    let Record::Transition(decoded) = Record::decode(&late_bytes).expect("decodes") else {
+        panic!("a transition record decodes to a transition record");
+    };
+    assert_eq!(
+        decoded.instant(),
+        RecordedInstant::from_secs(1_700_000_001),
+        "the wire returns the caller's own reading, unjudged"
+    );
+    assert!(
+        RecordedInstant::from_secs(1_700_000_000) < decoded.instant(),
+        "instants order, so a high-water maximum is well-defined for the consumer"
+    );
+
+    let mut absent = decoded_map(&early);
+    absent.remove("instant");
+    assert_eq!(
+        Record::decode(&encoded(absent)),
+        Err(DecodeRefused::MissingField { field: "instant" }),
+        "an instant-less transition record refuses; nothing defaults"
+    );
+
+    // The retired v1's exact shape: version 1 and no instant field.
+    let mut v1_shape = decoded_map(&early);
+    v1_shape.insert("schema_version".to_owned(), Value::Unsigned(1));
+    v1_shape.remove("instant");
+    assert_eq!(
+        Record::decode(&encoded(v1_shape)),
+        Err(DecodeRefused::WrongVersion),
+        "a v1 record refuses by version, before any field is read"
+    );
 }

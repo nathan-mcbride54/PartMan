@@ -9,7 +9,8 @@ use super::{
     ValidityWindow, admit_apply, re_enter, trace,
 };
 use crate::records::{
-    AuthorizationAct, AuthorizationTier, DisposalLinkage, PlanHashRef, Record, TransitionRecord,
+    AuthorizationAct, AuthorizationTier, DisposalLinkage, PlanHashRef, Record, RecordedInstant,
+    TransitionRecord,
 };
 use crate::retention::{DecodedJournal, decode_journal};
 use crate::{DurabilityRefused, DurabilitySeam, Journal};
@@ -30,12 +31,22 @@ fn act(target: PlanHashRef) -> Record {
     Record::AuthorizationAct(AuthorizationAct::new(target, AuthorizationTier::FloorAct))
 }
 
+/// The fixed instant this suite records transitions at; the lifecycle
+/// rules under test read the chain, not the clock.
+fn instant_t() -> RecordedInstant {
+    RecordedInstant::from_secs(1_700_000_000)
+}
+
 fn non_terminal(target: PlanHashRef, transition: Transition) -> Record {
-    Record::Transition(TransitionRecord::non_terminal(target, transition).expect("row"))
+    Record::Transition(
+        TransitionRecord::non_terminal(target, transition, instant_t()).expect("row"),
+    )
 }
 
 fn terminal(target: PlanHashRef, transition: Transition, effect: Effect) -> Record {
-    Record::Transition(TransitionRecord::terminal(target, transition, effect, None).expect("row"))
+    Record::Transition(
+        TransitionRecord::terminal(target, transition, effect, None, instant_t()).expect("row"),
+    )
 }
 
 /// The journaled path from validation to Executing: the act precedes
@@ -192,6 +203,7 @@ fn a_recovery_apply_is_unreachable_until_the_disposal_is_durable() {
                     Transition::FailureAccepted,
                     Effect::Partial,
                     Some(DisposalLinkage::new(recovery)),
+                    instant_t(),
                 )
                 .expect("the disposal arm"),
             )
