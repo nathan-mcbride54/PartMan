@@ -2,6 +2,7 @@
 members = [
     "apps/cli",
     "crates/adapter-linux",
+    "crates/artifact-store",
     "crates/capability",
     "crates/domain",
     "crates/ffi-linux-loop",

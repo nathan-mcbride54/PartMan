@@ -1,0 +1,30 @@
+[package]
+name = "partman-artifact-store"
+description = "The WP-070 protection-artifact store: ADR-0030's store class as a pure library — content-addressed verified deposits, hash-only references, the ADR-0029 liveness retention rule read from the journal's records, and the consequence-stated end of life"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+# The journal is the metadata authority: artifact references live in its
+# protection records (hash-only, ADR-0030 Rule 2), and the retention
+# pass reads liveness from its decoded records (Rule 3 — ADR-0029's
+# rule as REC-011 adopted it). The store consumes that vocabulary; a
+# second spelling of the same references would be the drift ADR-0030
+# wrote Rule 2 against.
+partman-journal = { path = "../journal" }
+# Content addressing: SHA-256 over the artifact's exact bytes — the
+# primitive MODEL-005 already pins for canonical hashing, at the same
+# pinned version the workspace resolves everywhere else.
+sha2 = { version = "0.11.0", default-features = false }
+
+[dev-dependencies]
+# The suite authors transition records for its journal fixtures, and a
+# transition's vocabulary is the statemachine's. Test-only: the store
+# itself never interprets a transition.
+partman-statemachine = { path = "../statemachine" }
+
+[lints]
+workspace = true
