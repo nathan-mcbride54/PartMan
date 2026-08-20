@@ -45,7 +45,7 @@
 use std::path::Path;
 
 use crate::devices::{DEVICE_LIMIT, Device, Enumeration, RawField, VALUE_LIMIT, selector};
-use crate::doctor::{ProbeOutcome, ToolLauncher};
+use crate::doctor::{DOCTOR_TIME_LIMIT, ProbeOutcome, ToolLauncher};
 use crate::inspect::{ObservedValue, Outcome};
 use crate::plist;
 
@@ -95,7 +95,12 @@ pub const INFO_KEYS: [&str; 12] = [
 /// parses lands in ADR-C4's vocabulary, and no partial device list is ever
 /// returned in place of a refusal.
 pub fn enumerate(launcher: &dyn ToolLauncher) -> Enumeration {
-    let listed = launcher.launch(Path::new(DISKUTIL), &["list", "-plist"], LIST_OUTPUT_LIMIT);
+    let listed = launcher.launch(
+        Path::new(DISKUTIL),
+        &["list", "-plist"],
+        LIST_OUTPUT_LIMIT,
+        DOCTOR_TIME_LIMIT,
+    );
     let stdout = match listed {
         ProbeOutcome::Completed { stdout, .. } => stdout,
         // A nonzero exit is a failure, never evidence — the doctor's rule,
@@ -182,6 +187,7 @@ fn info_fields_for(launcher: &dyn ToolLauncher, name: &str) -> Vec<RawField> {
         Path::new(DISKUTIL),
         &["info", "-plist", name],
         INFO_OUTPUT_LIMIT,
+        DOCTOR_TIME_LIMIT,
     );
     let stdout = match outcome {
         ProbeOutcome::Completed { stdout, .. } => stdout,

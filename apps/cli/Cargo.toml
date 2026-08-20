@@ -11,13 +11,22 @@ publish = false
 name = "partman"
 path = "src/main.rs"
 
-# No `[dependencies]` section, and that is a guard rather than an omission:
-# `the_shipped_dependency_closure_is_empty` asserts it through `cargo
-# metadata`, so no hash or plan implementation can arrive from outside this
-# crate. What the guard cannot see — std's own hashers used deliberately
-# in-crate — is held off the output type by its Tier-1 ambiguity assertion,
-# and past that is a named review obligation, not a claimed impossibility.
-# Widening this section is a reviewed decision, not a convenience.
+# Exactly one shipped dependency, and that exactness is a guard rather
+# than a convenience: `the_shipped_dependency_closure_is_exactly_the_launcher`
+# asserts through `cargo metadata` that the closure is `partman-launcher`
+# alone and that the launcher crate itself depends on nothing, so no hash
+# or plan implementation can arrive from outside this crate — transitively.
+# The widening was a reviewed decision (the launcher-home round, option A,
+# docs/reviews/LINUX_LAUNCHER_HOME_ROUND_2026-08-20.md, with the found
+# closure cost put to the decision owner 2026-08-20): the SAFE-004 launch
+# mechanism moved to its own crate so the privileged helper can share it,
+# and the CLI follows it there. What the guard cannot see — std's own
+# hashers used deliberately in-crate — is held off the output type by its
+# Tier-1 ambiguity assertion, and past that is a named review obligation,
+# not a claimed impossibility. Widening further is a reviewed decision,
+# not a convenience.
+[dependencies]
+partman-launcher = { path = "../../crates/launcher" }
 
 [dev-dependencies]
 # Test-only, for parsing `cargo metadata` in the structural guard — a

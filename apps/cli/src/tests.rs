@@ -15,6 +15,7 @@ use super::{
     VERSION, dispatch_os, dispatch_with, envelope, help_text, json_escaped,
 };
 use std::path::Path;
+use std::time::Duration;
 
 /// A launcher that finds nothing and must never be asked to probe. The
 /// contract-wide tests run every command through it, which is what keeps
@@ -25,14 +26,24 @@ impl ToolLauncher for NothingInstalled {
     fn exists(&self, _path: &Path) -> bool {
         false
     }
-    fn probe_version(&self, path: &Path) -> ProbeOutcome {
-        panic!("probe of {} without a prior existence hit", path.display());
-    }
     // A launch failure rather than a panic, deliberately: on the macOS CI
     // leg the contract-wide tests reach the enumeration through this
     // launcher, and the honest outcome of "nothing exists here" is a failed
     // launch the answer must carry as `failed` — never a fake empty machine.
-    fn launch(&self, _path: &Path, _arguments: &[&str], _output_limit: usize) -> ProbeOutcome {
+    // The fixed version probe stays a panic: the doctor probes only after
+    // an existence hit, and this launcher answers every existence check no.
+    fn launch(
+        &self,
+        path: &Path,
+        arguments: &[&str],
+        _output_limit: usize,
+        _deadline: Duration,
+    ) -> ProbeOutcome {
+        assert!(
+            arguments != ["--version"],
+            "probe of {} without a prior existence hit",
+            path.display()
+        );
         ProbeOutcome::LaunchFailed("this launcher launches nothing".to_owned())
     }
 }
@@ -669,10 +680,10 @@ fn human_terminal_encoding_is_injective_for_controls_and_backslashes() {
 }
 
 // Requirements: Section 14
-//   No normal or build dependency exists, so no hash or plan implementation can arrive from outside the crate; std's own hashers are held off the output type by a Tier-1 compile-time ambiguity proof, and past that the boundary is a named review obligation
-// Evidence: the_shipped_dependency_closure_is_empty
+//   The shipped closure is exactly partman-launcher — the SAFE-004 mechanism crate, itself dependency-free — so no hash or plan implementation can arrive from outside the crate, transitively; std's own hashers are held off the output type by a Tier-1 compile-time ambiguity proof, and past that the boundary is a named review obligation
+// Evidence: the_shipped_dependency_closure_is_exactly_the_launcher
 #[test]
-fn the_shipped_dependency_closure_is_empty() {
+fn the_shipped_dependency_closure_is_exactly_the_launcher() {
     // The compile-time-selected Cargo, launched with a structured argument
     // array, is the dependency-closure oracle. Git is the only other executable
     // class launched by chassis tests, for the bounded-launcher success/failure
@@ -695,25 +706,47 @@ fn the_shipped_dependency_closure_is_empty() {
         .find(|package| package["name"] == "partman-cli")
         .expect("the chassis package must be in its own workspace");
 
-    let shipped: Vec<String> = package["dependencies"]
+    // `kind` is null for a normal dependency, "build" for build scripts,
+    // "dev" for test-only. Dev-dependencies cannot reach the shipped
+    // binary, which is exactly the boundary this guard draws. The day this
+    // comment once predicted arrived with the launcher-home round (option
+    // A, 2026-08-20): the direct set is no longer empty, so the guard now
+    // resolves the real closure — exactly `partman-launcher`, whose own
+    // non-dev set is asserted empty below, which closes the closure at
+    // depth two — and the test was renamed so its name does not overclaim.
+    // The assertion is a snapshot of the manifests, not of what tests link.
+    let non_dev = |package: &serde_json::Value| -> Vec<String> {
+        package["dependencies"]
+            .as_array()
+            .expect("every package carries a dependency list")
+            .iter()
+            .filter(|dependency| dependency["kind"] != "dev")
+            .map(|dependency| {
+                dependency["name"]
+                    .as_str()
+                    .expect("a dependency has a name")
+                    .to_owned()
+            })
+            .collect()
+    };
+    assert_eq!(
+        non_dev(package),
+        ["partman-launcher"],
+        "the shipped closure is exactly the launch mechanism; widening it is a reviewed \
+         decision — the guard exists so a hash or plan implementation cannot arrive as a \
+         transitive convenience"
+    );
+
+    let launcher = metadata["packages"]
         .as_array()
-        .expect("every package carries a dependency list")
+        .expect("metadata carries a package list")
         .iter()
-        // `kind` is null for a normal dependency, "build" for build scripts,
-        // "dev" for test-only. Dev-dependencies cannot reach the shipped
-        // binary, which is exactly the boundary this guard draws. With the
-        // direct non-dev set empty the transitive closure is empty by
-        // entailment; if a dependency is ever allowlisted, this test must
-        // resolve the real closure or be renamed, because its name would
-        // otherwise overclaim. The assertion is a snapshot of the manifest,
-        // not of what tests link.
-        .filter(|dependency| dependency["kind"] != "dev")
-        .map(|dependency| dependency["name"].to_string())
-        .collect();
+        .find(|package| package["name"] == "partman-launcher")
+        .expect("the launcher crate is in the same workspace");
     assert!(
-        shipped.is_empty(),
-        "the shipped closure gained {shipped:?}; widening it is a reviewed decision — the \
-         guard exists so a hash or plan implementation cannot arrive as a transitive convenience"
+        non_dev(launcher).is_empty(),
+        "partman-launcher gained a dependency; its emptiness is what makes the CLI's \
+         closure claim transitive"
     );
 }
 
@@ -908,8 +941,9 @@ fn the_shipped_sources_read_no_environment_variable() {
     // would evade it and is refused by clippy's `wildcard_imports` lint
     // (pedantic is a warning workspace-wide and CI runs clippy with
     // `-D warnings`); and no other crate can smuggle a read in, because the
-    // shipped dependency closure is empty. Residue past those three is
-    // review. The environment sweep above complements this from the other
+    // shipped dependency closure is exactly `partman-launcher`, whose own
+    // source is in this scan (it writes the child's `LC_ALL`; it reads
+    // nothing). Residue past those four is review. The environment sweep above complements this from the other
     // side: it sees actual values, but only for variables the test host
     // sets.
     for (file, source) in [
@@ -922,6 +956,10 @@ fn the_shipped_sources_read_no_environment_variable() {
         ("devices.rs", include_str!("devices.rs")),
         ("macos.rs", include_str!("macos.rs")),
         ("plist.rs", include_str!("plist.rs")),
+        (
+            "partman-launcher/src/lib.rs",
+            include_str!("../../../crates/launcher/src/lib.rs"),
+        ),
     ] {
         for needle in ["env::var", "env::vars", "var_os"] {
             assert!(
@@ -1081,10 +1119,18 @@ fn the_doctor_probes_only_compiled_absolute_paths() {
             self.seen.borrow_mut().push(path.display().to_string());
             false
         }
-        fn probe_version(&self, path: &Path) -> ProbeOutcome {
-            panic!("probe of {} without an existence hit", path.display());
-        }
-        fn launch(&self, path: &Path, _arguments: &[&str], _output_limit: usize) -> ProbeOutcome {
+        fn launch(
+            &self,
+            path: &Path,
+            arguments: &[&str],
+            _output_limit: usize,
+            _deadline: Duration,
+        ) -> ProbeOutcome {
+            assert!(
+                arguments != ["--version"],
+                "probe of {} without an existence hit",
+                path.display()
+            );
             panic!(
                 "the doctor must not use the argument channel: {}",
                 path.display()
@@ -1147,7 +1193,7 @@ fn the_doctor_probes_only_compiled_absolute_paths() {
 }
 
 // Requirements: INV-006
-//   The current shipped source graph has no auto-mount or repair execution route: every production source outside doctor is pinned free of direct process-command construction, the module declaration set is closed, the production doctor launcher invokes every compiled roster path with fixed informational --version, and the launcher's argument-bearing channel has exactly one shipped caller — the macOS adapter's two fixed diskutil invocations; alternate spellings remain a named review obligation, bounded by denied unsafe code and the empty shipped dependency closure
+//   The current shipped source graph has no auto-mount or repair execution route: every production source is pinned free of direct process-command construction (the one constructor lives in partman-launcher, pinned by that crate's own test), the module declaration set is closed, the production doctor invokes exactly the fixed informational --version probe through the moved mechanism with its stated bounds, and the argument-bearing channel has exactly one other shipped caller — the macOS adapter's two fixed diskutil invocations; alternate spellings remain a named review obligation, bounded by denied unsafe code and a shipped dependency closure that is exactly the dependency-free launcher crate
 // Evidence: discovery_cannot_auto_mount_or_run_repair_tools
 #[test]
 fn discovery_cannot_auto_mount_or_run_repair_tools() {
@@ -1157,6 +1203,7 @@ fn discovery_cannot_auto_mount_or_run_repair_tools() {
     for (file, source) in [
         ("main.rs", include_str!("main.rs")),
         ("lib.rs", library),
+        ("doctor.rs", doctor),
         ("facts.rs", include_str!("facts.rs")),
         ("inspect.rs", include_str!("inspect.rs")),
         ("reach.rs", include_str!("reach.rs")),
@@ -1166,7 +1213,7 @@ fn discovery_cannot_auto_mount_or_run_repair_tools() {
     ] {
         assert!(
             !source.contains("std::process::Command") && !source.contains("process::{Command"),
-            "{file} gained direct process access; only the fixed doctor launcher may own it"
+            "{file} gained direct process access; the one constructor lives in partman-launcher"
         );
     }
 
@@ -1195,30 +1242,17 @@ fn discovery_cannot_auto_mount_or_run_repair_tools() {
         .next()
         .expect("the production doctor source precedes its test-only module");
     assert_eq!(
-        production_doctor
-            .matches("std::process::Command::new")
-            .count(),
+        production_doctor.matches(".launch(").count(),
         1,
-        "the production doctor owns exactly one direct process constructor"
-    );
-
-    let start = doctor
-        .find("impl ToolLauncher for SystemLauncher")
-        .expect("the production launcher implementation is present");
-    let end = doctor[start..]
-        .find("/// Launch one absolute executable")
-        .map(|offset| start + offset)
-        .expect("the launcher implementation has its reviewed boundary");
-    let implementation = &doctor[start..end];
-    assert_eq!(
-        implementation.matches("launch_bounded(").count(),
-        2,
-        "the production launcher has exactly two invocation routes: the fixed version \
-         probe, and the argument-bearing channel the enumeration seam declares"
+        "the production doctor launches exactly the fixed version probe"
     );
     assert!(
-        implementation.contains("launch_bounded(path, &[\"--version\"], OUTPUT_LIMIT_PER_STREAM)"),
-        "the version probe stays fixed: literal --version under the doctor's own bound"
+        production_doctor.contains("&[\"--version\"],"),
+        "the version probe stays fixed: literal --version under the doctor's own bounds"
+    );
+    assert!(
+        production_doctor.contains("DOCTOR_TIME_LIMIT,"),
+        "the version probe states the doctor's deadline; the mechanism has no default"
     );
     // The argument-bearing channel exists for the enumeration adapters, and
     // exactly one shipped module calls it. A second caller is a reviewed
@@ -1246,6 +1280,14 @@ fn discovery_cannot_auto_mount_or_run_repair_tools() {
         2,
         "the macOS adapter launches exactly its two fixed diskutil invocations"
     );
+    assert_eq!(
+        include_str!("macos.rs")
+            .matches("DOCTOR_TIME_LIMIT")
+            .count(),
+        3,
+        "both diskutil invocations state the doctor's deadline (plus its one import); \
+         the mechanism has no default to fall back on"
+    );
 }
 
 /// A launcher whose probe follows one script; only `/probe/tool` exists.
@@ -1260,14 +1302,20 @@ impl ToolLauncher for Scripted {
     fn exists(&self, path: &Path) -> bool {
         path == Path::new("/probe/tool")
     }
-    fn probe_version(&self, _path: &Path) -> ProbeOutcome {
-        (self.outcome)()
-    }
-    fn launch(&self, path: &Path, _arguments: &[&str], _output_limit: usize) -> ProbeOutcome {
-        panic!(
+    fn launch(
+        &self,
+        path: &Path,
+        arguments: &[&str],
+        _output_limit: usize,
+        _deadline: Duration,
+    ) -> ProbeOutcome {
+        assert_eq!(
+            arguments,
+            ["--version"],
             "this launcher scripts version probes only: {}",
             path.display()
         );
+        (self.outcome)()
     }
 }
 
@@ -1426,7 +1474,7 @@ fn an_absent_tool_reports_where_partman_looked() {
 }
 
 // Requirements: SAFE-004
-//   The launcher's child environment is cleared and gains exactly one written variable, LC_ALL=C — pinned as a source-text assertion because no behavioral proof fits WP-035's test process set, with the pin's reach stated: direct spellings, with smuggling routes closed by the empty closure and the wildcard-import lint, and the residue held by review
+//   The launcher's child environment is cleared and gains exactly one written variable, LC_ALL=C — pinned as a source-text assertion because no behavioral proof fits WP-035's test process set, with the pin's reach stated: direct spellings in the moved mechanism's source, with smuggling routes closed by the exactly-the-launcher closure and the wildcard-import lint, and the residue held by review
 // Evidence: the_launcher_clears_the_child_environment
 #[test]
 fn the_launcher_clears_the_child_environment() {
@@ -1434,8 +1482,9 @@ fn the_launcher_clears_the_child_environment() {
     // same reason: a behavioral proof would need a canary process outside
     // the tier's git-and-cargo set. A mutation replacing env_clear with an
     // inherited environment survived every behavioral test when tried; this
-    // pin is what kills it, and its reach is exactly the direct spellings.
-    let source = include_str!("doctor.rs");
+    // pin is what kills it, and its reach is exactly the direct spellings —
+    // now in the mechanism's own crate, where the spawn moved.
+    let source = include_str!("../../../crates/launcher/src/lib.rs");
     assert!(
         source.contains(".env_clear()"),
         "the launcher must clear the child environment before writing into it"
@@ -1538,7 +1587,7 @@ fn the_real_launcher_answers_bounded_with_provenance() {
 
     let launcher = SystemLauncher;
     assert!(launcher.exists(git), "the resolved Git executable exists");
-    match launcher.probe_version(git) {
+    match launcher.launch(git, &["--version"], 4096, Duration::from_secs(5)) {
         ProbeOutcome::Completed { stdout, .. } => {
             assert!(!stdout.is_empty(), "git --version banners on stdout");
             assert!(stdout.len() <= 4096, "output stayed within the bound");
@@ -2942,10 +2991,13 @@ impl ToolLauncher for DiskutilScript {
     fn exists(&self, _path: &Path) -> bool {
         false
     }
-    fn probe_version(&self, path: &Path) -> ProbeOutcome {
-        panic!("the enumeration must not version-probe: {}", path.display());
-    }
-    fn launch(&self, path: &Path, arguments: &[&str], output_limit: usize) -> ProbeOutcome {
+    fn launch(
+        &self,
+        path: &Path,
+        arguments: &[&str],
+        output_limit: usize,
+        _deadline: Duration,
+    ) -> ProbeOutcome {
         self.calls.borrow_mut().push((
             path.display().to_string(),
             arguments.iter().map(|a| (*a).to_owned()).collect(),
@@ -3157,10 +3209,13 @@ impl ToolLauncher for OverLimitScript {
     fn exists(&self, _path: &Path) -> bool {
         false
     }
-    fn probe_version(&self, path: &Path) -> ProbeOutcome {
-        panic!("no version probe here: {}", path.display());
-    }
-    fn launch(&self, _path: &Path, arguments: &[&str], _limit: usize) -> ProbeOutcome {
+    fn launch(
+        &self,
+        _path: &Path,
+        arguments: &[&str],
+        _limit: usize,
+        _deadline: Duration,
+    ) -> ProbeOutcome {
         assert_eq!(arguments, ["list", "-plist"], "no launch past the refusal");
         ProbeOutcome::Completed {
             stdout: self.stdout.clone(),

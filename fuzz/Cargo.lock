@@ -118,6 +118,9 @@ dependencies = [
 [[package]]
 name = "partman-cli"
 version = "0.0.0"
+dependencies = [
+ "partman-launcher",
+]
 
 [[package]]
 name = "partman-domain"
@@ -136,6 +139,10 @@ dependencies = [
  "partman-domain",
  "partman-table-parser",
 ]
+
+[[package]]
+name = "partman-launcher"
+version = "0.0.0"
 
 [[package]]
 name = "partman-table-parser"
