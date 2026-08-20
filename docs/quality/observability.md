@@ -11,7 +11,7 @@
   recorded harness defects, and **M10 taken the same day** in an ephemeral
   hosted runner, where the helper reads at byte level what the client is
   denied. Only M9 remains `not established`, Apple Silicon having no Fusion
-  Drive. **No preregistered cell on any platform is now `not yet taken`** — the apply-ceremony cells DR22–DR24 (gitea#1014) were preregistered and taken 2026-08-19 UTC on all three tiers (jammy VMID 9494, Debian 12 VMID 9495, Arch VMID 9496), established, with two recorded instrument scope notes. Before them: the whole-device byte-window cell DR21 (gitea#1013) was preregistered and taken 2026-08-19 UTC on one jammy guest (VMID 9492), established, valid on the second invocation with one recorded instrument amendment. Before it — the polkit-and-launch cell DR20 (gitea#1012) was preregistered and taken 2026-08-19 UTC on all three tiers (jammy VMID 9488, Debian 12 VMID 9489, Arch VMID 9490), established, no amendment. The USB-device-node recognition cell FR6 (gitea#1002) was preregistered and taken 2026-08-19 UTC in both legs (the FR4 unit on the Proxmox node's own XHCI chain as `nobody`, and the same unit passed through to a jammy guest as `muser1`), established, with one recorded instrument amendment on the guest leg. The Debian 12 `os-release` cell DR19 (gitea#1011) was preregistered and taken 2026-08-19 UTC on the **first Debian guest in the record**, established, with one recorded apparatus amendment (the first create, VMID 9481, void(apparatus); the cited run VMID 9482). The floor-input cells DR16–DR18 (gitea#1010) were preregistered and taken 2026-08-19 UTC, all three established (DR16/DR17 on a jammy guest across the pinned reboot, no amendment; DR18 on the **first Arch guest in the record**, valid with two recorded instrument amendments). The held-standing cell DR15 (gitea#1009) was preregistered 2026-08-18 and taken 2026-08-19 UTC, established on a single guest with no amendment. The Linux detection rows DR1–DR10 (gitea#1005) and the naming-designation cells DR11–DR14 (gitea#1007) were preregistered and taken 2026-08-18, all fourteen established (DR1–DR10 valid on a second invocation; DR11–DR14 valid with two recorded instrument amendments in the rebooted phase).
+  Drive. **One preregistered cell is `not yet taken`: the mutation-tool-presence cell DR25** (gitea#1015, preregistered 2026-08-20, below — three tiers, the jammy, Debian 12 and Arch images, filed by WP-L110 for its toolset round). The apply-ceremony cells DR22–DR24 (gitea#1014) were preregistered and taken 2026-08-19 UTC on all three tiers (jammy VMID 9494, Debian 12 VMID 9495, Arch VMID 9496), established, with two recorded instrument scope notes. Before them: the whole-device byte-window cell DR21 (gitea#1013) was preregistered and taken 2026-08-19 UTC on one jammy guest (VMID 9492), established, valid on the second invocation with one recorded instrument amendment. Before it — the polkit-and-launch cell DR20 (gitea#1012) was preregistered and taken 2026-08-19 UTC on all three tiers (jammy VMID 9488, Debian 12 VMID 9489, Arch VMID 9490), established, no amendment. The USB-device-node recognition cell FR6 (gitea#1002) was preregistered and taken 2026-08-19 UTC in both legs (the FR4 unit on the Proxmox node's own XHCI chain as `nobody`, and the same unit passed through to a jammy guest as `muser1`), established, with one recorded instrument amendment on the guest leg. The Debian 12 `os-release` cell DR19 (gitea#1011) was preregistered and taken 2026-08-19 UTC on the **first Debian guest in the record**, established, with one recorded apparatus amendment (the first create, VMID 9481, void(apparatus); the cited run VMID 9482). The floor-input cells DR16–DR18 (gitea#1010) were preregistered and taken 2026-08-19 UTC, all three established (DR16/DR17 on a jammy guest across the pinned reboot, no amendment; DR18 on the **first Arch guest in the record**, valid with two recorded instrument amendments). The held-standing cell DR15 (gitea#1009) was preregistered 2026-08-18 and taken 2026-08-19 UTC, established on a single guest with no amendment. The Linux detection rows DR1–DR10 (gitea#1005) and the naming-designation cells DR11–DR14 (gitea#1007) were preregistered and taken 2026-08-18, all fourteen established (DR1–DR10 valid on a second invocation; DR11–DR14 valid with two recorded instrument amendments in the rebooted phase).
   The macOS second-reader readback was discharged 2026-08-08 by an
   independent reader session: both sitting 2 transcripts and the M10
   transcript retrieved through their locators and rehashed, every digest
@@ -5278,6 +5278,53 @@ remediation naming `pkttyagent`. A remote `ssh` CLI user **is** `Active`,
 so `allow_active` reaches further than increment 1's note assumed. And on
 a default Arch image there is nothing to ask at all, which is a packaging
 fact (LIN-008 declares `polkit`), not a helper defect.
+
+### The mutation-tool-presence cell DR25 — preregistered 2026-08-20; not yet taken
+
+One cell over three tiers, declared before execution per this document's
+method. It is the row WP-L110 filed on this package as gitea issue
+**#1015** (`docs/work-packages/WP-L110.md`, "Obligations on other
+packages" — the tool-presence row, filed 2026-08-20 by the increment-4
+shape round `docs/reviews/WP-L110_INCREMENT_4_ROUND_2026-08-20.md` §5):
+route (b), the mutation-toolset round, decides among *"UDisks2,
+libblockdev or authoritative native tools"* (LIN-001 as revised by
+ADR-0054, which took the discovery half and handed the mutation half to
+WP-L110's own recorded decision), and of those options only UDisks2 has
+measured substrate (DR18 and DR19: not installed by default on Arch or
+Debian 12; DR20: the polkit substrate per tier). **The native tools and
+libblockdev are unmeasured everywhere** — `sgdisk`, `sfdisk`, the
+`mkfs.*` family and `libblockdev` appear in no row of this document. This
+cell is that gap and nothing else; it decides no route.
+
+Apparatus: the pinned jammy (VMID 9499), Debian 12 (VMID 9500) and Arch
+(VMID 9501) images through their existing create scripts, each image
+verified against its pin before creation, nothing from a previous sitting
+reused; root the setup and the measuring actor, because the subject is
+what a *helper's launcher* would find — SAFE-004's allow-list names
+absolute paths and verified identities, and the helper runs as root
+(SAFE-002 context 1); **nothing installed**, no network fetch, no
+reboot; double capture; instruments `dr9-root.sh`, `drive-dr9.sh`,
+digests recorded in-transcript before the first capture. The only
+launches are one bounded version invocation per present candidate binary
+— nothing else is executed, and no device byte is read or written. No
+guest exists before this preregistration lands.
+
+| # | Cell | Command / API | Privilege | Distinguishing condition | Invalidation conditions | Result |
+| --- | --- | --- | --- | --- | --- | --- |
+| DR25 | The candidate mutation tools on each tier's default image | Root, filesystem and package manager, double capture, per tier: **by name** — `sgdisk` and `sfdisk` (path via `command -v` plus the fixed `sbin` locations, mode and owner); the **`mkfs.*` family enumerated by glob** over the PATH's `bin`/`sbin` directories, so absence is measured rather than assumed, read against LIN-002's list — ext2/3/4, Btrfs, XFS, F2FS, FAT/exFAT, NTFS — plus `mkswap` for LIN-002's swap; `libblockdev` by `ldconfig -p` entries matching `libblockdev`/`libbd_` and the shared objects' paths. **By the package manager's view** — the owner of each present binary (`dpkg -S` / `pacman -Qo`) and its installed version (`dpkg-query -W` / `pacman -Q`); the same queries for the absent candidates by their tier package names (`gdisk`, `util-linux`, `e2fsprogs`, `btrfs-progs`, `xfsprogs`, `f2fs-tools`, `dosfstools`, `exfatprogs`, `ntfs-3g`, and the tier's `libblockdev` packages), exit status recorded — "not installed" is a measured answer, never an inference. **One bounded (5 s) version invocation per present binary** — `--version`, falling back to `-V` — exit status and first output line verbatim | root | Which of route (b)'s two unmeasured options — authoritative native tools; libblockdev — have any implementation present on a default tier image, and at what version: whether a default image can write a partition table at all without a package install, and which of LIN-002's file-system makers exist by default — each absence a CAP-004 tool-floor fact the toolset round must price and a packaging fact for LIN-008, per tier | a tier image failing to boot with cloud-init (`void(apparatus)`); a version probe failing or hanging past its 5 s bound (a finding, recorded verbatim, the capture still valid); the two captures differing; any package-list mutation (`void(instrument)` for that tier — nothing is installed) | not yet taken |
+
+Validity gates: those of the DR sittings above (double capture,
+instrument digests recorded before the first capture, every exit status
+in-transcript, each tier's image verified against its pin before
+creation). A gate failure makes a tier `void(<gate>)`, never a negative;
+the cell is established when all three tiers are.
+
+What this sitting deliberately does not do: nothing is installed or
+enabled; no tool is launched beyond its version query; no device is
+opened; no candidate archive version is fetched or recorded (what an
+archive *would* install is archive knowledge for the round to flag as
+such, never this row's); and no route is decided here — that is
+WP-L110's toolset round, on this row.
 
 ## Reproducing this
 
