@@ -39,7 +39,8 @@
 use std::collections::BTreeMap;
 
 use crate::records::{
-    CompactionAuthority, CompactionRecord, DecodeRefused, PlanHashRef, Record, TransitionRecord,
+    CompactionAuthority, CompactionRecord, DecodeRefused, PlanHashRef, Record, RecordedInstant,
+    TransitionRecord,
 };
 use crate::{
     CoveredRanges, Journal, MIN_FRAME_LEN, Replay, ReplayRefused, SeqNo, encode_frame, replay,
@@ -395,7 +396,8 @@ impl BudgetExhausted {
     /// published `Executing → RecoveryRequired` row
     /// ([`Transition::StepFailureOrInterruption`]) — an existing edge,
     /// exactly as ADR-0029 requires, never a new one and never a
-    /// reclamation.
+    /// reclamation. The instant is the caller's clock reading, exactly
+    /// as every transition record's is (schema v2).
     ///
     /// # Panics
     ///
@@ -403,8 +405,8 @@ impl BudgetExhausted {
     /// row, so the constructor's terminal refusal is unreachable —
     /// stated as a panic bound rather than hidden in an `unwrap`.
     #[must_use]
-    pub fn journaled_failure(&self) -> TransitionRecord {
-        TransitionRecord::non_terminal(self.plan, Transition::StepFailureOrInterruption)
+    pub fn journaled_failure(&self, instant: RecordedInstant) -> TransitionRecord {
+        TransitionRecord::non_terminal(self.plan, Transition::StepFailureOrInterruption, instant)
             .expect("StepFailureOrInterruption is a published non-terminal row")
     }
 }

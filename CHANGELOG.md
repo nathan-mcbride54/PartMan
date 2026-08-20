@@ -7,6 +7,19 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Added
 
+- **WP-070 slice 3b: record schema v2 — the recorded instant on the
+  transition record (JRN-006, MODEL-003; on the WP-L110 increment-4
+  shape round's transition-only decision).** `RecordedInstant` (seconds
+  since the Unix epoch, caller-authored; the journal crate still reads
+  no clock), required on construction and on the wire — a missing
+  instant refuses rather than defaults, because a defaulted zero would
+  sit below every honest reading and fail the backward-clock bound
+  open. v1 is refused at decode with nothing to migrate: no journal
+  on-disk home existed while v1 was current, which is why this act
+  precedes 4a's on-disk home. Golden vectors regenerated; the closed
+  vocabulary and redaction sweep extended over the new position. One
+  test added; six mutations killed. Rust: one arc with WP-L110
+  increment 4a, its sitting at the arc head.
 - **WP-L110 increment 3: ADR-0021's authorization ladder (HLP-003,
   HLP-004, PLAN-004, CAP-007, SEC-009, RPC-002; on the apply-ceremony
   round's R8 decision with S2 recorded).** The helper-computed tier
