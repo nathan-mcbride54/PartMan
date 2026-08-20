@@ -215,7 +215,7 @@ fn validation_is_journaled_with_its_instant_and_the_clock_bound_holds() {
     assert!(!again, "an already-Validated plan gets no second row");
 }
 
-// Requirements: SEC-002, JRN-002, ADR-0028
+// Requirements: SEC-002, JRN-002
 //   Phase one: the presentation passes SEC-002's arms against the fresh
 //   capture, the validation's consumption is committed to the store
 //   before ApplySubmitted is committed to the journal (the fail-closed
@@ -267,7 +267,7 @@ fn phase_one_consumes_durably_then_journals_apply_submitted() {
     }
 }
 
-// Requirements: SEC-002, ADR-0028, Section 8
+// Requirements: SEC-002, Section 8
 //   One validation, one submission — held across the published terminal
 //   and across a restart: the window closing while awaiting terminates
 //   on DeclinedOrExpired → Cancelled (NoWrites, the row's constraint),
@@ -455,7 +455,7 @@ fn a_refusing_seam_refuses_the_answer_and_the_disk_stays_behind() {
     );
 }
 
-// Requirements: HLP-003, ADR-0021
+// Requirements: HLP-003
 //   Phase two refuses exactly where increment 3 refuses: the interactive
 //   tier dies on the ceremony's own arm with its own sentence, and no
 //   grant exists past it on this build — a completed ceremony (test-only
