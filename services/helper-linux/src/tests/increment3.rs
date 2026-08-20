@@ -622,3 +622,125 @@ fn apply_plan_is_not_served_and_a_wrong_version_is_remediated() {
         "the remediation is a sentence, not a debug rendering: {reason}"
     );
 }
+
+// ---------------------------------------------------------------------
+// What preparing the Tier-2 acceptance found. Both of these are facts the
+// acceptance transcript would have printed; pinning them here means the
+// next reader learns them from the suite rather than from a sitting.
+// ---------------------------------------------------------------------
+
+/// RPC-002's remediation is a sentence a person reads, and it shipped
+/// with a fourteen-space gap in the middle of it: a string literal
+/// wrapped across source lines without a continuation. Nothing in the
+/// gate could see that -- rustfmt does not reflow string contents and
+/// clippy has no opinion on prose -- and the first place it would have
+/// surfaced is the acceptance transcript, verbatim, in front of a
+/// reviewer. Pinned as rendered text, which is the only form in which
+/// the defect exists.
+// Requirements: RPC-002
+//   A version the helper does not speak is refused with a remediation
+//   naming the version it does speak and the version the peer spoke, as
+//   one readable sentence -- asserted on the rendered string, because a
+//   remediation is prose and its defects live in the rendering rather
+//   than in the code that assembles it.
+// Evidence: the_version_remediation_reads_as_one_sentence
+#[test]
+fn the_version_remediation_reads_as_one_sentence() {
+    let reason = crate::refusal_reason(&RequestRefusal::WrongVersion { spoken: 2 });
+    assert!(
+        !reason.contains("  "),
+        "the remediation carries a run of spaces: {reason:?}"
+    );
+    assert_eq!(
+        reason,
+        "this helper speaks partman.helper.request version 3; the request spoke version 2. \
+         Send version 3."
+    );
+    // It names the version this build speaks, and the version the peer
+    // spoke -- and nothing else of the peer's. The other arms keep their
+    // typed rendering.
+    assert!(reason.contains("version 3"));
+    assert!(
+        crate::refusal_reason(&RequestRefusal::WrongSchema).starts_with("request refused:"),
+        "only the version arm carries a remediation"
+    );
+}
+
+/// **What the wire can actually reach, and therefore what the ladder
+/// answers on a real host.** `plan()` -- the unsized entry the helper's
+/// validate-plan calls -- takes its risk from `canonical_risk`, whose
+/// floor is `Disruptive`. The one path to `Reversible` is the *sized*
+/// create in `plan_sized`, and `ValidateWire` carries no size field with
+/// which to spell one. So every plan a client can obtain over this
+/// build's socket takes the interactive ceremony; and since the only
+/// shipped `Ceremony` refuses, no plan reachable over the wire can be
+/// applied on any tier.
+///
+/// The floor arm is therefore proven at Tier 1 over authored plans and
+/// **not** reachable at Tier 2 -- which is what the acceptance record
+/// says rather than reporting a floor-act tier it could not obtain.
+///
+/// Pinned here because the converse is a real change in what the build
+/// can do: adding a sized spelling to the wire makes the floor act
+/// client-reachable, and that must be a decision rather than a side
+/// effect of widening a request vocabulary.
+// Requirements: HLP-003, PLAN-004
+//   On this build every plan a client can obtain over the socket takes
+//   the interactive ceremony: the unsized planner entry validate-plan
+//   calls has a Disruptive floor, and the request vocabulary carries no
+//   size with which to spell the sized create that is the only path to
+//   Reversible. With the shipped ceremony refusing, that makes the whole
+//   wire-reachable population inapplicable on this build -- and it fixes
+//   the boundary of the floor arm's Tier-1 proof, which covers authored
+//   plans and is stated not to be reachable by a client.
+// Evidence: no_plan_this_wire_can_spell_reaches_the_floor_act
+#[test]
+fn no_plan_this_wire_can_spell_reaches_the_floor_act() {
+    // Every operation the request vocabulary can name (the wire spells
+    // the capability operation by word; the source-class ones refuse as
+    // not plan material and simply do not count here).
+    let operations = [
+        CapOp::Detect,
+        CapOp::Read,
+        CapOp::Create,
+        CapOp::Grow,
+        CapOp::Shrink,
+        CapOp::Move,
+        CapOp::Copy,
+        CapOp::Check,
+        CapOp::Repair,
+        CapOp::Label,
+        CapOp::Uuid,
+        CapOp::Encrypt,
+        CapOp::Decrypt,
+        CapOp::Wipe,
+    ];
+    let mut reached = 0_usize;
+    for operation in operations {
+        let (snapshot, device) = clean_device(b"WIRE-TIER");
+        let Ok(validated) = validate_plan(
+            &snapshot,
+            &ValidateRequest {
+                target: device,
+                operation,
+                plan_id: b"wire-tier".to_vec(),
+                validity_seconds: 3600,
+            },
+            NOW,
+            &TechnologyLimits::default(),
+            &RuntimeFacts::clean(),
+        ) else {
+            continue;
+        };
+        reached += 1;
+        assert_eq!(
+            required_tier(validated.severity, &validated.flags),
+            AuthorizationTier::InteractiveCeremony,
+            "{operation:?} validated at the floor act over the wire's own spelling"
+        );
+    }
+    assert!(
+        reached > 0,
+        "vacuous: no operation validated, so the claim would hold for the wrong reason"
+    );
+}

@@ -19,7 +19,15 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
   corrected to increment 4. **Three fail-opens in increments 1–2 fixed
   here**: an unreadable clock rendered as `0` (which made HLP-004's expiry
   unreachable), an idle watchdog that could kill an operation in flight,
-  and discarded audit writes. Nine tests; fifteen mutations killed.
+  and discarded audit writes. Nine tests; fifteen mutations killed. Two further
+  findings from preparing the acceptance, on the same arc: RPC-002's
+  remediation sentence carried a fourteen-space gap no gate can see
+  (fixed, and pinned as rendered text), and the floor act is **not
+  reachable over this build wire** at all - the unsized planner entry
+  validate-plan calls has a Disruptive floor, and the request vocabulary
+  cannot spell a sized create - so no plan a client can obtain over the
+  socket can be applied on any tier. Stated rather than glossed, and
+  pinned by a test.
   Rust: the WP-020 sitting is r56.
 - **WP-L110 increment 2: HLP-002 re-discovery and validate-plan (HLP-002,
   HLP-004, PLAN-006, PLAN-007, SEC-002, CAP-007, INV-003, SI-13; on
