@@ -190,6 +190,45 @@ action declares `auth_admin` in **all three** implicit values and never a
 `*_keep` variant; and any runtime call passes no keep-implying flag.
 Together they are "without retained grants" made structural.
 
+## 4a. Decision, taken 2026-08-19 by the decision owner
+
+**Taken: R8, with S2, and both constraints bound.**
+
+- **R8** — increment 3 delivers the ceremony as a seam whose completion
+  value is unconstructible in a shipped build. No `pkcheck`, no bus
+  client, no action file, no launcher-home decision pulled forward. Every
+  plan whose recomputed tier is `interactive-ceremony` is refused
+  `CeremonyUnavailable(NoInteractiveRoute)` — one arm for "no route
+  decided" and for "substrate absent" alike, so the refusal is not a
+  host-probing channel (SAFE-005 disables the operation; it does not
+  itemise why).
+- **R1 and R2 stay alive**, to be decided in the follow-up round named in
+  §7.3, once a client `auth_admin` has been *observed succeeding once* —
+  which is a row before it is a round, and needs an apparatus with a
+  terminal and an administrator password.
+- **S2, the two-phase apply-plan, is the decided protocol shape** for the
+  ceremony when it lands: `apply-plan` answers `awaiting-authorization`
+  immediately — Section 8's own entry edge, adding no operation to
+  HLP-001's closed set — and a second `apply-plan` for the same plan hash
+  completes once the client's agent has answered. It is recorded here and
+  in WP-L110's increment-4 scope; **no code for it lands in increment 3**,
+  because no operation reaches it and an unreachable response arm would be
+  the stub this package refuses to ship.
+- **Both constraints are bound now**, and bind every future route: any
+  shipped ceremony action declares `auth_admin` in **all three** implicit
+  values (`allow_any`, `allow_inactive`, `allow_active`) and **never** a
+  `*_keep` variant; and any runtime authorization call passes **no
+  keep-implying flag**. Together they are ADR-0021's "without retained
+  grants" made structural rather than reviewed. A later route that cannot
+  honour both is thereby already rejected.
+
+**What this forecloses, stated plainly:** the interactive tier is
+*declared and not served* until that round. A user with a ≥ Disruptive or
+flagged plan gets a typed refusal naming no route, not a prompt. That is
+the fail-closed answer WP-L110's evidence rule prescribes where no
+evidence exists, and it is written into the increment table, the schema
+document and the increment's PR body rather than left to be discovered.
+
 ## 5. What does not depend on this decision
 
 The whole of increment 3 except the body of one trait method: the
