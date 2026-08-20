@@ -159,6 +159,9 @@ nineteenth, named in the PR body before the merge, and on `91cd1c9`
 ADR-0044 — tripped it a twentieth, likewise named before the merge, and
 on `ee12af2` (2026-08-16 UTC) when issue #354's kind-half act — one Rust
 merge, PR #398, ADR-0045 — tripped it a twenty-first, likewise named, and
+on `5827715` (2026-08-20 UTC) when WP-060's observation-monotonicity gate —
+one Rust merge, PR #606, a test-only addition — tripped it, named in the PR
+body before the merge; and before that
 on `ae9fb83` (2026-08-20 UTC) when WP-010's step-boundary range refusal —
 one Rust merge, PR #595, ADR-0041's rules 4 and 5 carried to the step
 boundary — tripped it, named in the PR body before the merge; and before that
