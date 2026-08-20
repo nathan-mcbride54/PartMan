@@ -7,6 +7,7 @@ members = [
     "crates/ffi-linux-loop",
     "crates/fixtures",
     "crates/journal",
+    "crates/launcher",
     "crates/planner",
     "crates/rpc",
     "crates/statemachine",

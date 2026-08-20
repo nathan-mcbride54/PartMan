@@ -172,6 +172,20 @@ remain controlled by the changelog in `AGENT_BUILD_SPEC.md`.
 
 ### Changed
 
+- **WP-035: the SAFE-004 launch mechanism moved to `crates/launcher`,
+  its deadline now caller-stated (the launcher-home round, option A).**
+  `ToolLauncher`/`SystemLauncher` and the bounded spawn/drain/kill core
+  moved verbatim from `apps/cli` to the new dependency-free
+  `partman-launcher` crate so the privileged helper can depend on the one
+  reviewed launcher without depending on an app; `launch` takes a
+  caller-stated deadline beside the caller-stated output bound, and every
+  policy value (roster, bounds, the CLI's five seconds) stays with the
+  caller. The CLI's dependency-closure guard now asserts the closure is
+  exactly the launcher crate and that the crate itself depends on nothing
+  — the round's found cost, priced and accepted 2026-08-20. Two
+  previously unprovable properties gained tests: the caller's output
+  bound and the caller's deadline are each enforced, not trusted.
+
 - **spec-change 20.0.0: LIN-001's mutation half is decided — the
   product's own table encoder; native tools, launched and floored, for
   file systems (ADR-0056).** On the Linux mutation-toolset round

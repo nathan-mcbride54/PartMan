@@ -154,6 +154,7 @@ name = "partman-cli"
 version = "0.0.0"
 dependencies = [
  "partman-fixtures",
+ "partman-launcher",
  "serde_json",
 ]
 
@@ -209,6 +210,10 @@ dependencies = [
  "partman-domain",
  "partman-statemachine",
 ]
+
+[[package]]
+name = "partman-launcher"
+version = "0.0.0"
 
 [[package]]
 name = "partman-planner"

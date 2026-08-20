@@ -31,9 +31,8 @@
 //! importing it would breach the empty shipped dependency closure that
 //! keeps hash and plan implementations out of this binary's reach.
 
-use std::io::Read;
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::{Refusal, json_escaped};
 
@@ -114,8 +113,13 @@ const EMPTY_ROSTER: Refusal = Refusal {
              roster must not be read as all dependencies satisfied",
 };
 
-/// How long one `--version` launch may run before it is killed.
-const LAUNCH_TIME_LIMIT: Duration = Duration::from_secs(5);
+/// How long one doctor or enumeration launch may run before it is killed —
+/// the CLI's policy value, stated at every call site since the mechanism
+/// moved to `partman-launcher` and its deadline became caller-stated (the
+/// launcher-home round, option A). A `--version` probe and a `diskutil`
+/// enumeration are both comfortably inside five seconds, which is the
+/// bound this binary has always applied.
+pub(crate) const DOCTOR_TIME_LIMIT: Duration = Duration::from_secs(5);
 
 /// How many output bytes one stream may produce before the rest is refused.
 /// Section 16 forbids logging raw tool output without size limits; a
@@ -125,176 +129,13 @@ const OUTPUT_LIMIT_PER_STREAM: usize = 4096;
 /// Maximum aggregate bytes retained from stdout and stderr for one launch.
 const OUTPUT_CAPTURE_LIMIT: usize = OUTPUT_LIMIT_PER_STREAM * 2;
 
-/// How a launch attempt ended, before any interpretation.
-pub enum ProbeOutcome {
-    /// The tool exited successfully within the limits; both streams captured.
-    Completed {
-        /// Bounded bytes from stdout.
-        stdout: Vec<u8>,
-        /// Bounded bytes from stderr, kept because some tools banner there.
-        stderr: Vec<u8>,
-    },
-    /// The tool exited unsuccessfully within the limits. Its output remains
-    /// bounded provenance, but it is never parsed as an answer.
-    NonzeroExit {
-        /// The numeric exit code, or `None` when the platform supplied none
-        /// (for example, termination by a Unix signal).
-        code: Option<i32>,
-        /// Bounded bytes from stdout.
-        stdout: Vec<u8>,
-        /// Bounded bytes from stderr.
-        stderr: Vec<u8>,
-    },
-    /// The tool exceeded [`LAUNCH_TIME_LIMIT`] and was killed.
-    TimedOut,
-    /// One tool-output stream produced more than [`OUTPUT_LIMIT_PER_STREAM`]
-    /// bytes and was refused. At most [`OUTPUT_CAPTURE_LIMIT`] bytes are retained.
-    OverOutputLimit,
-    /// The launch itself failed.
-    LaunchFailed(String),
-}
-
-/// What the doctor needs from the operating system, as a seam.
-///
-/// Tests inject a fake so Tier 1 never launches a roster tool — the tier's
-/// process set stays `git`, the compile-time-selected `cargo`, and nothing
-/// else. The real implementation is [`SystemLauncher`]; Tier 1 exercises it
-/// against Git at a reviewed absolute path, already in that set.
-pub trait ToolLauncher {
-    /// Whether a regular file exists at this compiled absolute path.
-    fn exists(&self, path: &Path) -> bool;
-    /// Launch `path --version` under the SAFE-004-derived controls described
-    /// above and report how it ended.
-    fn probe_version(&self, path: &Path) -> ProbeOutcome;
-    /// Launch one compiled absolute executable with a fixed structured
-    /// argument array under the same controls as [`Self::probe_version`] —
-    /// cleared environment plus `LC_ALL=C`, no shell, no `PATH` lookup,
-    /// bounded output, the same time limit — with the per-stream output
-    /// bound stated by the caller, because a version banner and a device
-    /// enumeration are legitimately different sizes and one constant serving
-    /// both would be wrong in one direction or the other.
-    fn launch(&self, path: &Path, arguments: &[&str], output_limit: usize) -> ProbeOutcome;
-}
-
-/// The real launcher: `fs::metadata` for existence, `std::process::Command`
-/// with a cleared environment (plus `LC_ALL=C`, written, never read), piped
-/// bounded output drained on a thread, and a kill at the deadline.
-///
-/// The time-limit path is exercised by review and by manual probe, not by a
-/// Tier-1 test — proving it would mean spawning a deliberately hanging
-/// process, a cost this increment declines and records rather than hides.
-pub struct SystemLauncher;
-
-impl ToolLauncher for SystemLauncher {
-    fn exists(&self, path: &Path) -> bool {
-        std::fs::metadata(path).is_ok_and(|m| m.is_file())
-    }
-
-    fn probe_version(&self, path: &Path) -> ProbeOutcome {
-        launch_bounded(path, &["--version"], OUTPUT_LIMIT_PER_STREAM)
-    }
-
-    fn launch(&self, path: &Path, arguments: &[&str], output_limit: usize) -> ProbeOutcome {
-        launch_bounded(path, arguments, output_limit)
-    }
-}
-
-/// Launch one absolute executable with a structured argument array under the
-/// doctor's controls and the caller's per-stream output bound. Split out
-/// privately so Tier 1 can prove both successful and unsuccessful exits
-/// without adding another executable class.
-fn launch_bounded(path: &Path, arguments: &[&str], output_limit: usize) -> ProbeOutcome {
-    let mut command = std::process::Command::new(path);
-    command
-        .args(arguments)
-        .env_clear()
-        .env("LC_ALL", "C")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
-    let mut child = match command.spawn() {
-        Ok(child) => child,
-        Err(error) => return ProbeOutcome::LaunchFailed(error.to_string()),
-    };
-
-    // Drain both pipes on threads. Each drain keeps reading past the cap
-    // (discarding the excess) so a chatty child can flush, exit, and be
-    // reported over-output-limit rather than stalling on a full pipe
-    // until the deadline mislabels it timed-out. Results come back over
-    // channels rather than joins, because a join is unbounded: a
-    // descendant process that inherited the pipe keeps it open after the
-    // child exits, and the doctor must not hang on someone else's
-    // daemon — an expired drain window is reported timed-out, and the
-    // reader thread dies with the process.
-    let stdout_pipe = child.stdout.take();
-    let stderr_pipe = child.stderr.take();
-    let (stdout_sender, stdout_receiver) = std::sync::mpsc::channel();
-    let (stderr_sender, stderr_receiver) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = stdout_sender.send(drain_bounded(stdout_pipe, output_limit));
-    });
-    std::thread::spawn(move || {
-        let _ = stderr_sender.send(drain_bounded(stderr_pipe, output_limit));
-    });
-
-    let deadline = Instant::now() + LAUNCH_TIME_LIMIT;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) => {
-                if Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return ProbeOutcome::TimedOut;
-                }
-                std::thread::sleep(Duration::from_millis(10));
-            }
-            Err(error) => {
-                let _ = child.kill();
-                return ProbeOutcome::LaunchFailed(error.to_string());
-            }
-        }
-    };
-
-    let remaining = deadline.saturating_duration_since(Instant::now());
-    let Ok((stdout, stdout_overflowed)) = stdout_receiver.recv_timeout(remaining) else {
-        return ProbeOutcome::TimedOut;
-    };
-    let remaining = deadline.saturating_duration_since(Instant::now());
-    let Ok((stderr, stderr_overflowed)) = stderr_receiver.recv_timeout(remaining) else {
-        return ProbeOutcome::TimedOut;
-    };
-    if stdout_overflowed || stderr_overflowed {
-        return ProbeOutcome::OverOutputLimit;
-    }
-    if status.success() {
-        ProbeOutcome::Completed { stdout, stderr }
-    } else {
-        ProbeOutcome::NonzeroExit {
-            code: status.code(),
-            stdout,
-            stderr,
-        }
-    }
-}
-
-/// Read up to `limit` bytes from a pipe, then keep draining and discarding
-/// so the writer can finish. Returns the bounded bytes and whether the
-/// limit was exceeded.
-fn drain_bounded(pipe: Option<impl Read>, limit: usize) -> (Vec<u8>, bool) {
-    let mut buffer = Vec::new();
-    let Some(mut pipe) = pipe else {
-        return (buffer, false);
-    };
-    let cap = u64::try_from(limit).expect("the limit fits");
-    let _ = pipe.by_ref().take(cap + 1).read_to_end(&mut buffer);
-    let overflowed = buffer.len() > limit;
-    if overflowed {
-        buffer.truncate(limit);
-        let _ = std::io::copy(&mut pipe, &mut std::io::sink());
-    }
-    (buffer, overflowed)
-}
+/// The launch mechanism, re-exported from its own crate so every existing
+/// `crate::doctor::` path keeps meaning what it meant. The mechanism moved
+/// to `partman-launcher` (the launcher-home round, option A) so the
+/// privileged helper can depend on it without depending on this app; what
+/// stayed here is policy — the roster, the bounds, and the deadline value
+/// every call site now states.
+pub use partman_launcher::{ProbeOutcome, SystemLauncher, ToolLauncher};
 
 /// A version the banner parser recognized.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -421,7 +262,15 @@ pub fn examine(roster: &[ToolSpec], launcher: &dyn ToolLauncher) -> Vec<ToolRepo
                 },
                 Some(path) => Resolution::Found {
                     path: (*path).to_owned(),
-                    probe: interpret(tool, launcher.probe_version(Path::new(path))),
+                    probe: interpret(
+                        tool,
+                        launcher.launch(
+                            Path::new(path),
+                            &["--version"],
+                            OUTPUT_LIMIT_PER_STREAM,
+                            DOCTOR_TIME_LIMIT,
+                        ),
+                    ),
                 },
             };
             ToolReport {
@@ -488,7 +337,7 @@ fn interpret(tool: &ToolSpec, outcome: ProbeOutcome) -> ProbeReport {
             state: "timed-out",
             detail: format!(
                 "no answer within {} seconds; the launch was killed",
-                LAUNCH_TIME_LIMIT.as_secs()
+                DOCTOR_TIME_LIMIT.as_secs()
             ),
         },
         ProbeOutcome::OverOutputLimit => ProbeReport::Failed {
@@ -644,40 +493,29 @@ pub fn doctor_human(reports: &[ToolReport], empty: Option<&Refusal>) -> String {
 #[cfg(test)]
 mod launcher_tests {
     use super::{
-        OUTPUT_CAPTURE_LIMIT, OUTPUT_LIMIT_PER_STREAM, ProbeOutcome, drain_bounded, launch_bounded,
-        sanitized_first_line,
+        DOCTOR_TIME_LIMIT, OUTPUT_CAPTURE_LIMIT, OUTPUT_LIMIT_PER_STREAM, ProbeOutcome,
+        SystemLauncher, ToolLauncher, sanitized_first_line,
     };
-    use std::io::Cursor;
     use std::path::Path;
 
     // Requirements: SAFE-004, SEC-007
     //   Each child-output stream is independently bounded at 4096 bytes and
-    //   the aggregate retained capture is therefore at most 8192 bytes.
+    //   the aggregate retained capture is therefore at most 8192 bytes; the
+    //   doctor's deadline policy is the five seconds this binary has always
+    //   applied. The bounded mechanism itself is proven in partman-launcher,
+    //   where it now lives; these are the CLI's policy values.
     // Evidence: output_capture_limits_are_per_stream_and_fail_closed
     #[test]
     fn output_capture_limits_are_per_stream_and_fail_closed() {
         assert_eq!(OUTPUT_LIMIT_PER_STREAM, 4096);
         assert_eq!(OUTPUT_CAPTURE_LIMIT, 8192);
-
-        let (at_limit, overflowed) = drain_bounded(
-            Some(Cursor::new(vec![b'x'; OUTPUT_LIMIT_PER_STREAM])),
-            OUTPUT_LIMIT_PER_STREAM,
-        );
-        assert_eq!(at_limit.len(), OUTPUT_LIMIT_PER_STREAM);
-        assert!(!overflowed);
-
-        let (truncated, overflowed) = drain_bounded(
-            Some(Cursor::new(vec![b'x'; OUTPUT_LIMIT_PER_STREAM + 1])),
-            OUTPUT_LIMIT_PER_STREAM,
-        );
-        assert_eq!(truncated.len(), OUTPUT_LIMIT_PER_STREAM);
-        assert!(overflowed);
+        assert_eq!(DOCTOR_TIME_LIMIT.as_secs(), 5);
     }
 
     #[cfg(windows)]
     const TEST_GIT: &[&str] = &[
         r"C:\Program Files\Git\cmd\git.exe",
-        r"C:\Program Files\Git\bin\git.exe",
+        r"C:\Program Files\Gitin\git.exe",
     ];
     #[cfg(target_os = "linux")]
     const TEST_GIT: &[&str] = &["/usr/bin/git", "/bin/git", "/usr/local/bin/git"];
@@ -699,17 +537,19 @@ mod launcher_tests {
     }
 
     // Requirements: SAFE-004, CAP-004
-    //   The real bounded launcher distinguishes an unsuccessful process exit
-    //   from a successful answer, preserving only a bounded, terminal-safe
-    //   first line as provenance; an invalid structured Git option supplies a
+    //   The real bounded launcher, invoked with the doctor's own policy
+    //   values, distinguishes an unsuccessful process exit from a
+    //   successful answer, preserving only a bounded, terminal-safe first
+    //   line as provenance; an invalid structured Git option supplies a
     //   deterministic nonzero exit without adding a Tier-1 executable class
     // Evidence: the_real_launcher_preserves_a_nonzero_exit_as_failure
     #[test]
     fn the_real_launcher_preserves_a_nonzero_exit_as_failure() {
-        match launch_bounded(
+        match SystemLauncher.launch(
             test_git(),
             &["--partman-intentional-invalid-option"],
             OUTPUT_LIMIT_PER_STREAM,
+            DOCTOR_TIME_LIMIT,
         ) {
             ProbeOutcome::NonzeroExit {
                 code,
